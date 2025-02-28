@@ -1,10 +1,26 @@
 import { TokenData } from "@types";
 import { useState, useEffect } from "react";
 
+/**
+ * Custom hook to fetch and manage token data.
+ *
+ * This hook fetches token data from a specified API and manages the state of the token data,
+ * loading status, and any errors that occur during the fetch process. It also fetches the
+ * number of token holders and updates the token data accordingly.
+ *
+ * @returns {Object} An object containing the token data, loading status, and any error message.
+ * @returns {TokenData | null} tokenData - The fetched token data or fallback data in case of an error.
+ * @returns {boolean} loading - The loading status indicating whether the data is currently being fetched.
+ * @returns {string | null} error - Any error message that occurred during the fetch process.
+ */
+
 export const useTokenData = () => {
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const apiKey = import.meta.env.API_KEY;
+  const tokenAddress = import.meta.env.TOKEN_ADDRESS;
+  const tokenAddressParam = import.meta.env.TOKEN_ADDRESS_PARAM;
 
   useEffect(() => {
     const fetchTokenData = async () => {
@@ -12,7 +28,7 @@ export const useTokenData = () => {
         setLoading(true);
         // Mock fetch for now - would be replaced with actual API call
         const response = await fetch(
-          "https://mainnet.helius-rpc.com/?api-key=964271a5-20ee-4de5-be25-ea90dfbc698b",
+          `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
           {
             method: "POST",
             headers: {
@@ -22,7 +38,7 @@ export const useTokenData = () => {
               jsonrpc: "2.0",
               id: 1,
               method: "getAsset",
-              params: ["2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"],
+              params: [tokenAddress],
             }),
           },
         );
@@ -78,7 +94,7 @@ export const useTokenData = () => {
     const fetchHoldersData = async () => {
       try {
         const response = await fetch(
-          "https://mainnet.helius-rpc.com/?api-key=964271a5-20ee-4de5-be25-ea90dfbc698b",
+          `https://mainnet.helius-rpc.com/?api-key=${apiKey}`,
           {
             method: "POST",
             headers: {
@@ -89,7 +105,7 @@ export const useTokenData = () => {
               id: 1,
               method: "getProgramAccounts",
               params: [
-                "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+                tokenAddressParam,
                 {
                   encoding: "jsonParsed",
                   filters: [
@@ -99,7 +115,7 @@ export const useTokenData = () => {
                     {
                       memcmp: {
                         offset: 0,
-                        bytes: "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump",
+                        bytes: tokenAddress,
                       },
                     },
                   ],
