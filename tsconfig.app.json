@@ -20,7 +20,21 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedSideEffectImports": true
+    "noUncheckedSideEffectImports": true,
+
+    /* Path */
+    "baseUrl": ".",
+    "paths": {
+      "@": ["./src"],
+      "@components": ["./src/components"],
+      "@hooks": ["./src/hooks"],
+      "@pages": ["./src/pages"],
+      "@assets": ["./src/assets"],
+      "@services": ["./src/services"],
+      "@styles": ["./src/styles"],
+      "@utils": ["./src/utils"],
+      "@types": ["./src/types"]
+    }
   },
   "include": ["src"]
 }
