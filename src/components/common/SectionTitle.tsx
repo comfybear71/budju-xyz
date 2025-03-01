@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { motion } from "framer-motion";
-import { useAnimationObserver } from "src/hooks/useAnimationObserver";
+import { useAnimationObserver } from "@/hooks/useAnimationObserver";
 
 interface SectionTitleProps {
   whiteText: string;

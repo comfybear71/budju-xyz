@@ -1,4 +1,4 @@
-import { TokenData } from "@types";
+import { TokenData } from "@/types";
 import { useState, useEffect } from "react";
 
 /**

@@ -1,13 +1,15 @@
-import { memo, ButtonHTMLAttributes } from "react";
+import { memo, ButtonHTMLAttributes, ReactNode } from "react";
 import { motion } from "framer-motion";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+type ButtonProps = {
   variant?: "primary" | "secondary" | "hot-pink";
   size?: "sm" | "md" | "lg";
   fullWidth?: boolean;
   href?: string;
   external?: boolean;
-}
+  children: ReactNode;
+  className?: string;
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">;
 
 const Button = ({
   children,
@@ -47,19 +49,33 @@ const Button = ({
         target="_blank"
         rel="noopener noreferrer"
         className={baseStyles}
-        {...motionProps}
+        whileHover={motionProps.whileHover}
+        whileTap={motionProps.whileTap}
       >
         {children}
       </motion.a>
     ) : (
-      <motion.a href={href} className={baseStyles} {...motionProps}>
+      <motion.a
+        href={href}
+        className={baseStyles}
+        whileHover={motionProps.whileHover}
+        whileTap={motionProps.whileTap}
+      >
         {children}
       </motion.a>
     );
   }
 
+  const { onDrag, onDragStart, onDragEnd, onAnimationStart, ...buttonProps } =
+    props;
+
   return (
-    <motion.button className={baseStyles} {...props} {...motionProps}>
+    <motion.button
+      className={baseStyles}
+      whileHover={motionProps.whileHover}
+      whileTap={motionProps.whileTap}
+      {...buttonProps}
+    >
       {children}
     </motion.button>
   );

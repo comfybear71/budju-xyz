@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useCopyToClipboard } from "src/hooks/useCopyToClipboard";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
 
 interface CopyButtonProps {
   text: string;
