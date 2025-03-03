@@ -71,10 +71,24 @@ const Navbar = () => {
     }
   }, []);
 
+  // Prevent body scroll when mobile menu is open
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [isOpen]);
+
   return (
     <nav
       className={`
-      fixed top-0 left-0 right-0 z-50 transition-all duration-300 px-4 md:px-8 py-3
+      fixed top-0 left-0 right-0 z-50 transition-all duration-300 
+      px-3 sm:px-4 md:px-6 lg:px-8 py-2 sm:py-3
       ${scrolled ? "bg-black/80 backdrop-blur-md shadow-lg" : "bg-transparent"}
     `}
     >
@@ -84,17 +98,17 @@ const Navbar = () => {
           <img
             src={LogoImage}
             alt="BUDJU Coin Logo"
-            className="navbar-logo h-12 md:h-14 w-auto"
+            className="navbar-logo h-10 sm:h-12 md:h-14 w-auto transition-all duration-300"
           />
         </Link>
 
         {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center space-x-8">
+        <div className="hidden lg:flex items-center space-x-4 xl:space-x-8">
           {navItems.map((item) => (
             <Link
               key={item.path}
               to={item.path}
-              className={`relative font-semibold text-lg transform transition duration-300 hover:text-budju-pink ${
+              className={`relative font-semibold text-base xl:text-lg transform transition duration-300 hover:text-budju-pink ${
                 location.pathname === item.path
                   ? "text-budju-pink"
                   : "text-white"
@@ -115,26 +129,26 @@ const Navbar = () => {
         </div>
 
         {/* Wallet Connect & Buy Button */}
-        <div className="hidden md:flex items-center space-x-4">
+        <div className="hidden lg:flex items-center space-x-3 xl:space-x-4">
           <WalletConnect />
 
           <a
             href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
             target="_blank"
             rel="noopener noreferrer"
-            className="budju-button-primary"
+            className="budju-button-primary text-sm xl:text-base py-2 px-3 xl:px-4"
           >
             BUY BUDJU
           </a>
         </div>
 
-        {/* Mobile Menu Button */}
-        <div className="md:hidden flex items-center">
+        {/* Mobile Menu Button & Buy Button */}
+        <div className="lg:hidden flex items-center">
           <a
             href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
             target="_blank"
             rel="noopener noreferrer"
-            className="mr-4 text-sm budju-button-primary py-2 px-4"
+            className="mr-3 text-xs sm:text-sm budju-button-primary py-1.5 sm:py-2 px-3 sm:px-4"
           >
             BUY BUDJU
           </a>
@@ -142,11 +156,12 @@ const Navbar = () => {
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="text-white focus:outline-none"
+            aria-label={isOpen ? "Close menu" : "Open menu"}
           >
             {isOpen ? (
-              <FaTimes size={24} className="text-budju-pink" />
+              <FaTimes size={22} className="text-budju-pink" />
             ) : (
-              <FaBars size={24} />
+              <FaBars size={22} />
             )}
           </button>
         </div>
@@ -160,9 +175,9 @@ const Navbar = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.2 }}
-            className="md:hidden absolute top-full left-0 right-0 bg-black/95 backdrop-blur-lg shadow-lg py-4"
+            className="lg:hidden fixed top-[53px] sm:top-[61px] left-0 right-0 bottom-0 bg-black/95 backdrop-blur-lg shadow-lg overflow-y-auto"
           >
-            <div className="px-4 space-y-2">
+            <div className="px-4 py-4 space-y-2 max-h-[calc(100vh-61px)] overflow-y-auto">
               {navItems.map((item) => (
                 <Link
                   key={item.path}
@@ -177,12 +192,12 @@ const Navbar = () => {
                 </Link>
               ))}
 
-              <div className="py-2 px-4">
+              <div className="py-4 px-4">
                 <WalletConnect fullWidth />
               </div>
 
               {/* Mobile Menu Footer */}
-              <div className="pt-4 pb-2 px-4 flex justify-center">
+              <div className="pt-4 pb-6 px-4 flex justify-center">
                 <div className="scrolling-banner w-full overflow-hidden">
                   <div className="scrolling-banner-content">
                     * JOIN THE BUDJU PARADE * JOIN THE BUDJU PARADE * JOIN THE
