@@ -9,7 +9,6 @@ import {
 import {
   ConnectionState,
   WalletName,
-  WalletInfo,
   checkWalletConnection,
   connectWallet,
   disconnectWallet,

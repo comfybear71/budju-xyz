@@ -8,7 +8,7 @@ import {
   FaSearch,
 } from "react-icons/fa";
 import Button from "@components/common/Button";
-import { useProducts, Product } from "../context/ProductContext";
+import { useProducts } from "../context/ProductContext";
 import { createTiltEffect } from "@/lib/utils/animation";
 import ProductCard from "./ProductCard";
 

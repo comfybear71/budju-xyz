@@ -18,7 +18,7 @@ const NotFound = () => {
         className="text-center max-w-lg"
       >
         <img
-          src="src/assets/images/logo.png"
+          src="/images/logo.png"
           alt="BUDJU Logo"
           className="w-32 h-32 mx-auto mb-8 opacity-50"
         />

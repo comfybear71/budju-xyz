@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router";
 import Layout from "@components/common/Layout";
 import { WalletProvider } from "@hooks/useWallet";
+import LogoImage from "@assets/images/logo.png";
 
 // Lazy-loaded pages for better performance
 const Home = lazy(() => import("@features/home/Home"));
@@ -17,7 +18,7 @@ const LoadingFallback = () => (
   <div className="min-h-screen flex items-center justify-center">
     <div className="animate-pulse flex flex-col items-center">
       <img
-        src="src/assets/images/logo.png"
+        src={LogoImage}
         alt="BUDJU Loading"
         className="w-24 h-24 animate-bounce"
       />

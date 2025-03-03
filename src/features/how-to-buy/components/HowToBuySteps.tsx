@@ -17,7 +17,7 @@ const steps = [
     title: "1. Create a wallet with Phantom or Jupiter",
     description:
       "Visit phantom.app or jupiter.ag and follow the simple steps to create a new account with the Phantom app, Jupiter app or browser extension.",
-    image: "src/assets/images/how-to-buy/phantom-wallet.webp",
+    image: "/images/how-to-buy/phantom-wallet.webp",
     color: "bg-blue-600",
     links: [
       { label: "Download Phantom", url: "https://phantom.app", external: true },
@@ -30,7 +30,7 @@ const steps = [
     title: "2. Get some $SOL",
     description:
       "Tap the BUY button in the app to purchase Solana, or deposit $SOL to your Phantom or Jupiter wallet from the crypto exchange of your choice.",
-    image: "src/assets/images/how-to-buy/buy-sol.webp",
+    image: "/images/how-to-buy/buy-sol.webp",
     color: "bg-purple-600",
     links: [],
   },
@@ -40,7 +40,7 @@ const steps = [
     title: "3. Swap $SOL for $BUDJU",
     description:
       "Tap the SWAP icon in your Phantom or Jupiter wallet and paste the $BUDJU token address. Swap your $SOL for $BUDJU.",
-    image: "src/assets/images/how-to-buy/swap-budju.webp",
+    image: "/images/how-to-buy/swap-budju.webp",
     color: "bg-pink-600",
     links: [],
   },
@@ -50,7 +50,7 @@ const steps = [
     title: "YOU ARE $BUDJU HOLDER!",
     description:
       "Congratulations! You now hold BUDJU tokens in your wallet. Welcome to the parade - enjoy the ride!",
-    image: "src/assets/images/how-to-buy/holder.webp",
+    image: "/images/how-to-buy/holder.webp",
     color: "bg-green-600",
     links: [{ label: "BUY BUDJU", url: DEX_LINK, external: true }],
   },

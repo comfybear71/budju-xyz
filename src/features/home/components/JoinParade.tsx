@@ -63,7 +63,7 @@ const JoinParade = () => {
               >
                 <img
                   ref={imageRef}
-                  src="src/assets/images/budju.png"
+                  src="/images/budju.png"
                   alt="Budju Mascot"
                   className="w-full max-w-md mx-auto"
                 />

@@ -51,13 +51,7 @@ interface FaqItemProps {
   index: number;
 }
 
-const FaqItem = ({
-  question,
-  answer,
-  isOpen,
-  toggleOpen,
-  index,
-}: FaqItemProps) => {
+const FaqItem = ({ question, answer, isOpen, toggleOpen }: FaqItemProps) => {
   const contentRef = useRef<HTMLDivElement>(null);
 
   return (

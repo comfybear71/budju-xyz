@@ -8,7 +8,7 @@ import CopyToClipboard from "@components/common/CopyToClipboard";
 const wallets = [
   {
     name: "Phantom",
-    logo: "src/assets/images/how-to-buy/phantom-logo.png",
+    logo: "/images/how-to-buy/phantom-logo.png",
     features: [
       { icon: FaShieldAlt, text: "Secure & user-friendly" },
       { icon: FaBolt, text: "Fast transactions" },
@@ -19,7 +19,7 @@ const wallets = [
   },
   {
     name: "Jupiter",
-    logo: "src/assets/images/how-to-buy/jupiter-logo.png",
+    logo: "/images/how-to-buy/jupiter-logo.png",
     features: [
       { icon: FaExchangeAlt, text: "Best swap rates" },
       { icon: FaBolt, text: "Optimal routing" },

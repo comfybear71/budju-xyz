@@ -6,13 +6,13 @@ import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 
 // NFT images paths
 const nftImages = [
-  "src/assets/images/budju00.png",
-  "src/assets/images/budju01.png",
-  "src/assets/images/budju02.png",
-  "src/assets/images/budju03.png",
-  "src/assets/images/budju04.png",
-  "src/assets/images/budju05.png",
-  "src/assets/images/budju06.png",
+  "/images/budju00.png",
+  "/images/budju01.png",
+  "/images/budju02.png",
+  "/images/budju03.png",
+  "/images/budju04.png",
+  "/images/budju05.png",
+  "/images/budju06.png",
 ];
 
 const NFTShowcase = () => {

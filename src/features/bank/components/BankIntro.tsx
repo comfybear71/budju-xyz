@@ -104,7 +104,7 @@ const BankIntro = () => {
             >
               {/* Bank Vault Image */}
               <img
-                src="src/assets/images/bank/bank-vault.png"
+                src="/images/bank/bank-vault.png"
                 alt="Bank of BUDJU Vault"
                 className="w-full h-auto rounded-lg"
               />

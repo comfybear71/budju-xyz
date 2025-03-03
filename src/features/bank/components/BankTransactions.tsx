@@ -87,8 +87,7 @@ const sampleTransactions: Transaction[] = [
 const BankTransactions = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  const [transactions, setTransactions] =
-    useState<Transaction[]>(sampleTransactions);
+  const [transactions, _] = useState<Transaction[]>(sampleTransactions);
   const [filter, setFilter] = useState<
     "all" | "deposit" | "withdrawal" | "burn"
   >("all");
@@ -240,7 +239,7 @@ const BankTransactions = () => {
             </thead>
             <tbody>
               {filteredTransactions.length > 0 ? (
-                filteredTransactions.map((tx, index) => (
+                filteredTransactions.map((tx, _) => (
                   <tr
                     key={tx.id}
                     className="border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30 transition-colors"

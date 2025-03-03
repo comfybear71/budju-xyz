@@ -141,7 +141,6 @@ export const checkWalletConnection = async (): Promise<ConnectionState> => {
  * Check token balance for a wallet
  */
 export const checkTokenBalance = async (
-  walletAddress: string,
   tokenAddress: string,
 ): Promise<number> => {
   // In a real implementation, this would query the blockchain

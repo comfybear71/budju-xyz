@@ -156,7 +156,7 @@ const BankDeposit = () => {
                     }`}
                   >
                     <img
-                      src="src/assets/images/tokens/sol.png"
+                      src="/images/tokens/sol.png"
                       alt="SOL"
                       className="w-5 h-5 mr-2"
                     />
@@ -172,7 +172,7 @@ const BankDeposit = () => {
                     }`}
                   >
                     <img
-                      src="src/assets/images/logo.png"
+                      src="/images/logo.png"
                       alt="BUDJU"
                       className="w-5 h-5 mr-2"
                     />
@@ -188,7 +188,7 @@ const BankDeposit = () => {
                     }`}
                   >
                     <img
-                      src="src/assets/images/tokens/usdc.png"
+                      src="/images/tokens/usdc.png"
                       alt="USDC"
                       className="w-5 h-5 mr-2"
                     />
@@ -308,7 +308,7 @@ const BankDeposit = () => {
           >
             <div ref={coinRef} className="mb-8 relative perspective-1000">
               <img
-                src="src/assets/images/logo.png"
+                src="/images/logo.png"
                 alt="BUDJU Coin"
                 className="w-40 h-40"
               />

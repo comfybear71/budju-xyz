@@ -21,19 +21,19 @@ interface WalletConnectProps {
 const walletConfig: Record<WalletName, { name: string; logo: string }> = {
   phantom: {
     name: "Phantom",
-    logo: "src/assets/images/wallets/phantom.png",
+    logo: "/images/wallets/phantom.png",
   },
   jupiter: {
     name: "Jupiter",
-    logo: "src/assets/images/wallets/jupiter.png",
+    logo: "/images/wallets/jupiter.png",
   },
   solflare: {
     name: "Solflare",
-    logo: "src/assets/images/wallets/solflare.png",
+    logo: "/images/wallets/solflare.png",
   },
   other: {
     name: "Other",
-    logo: "src/assets/images/wallets/default.png",
+    logo: "/images/wallets/default.png",
   },
 };
 
@@ -273,7 +273,7 @@ const WalletConnect = ({
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <img
-                          src="src/assets/images/tokens/sol.png"
+                          src="/images/tokens/sol.png"
                           alt="SOL"
                           className="w-5 h-5 mr-2"
                         />
@@ -287,7 +287,7 @@ const WalletConnect = ({
                     <div className="flex justify-between items-center">
                       <div className="flex items-center">
                         <img
-                          src="src/assets/images/logo.png"
+                          src="/images/logo.png"
                           alt="BUDJU"
                           className="w-5 h-5 mr-2"
                         />

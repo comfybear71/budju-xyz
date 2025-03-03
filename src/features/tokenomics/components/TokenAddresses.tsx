@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
-import { FaCopy, FaExternalLinkAlt } from "react-icons/fa";
+import { FaExternalLinkAlt } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import {
   TOKEN_ADDRESS,

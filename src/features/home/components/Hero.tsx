@@ -60,7 +60,7 @@ const Hero = () => {
         >
           <img
             ref={logoRef}
-            src="src/assets/images/logo.png"
+            src="/images/logo.png"
             alt="BUDJU Coin Logo"
             className="w-32 h-32 md:w-48 md:h-48"
           />
@@ -75,7 +75,7 @@ const Hero = () => {
         >
           <img
             ref={titleRef}
-            src="src/assets/images/title_budju.png"
+            src="/images/title_budju.png"
             alt="BUDJU Title"
             className="w-full max-w-lg mx-auto"
           />

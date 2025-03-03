@@ -40,7 +40,7 @@ const BurnStatistics = () => {
   const valueRef = useRef<HTMLSpanElement>(null);
 
   const [burnEvents] = useState(burnHistory);
-  const [burnedTokens] = useState(1569299); // From the sample data
+  // const [burnedTokens] = useState(1569299); // From the sample data
 
   // Calculate statistics
   const totalBurned = burnEvents.reduce((sum, event) => sum + event.amount, 0);

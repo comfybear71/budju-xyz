@@ -104,7 +104,7 @@ const NFTHero = () => {
           <div ref={imagesRef} className="w-full lg:w-1/2 relative h-96 z-0">
             <div className="absolute top-0 left-0 w-60 h-60 perspective-1000">
               <img
-                src="src/assets/images/budju00.png"
+                src="/images/budju00.png"
                 alt="BUDJU NFT 1"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -112,7 +112,7 @@ const NFTHero = () => {
 
             <div className="absolute top-20 right-0 w-56 h-56 perspective-1000">
               <img
-                src="src/assets/images/budju01.png"
+                src="/images/budju01.png"
                 alt="BUDJU NFT 2"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -120,7 +120,7 @@ const NFTHero = () => {
 
             <div className="absolute bottom-0 right-16 w-64 h-64 perspective-1000">
               <img
-                src="src/assets/images/budju02.png"
+                src="/images/budju02.png"
                 alt="BUDJU NFT 3"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -128,7 +128,7 @@ const NFTHero = () => {
 
             <div className="absolute bottom-10 left-16 w-52 h-52 perspective-1000">
               <img
-                src="src/assets/images/budju03.png"
+                src="/images/budju03.png"
                 alt="BUDJU NFT 4"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />

@@ -17,7 +17,7 @@ const tokenHoldings: TokenHolding[] = [
   {
     name: "Solana",
     symbol: "SOL",
-    logo: "src/assets/images/tokens/sol.png",
+    logo: "/images/tokens/sol.png",
     amount: 12.45,
     value: 1432.5,
     color: "bg-purple-600",
@@ -25,7 +25,7 @@ const tokenHoldings: TokenHolding[] = [
   {
     name: "BUDJU Coin",
     symbol: "BUDJU",
-    logo: "src/assets/images/logo.png",
+    logo: "/images/logo.png",
     amount: 5248932.73,
     value: 1049.79,
     color: "bg-budju-pink",
@@ -33,7 +33,7 @@ const tokenHoldings: TokenHolding[] = [
   {
     name: "USD Coin",
     symbol: "USDC",
-    logo: "src/assets/images/tokens/usdc.png",
+    logo: "/images/tokens/usdc.png",
     amount: 925.12,
     value: 925.12,
     color: "bg-blue-500",
@@ -41,7 +41,7 @@ const tokenHoldings: TokenHolding[] = [
   {
     name: "Jito Staked SOL",
     symbol: "JitoSOL",
-    logo: "src/assets/images/tokens/jitosol.png",
+    logo: "/images/tokens/jitosol.png",
     amount: 8.23,
     value: 947.65,
     color: "bg-teal-500",
@@ -145,7 +145,7 @@ const BankTokens = () => {
           ref={cardsRef}
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto"
         >
-          {tokenHoldings.map((token, index) => (
+          {tokenHoldings.map((token, _) => (
             <div
               key={token.symbol}
               className={`token-card budju-card overflow-hidden`}

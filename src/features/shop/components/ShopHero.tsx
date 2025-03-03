@@ -120,7 +120,7 @@ const ShopHero = ({ onCartClick }: ShopHeroProps) => {
             {/* Ladies Singlet */}
             <div className="absolute top-0 left-0 w-48 h-48 perspective-1000">
               <img
-                src="src/assets/images/merch/ladies/singlets/pink-ladies-singlet-top.png"
+                src="/images/merch/ladies/singlets/pink-ladies-singlet-top.png"
                 alt="Ladies Pink Singlet"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -129,7 +129,7 @@ const ShopHero = ({ onCartClick }: ShopHeroProps) => {
             {/* Mens Singlet */}
             <div className="absolute top-20 right-0 w-48 h-48 perspective-1000">
               <img
-                src="src/assets/images/merch/mens/singlets/black-logo-pink-bg-mens-singlet.jpg"
+                src="/images/merch/mens/singlets/black-logo-pink-bg-mens-singlet.jpg"
                 alt="Mens Pink Singlet"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -138,7 +138,7 @@ const ShopHero = ({ onCartClick }: ShopHeroProps) => {
             {/* Cap */}
             <div className="absolute bottom-0 right-16 w-40 h-40 perspective-1000">
               <img
-                src="src/assets/images/merch/caps/pink-cap-white-logo.jpg"
+                src="/images/merch/caps/pink-cap-white-logo.jpg"
                 alt="BUDJU Cap"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />
@@ -147,7 +147,7 @@ const ShopHero = ({ onCartClick }: ShopHeroProps) => {
             {/* Coffee Mug */}
             <div className="absolute bottom-10 left-16 w-36 h-36 perspective-1000">
               <img
-                src="src/assets/images/merch/items/coffee-mug.jpg"
+                src="/images/merch/items/coffee-mug.jpg"
                 alt="BUDJU Coffee Mug"
                 className="w-full h-full object-contain rounded-xl shadow-lg border-2 border-gray-800"
               />

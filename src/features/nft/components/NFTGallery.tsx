@@ -27,7 +27,7 @@ const nftSamples: NFT[] = [
   {
     id: 1,
     name: "BUDJU #001",
-    image: "src/assets/images/budju00.png",
+    image: "/images/budju00.png",
     traits: {
       background: "Purple Gradient",
       body: "Classic Blue",
@@ -39,7 +39,7 @@ const nftSamples: NFT[] = [
   {
     id: 2,
     name: "BUDJU #002",
-    image: "src/assets/images/budju01.png",
+    image: "/images/budju01.png",
     traits: {
       background: "Yellow Radiance",
       body: "Royal Blue",
@@ -51,7 +51,7 @@ const nftSamples: NFT[] = [
   {
     id: 3,
     name: "BUDJU #003",
-    image: "src/assets/images/budju02.png",
+    image: "/images/budju02.png",
     traits: {
       background: "Pink Sunset",
       body: "Deep Blue",
@@ -63,7 +63,7 @@ const nftSamples: NFT[] = [
   {
     id: 4,
     name: "BUDJU #004",
-    image: "src/assets/images/budju03.png",
+    image: "/images/budju03.png",
     traits: {
       background: "Cosmic Night",
       body: "Aqua Blue",
@@ -75,7 +75,7 @@ const nftSamples: NFT[] = [
   {
     id: 5,
     name: "BUDJU #005",
-    image: "src/assets/images/budju04.png",
+    image: "/images/budju04.png",
     traits: {
       background: "Digital Sea",
       body: "Light Blue",
@@ -87,7 +87,7 @@ const nftSamples: NFT[] = [
   {
     id: 6,
     name: "BUDJU #006",
-    image: "src/assets/images/budju05.png",
+    image: "/images/budju05.png",
     traits: {
       background: "Neon Lights",
       body: "Electric Blue",
@@ -99,7 +99,7 @@ const nftSamples: NFT[] = [
   {
     id: 7,
     name: "BUDJU #007",
-    image: "src/assets/images/budju06.png",
+    image: "/images/budju06.png",
     traits: {
       background: "Golden Aura",
       body: "Royal Blue",
@@ -354,7 +354,7 @@ const NFTGallery = () => {
               <div className="budju-card p-8 text-center">
                 <div className="aspect-square max-w-[200px] mx-auto mb-6 opacity-30">
                   <img
-                    src="src/assets/images/logo.png"
+                    src="/images/logo.png"
                     alt="BUDJU Logo"
                     className="w-full h-full object-contain"
                   />

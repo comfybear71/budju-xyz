@@ -14,6 +14,8 @@ import { gsap } from "gsap";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { TOKEN_ADDRESS } from "@/constants/addresses";
 
+import LogoImage from "@assets/images/logo.png";
+
 const socialLinks = [
   {
     name: "Facebook",
@@ -86,7 +88,7 @@ const Footer = () => {
           <div className="flex flex-col items-center md:items-start">
             <Link to="/" className="mb-4">
               <img
-                src="src/assets/images/logo.png"
+                src={LogoImage}
                 alt="BUDJU Coin Logo"
                 className="h-16 w-auto"
               />
