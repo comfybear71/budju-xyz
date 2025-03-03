@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/src/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "build": {
+    "env": {
+      "VITE_ASSET_PREFIX": "/assets"
+    }
+  }
+}

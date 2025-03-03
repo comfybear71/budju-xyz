@@ -1,0 +1,34 @@
+// Token addresses
+export const TOKEN_ADDRESS =
+  import.meta.env.VITE_TOKEN_ADDRESS ||
+  "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
+export const BURN_ADDRESS =
+  import.meta.env.VITE_BURN_ADDRESS ||
+  "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
+export const BANK_ADDRESS =
+  import.meta.env.VITE_BANK_ADDRESS ||
+  "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+
+// Platform links
+export const DEX_LINK =
+  "https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
+export const SOLSCAN_LINK =
+  "https://solscan.io/token/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
+export const DEXSCREENER_LINK =
+  "https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez";
+export const SHOP_URL =
+  import.meta.env.VITE_SHOP_URL || "https://shop.budjucoin.com";
+
+// NFT config
+export const NFT_TARGET_HOLDERS = Number(
+  import.meta.env.VITE_NFT_TARGET_HOLDERS || 1000,
+);
+
+// RPC endpoints
+export const RPC_ENDPOINT =
+  import.meta.env.VITE_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com";
+export const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
+export const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+
+// Wallet config
+export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
