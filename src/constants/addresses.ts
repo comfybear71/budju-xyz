@@ -32,3 +32,7 @@ export const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_
 
 // Wallet config
 export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
+
+// Pool addresses
+export const POOL_SOL_BUDJU = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+export const POOL_USDC_BUDJU = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";
