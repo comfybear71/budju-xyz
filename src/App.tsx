@@ -12,6 +12,7 @@ const Shop = lazy(() => import("@features/shop/Shop"));
 const Tokenomics = lazy(() => import("@features/tokenomics/Tokenomics"));
 const Bank = lazy(() => import("@features/bank/Bank"));
 const NotFound = lazy(() => import("@features/not-found/NotFound"));
+const Pool = lazy(() => import("@features/pool/Pool"));
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -54,6 +55,7 @@ const App = () => {
               <Route path="/" element={<Home />} />
               <Route path="/nft" element={<NFT />} />
               <Route path="/how-to-buy" element={<HowToBuy />} />
+              <Route path="/pool" element={<Pool />} />
               <Route path="/shop" element={<Shop />} />
               <Route path="/tokenomics" element={<Tokenomics />} />
               <Route path="/bank" element={<Bank />} />
