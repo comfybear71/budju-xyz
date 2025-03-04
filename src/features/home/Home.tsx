@@ -7,6 +7,7 @@ import NFTShowcase from "./components/NFTShowcase";
 import JoinParade from "./components/JoinParade";
 import HowToBuyPreview from "./components/HowToBuyPreview";
 import TokenStats from "@components/common/TokenStats";
+import MarketMakerPreview from "./components/MarketMakerPreview";
 
 const Home = () => {
   // Setup page
@@ -63,6 +64,9 @@ const Home = () => {
 
       {/* How To Buy Preview */}
       <HowToBuyPreview />
+
+      {/* Market Maker Preview */}
+      <MarketMakerPreview />
     </main>
   );
 };
