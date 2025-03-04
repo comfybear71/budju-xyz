@@ -11,49 +11,40 @@ interface ScrollingBannerProps {
 
 const ScrollingBanner = ({
   text,
-  repetitions = 5,
+  repetitions = 10,
   speed = "normal",
   reverse = false,
   className = "",
   textClassName = "",
 }: ScrollingBannerProps) => {
-  // Generate repeated text
+  // Generate repeated text with proper spacing
   const repeatedText = useMemo(() => {
     return Array(repetitions).fill(text).join(" ");
   }, [text, repetitions]);
 
   // Determine animation duration based on speed
-  const getDurationClass = () => {
+  const getDuration = () => {
     switch (speed) {
       case "slow":
-        return "animate-[marquee_40s_linear_infinite]";
+        return "40s";
       case "fast":
-        return "animate-[marquee_15s_linear_infinite]";
+        return "15s";
       case "normal":
       default:
-        return "animate-[marquee_25s_linear_infinite]";
+        return "25s";
     }
   };
 
-  // Determine animation direction
-  const getDirectionClass = () => {
-    return reverse
-      ? "animate-[marquee-reverse_25s_linear_infinite]"
-      : getDurationClass();
+  // Create animation style directly
+  const animationStyle = {
+    animation: `${reverse ? "marquee-reverse" : "marquee"} ${getDuration()} linear infinite`,
   };
 
   return (
-    <div className={`w-full overflow-hidden bg-budju-black py-3 ${className}`}>
-      <div className="relative whitespace-nowrap flex">
-        {/* First copy for continuous loop */}
-        <div className={`inline-block ${getDirectionClass()} ${textClassName}`}>
-          {repeatedText}
-        </div>
-
-        {/* Duplicate to ensure smooth infinite loop */}
-        <div
-          className={`inline-block ${getDirectionClass()} ${textClassName} absolute top-0 left-full`}
-        >
+    <div className={`w-full overflow-hidden bg-black py-3 ${className}`}>
+      <div className="flex whitespace-nowrap">
+        {/* Just one long continuous text element */}
+        <div className={`inline-block ${textClassName}`} style={animationStyle}>
           {repeatedText}
         </div>
       </div>
@@ -66,8 +57,8 @@ export const BudjuParadeBanner = () => {
   return (
     <ScrollingBanner
       text="* JOIN THE BUDJU PARADE *"
-      repetitions={8}
-      className="bg-budju-black border-y border-budju-pink/20"
+      repetitions={10}
+      className="bg-black border-y border-budju-pink/20"
       textClassName="text-xl md:text-2xl font-bold text-white px-4"
     />
   );
