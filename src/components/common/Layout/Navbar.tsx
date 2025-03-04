@@ -110,12 +110,12 @@ const Navbar = () => {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center space-x-4 xl:space-x-8">
+          <div className="hidden xl:flex items-center space-x-4 xl:space-x-8">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`relative font-semibold text-base xl:text-lg transform transition duration-300 hover:text-budju-pink ${
+                className={`relative font-semibold text-base transform transition duration-300 hover:text-budju-pink ${
                   location.pathname === item.path
                     ? "text-budju-pink"
                     : "text-white"
@@ -136,7 +136,7 @@ const Navbar = () => {
           </div>
 
           {/* Wallet Connect & Buy Button */}
-          <div className="hidden lg:flex items-center space-x-3 xl:space-x-4">
+          <div className="hidden xl:flex items-center space-x-3 xl:space-x-4">
             <WalletConnect />
 
             <a
@@ -150,7 +150,7 @@ const Navbar = () => {
           </div>
 
           {/* Mobile Menu Button & Buy Button */}
-          <div className="lg:hidden flex items-center">
+          <div className="xl:hidden flex items-center">
             <a
               href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
               target="_blank"
