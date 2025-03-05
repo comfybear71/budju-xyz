@@ -1,23 +1,79 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
 import { BANK_ADDRESS } from "@constants/addresses";
 import CopyToClipboard from "@components/common/CopyToClipboard";
+import {
+  fetchBurnEvents,
+  BURN_ADDRESS,
+  TOKEN_ADDRESS,
+} from "@lib/utils/tokenService"; // Adjust path
+
+interface BurnStats {
+  totalBurned: number;
+  lastBurnDate: string;
+}
 
 const BankIntro = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const animatedRef = useRef<HTMLDivElement>(null);
+  const [burnStats, setBurnStats] = useState<BurnStats>({
+    totalBurned: 0,
+    lastBurnDate: "N/A",
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Fetch burn data
+  useEffect(() => {
+    const loadBurnStats = async () => {
+      try {
+        setLoading(true);
+        const burnEvents = await fetchBurnEvents(BURN_ADDRESS, TOKEN_ADDRESS);
+
+        if (burnEvents.length > 0) {
+          const totalBurned = burnEvents.reduce(
+            (sum, event) => sum + event.amount,
+            0,
+          );
+          const lastBurnEvent = burnEvents.sort(
+            (a, b) => (b.timestamp || 0) - (a.timestamp || 0),
+          )[0];
+          const lastBurnDate = lastBurnEvent.date;
+
+          setBurnStats({
+            totalBurned,
+            lastBurnDate,
+          });
+        } else {
+          setBurnStats({
+            totalBurned: 0,
+            lastBurnDate: "No burns recorded",
+          });
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch burn data",
+        );
+        setBurnStats({
+          totalBurned: 0,
+          lastBurnDate: "Error",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadBurnStats();
+  }, []);
+
+  // GSAP animation for bank vault
   useEffect(() => {
     if (sectionRef.current && animatedRef.current) {
-      // Create animation for the bank vault image
       gsap.fromTo(
         animatedRef.current,
-        {
-          rotationY: -20,
-          rotationX: 10,
-        },
+        { rotationY: -20, rotationX: 10 },
         {
           rotationY: 20,
           rotationX: -10,
@@ -102,25 +158,32 @@ const BankIntro = () => {
               ref={animatedRef}
               className="relative bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 shadow-budju border border-gray-700 max-w-md transform perspective-1000"
             >
-              {/* Bank Vault Image */}
               <img
                 src="/images/bank/bank-vault.png"
                 alt="Bank of BUDJU Vault"
                 className="w-full h-auto rounded-lg"
               />
 
-              {/* Decorative Elements */}
               <div className="absolute -top-4 -left-4 w-16 h-16 rounded-full bg-budju-pink/30 blur-xl"></div>
               <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-budju-blue/20 blur-xl"></div>
 
-              {/* Bank Stats */}
               <div className="absolute bottom-12 right-4 bg-gray-900/80 backdrop-blur-sm rounded-lg p-4 border border-gray-700 shadow-lg">
                 <div className="text-sm text-gray-400">Total Burned</div>
                 <div className="text-xl font-bold text-budju-pink">
-                  1,569,299 BUDJU
+                  {loading
+                    ? "Loading..."
+                    : error
+                      ? "Error"
+                      : `${burnStats.totalBurned.toLocaleString()} BUDJU`}
                 </div>
                 <div className="text-sm text-gray-400 mt-2">Last Burn</div>
-                <div className="text-budju-blue font-medium">Feb 26, 2025</div>
+                <div className="text-budju-blue font-medium">
+                  {loading
+                    ? "Loading..."
+                    : error
+                      ? "Error"
+                      : burnStats.lastBurnDate}
+                </div>
               </div>
             </div>
           </motion.div>
