@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
+      // Existing env variables
       "process.env.VITE_TOKEN_ADDRESS": JSON.stringify(env.VITE_TOKEN_ADDRESS),
       "process.env.VITE_BURN_ADDRESS": JSON.stringify(env.VITE_BURN_ADDRESS),
       "process.env.VITE_BANK_ADDRESS": JSON.stringify(env.VITE_BANK_ADDRESS),
@@ -30,6 +31,7 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
         env.VITE_NFT_TARGET_HOLDERS,
       ),
+      // Polyfill globals
       global: "globalThis",
     },
     optimizeDeps: {
@@ -41,8 +43,7 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       rollupOptions: {
-        // Remove external to bundle @solana/web3.js
-        // external: ["@solana/web3.js"],
+        // Optional: Ensure external modules are handled correctly if needed
       },
       commonjsOptions: {
         transformMixedEsModules: true,
