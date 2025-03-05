@@ -42,6 +42,9 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
         env.VITE_NFT_TARGET_HOLDERS,
       ),
+      // Add Buffer polyfill
+      global: {},
+      "Buffer.isBuffer": () => false,
     },
     optimizeDeps: {
       esbuildOptions: {
@@ -56,10 +59,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         external: ["@solana/web3.js"],
       },
-    },
-    server: {
-      // Add this to allow the specific ngrok host
-      allowedHosts: ["e515-2a09-bac5-d562-88c-00-da-153.ngrok-free.app"],
     },
   };
 });
