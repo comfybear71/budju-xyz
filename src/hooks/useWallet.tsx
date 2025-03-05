@@ -15,6 +15,10 @@ import {
   formatWalletAddress,
   checkWalletsAvailability,
 } from "@lib/web3/connection";
+import walletService, {
+  WalletBalance,
+  Network,
+} from "@lib/services/walletService";
 
 // Context interface
 interface WalletContextType {
@@ -25,6 +29,11 @@ interface WalletContextType {
   disconnect: () => Promise<void>;
   formatAddress: (address: string) => string;
   error: string | null;
+  network: Network;
+  switchNetwork: (network: Network) => void;
+  balances: WalletBalance;
+  refreshBalances: () => Promise<void>;
+  loadingBalances: boolean;
 }
 
 // Create context with default values
@@ -42,10 +51,26 @@ const WalletContext = createContext<WalletContextType>({
   disconnect: async () => {},
   formatAddress: () => "",
   error: null,
+  network: "mainnet",
+  switchNetwork: () => {},
+  balances: { sol: 0, tokens: [] },
+  refreshBalances: async () => {},
+  loadingBalances: false,
 });
 
 // Hook to use the wallet context
 export const useWallet = () => useContext(WalletContext);
+
+// Custom tokens to track (extend as needed)
+const customTokens = [
+  {
+    symbol: "BUDJU",
+    address: "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump",
+    decimals: 6,
+  },
+  // Add more tokens here, e.g.:
+  // { symbol: "USDC", address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
+];
 
 // Provider component
 export const WalletProvider: React.FC<{ children: ReactNode }> = ({
@@ -61,6 +86,12 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableWallets, setAvailableWallets] = useState<WalletName[]>([]);
+  const [network, setNetwork] = useState<Network>("mainnet");
+  const [balances, setBalances] = useState<WalletBalance>({
+    sol: 0,
+    tokens: [],
+  });
+  const [loadingBalances, setLoadingBalances] = useState(false);
 
   // Check for available wallets
   useEffect(() => {
@@ -101,6 +132,29 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
     checkConnection();
   }, []);
 
+  // Subscribe to balance updates when connected
+  useEffect(() => {
+    if (connection.connected && connection.wallet?.address) {
+      setLoadingBalances(true);
+      walletService.switchNetwork(network); // Ensure network is set
+
+      const unsubscribe = walletService.subscribeToBalanceUpdates(
+        connection.wallet.address,
+        (newBalances) => {
+          setBalances(newBalances);
+          setLoadingBalances(false);
+        },
+        customTokens,
+        30000, // Update every 30 seconds
+      );
+
+      return () => unsubscribe();
+    } else {
+      setBalances({ sol: 0, tokens: [] });
+      setLoadingBalances(false);
+    }
+  }, [connection.connected, connection.wallet?.address, network]);
+
   // Connect to wallet
   const connect = useCallback(async (walletName: WalletName) => {
     try {
@@ -110,7 +164,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       const connectionState = await connectWallet(walletName);
       setConnection(connectionState);
 
-      // Save connection info to localStorage
       if (connectionState.connected && connectionState.wallet) {
         localStorage.setItem(
           "budjuWalletAddress",
@@ -146,7 +199,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         error: null,
       });
 
-      // Clear connection info from localStorage
       localStorage.removeItem("budjuWalletAddress");
       localStorage.removeItem("budjuWalletName");
       localStorage.removeItem("budjuWalletConnected");
@@ -160,6 +212,38 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, []);
 
+  // Switch network
+  const switchNetwork = useCallback(
+    (newNetwork: Network) => {
+      setNetwork(newNetwork);
+      walletService.switchNetwork(newNetwork);
+      if (connection.connected && connection.wallet?.address) {
+        refreshBalances(); // Refresh balances on network switch
+      }
+    },
+    [connection.connected, connection.wallet?.address],
+  );
+
+  // Refresh balances manually
+  const refreshBalances = useCallback(async () => {
+    if (connection.connected && connection.wallet?.address) {
+      setLoadingBalances(true);
+      setError(null);
+      try {
+        const newBalances = await walletService.fetchWalletBalances(
+          connection.wallet.address,
+          customTokens,
+        );
+        setBalances(newBalances);
+      } catch (error) {
+        console.error("Error refreshing balances:", error);
+        setError("Failed to refresh balances");
+      } finally {
+        setLoadingBalances(false);
+      }
+    }
+  }, [connection.connected, connection.wallet?.address]);
+
   return (
     <WalletContext.Provider
       value={{
@@ -170,6 +254,11 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         disconnect,
         formatAddress: formatWalletAddress,
         error,
+        network,
+        switchNetwork,
+        balances,
+        refreshBalances,
+        loadingBalances,
       }}
     >
       {children}
