@@ -4,22 +4,17 @@
  */
 
 import { WALLET_ADAPTER_NETWORK, RPC_ENDPOINT } from "@constants/addresses";
+import walletService from "@lib/services/walletService";
 
-// Mock wallet types - these would be replaced with actual types from solana libraries
-export type WalletName = "phantom" | "jupiter" | "solflare" | "other";
+// Wallet types
+export type WalletName = "phantom" | "solflare" | "other";
 
 export interface WalletInfo {
   name: WalletName;
   address: string;
   connected: boolean;
-  balance: {
-    sol: number;
-    budju?: number;
-    other?: Record<string, number>;
-  };
 }
 
-// Mock connection state - this would be replaced with actual connection state
 export interface ConnectionState {
   connected: boolean;
   wallet: WalletInfo | null;
@@ -37,149 +32,187 @@ const initialState: ConnectionState = {
   error: null,
 };
 
-// Mock wallets - these would be detected from the browser
-export const availableWallets: WalletName[] = [
-  "phantom",
-  "jupiter",
-  "solflare",
-];
+// Extend Window interface for wallet adapters
+interface SolanaWallet {
+  isPhantom?: boolean;
+  isSolflare?: boolean;
+  isConnected?: boolean;
+  connect: () => Promise<void>;
+  disconnect: () => Promise<void>;
+  publicKey: { toString: () => string };
+}
 
-/**
- * Check if wallets are available in the browser
- */
+declare global {
+  interface Window {
+    solana?: SolanaWallet;
+    solflare?: SolanaWallet;
+  }
+}
+
+// Detect available wallets
 export const checkWalletsAvailability = async (): Promise<WalletName[]> => {
-  // In a real implementation, this would check for wallet extensions
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(availableWallets);
-    }, 500);
-  });
+  const available: WalletName[] = [];
+
+  if (window.solana?.isPhantom) {
+    available.push("phantom");
+  }
+
+  if (window.solflare?.isSolflare) {
+    available.push("solflare");
+  }
+
+  if (window.solana && !window.solana.isPhantom && !window.solana.isSolflare) {
+    available.push("other");
+  }
+
+  return available;
 };
 
-/**
- * Connect to a wallet
- */
+// Connect to a wallet
 export const connectWallet = async (
   walletName: WalletName,
 ): Promise<ConnectionState> => {
-  // In a real implementation, this would use wallet adapters to connect
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Generate a random Solana address
-      const address = generateMockWalletAddress();
+  try {
+    let walletAdapter: SolanaWallet | undefined;
 
-      // Create mock wallet info
-      const walletInfo: WalletInfo = {
+    switch (walletName) {
+      case "phantom":
+        walletAdapter = window.solana;
+        if (!walletAdapter?.isPhantom) {
+          throw new Error("Phantom wallet not detected");
+        }
+        break;
+      case "solflare":
+        walletAdapter = window.solflare;
+        if (!walletAdapter?.isSolflare) {
+          throw new Error("Solflare wallet not detected");
+        }
+        break;
+      case "other":
+        walletAdapter = window.solana;
+        if (
+          !walletAdapter ||
+          walletAdapter.isPhantom ||
+          walletAdapter.isSolflare
+        ) {
+          throw new Error("No compatible 'other' wallet detected");
+        }
+        break;
+      default:
+        throw new Error(`Unsupported wallet: ${walletName}`);
+    }
+
+    await walletAdapter.connect();
+    const address = walletAdapter.publicKey.toString();
+    const network = walletService.currentNetwork;
+
+    return {
+      connected: true,
+      wallet: {
         name: walletName,
         address,
         connected: true,
-        balance: {
-          sol: parseFloat((Math.random() * 10).toFixed(4)),
-          budju: parseFloat((Math.random() * 100000).toFixed(2)),
-        },
-      };
-
-      // Return connection state
-      resolve({
-        ...initialState,
-        connected: true,
-        wallet: walletInfo,
-        error: null,
-      });
-    }, 1000);
-  });
+      },
+      rpcEndpoint: RPC_ENDPOINT,
+      network,
+      error: null,
+    };
+  } catch (error) {
+    console.error("Error connecting to wallet:", error);
+    return {
+      ...initialState,
+      error:
+        error instanceof Error ? error.message : "Failed to connect to wallet",
+    };
+  }
 };
 
-/**
- * Disconnect from a wallet
- */
+// Disconnect from a wallet
 export const disconnectWallet = async (): Promise<ConnectionState> => {
-  // In a real implementation, this would disconnect from the wallet
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(initialState);
-    }, 500);
-  });
+  try {
+    const walletAdapter = window.solana || window.solflare;
+    if (walletAdapter && walletAdapter.disconnect) {
+      await walletAdapter.disconnect();
+    }
+
+    return initialState;
+  } catch (error) {
+    console.error("Error disconnecting from wallet:", error);
+    return {
+      ...initialState,
+      error: "Failed to disconnect from wallet",
+    };
+  }
 };
 
-/**
- * Check if a wallet is connected
- */
+// Check if a wallet is connected
 export const checkWalletConnection = async (): Promise<ConnectionState> => {
-  // In a real implementation, this would check localStorage and wallets
-  return new Promise((resolve) => {
-    // Check if wallet connection is stored in localStorage
+  try {
     const savedAddress = localStorage.getItem("budjuWalletAddress");
     const savedWalletName = localStorage.getItem("budjuWalletName");
+    const savedConnected = localStorage.getItem("budjuWalletConnected");
 
-    if (savedAddress && savedWalletName) {
-      // Create mock wallet info
-      const walletInfo: WalletInfo = {
-        name: savedWalletName as WalletName,
-        address: savedAddress,
-        connected: true,
-        balance: {
-          sol: parseFloat((Math.random() * 10).toFixed(4)),
-          budju: parseFloat((Math.random() * 100000).toFixed(2)),
-        },
-      };
+    if (savedAddress && savedWalletName && savedConnected === "true") {
+      let walletAdapter: SolanaWallet | undefined;
 
-      // Return connection state
-      resolve({
-        ...initialState,
-        connected: true,
-        wallet: walletInfo,
-        error: null,
-      });
-    } else {
-      resolve(initialState);
-    }
-  });
-};
-
-/**
- * Check token balance for a wallet
- */
-export const checkTokenBalance = async (
-  tokenAddress: string,
-): Promise<number> => {
-  // In a real implementation, this would query the blockchain
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      // Return mock balance
-      if (tokenAddress === "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump") {
-        // BUDJU token
-        resolve(parseFloat((Math.random() * 100000).toFixed(2)));
-      } else {
-        // Other token
-        resolve(parseFloat((Math.random() * 1000).toFixed(2)));
+      switch (savedWalletName as WalletName) {
+        case "phantom":
+          walletAdapter = window.solana;
+          if (!walletAdapter?.isPhantom || !walletAdapter.isConnected) {
+            return initialState;
+          }
+          break;
+        case "solflare":
+          walletAdapter = window.solflare;
+          if (!walletAdapter?.isSolflare || !walletAdapter.isConnected) {
+            return initialState;
+          }
+          break;
+        case "other":
+          walletAdapter = window.solana;
+          if (
+            !walletAdapter ||
+            walletAdapter.isPhantom ||
+            walletAdapter.isSolflare ||
+            !walletAdapter.isConnected
+          ) {
+            return initialState;
+          }
+          break;
+        default:
+          return initialState;
       }
-    }, 500);
-  });
-};
 
-/**
- * Generate a mock wallet address
- */
-export const generateMockWalletAddress = (): string => {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  const length = 44; // Solana addresses are typically 44 characters
-  let address = "";
+      const address = walletAdapter.publicKey.toString();
+      if (address !== savedAddress) {
+        return initialState; // Wallet address mismatch
+      }
 
-  for (let i = 0; i < length; i++) {
-    address += chars.charAt(Math.floor(Math.random() * chars.length));
+      return {
+        connected: true,
+        wallet: {
+          name: savedWalletName as WalletName,
+          address,
+          connected: true,
+        },
+        rpcEndpoint: RPC_ENDPOINT,
+        network: walletService.currentNetwork,
+        error: null,
+      };
+    }
+
+    return initialState;
+  } catch (error) {
+    console.error("Error checking wallet connection:", error);
+    return {
+      ...initialState,
+      error: "Failed to check wallet connection",
+    };
   }
-
-  return address;
 };
 
-/**
- * Format wallet address for display
- */
+// Format wallet address for display
 export const formatWalletAddress = (address: string): string => {
   if (!address) return "";
-
-  // Return first 4 and last 4 characters
   return `${address.substring(0, 4)}...${address.substring(address.length - 4)}`;
 };
