@@ -7,108 +7,40 @@ import {
   FaArrowDown,
   FaFire,
 } from "react-icons/fa";
-
-// Transaction type definition
-export interface Transaction {
-  id: string;
-  type: "deposit" | "withdrawal" | "burn";
-  token: string;
-  amount: number;
-  from: string;
-  to: string;
-  date: string;
-  status: "completed" | "pending";
-}
-
-// Sample transaction data
-const sampleTransactions: Transaction[] = [
-  {
-    id: "3pDo7xKjnFkmNmAHrHLfEkG8zXcXJvCUXHFv24qfMdCSzEbJRRYHbKGEHZUEMETaJWjfAiE",
-    type: "burn",
-    token: "BUDJU",
-    amount: 1069299,
-    from: "bankofbudju.sol",
-    to: "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK",
-    date: "2025-02-26",
-    status: "completed",
-  },
-  {
-    id: "5KtW8c7pYMEEzTVDDsG2vKH8NaFbFSB84n4FUc1CUGkYAEJKqaWjX9xMrRjcszMhFHU2Kja",
-    type: "deposit",
-    token: "SOL",
-    amount: 5.25,
-    from: "hGwKcLfR9...7Xjb",
-    to: "bankofbudju.sol",
-    date: "2025-02-24",
-    status: "completed",
-  },
-  {
-    id: "7dHJf76FZQeMRbxztkXguZF4CJ9LsYmzj63rvA9pL4cWq8Sz57LUFrkXyUE52FjPKWs3YMu",
-    type: "deposit",
-    token: "USDC",
-    amount: 500,
-    from: "rPzF8nQx1...9wVS",
-    to: "bankofbudju.sol",
-    date: "2025-02-22",
-    status: "completed",
-  },
-  {
-    id: "5xHq8qBpNtXV2Cs6mBXuuhrLrwpVkqx3QQmE7Lp3yHhUDdzCsRznXYeGagjDVpJi9FavANq",
-    type: "burn",
-    token: "BUDJU",
-    amount: 500000,
-    from: "bankofbudju.sol",
-    to: "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK",
-    date: "2025-02-15",
-    status: "completed",
-  },
-  {
-    id: "9FHgRjZK3t5y7xc2bLs9uUJpnVSqsQMz1P8DfrQWc1YXu6AvHTX7BEmz2X4HqNPL5gM8ErC",
-    type: "deposit",
-    token: "BUDJU",
-    amount: 250000,
-    from: "3WvhF9p4...g5Y2",
-    to: "bankofbudju.sol",
-    date: "2025-02-10",
-    status: "completed",
-  },
-  {
-    id: "2ZjH7xC8wFUQGpJdmbf5vEhK72rXnT9asSq6PvgN1yBcuVLkw3G4DTmMXePH8FRyAhW7e6V",
-    type: "withdrawal",
-    token: "SOL",
-    amount: 1.5,
-    from: "bankofbudju.sol",
-    to: "raydium_liquidity.sol",
-    date: "2025-02-05",
-    status: "completed",
-  },
-];
+import { Transaction, fetchBankTransactions } from "@lib/utils/tokenService"; // Adjust path
 
 const BankTransactions = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  const [transactions, _] = useState<Transaction[]>(sampleTransactions);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [filter, setFilter] = useState<
     "all" | "deposit" | "withdrawal" | "burn"
   >("all");
-
-  // Apply filter
-  const filteredTransactions =
-    filter === "all"
-      ? transactions
-      : transactions.filter((tx) => tx.type === filter);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (sectionRef.current && tableRef.current) {
-      const rows = tableRef.current.querySelectorAll("tbody tr");
+    const loadTransactions = async () => {
+      try {
+        setLoading(true);
+        const txs = await fetchBankTransactions(); // Uses defaults from TokenService
+        setTransactions(txs);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "An error occurred");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-      // Animate rows on scroll
+    loadTransactions();
+  }, []);
+
+  useEffect(() => {
+    if (sectionRef.current && tableRef.current && !loading) {
+      const rows = tableRef.current.querySelectorAll("tbody tr");
       gsap.fromTo(
         rows,
-        {
-          opacity: 0,
-          y: 10,
-        },
+        { opacity: 0, y: 10 },
         {
           opacity: 1,
           y: 0,
@@ -122,9 +54,8 @@ const BankTransactions = () => {
         },
       );
     }
-  }, [filteredTransactions]);
+  }, [transactions, loading]);
 
-  // Format transaction type for display
   const getTransactionIcon = (type: Transaction["type"]) => {
     switch (type) {
       case "deposit":
@@ -147,6 +78,11 @@ const BankTransactions = () => {
     }
   };
 
+  const filteredTransactions =
+    filter === "all"
+      ? transactions
+      : transactions.filter((tx) => tx.type === filter);
+
   return (
     <section
       ref={sectionRef}
@@ -168,51 +104,33 @@ const BankTransactions = () => {
           </p>
         </motion.div>
 
-        {/* Filters */}
         <div className="flex flex-wrap justify-center gap-3 mb-8">
           <button
             onClick={() => setFilter("all")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "all"
-                ? "bg-budju-blue text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg transition-colors ${filter === "all" ? "bg-budju-blue text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
           >
             All Transactions
           </button>
-          <button
+          {/* <button
             onClick={() => setFilter("deposit")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "deposit"
-                ? "bg-green-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg transition-colors ${filter === "deposit" ? "bg-green-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
           >
             Deposits
           </button>
           <button
             onClick={() => setFilter("withdrawal")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "withdrawal"
-                ? "bg-yellow-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg transition-colors ${filter === "withdrawal" ? "bg-yellow-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
           >
             Withdrawals
           </button>
           <button
             onClick={() => setFilter("burn")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "burn"
-                ? "bg-red-600 text-white"
-                : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-            }`}
+            className={`px-4 py-2 rounded-lg transition-colors ${filter === "burn" ? "bg-red-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
           >
             Burns
-          </button>
+          </button> */}
         </div>
 
-        {/* Transactions Table */}
         <div className="max-w-5xl mx-auto overflow-x-auto budju-card p-0">
           <table ref={tableRef} className="w-full border-collapse">
             <thead>
@@ -238,8 +156,20 @@ const BankTransactions = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredTransactions.length > 0 ? (
-                filteredTransactions.map((tx, _) => (
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-gray-400">
+                    Loading transactions...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-red-400">
+                    Error: {error}
+                  </td>
+                </tr>
+              ) : filteredTransactions.length > 0 ? (
+                filteredTransactions.map((tx) => (
                   <tr
                     key={tx.id}
                     className="border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30 transition-colors"
