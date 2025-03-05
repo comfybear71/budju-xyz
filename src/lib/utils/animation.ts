@@ -1,4 +1,3 @@
-// src/lib/utils/animations.ts
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
@@ -200,6 +199,7 @@ export const particleBurst = (
 /**
  * Animates counting up a number
  */
+
 export const animateCounter = (
   element: Element,
   targetValue: number,
@@ -221,6 +221,37 @@ export const animateCounter = (
     onUpdate: () => {
       const formatted = obj.value.toFixed(decimals);
       element.textContent = `${prefix}${parseFloat(formatted).toLocaleString()}${suffix}`;
+    },
+  });
+
+  return animation;
+};
+
+export const animateCounterPrice = (
+  element: Element,
+  targetValue: number,
+  config: {
+    duration?: number;
+    prefix?: string;
+    suffix?: string;
+    decimals?: number;
+  } = {},
+) => {
+  const { duration = 1.5, prefix = "", suffix = "", decimals = 8 } = config; // Default decimals to 8 for price
+
+  const obj = { value: 0 };
+
+  const animation = gsap.to(obj, {
+    value: targetValue,
+    duration,
+    ease: "power2.out",
+    onUpdate: () => {
+      const formatted = obj.value.toFixed(decimals); // Use toFixed directly for precision
+      element.textContent = `${prefix}${formatted}${suffix}`; // Preserve decimal places
+    },
+    onComplete: () => {
+      // Ensure the final value is set correctly after animation
+      element.textContent = `${prefix}${targetValue.toFixed(decimals)}${suffix}`;
     },
   });
 

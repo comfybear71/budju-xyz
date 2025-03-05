@@ -1,26 +1,37 @@
 import { useState, useEffect, useRef } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { FaFireAlt, FaDollarSign, FaUsers, FaChartLine } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import Button from "@components/common/Button";
 import {
+  fetchHeliusTokenMetrics,
+  getTokenBalances,
+  HeliusTokenBalance,
   TOKEN_ADDRESS,
   BURN_ADDRESS,
-  SOLSCAN_LINK,
-} from "@constants/addresses";
-import { TOKEN_INFO } from "@constants/config";
-import { animateCounter } from "@/lib/utils/animation";
+} from "@/lib/utils/tokenService";
+import { animateCounter, animateCounterPrice } from "@/lib/utils/animation";
 
-// Token stats component for displaying live token data
+gsap.registerPlugin(ScrollTrigger);
+
+interface TokenData {
+  price: number;
+  marketCap: number;
+  holders: number;
+  volume24h: number;
+  totalSupply: number;
+  burned: number;
+}
+
 const TokenStats = () => {
-  const [tokenData, setTokenData] = useState({
-    price: 0.00023,
-    marketCap: 230000,
-    holders: 123,
-    supply: TOKEN_INFO.TOTAL_SUPPLY,
-    burned: 1569299,
-  });
+  const [tokenData, setTokenData] = useState<TokenData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [topHolders, setTopHolders] = useState<
+    { address: string; percentage: number }[]
+  >([]);
 
   const statsRef = useRef<HTMLDivElement>(null);
   const priceRef = useRef<HTMLSpanElement>(null);
@@ -28,40 +39,66 @@ const TokenStats = () => {
   const holdersRef = useRef<HTMLSpanElement>(null);
   const supplyRef = useRef<HTMLSpanElement>(null);
 
-  // Simulate fetching token data - would be replaced with actual API call to blockchain
+  const SOLSCAN_LINK = `https://solscan.io/token/${TOKEN_ADDRESS}`;
+
+  const fetchTokenData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const metrics = await fetchHeliusTokenMetrics();
+      console.log("Fetched token metrics (including price):", metrics);
+
+      const tokenBalances: HeliusTokenBalance[] = await getTokenBalances();
+      const sortedBalances = tokenBalances
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5);
+
+      const totalTokens = tokenBalances.reduce(
+        (sum, balance) => sum + balance.amount,
+        0,
+      );
+
+      const topHoldersWithPercentage = sortedBalances.map((balance) => ({
+        address: balance.owner,
+        percentage: totalTokens > 0 ? (balance.amount / totalTokens) * 100 : 0,
+      }));
+
+      setTopHolders(topHoldersWithPercentage);
+      setTokenData(metrics);
+    } catch (err) {
+      console.error("Error fetching token data:", err);
+      setError("Failed to load token data. Please try again later.");
+      setTokenData(null);
+      setTopHolders([
+        { address: "ABC...XYZ", percentage: 15 },
+        { address: "DEF...UVW", percentage: 10 },
+        { address: "GHI...RST", percentage: 8 },
+        { address: "JKL...MNO", percentage: 5 },
+        { address: "PQR...STU", percentage: 3 },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchTokenData = async () => {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // In a real app, this would be a blockchain API call
-      setTokenData({
-        price: 0.00023,
-        marketCap: 230000,
-        holders: 123,
-        supply: TOKEN_INFO.TOTAL_SUPPLY,
-        burned: 1569299,
-      });
-    };
-
     fetchTokenData();
-
-    // Refresh data every 30 seconds
-    const intervalId = setInterval(fetchTokenData, 30000);
-
-    return () => clearInterval(intervalId);
+    const interval = setInterval(fetchTokenData, 300000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Animate counters when they come into view
   useEffect(() => {
     if (
+      !loading &&
+      tokenData &&
       statsRef.current &&
       priceRef.current &&
       mcapRef.current &&
       holdersRef.current &&
       supplyRef.current
     ) {
-      // Create a timeline for animations
+      console.log("Animating price:", tokenData.price);
       const tl = gsap.timeline({
         scrollTrigger: {
           trigger: statsRef.current,
@@ -69,31 +106,28 @@ const TokenStats = () => {
         },
       });
 
-      // Add counter animations to the timeline
       tl.add(() => {
-        // Animate price counter
-        animateCounter(priceRef.current!, tokenData.price, {
+        animateCounterPrice(priceRef.current!, tokenData.price, {
           prefix: "$",
           decimals: 8,
         });
-
-        // Animate market cap counter
         animateCounter(mcapRef.current!, tokenData.marketCap, {
           prefix: "$",
         });
-
-        // Animate holders counter
         animateCounter(holdersRef.current!, tokenData.holders);
-
-        // Animate supply counter
-        animateCounter(supplyRef.current!, tokenData.supply - tokenData.burned);
+        animateCounter(
+          supplyRef.current!,
+          tokenData.totalSupply - tokenData.burned,
+        );
       });
     }
-  }, [tokenData]);
+  }, [loading, tokenData]);
 
-  // Format remaining supply
-  const remainingSupply = tokenData.supply - tokenData.burned;
+  const remainingSupply = tokenData
+    ? tokenData.totalSupply - tokenData.burned
+    : 0;
 
+  console.log(tokenData, "token data");
   return (
     <section className="py-16 bg-gradient-to-b from-gray-900 to-budju-black">
       <div className="budju-container">
@@ -109,12 +143,16 @@ const TokenStats = () => {
           </h2>
         </motion.div>
 
-        {/* Stats Cards */}
+        {error && (
+          <div className="text-center text-red-400 mb-6">
+            {error}. Please try again later.
+          </div>
+        )}
+
         <div
           ref={statsRef}
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
         >
-          {/* Price Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -126,12 +164,19 @@ const TokenStats = () => {
             </div>
             <h3 className="text-lg text-gray-300 mb-2">BUDJU Price</h3>
             <p className="text-2xl font-bold text-white mb-1">
-              <span ref={priceRef}>${tokenData.price.toFixed(8)}</span>
+              <span ref={priceRef}>
+                {loading
+                  ? "Loading..."
+                  : tokenData
+                    ? `$${tokenData.price.toFixed(8)}` // Static display
+                    : "N/A"}
+              </span>
             </p>
-            <p className="text-sm text-budju-blue">Updated in real-time</p>
+            <p className="text-sm text-budju-blue">
+              {loading ? "Fetching data..." : "Updated in real-time"}
+            </p>
           </motion.div>
 
-          {/* Market Cap Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -143,12 +188,19 @@ const TokenStats = () => {
             </div>
             <h3 className="text-lg text-gray-300 mb-2">Market Cap</h3>
             <p className="text-2xl font-bold text-white mb-1">
-              <span ref={mcapRef}>${tokenData.marketCap.toLocaleString()}</span>
+              <span ref={mcapRef}>
+                {loading
+                  ? "Loading..."
+                  : tokenData
+                    ? `$${tokenData.marketCap.toLocaleString()}`
+                    : "N/A"}
+              </span>
             </p>
-            <p className="text-sm text-budju-blue">Fully diluted valuation</p>
+            <p className="text-sm text-budju-blue">
+              {loading ? "Fetching data..." : "Fully diluted valuation"}
+            </p>
           </motion.div>
 
-          {/* Holders Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -160,12 +212,19 @@ const TokenStats = () => {
             </div>
             <h3 className="text-lg text-gray-300 mb-2">Holders</h3>
             <p className="text-2xl font-bold text-white mb-1">
-              <span ref={holdersRef}>{tokenData.holders.toLocaleString()}</span>
+              <span ref={holdersRef}>
+                {loading
+                  ? "Loading..."
+                  : tokenData
+                    ? tokenData.holders.toLocaleString()
+                    : "N/A"}
+              </span>
             </p>
-            <p className="text-sm text-budju-blue">BUDJU community members</p>
+            <p className="text-sm text-budju-blue">
+              {loading ? "Fetching data..." : "BUDJU community members"}
+            </p>
           </motion.div>
 
-          {/* Circulating Supply Card */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -177,18 +236,54 @@ const TokenStats = () => {
             </div>
             <h3 className="text-lg text-gray-300 mb-2">Circulating Supply</h3>
             <p className="text-2xl font-bold text-white mb-1">
-              <span ref={supplyRef}>{remainingSupply.toLocaleString()}</span>
+              <span ref={supplyRef}>
+                {loading
+                  ? "Loading..."
+                  : tokenData
+                    ? remainingSupply.toLocaleString()
+                    : "N/A"}
+              </span>
             </p>
             <p className="text-sm text-budju-blue">
               <span className="text-red-400">
-                {tokenData.burned.toLocaleString()}
+                {tokenData ? tokenData.burned.toLocaleString() : "0"}
               </span>{" "}
               BUDJU burned
             </p>
           </motion.div>
         </div>
 
-        {/* Token Information */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.6 }}
+          className="mt-12 bg-gray-900/50 rounded-xl border border-gray-800 p-6"
+        >
+          <h3 className="text-xl font-semibold mb-4 text-center">
+            <span className="text-white">Top</span>{" "}
+            <span className="text-budju-blue">Holders</span>
+          </h3>
+
+          <div className="space-y-3">
+            {topHolders.map((holder, index) => (
+              <div
+                key={holder.address}
+                className="flex justify-between items-center bg-gray-800/50 p-3 rounded-lg"
+              >
+                <div className="flex items-center">
+                  <span className="mr-3 text-gray-400">{index + 1}.</span>
+                  <code className="text-sm text-budju-blue font-mono">
+                    {holder.address.slice(0, 6)}...{holder.address.slice(-4)}
+                  </code>
+                </div>
+                <span className="text-white font-medium">
+                  {holder.percentage.toFixed(2)}%
+                </span>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -196,7 +291,6 @@ const TokenStats = () => {
           className="mt-12 bg-gray-900/50 rounded-xl border border-gray-800 p-6"
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Token Contract */}
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 <span className="text-budju-blue">TOKEN</span>{" "}
@@ -210,7 +304,6 @@ const TokenStats = () => {
               </div>
             </div>
 
-            {/* Burn Address */}
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 <span className="text-white">BURN</span>{" "}
@@ -225,7 +318,6 @@ const TokenStats = () => {
             </div>
           </div>
 
-          {/* View on Explorer */}
           <div className="mt-6 flex justify-center">
             <Button
               as="a"
