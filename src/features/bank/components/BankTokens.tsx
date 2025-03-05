@@ -1,8 +1,28 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
-// Token holding interface
+// Constants for API keys and endpoints
+const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
+const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+
+// Validate API keys
+if (!HELIUS_API_KEY) {
+  throw new Error("Missing API key for Helius");
+}
+
+// Bank of Budju address
+const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+
+// Create Solana connection
+const connection = new Connection(HELIUS_RPC_ENDPOINT, {
+  commitment: "confirmed",
+  confirmTransactionInitialTimeout: 60000,
+});
+
+// TokenHolding interface
 interface TokenHolding {
   name: string;
   symbol: string;
@@ -12,58 +32,231 @@ interface TokenHolding {
   color: string;
 }
 
-// Bank token holdings
-const tokenHoldings: TokenHolding[] = [
-  {
-    name: "Solana",
-    symbol: "SOL",
-    logo: "/images/tokens/sol.png",
-    amount: 12.45,
-    value: 1432.5,
-    color: "bg-purple-600",
-  },
-  {
-    name: "BUDJU Coin",
-    symbol: "BUDJU",
-    logo: "/images/logo.png",
-    amount: 5248932.73,
-    value: 1049.79,
-    color: "bg-budju-pink",
-  },
-  {
-    name: "USD Coin",
-    symbol: "USDC",
-    logo: "/images/tokens/usdc.png",
-    amount: 925.12,
-    value: 925.12,
-    color: "bg-blue-500",
-  },
-  {
-    name: "Jito Staked SOL",
-    symbol: "JitoSOL",
-    logo: "/images/tokens/jitosol.png",
-    amount: 8.23,
-    value: 947.65,
-    color: "bg-teal-500",
-  },
-];
+// Simple in-memory cache
+const cache: Record<string, { data: any; expiry: number }> = {};
 
+function getCachedData(key: string): any | null {
+  const cached = cache[key];
+  if (cached && Date.now() < cached.expiry) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedData(key: string, data: any, ttl: number): void {
+  cache[key] = { data, expiry: Date.now() + ttl };
+}
+
+// Optimized retryFetch with exponential backoff
+async function retryFetch(
+  url: string,
+  options: RequestInit,
+  retries = 3,
+  delay = 1000,
+): Promise<Response> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        if (response.status === 429 && attempt < retries) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, delay * Math.pow(2, attempt)),
+          );
+          continue;
+        }
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
+      return response;
+    } catch (error) {
+      if (attempt === retries) {
+        if (error instanceof Error) {
+          throw new Error(`Failed after ${retries} attempts: ${error.message}`);
+        } else {
+          throw new Error(`Failed after ${retries} attempts: ${String(error)}`);
+        }
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, delay * Math.pow(2, attempt)),
+      );
+    }
+  }
+  throw new Error("Unexpected error in retryFetch");
+}
+
+// Fetch token price with caching
+async function fetchTokenPrice(tokenAddress: string): Promise<number> {
+  const cacheKey = `price_${tokenAddress}`;
+  const cachedPrice = getCachedData(cacheKey);
+  if (cachedPrice !== null) {
+    return cachedPrice;
+  }
+
+  try {
+    const response = await retryFetch(
+      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
+      { headers: { Accept: "application/json" } },
+    );
+    const data = await response.json();
+    const price = Number(data.data[tokenAddress]?.price || 0);
+    if (!isNaN(price) && price > 0) {
+      setCachedData(cacheKey, price, 5 * 60 * 1000); // Cache for 5 minutes
+      return price;
+    }
+    throw new Error("No valid price from Jupiter");
+  } catch (error) {
+    console.error("Error fetching token price:", error);
+    return 0;
+  }
+}
+
+// Fetch token metadata dynamically using Helius
+async function fetchTokenMetadata(tokenAddress: string): Promise<{
+  name: string;
+  symbol: string;
+  logo: string;
+  color: string;
+}> {
+  const cacheKey = `metadata_${tokenAddress}`;
+  const cachedMetadata = getCachedData(cacheKey);
+  if (cachedMetadata !== null) {
+    return cachedMetadata;
+  }
+
+  try {
+    const response = await retryFetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "token-metadata",
+        method: "getAsset",
+        params: { id: tokenAddress },
+      }),
+    });
+    const data = await response.json();
+    const tokenData = data.result?.content?.metadata || {};
+    const metadata = {
+      name: tokenData.name || "Unknown Token",
+      symbol: tokenData.symbol || "UNKNOWN",
+      logo: data.result?.content?.links?.image || "/images/tokens/default.png",
+      color: "bg-gray-500", // Default color; can be mapped based on symbol
+    };
+    setCachedData(cacheKey, metadata, 60 * 60 * 1000); // Cache for 1 hour
+    return metadata;
+  } catch (error) {
+    console.error(`Error fetching metadata for token ${tokenAddress}:`, error);
+    return {
+      name: "Unknown Token",
+      symbol: "UNKNOWN",
+      logo: "/images/tokens/default.png",
+      color: "bg-gray-500",
+    };
+  }
+}
+
+// Fetch bank holdings for BANK_OF_BUDJU_ADDRESS
+async function fetchBankHoldings(): Promise<TokenHolding[]> {
+  const cacheKey = `bank_holdings_${BANK_OF_BUDJU_ADDRESS}`;
+  const cachedHoldings = getCachedData(cacheKey);
+  if (cachedHoldings !== null) {
+    return cachedHoldings;
+  }
+
+  try {
+    // Fetch all token accounts owned by BANK_OF_BUDJU_ADDRESS
+    const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      bankPublicKey,
+      {
+        programId: TOKEN_PROGRAM_ID,
+      },
+    );
+
+    // Process each token account in batches
+    const holdings: TokenHolding[] = [];
+    const fetchPromises = tokenAccounts.value.map(async (account) => {
+      const parsedInfo = account.account.data.parsed.info;
+      const tokenAddress = parsedInfo.mint;
+      const amount = parsedInfo.tokenAmount.uiAmount || 0;
+
+      // Skip negligible amounts
+      if (amount < 0.0001) return;
+
+      // Fetch token price and metadata in parallel
+      const [price, metadata] = await Promise.all([
+        fetchTokenPrice(tokenAddress),
+        fetchTokenMetadata(tokenAddress),
+      ]);
+
+      const value = amount * price;
+
+      // Only include holdings with a positive value
+      if (value > 0) {
+        holdings.push({
+          name: metadata.name,
+          symbol: metadata.symbol,
+          logo: metadata.logo,
+          amount,
+          value,
+          color: metadata.color,
+        });
+      }
+    });
+
+    // Wait for all fetches to complete
+    await Promise.all(fetchPromises);
+
+    // Sort by value (descending)
+    const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
+    setCachedData(cacheKey, sortedHoldings, 10 * 60 * 1000); // Cache for 10 minutes
+    return sortedHoldings;
+  } catch (error) {
+    console.error("Error fetching bank holdings:", error);
+    return [];
+  }
+}
+
+// BankTokens Component with Image 2 Styling
 const BankTokens = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
+  const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
 
+  // Fetch bank holdings on component mount
   useEffect(() => {
-    if (sectionRef.current && cardsRef.current) {
+    const loadBankHoldings = async () => {
+      try {
+        setLoading(true);
+        const holdings = await fetchBankHoldings();
+        setTokenHoldings(holdings);
+      } catch (err) {
+        console.error("Failed to load bank holdings:", err);
+        setError("Failed to load bank holdings. Please try again later.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadBankHoldings();
+  }, []);
+
+  // GSAP animations (simplified to match Image 2's static layout)
+  useEffect(() => {
+    if (sectionRef.current && cardsRef.current && tokenHoldings.length > 0) {
       const cards = cardsRef.current.querySelectorAll(".token-card");
 
-      // Animate cards on scroll
       gsap.fromTo(
         cards,
-        {
-          opacity: 0,
-          y: 20,
-          scale: 0.95,
-        },
+        { opacity: 0, y: 20, scale: 0.95 },
         {
           opacity: 1,
           y: 0,
@@ -71,14 +264,9 @@ const BankTokens = () => {
           stagger: 0.1,
           duration: 0.6,
           ease: "power2.out",
-          scrollTrigger: {
-            trigger: cardsRef.current,
-            start: "top 80%",
-          },
         },
       );
 
-      // Add hover effects for each card
       cards.forEach((card) => {
         card.addEventListener("mouseenter", () => {
           gsap.to(card, {
@@ -98,7 +286,7 @@ const BankTokens = () => {
         });
       });
     }
-  }, []);
+  }, [tokenHoldings]);
 
   // Calculate total bank value
   const totalBankValue = tokenHoldings.reduce(
@@ -109,20 +297,17 @@ const BankTokens = () => {
   return (
     <section
       ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
+      className="py-10 bg-[#0a0a0a] text-white" // Dark background like Image 2
     >
-      <div className="budju-container">
+      <div className="max-w-5xl mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          className="text-center mb-8"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-budju-blue">BANK</span>{" "}
-            <span className="text-white">HOLDINGS</span>
-          </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <h2 className="text-3xl font-bold mb-2 text-white">BANK HOLDINGS</h2>
+          <p className="text-sm text-gray-400">
             Current assets held in the Bank of BUDJU
           </p>
         </motion.div>
@@ -132,87 +317,134 @@ const BankTokens = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-center mb-10"
+          className="text-center mb-8"
         >
-          <div className="text-gray-400 mb-1">Total Bank Assets</div>
+          <div className="text-gray-400 text-sm mb-1">Total Bank Assets</div>
           <div className="text-4xl font-bold text-white">
-            ${totalBankValue.toLocaleString()}
+            $
+            {totalBankValue.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
           </div>
         </motion.div>
 
-        {/* Token Cards */}
-        <div
-          ref={cardsRef}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto"
-        >
-          {tokenHoldings.map((token, _) => (
-            <div
-              key={token.symbol}
-              className={`token-card budju-card overflow-hidden`}
+        {/* Loading/Error State */}
+        {loading && (
+          <div className="text-center text-gray-400">
+            Loading bank holdings...
+          </div>
+        )}
+        {error && (
+          <div className="text-center text-red-500">
+            {error}{" "}
+            <button
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                fetchBankHoldings()
+                  .then(setTokenHoldings)
+                  .catch((err) => {
+                    console.error(err);
+                    setError(
+                      "Failed to load bank holdings. Please try again later.",
+                    );
+                  })
+                  .finally(() => setLoading(false));
+              }}
+              className="text-blue-400 underline"
             >
-              {/* Top colored bar */}
-              <div className={`h-2 ${token.color}`}></div>
+              Retry
+            </button>
+          </div>
+        )}
 
-              <div className="p-6">
-                {/* Token header */}
-                <div className="flex items-center mb-4">
-                  <img
-                    src={token.logo}
-                    alt={token.name}
-                    className="w-10 h-10 mr-3"
-                  />
+        {/* Token Cards */}
+        {!loading && !error && tokenHoldings.length > 0 && (
+          <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {tokenHoldings.map((token, _) => (
+              <div
+                key={token.symbol + token.name}
+                className="token-card bg-[#1a1a1a] rounded-lg shadow-md overflow-hidden"
+              >
+                {/* Top colored bar */}
+                <div className={`h-2 ${token.color}`}></div>
+
+                <div className="p-4">
+                  {/* Token header */}
+                  <div className="flex items-center mb-4">
+                    <img
+                      src={token.logo}
+                      alt={token.name}
+                      className="w-8 h-8 mr-3 rounded-full"
+                      onError={(e) => {
+                        e.currentTarget.src = "/images/tokens/default.png";
+                      }}
+                    />
+                    <div>
+                      <div className="text-white font-bold text-lg">
+                        {token.name}
+                      </div>
+                      <div className="text-gray-400 text-sm">
+                        {token.symbol}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Token amount */}
+                  <div className="mb-2">
+                    <div className="text-gray-400 text-xs">Amount</div>
+                    <div className="text-white text-base font-mono">
+                      {token.amount.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Token value */}
+                  <div className="mb-2">
+                    <div className="text-gray-400 text-xs">Value</div>
+                    <div className="text-blue-400 text-base font-bold">
+                      $
+                      {token.value.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Percentage of total */}
                   <div>
-                    <div className="text-white font-bold">{token.name}</div>
-                    <div className="text-gray-400 text-sm">{token.symbol}</div>
+                    <div className="text-gray-400 text-xs">% of Bank</div>
+                    <div className="text-white text-base">
+                      {((token.value / totalBankValue) * 100).toFixed(1)}%
+                    </div>
                   </div>
-                </div>
 
-                {/* Token amount */}
-                <div className="mb-2">
-                  <div className="text-gray-400 text-sm">Amount</div>
-                  <div className="text-xl font-mono text-white">
-                    {token.amount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                  {/* Progress bar */}
+                  <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${token.color}`}
+                      style={{
+                        width: `${(token.value / totalBankValue) * 100}%`,
+                      }}
+                    ></div>
                   </div>
-                </div>
-
-                {/* Token value */}
-                <div className="mb-2">
-                  <div className="text-gray-400 text-sm">Value</div>
-                  <div className="text-xl font-bold text-budju-blue">
-                    $
-                    {token.value.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
-                  </div>
-                </div>
-
-                {/* Percentage of total */}
-                <div>
-                  <div className="text-gray-400 text-sm">% of Bank</div>
-                  <div className="text-white">
-                    {((token.value / totalBankValue) * 100).toFixed(1)}%
-                  </div>
-                </div>
-
-                {/* Progress bar */}
-                <div className="mt-4 h-2 bg-gray-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${token.color}`}
-                    style={{
-                      width: `${(token.value / totalBankValue) * 100}%`,
-                    }}
-                  ></div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
-        <div className="text-center mt-10 text-gray-400 text-sm max-w-2xl mx-auto">
+        {/* Fallback if no holdings */}
+        {!loading && !error && tokenHoldings.length === 0 && (
+          <div className="text-center text-gray-400">
+            No bank holdings found.
+          </div>
+        )}
+
+        <div className="text-center mt-8 text-gray-400 text-sm max-w-2xl mx-auto">
           All Bank of BUDJU holdings are verifiable on the Solana blockchain and
           regularly updated. Assets are used for token buybacks, burns, and
           ecosystem development.
