@@ -9,6 +9,8 @@ const JUPITER_PRICE_API = "https://api.jup.ag/price/v2";
 
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+const RAYDIUM_VAULT_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1"; // Replace with actual address
+const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc"; // Replace with actual address
 
 const connection = new Connection(HELIUS_RPC_ENDPOINT, "confirmed");
 
@@ -24,6 +26,8 @@ interface TokenMetrics {
   volume24h: number;
   totalSupply: number;
   burned: number;
+  raydiumVault: number;
+  bankOfBudju: number;
 }
 
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
@@ -92,20 +96,21 @@ async function fetchTokenSupplyAndBalances(
   balances: HeliusTokenBalance[];
   totalSupply: number;
   burned: number;
+  raydiumVault: number;
+  bankOfBudju: number;
 }> {
   try {
     console.log("Received tokenAddress:", tokenAddress);
     console.log("Received burnAddress:", burnAddress);
 
-    // if (!tokenAddress || typeof tokenAddress !== "string" || tokenAddress.length !== 44) {
-    //   throw new Error(`Invalid tokenAddress: ${tokenAddress}`);
-    // }
-    // if (!burnAddress || typeof burnAddress !== "string" || (burnAddress.length !== 44 && burnAddress !== "")) {
-    //   throw new Error(`Invalid burnAddress: ${burnAddress}`);
-    // }
-
     const tokenPublicKey = new PublicKey(tokenAddress);
     const burnPublicKey = burnAddress ? new PublicKey(burnAddress) : null;
+    const raydiumVaultPublicKey = RAYDIUM_VAULT_ADDRESS
+      ? new PublicKey(RAYDIUM_VAULT_ADDRESS)
+      : null;
+    const bankOfBudjuPublicKey = BANK_OF_BUDJU_ADDRESS
+      ? new PublicKey(BANK_OF_BUDJU_ADDRESS)
+      : null;
 
     const mint = await getMint(connection, tokenPublicKey);
     const totalSupply = Number(mint.supply) / 10 ** mint.decimals;
@@ -144,7 +149,25 @@ async function fetchTokenSupplyAndBalances(
           .reduce((sum, balance) => sum + (balance.amount || 0), 0)
       : 0;
 
-    return { balances: activeBalances, totalSupply, burned };
+    const raydiumVault = raydiumVaultPublicKey
+      ? balances
+          .filter((balance) => balance.owner === RAYDIUM_VAULT_ADDRESS)
+          .reduce((sum, balance) => sum + (balance.amount || 0), 0)
+      : 0;
+
+    const bankOfBudju = bankOfBudjuPublicKey
+      ? balances
+          .filter((balance) => balance.owner === BANK_OF_BUDJU_ADDRESS)
+          .reduce((sum, balance) => sum + (balance.amount || 0), 0)
+      : 0;
+
+    return {
+      balances: activeBalances,
+      totalSupply,
+      burned,
+      raydiumVault,
+      bankOfBudju,
+    };
   } catch (error) {
     console.error("Error fetching token supply and balances:", error);
     throw error;
@@ -158,13 +181,11 @@ export async function fetchHeliusTokenMetrics(
   try {
     const price = await fetchTokenPrice(tokenAddress);
     const birdEyeData = await fetchBirdEyeData(tokenAddress);
-    const { balances, totalSupply, burned } = await fetchTokenSupplyAndBalances(
-      tokenAddress,
-      burnAddress,
-    );
+    const { balances, totalSupply, burned, raydiumVault, bankOfBudju } =
+      await fetchTokenSupplyAndBalances(tokenAddress, burnAddress);
 
     const holders = new Set(balances.map((b) => b.owner)).size;
-    const circulatingSupply = totalSupply - burned;
+    const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju;
     const marketCap = price * circulatingSupply;
 
     return {
@@ -174,6 +195,8 @@ export async function fetchHeliusTokenMetrics(
       volume24h: birdEyeData.volume24h,
       totalSupply,
       burned,
+      raydiumVault,
+      bankOfBudju,
     };
   } catch (error) {
     console.error("Error in fetchHeliusTokenMetrics:", error);
