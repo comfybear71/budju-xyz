@@ -2,7 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
