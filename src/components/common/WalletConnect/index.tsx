@@ -18,21 +18,20 @@ import walletService, {
   Network,
   TokenBalance,
 } from "@lib/services/walletService";
+import { createPortal } from "react-dom";
 
+// Interface for Props
 interface WalletConnectProps {
   fullWidth?: boolean;
   size?: "sm" | "md" | "lg";
 }
 
+// Wallet configuration
 const walletConfig: Record<WalletName, { name: string; logo: string }> = {
   phantom: {
     name: "Phantom",
     logo: "/images/wallets/phantom.png",
   },
-  // jupiter: {
-  //   name: "Jupiter",
-  //   logo: "/images/wallets/jupiter.png",
-  // },
   solflare: {
     name: "Solflare",
     logo: "/images/wallets/solflare.png",
@@ -45,12 +44,9 @@ const walletConfig: Record<WalletName, { name: string; logo: string }> = {
 
 const networkOptions: Network[] = ["mainnet", "devnet"];
 
-const customTokens = [
-  { symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 },
-  // Add more custom tokens here, e.g.:
-  // { symbol: "USDC", address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
-];
+const customTokens = [{ symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 }];
 
+// Main Component
 const WalletConnect = ({
   fullWidth = false,
   size = "md",
@@ -58,6 +54,7 @@ const WalletConnect = ({
   const { connection, connecting, availableWallets, connect, disconnect } =
     useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false); // For mobile modal
   const [showCopied, setShowCopied] = useState(false);
   const [balances, setBalances] = useState<WalletBalance>({
     sol: 0,
@@ -67,6 +64,7 @@ const WalletConnect = ({
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<Network>("mainnet");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Define types for window extensions
@@ -79,22 +77,31 @@ const WalletConnect = ({
   // Check if device/browser supports wallets
   const [isSupported, setIsSupported] = useState(true);
 
+  // Detect if device is mobile or tablet
+  useEffect(() => {
+    const checkDevice = () => {
+      const userAgent = navigator.userAgent;
+      const isMobileOrTabletDevice =
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          userAgent,
+        ) || window.innerWidth <= 1024; // Tablets typically up to 1024px
+      setIsMobileOrTablet(isMobileOrTabletDevice);
+    };
+
+    checkDevice();
+    window.addEventListener("resize", checkDevice);
+    return () => window.removeEventListener("resize", checkDevice);
+  }, []);
+
   // Check for wallet compatibility on mount
   useEffect(() => {
-    // Safe window access with proper typing
     const extWindow = window as ExtendedWindow;
-
-    // Check if running on iOS where browser extensions aren't supported
     const isIOS =
       /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-
-    // Check if on mobile Android browser (not in-app browser)
     const isAndroidMobileBrowser =
       /Android/.test(navigator.userAgent) &&
       /Chrome\/[.0-9]*Mobile/.test(navigator.userAgent) &&
-      !/wv/.test(navigator.userAgent); // exclude WebViews
-
-    // Set supported state
+      !/wv/.test(navigator.userAgent);
     setIsSupported(
       !isIOS &&
         (!isAndroidMobileBrowser ||
@@ -109,7 +116,7 @@ const WalletConnect = ({
       setLoadingBalances(true);
       setBalanceError(null);
 
-      walletService.switchNetwork(selectedNetwork); // Ensure network is set
+      walletService.switchNetwork(selectedNetwork);
 
       const unsubscribe = walletService.subscribeToBalanceUpdates(
         connection.wallet.address,
@@ -118,7 +125,7 @@ const WalletConnect = ({
           setLoadingBalances(false);
         },
         customTokens,
-        30000, // Update every 30 seconds
+        30000,
       );
 
       return () => unsubscribe();
@@ -153,14 +160,15 @@ const WalletConnect = ({
   const handleNetworkChange = (network: Network) => {
     setSelectedNetwork(network);
     walletService.switchNetwork(network);
-    handleRefresh(); // Refresh balances on network switch
+    handleRefresh();
   };
 
-  // Close menu when clicking outside
+  // Close menu/modal when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsMenuOpen(false);
+        setIsModalOpen(false);
       }
     };
 
@@ -171,13 +179,9 @@ const WalletConnect = ({
   // Connect to a wallet with error handling
   const handleConnect = async (walletName: WalletName) => {
     setConnectionError(null);
-
-    // Get typed window with wallet extensions
     const extWindow = window as ExtendedWindow;
 
-    // Check if wallet extension exists
     let walletExists = false;
-
     if (walletName === "phantom") {
       walletExists =
         typeof extWindow.phantom !== "undefined" ||
@@ -197,6 +201,7 @@ const WalletConnect = ({
     try {
       await connect(walletName);
       setIsMenuOpen(false);
+      setIsModalOpen(false);
     } catch (error) {
       console.error("Connection error:", error);
       if (error instanceof Error) {
@@ -211,6 +216,7 @@ const WalletConnect = ({
   const handleDisconnect = () => {
     disconnect();
     setIsMenuOpen(false);
+    setIsModalOpen(false);
   };
 
   // Copy wallet address to clipboard
@@ -233,11 +239,14 @@ const WalletConnect = ({
     }
   };
 
-  // Toggle wallet dropdown menu
+  // Toggle wallet dropdown or modal
   const toggleMenu = () => {
-    setIsMenuOpen(!isMenuOpen);
-    // Reset any errors when opening the menu
-    if (!isMenuOpen) {
+    if (isMobileOrTablet) {
+      setIsModalOpen(!isModalOpen);
+    } else {
+      setIsMenuOpen(!isMenuOpen);
+    }
+    if (!isMenuOpen && !isModalOpen) {
       setConnectionError(null);
     }
   };
@@ -252,33 +261,103 @@ const WalletConnect = ({
   // Redirect to app store or web store based on device
   const handleGetWallet = (walletName: WalletName) => {
     if (walletName === "phantom") {
-      // Check if iOS
       if (
         /iPad|iPhone|iPod/.test(navigator.userAgent) &&
         !(window as any).MSStream
       ) {
-        // iOS - open App Store
         window.open(
           "https://apps.apple.com/app/phantom-solana-wallet/id1598432977",
           "_blank",
         );
-      }
-      // Check if Android
-      else if (/Android/.test(navigator.userAgent)) {
-        // Android - open Play Store
+      } else if (/Android/.test(navigator.userAgent)) {
         window.open(
           "https://play.google.com/store/apps/details?id=app.phantom",
           "_blank",
         );
-      }
-      // Desktop
-      else {
+      } else {
         window.open("https://phantom.app/download", "_blank");
       }
     } else if (walletName === "solflare") {
       window.open("https://solflare.com/download", "_blank");
     }
   };
+
+  // Wallet selection content (used for both dropdown and modal)
+  const WalletSelectionContent = () => (
+    <>
+      <div className="p-4 border-b border-gray-800">
+        <h3 className="text-white font-bold">Connect Wallet</h3>
+        <p className="text-gray-400 text-sm">
+          Select a wallet to connect to BUDJU
+        </p>
+      </div>
+
+      {connectionError && (
+        <div className="p-3 bg-red-900/40 border-b border-gray-800">
+          <div className="flex items-center text-red-400">
+            <FaExclamationTriangle className="mr-2" />
+            <span className="text-sm">{connectionError}</span>
+          </div>
+        </div>
+      )}
+
+      {!isSupported && (
+        <div className="p-3 bg-yellow-900/40 border-b border-gray-800">
+          <div className="flex items-start text-yellow-400">
+            <FaExclamationTriangle className="mr-2 mt-0.5" />
+            <div>
+              <span className="text-sm block">
+                Your device or browser may not support wallet extensions.
+              </span>
+              <span className="text-xs block mt-1">
+                Please install a Solana wallet app and use its built-in browser.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="p-2 max-h-60 overflow-y-auto">
+        {availableWallets.length > 0 ? (
+          availableWallets.map((wallet) => (
+            <div key={wallet} className="mb-2">
+              <button
+                onClick={() => handleConnect(wallet)}
+                className="flex items-center w-full p-3 rounded-lg hover:bg-gray-800 transition-colors"
+              >
+                <img
+                  src={walletConfig[wallet].logo}
+                  alt={walletConfig[wallet].name}
+                  className="w-8 h-8 mr-3"
+                />
+                <span className="text-white">{walletConfig[wallet].name}</span>
+              </button>
+              {!isSupported && (
+                <button
+                  onClick={() => handleGetWallet(wallet)}
+                  className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
+                >
+                  Download {walletConfig[wallet].name}
+                </button>
+              )}
+            </div>
+          ))
+        ) : (
+          <div className="p-3 text-center text-gray-400">
+            No compatible wallets found.
+            <a
+              href="https://phantom.app/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mt-2 text-budju-blue hover:underline"
+            >
+              Install Phantom
+            </a>
+          </div>
+        )}
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -287,117 +366,75 @@ const WalletConnect = ({
     >
       {!connection.connected ? (
         <>
-          <Button
-            variant="secondary"
-            onClick={() => setIsMenuOpen(true)}
-            fullWidth={fullWidth}
-            size={size}
-            leftIcon={<FaWallet />}
+          {/* Updated Button with Web3 Styling */}
+          <button
+            onClick={toggleMenu}
+            className={`group relative flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
+              sizeClasses[size]
+            } ${fullWidth ? "w-full" : ""}`}
             disabled={connecting}
           >
-            {connecting ? "Connecting..." : "Connect Wallet"}
-          </Button>
+            <span className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.2)_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+            <FaWallet className="text-white" />
+            <span className="font-semibold">
+              {connecting ? "Connecting..." : "Connect Wallet"}
+            </span>
+          </button>
 
-          <AnimatePresence>
-            {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.2 }}
-                className={`absolute z-50 right-0 mt-2 w-64 bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800 ${
-                  fullWidth ? "left-0" : ""
-                }`}
-              >
-                <div className="p-4 border-b border-gray-800">
-                  <h3 className="text-white font-bold">Connect Wallet</h3>
-                  <p className="text-gray-400 text-sm">
-                    Select a wallet to connect to BUDJU
-                  </p>
-                </div>
+          {/* Dropdown for Desktop */}
+          {!isMobileOrTablet && (
+            <AnimatePresence>
+              {isMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  transition={{ duration: 0.2 }}
+                  className={`absolute z-50 right-0 mt-2 w-64 bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800 ${
+                    fullWidth ? "left-0" : ""
+                  }`}
+                >
+                  <WalletSelectionContent />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
 
-                {/* Error message */}
-                {connectionError && (
-                  <div className="p-3 bg-red-900/40 border-b border-gray-800">
-                    <div className="flex items-center text-red-400">
-                      <FaExclamationTriangle className="mr-2" />
-                      <span className="text-sm">{connectionError}</span>
-                    </div>
+          {/* Modal for Mobile/Tablet */}
+          {isMobileOrTablet &&
+            isModalOpen &&
+            createPortal(
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ duration: 0.2 }}
+                  className="w-11/12 max-w-sm bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800"
+                >
+                  <div className="flex justify-end p-2">
+                    <button
+                      onClick={() => setIsModalOpen(false)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      ✕
+                    </button>
                   </div>
-                )}
-
-                {/* Device compatibility warning */}
-                {!isSupported && (
-                  <div className="p-3 bg-yellow-900/40 border-b border-gray-800">
-                    <div className="flex items-start text-yellow-400">
-                      <FaExclamationTriangle className="mr-2 mt-0.5" />
-                      <div>
-                        <span className="text-sm block">
-                          Your device or browser may not support wallet
-                          extensions.
-                        </span>
-                        <span className="text-xs block mt-1">
-                          Please install a Solana wallet app and use its
-                          built-in browser.
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className="p-2 max-h-60 overflow-y-auto">
-                  {availableWallets.length > 0 ? (
-                    availableWallets.map((wallet) => (
-                      <div key={wallet} className="mb-2">
-                        <button
-                          onClick={() => handleConnect(wallet)}
-                          className="flex items-center w-full p-3 rounded-lg hover:bg-gray-800 transition-colors"
-                        >
-                          <img
-                            src={walletConfig[wallet].logo}
-                            alt={walletConfig[wallet].name}
-                            className="w-8 h-8 mr-3"
-                          />
-                          <span className="text-white">
-                            {walletConfig[wallet].name}
-                          </span>
-                        </button>
-                        {!isSupported && (
-                          <button
-                            onClick={() => handleGetWallet(wallet)}
-                            className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
-                          >
-                            Download {walletConfig[wallet].name}
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="p-3 text-center text-gray-400">
-                      No compatible wallets found.
-                      <a
-                        href="https://phantom.app/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block mt-2 text-budju-blue hover:underline"
-                      >
-                        Install Phantom
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
+                  <WalletSelectionContent />
+                </motion.div>
+              </div>,
+              document.body,
             )}
-          </AnimatePresence>
         </>
       ) : (
         <>
           <button
             onClick={toggleMenu}
-            className={`flex items-center justify-center space-x-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors ${
+            className={`group relative flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
               sizeClasses[size]
             } ${fullWidth ? "w-full" : ""}`}
           >
+            <span className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.2)_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
             <img
               src={walletConfig[connection.wallet?.name || "other"].logo}
               alt="Wallet"
@@ -527,7 +564,7 @@ const WalletConnect = ({
                               src={
                                 token.symbol === "BUDJU"
                                   ? "/images/logo.png"
-                                  : "/images/tokens/default.png" // Add more token images as needed
+                                  : "/images/tokens/default.png"
                               }
                               alt={token.symbol}
                               className="w-5 h-5 mr-2"
