@@ -697,7 +697,7 @@ export async function fetchBankTransactions(
           toAddress,
           bankAddress,
           transaction,
-          tokenAddress,
+          // tokenAddress,
         );
 
         console.log({
@@ -748,7 +748,7 @@ function determineTransactionType(
   to: string,
   bankAddress: string,
   transaction: ParsedTransactionWithMeta,
-  tokenAddress: string,
+  // tokenAddress: string,
 ): "deposit" | "withdrawal" | "burn" {
   const incineratorAddress = "1nc1nerator11111111111111111111111111111111";
 
