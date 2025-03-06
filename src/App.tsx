@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from "react-router";
 import Layout from "@components/common/Layout";
 import { WalletProvider } from "@hooks/useWallet";
 import LogoImage from "@assets/images/logo.png";
+import Web3Background from "./components/common/Web3Background";
 
 // Lazy-loaded pages for better performance
 const Home = lazy(() => import("@features/home/Home"));
@@ -16,18 +17,20 @@ const Pool = lazy(() => import("@features/pool/Pool"));
 
 // Loading fallback component
 const LoadingFallback = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <div className="animate-pulse flex flex-col items-center">
-      <img
-        src={LogoImage}
-        alt="BUDJU Loading"
-        className="w-24 h-24 animate-bounce"
-      />
-      <p className="mt-4 text-xl text-budju-pink">
-        Loading the BUDJU experience...
-      </p>
+  <Web3Background>
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-pulse flex flex-col items-center">
+        <img
+          src={LogoImage}
+          alt="BUDJU Loading"
+          className="w-24 h-24 animate-bounce"
+        />
+        <p className="mt-4 text-xl text-white">
+          Loading the BUDJU experience...
+        </p>
+      </div>
     </div>
-  </div>
+  </Web3Background>
 );
 
 const App = () => {
