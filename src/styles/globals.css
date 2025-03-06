@@ -1,5 +1,4 @@
 @import "tailwindcss";
-
 @theme {
   /* Font Definitions */
   --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
@@ -18,7 +17,7 @@
 }
 
 @source "../src";
-
+@import './web3Background.css';
 /* Utility Definitions */
 @utility base-html {
   scroll-behavior: smooth;
