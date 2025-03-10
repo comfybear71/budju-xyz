@@ -49,7 +49,7 @@ const Home = () => {
   };
 
   return (
-    <main>
+    <main className="flex flex-col">
       {/* Hero Section */}
       <Hero />
 

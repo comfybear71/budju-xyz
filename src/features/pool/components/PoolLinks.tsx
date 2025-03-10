@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
 import CopyToClipboard from "@components/common/CopyToClipboard";
+import { useTheme } from "@/context/ThemeContext";
 
 // Pool addresses
 const POOLS = {
@@ -31,6 +32,7 @@ const POOLS = {
 };
 
 const PoolLinks = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
 
@@ -83,11 +85,7 @@ const PoolLinks = () => {
   }, []);
 
   return (
-    <section
-      id="pool-links"
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section id="pool-links" ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -96,10 +94,14 @@ const PoolLinks = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">Join the</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              Join the
+            </span>{" "}
             <span className="text-budju-blue">BUDJU Pools</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Connect directly to Raydium and provide liquidity to these official
             BUDJU pools
           </p>
@@ -110,7 +112,9 @@ const PoolLinks = () => {
           className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto"
         >
           {/* SOL-BUDJU Pool Card */}
-          <div className="pool-card budju-card p-6 relative overflow-hidden border-purple-600/50">
+          <div
+            className={`pool-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 relative overflow-hidden border-purple-600/50`}
+          >
             {/* Background decoration */}
             <div className="absolute -top-16 -right-16 w-32 h-32 rounded-full bg-purple-600/20 blur-xl"></div>
             <div className="absolute -bottom-16 -left-16 w-32 h-32 rounded-full bg-budju-pink/20 blur-xl"></div>
@@ -125,19 +129,33 @@ const PoolLinks = () => {
                     <span className="text-sm font-bold text-white">BUDJU</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white ml-3">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} ml-3`}
+                >
                   SOL-BUDJU Pool
                 </h3>
               </div>
 
-              <p className="text-gray-300 mb-4">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 mb-4" : "text-white mb-4"
+                }
+              >
                 {POOLS.SOL_BUDJU.description}
               </p>
 
-              <div className="bg-gray-800/50 p-3 rounded-lg mb-4">
-                <div className="mb-1 text-gray-400 text-xs">Pool Address:</div>
+              <div
+                className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg mb-4`}
+              >
+                <div
+                  className={`mb-1 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-xs`}
+                >
+                  Pool Address:
+                </div>
                 <div className="flex items-center">
-                  <code className="text-xs text-gray-300 font-mono truncate flex-1">
+                  <code
+                    className={`text-xs ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
+                  >
                     {POOLS.SOL_BUDJU.address}
                   </code>
                   <CopyToClipboard text={POOLS.SOL_BUDJU.address} />
@@ -158,7 +176,9 @@ const PoolLinks = () => {
           </div>
 
           {/* USDC-BUDJU Pool Card */}
-          <div className="pool-card budju-card p-6 relative overflow-hidden border-blue-500/50">
+          <div
+            className={`pool-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 relative overflow-hidden border-blue-500/50`}
+          >
             {/* Background decoration */}
             <div className="absolute -top-16 -right-16 w-32 h-32 rounded-full bg-blue-500/20 blur-xl"></div>
             <div className="absolute -bottom-16 -left-16 w-32 h-32 rounded-full bg-budju-pink/20 blur-xl"></div>
@@ -173,19 +193,33 @@ const PoolLinks = () => {
                     <span className="text-sm font-bold text-white">BUDJU</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white ml-3">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} ml-3`}
+                >
                   USDC-BUDJU Pool
                 </h3>
               </div>
 
-              <p className="text-gray-300 mb-4">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 mb-4" : "text-white mb-4"
+                }
+              >
                 {POOLS.USDC_BUDJU.description}
               </p>
 
-              <div className="bg-gray-800/50 p-3 rounded-lg mb-4">
-                <div className="mb-1 text-gray-400 text-xs">Pool Address:</div>
+              <div
+                className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg mb-4`}
+              >
+                <div
+                  className={`mb-1 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-xs`}
+                >
+                  Pool Address:
+                </div>
                 <div className="flex items-center">
-                  <code className="text-xs text-gray-300 font-mono truncate flex-1">
+                  <code
+                    className={`text-xs ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
+                  >
                     {POOLS.USDC_BUDJU.address}
                   </code>
                   <CopyToClipboard text={POOLS.USDC_BUDJU.address} />
@@ -206,7 +240,9 @@ const PoolLinks = () => {
           </div>
         </div>
 
-        <div className="text-center mt-8 text-gray-400 text-sm max-w-2xl mx-auto">
+        <div
+          className={`text-center mt-8 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
+        >
           <p>
             These pools are hosted on Raydium's concentrated liquidity market
             maker (CLMM) protocol. Always verify pool addresses before providing

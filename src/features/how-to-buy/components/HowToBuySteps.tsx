@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import Button from "@components/common/Button";
 import { DEX_LINK } from "@constants/addresses";
+import { useTheme } from "@/context/ThemeContext";
 
 const steps = [
   {
@@ -57,6 +58,7 @@ const steps = [
 ];
 
 const HowToBuySteps = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
 
@@ -87,10 +89,7 @@ const HowToBuySteps = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -98,10 +97,14 @@ const HowToBuySteps = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+          <h2
+            className={`text-3xl md:text-4xl font-bold mb-4 ${isDarkMode ? "text-white" : "text-budju-white"}`}
+          >
             Step-by-Step Guide
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Follow these easy steps to get your BUDJU tokens. If you're new to
             crypto, don't worry – we've made this as simple as possible!
           </p>
@@ -125,8 +128,18 @@ const HowToBuySteps = () => {
                   <step.icon size={32} className="text-white" />
                 </div>
 
-                <h3 className="text-2xl font-bold text-white">{step.title}</h3>
-                <p className="text-gray-300 text-lg">{step.description}</p>
+                <h3
+                  className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={
+                    isDarkMode ? "text-gray-300 text-lg" : "text-white text-lg"
+                  }
+                >
+                  {step.description}
+                </p>
 
                 {step.links.length > 0 && (
                   <div className="flex flex-wrap gap-3 pt-2">
@@ -149,7 +162,7 @@ const HowToBuySteps = () => {
 
               {/* Step Image */}
               {/* <div className="w-full md:w-1/2">
-                <div className="bg-gray-800 rounded-xl overflow-hidden shadow-budju-lg border border-gray-700 transition-transform hover:scale-105 duration-500">
+                <div className={`${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white/20 border-white/30"} rounded-xl overflow-hidden shadow-budju-lg border transition-transform hover:scale-105 duration-500`}>
                   <img
                     src={step.image}
                     alt={step.title}
@@ -179,7 +192,9 @@ const HowToBuySteps = () => {
             BUY BUDJU NOW
           </Button>
 
-          <p className="text-gray-400 mt-4">
+          <p
+            className={isDarkMode ? "text-gray-400 mt-4" : "text-white/80 mt-4"}
+          >
             Have questions? Join our{" "}
             <a
               href="http://t.me/budjucoingroup"

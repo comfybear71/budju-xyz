@@ -7,6 +7,7 @@ import { TOKEN_INFO } from "@constants/config";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { animateCounter } from "@/lib/utils/animation";
 import { fetchBurnEvents } from "@lib/utils/tokenService";
+import { useTheme } from "@/context/ThemeContext";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -18,6 +19,7 @@ interface BurnEvent {
 }
 
 const BurnStatistics = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const statsRef = useRef<HTMLDivElement>(null);
   const burnedCountRef = useRef<HTMLSpanElement>(null);
@@ -125,7 +127,7 @@ const BurnStatistics = () => {
   return (
     <section
       ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
+      className={`py-20 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-purple-400"}`}
     >
       {/* Add CSS for pulsing animation */}
       <style>
@@ -158,17 +160,23 @@ const BurnStatistics = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">BURN</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              BURN
+            </span>{" "}
             <span className="text-budju-pink">STATISTICS</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             BUDJU implements a deflationary tokenomics model through strategic
             token burns
           </p>
         </motion.div>
 
         {loading ? (
-          <div className="text-center text-gray-400 mb-6">
+          <div
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mb-6`}
+          >
             Loading burn data...
           </div>
         ) : error ? (
@@ -183,7 +191,11 @@ const BurnStatistics = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
-            className="budju-card p-6 text-center"
+            className={
+              isDarkMode
+                ? "budju-card p-6 text-center"
+                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
+            }
           >
             <div className="relative w-16 h-16 mx-auto mb-4">
               <div
@@ -199,8 +211,14 @@ const BurnStatistics = () => {
                 <span className="text-3xl">🔥</span>
               </div>
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Total Burned</h3>
-            <p className="text-2xl font-bold text-white">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
+            >
+              Total Burned
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
+            >
               <span ref={burnedCountRef}>
                 {loading
                   ? "Loading..."
@@ -213,7 +231,11 @@ const BurnStatistics = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
-            className="budju-card p-6 text-center"
+            className={
+              isDarkMode
+                ? "budju-card p-6 text-center"
+                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
+            }
           >
             <div className="relative w-16 h-16 mx-auto mb-4">
               <div
@@ -229,8 +251,14 @@ const BurnStatistics = () => {
                 <span className="text-3xl">📊</span>
               </div>
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Percentage of Supply</h3>
-            <p className="text-2xl font-bold text-white">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
+            >
+              Percentage of Supply
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
+            >
               <span ref={percentageRef}>
                 {loading ? "Loading..." : `${percentageBurned.toFixed(2)}%`}
               </span>
@@ -241,7 +269,11 @@ const BurnStatistics = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.3 }}
-            className="budju-card p-6 text-center"
+            className={
+              isDarkMode
+                ? "budju-card p-6 text-center"
+                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
+            }
           >
             <div className="relative w-16 h-16 mx-auto mb-4">
               <div
@@ -257,8 +289,14 @@ const BurnStatistics = () => {
                 <span className="text-3xl">💰</span>
               </div>
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Total Value Burned</h3>
-            <p className="text-2xl font-bold text-white">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
+            >
+              Total Value Burned
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
+            >
               <span ref={valueRef}>
                 {loading ? "Loading..." : `$${totalValue.toFixed(2)}`}
               </span>
@@ -272,19 +310,29 @@ const BurnStatistics = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.4 }}
-              className="max-w-4xl mx-auto bg-gray-900/50 rounded-xl border border-gray-800 p-6 mb-12"
+              className={`max-w-4xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border p-6 mb-12`}
             >
               <h3 className="text-xl font-semibold mb-4 text-center">
                 <span className="text-budju-pink">BURNED TOKEN</span>{" "}
-                <span className="text-white">ADDRESS</span>
+                <span
+                  className={isDarkMode ? "text-white" : "text-budju-white"}
+                >
+                  ADDRESS
+                </span>
               </h3>
-              <div className="flex items-center bg-gray-800/80 p-3 rounded-lg">
-                <code className="text-sm text-gray-300 font-mono truncate flex-1">
+              <div
+                className={`flex items-center ${isDarkMode ? "bg-gray-800/80" : "bg-white/30"} p-3 rounded-lg`}
+              >
+                <code
+                  className={`text-sm ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
+                >
                   {BURN_ADDRESS}
                 </code>
                 <CopyToClipboard text={BURN_ADDRESS} />
               </div>
-              <p className="text-center text-gray-400 mt-4 text-sm">
+              <p
+                className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
+              >
                 This is the official burn address for BUDJU tokens. Tokens sent
                 to this address are removed from circulation permanently.
               </p>
@@ -297,13 +345,21 @@ const BurnStatistics = () => {
               className="max-w-4xl mx-auto"
             >
               <h3 className="text-xl font-semibold mb-6 text-center">
-                <span className="text-white">Burn</span>{" "}
+                <span
+                  className={isDarkMode ? "text-white" : "text-budju-white"}
+                >
+                  Burn
+                </span>{" "}
                 <span className="text-budju-pink">History</span>
               </h3>
               <div className="overflow-x-auto">
-                <table className="w-full border-collapse">
+                <table
+                  className={`w-full border-collapse ${!isDarkMode && "bg-white/10 rounded-lg overflow-hidden"}`}
+                >
                   <thead>
-                    <tr className="bg-gray-900/50">
+                    <tr
+                      className={isDarkMode ? "bg-gray-900/50" : "bg-white/20"}
+                    >
                       <th className="py-3 px-4 text-left text-budju-blue font-medium">
                         Date
                       </th>
@@ -323,7 +379,7 @@ const BurnStatistics = () => {
                       <tr>
                         <td
                           colSpan={4}
-                          className="py-3 px-4 text-center text-gray-400"
+                          className={`py-3 px-4 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
                         >
                           No burn events found.
                         </td>
@@ -332,10 +388,20 @@ const BurnStatistics = () => {
                       burnEvents.map((event, index) => (
                         <tr
                           key={index}
-                          className="border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30 transition-colors"
+                          className={`${isDarkMode ? "border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30" : "border-b border-white/20 last:border-b-0 hover:bg-white/30"} transition-colors`}
                         >
-                          <td className="py-3 px-4 text-white">{event.date}</td>
-                          <td className="py-3 px-4 text-right text-white font-medium">
+                          <td
+                            className={
+                              isDarkMode
+                                ? "py-3 px-4 text-white"
+                                : "py-3 px-4 text-white"
+                            }
+                          >
+                            {event.date}
+                          </td>
+                          <td
+                            className={`py-3 px-4 text-right ${isDarkMode ? "text-white" : "text-white"} font-medium`}
+                          >
                             {event.amount.toLocaleString()} BUDJU
                           </td>
                           <td className="py-3 px-4 text-right text-green-400">
@@ -343,7 +409,11 @@ const BurnStatistics = () => {
                           </td>
                           <td className="py-3 px-4">
                             {event.txHash.startsWith("N/A") ? (
-                              <span className="text-gray-400">
+                              <span
+                                className={
+                                  isDarkMode ? "text-gray-400" : "text-white/80"
+                                }
+                              >
                                 {event.txHash}
                               </span>
                             ) : (
@@ -363,7 +433,9 @@ const BurnStatistics = () => {
                   </tbody>
                 </table>
               </div>
-              <p className="text-center text-gray-400 mt-4 text-sm">
+              <p
+                className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
+              >
                 All burn transactions are verifiable on the Solana blockchain
               </p>
             </motion.div>

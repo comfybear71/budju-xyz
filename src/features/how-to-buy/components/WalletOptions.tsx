@@ -4,6 +4,7 @@ import { gsap } from "gsap";
 import { FaShieldAlt, FaBolt, FaExchangeAlt, FaWallet } from "react-icons/fa";
 import { TOKEN_ADDRESS } from "@constants/addresses";
 import CopyToClipboard from "@components/common/CopyToClipboard";
+import { useTheme } from "@/context/ThemeContext";
 
 const wallets = [
   {
@@ -31,6 +32,7 @@ const wallets = [
 ];
 
 const WalletOptions = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
 
@@ -63,10 +65,7 @@ const WalletOptions = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -76,9 +75,13 @@ const WalletOptions = () => {
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             <span className="text-budju-blue">RECOMMENDED</span>{" "}
-            <span className="text-white">WALLETS</span>
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              WALLETS
+            </span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Choose one of these trusted wallets to start your BUDJU journey.
             Both options offer a secure and easy way to buy, store and manage
             your tokens.
@@ -137,26 +140,36 @@ const WalletOptions = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.4 }}
-          className="max-w-4xl mx-auto bg-gray-900/50 rounded-xl border border-gray-800 p-6"
+          className={`max-w-4xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border p-6`}
         >
           <h3 className="text-xl font-semibold mb-4 text-center">
             <span className="text-budju-pink">BUDJU</span>{" "}
-            <span className="text-white">TOKEN ADDRESS</span>
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              TOKEN ADDRESS
+            </span>
           </h3>
 
-          <p className="text-gray-300 mb-4 text-center">
+          <p
+            className={`${isDarkMode ? "text-gray-300" : "text-white"} mb-4 text-center`}
+          >
             Copy this address to add the BUDJU token to your wallet or when
             performing a swap:
           </p>
 
-          <div className="flex items-center bg-gray-800/80 p-3 rounded-lg">
-            <code className="text-sm text-gray-300 font-mono truncate flex-1">
+          <div
+            className={`flex items-center ${isDarkMode ? "bg-gray-800/80" : "bg-white/30"} p-3 rounded-lg`}
+          >
+            <code
+              className={`text-sm ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
+            >
               {TOKEN_ADDRESS}
             </code>
             <CopyToClipboard text={TOKEN_ADDRESS} />
           </div>
 
-          <p className="text-center text-gray-400 mt-4 text-sm">
+          <p
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
+          >
             Always double-check this address when swapping to ensure you're
             buying the genuine BUDJU token!
           </p>

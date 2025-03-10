@@ -1,4 +1,3 @@
-/* src/styles/web3Background.css */
 .web3-background-container {
   position: relative;
   width: 100%;
@@ -6,6 +5,10 @@
   min-height: 100vh;
   overflow: hidden;
   background: linear-gradient(135deg, #f472b6 0%, #ec4899 100%);
+}
+
+.web3-background-container.dark-mode {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); /* Modern dark Web3 gradient */
 }
 
 .web3-grid {
@@ -22,6 +25,11 @@
   pointer-events: none;
 }
 
+.web3-background-container.dark-mode .web3-grid {
+  background-image: linear-gradient(to right, rgba(255,105,180,0.1) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(255,105,180,0.1) 1px, transparent 1px);
+}
+
 .web3-particles {
   position: absolute;
   top: 0;
@@ -33,7 +41,6 @@
 
 .web3-particle {
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.6);
   border-radius: 50%;
   animation: web3Float 8s infinite ease-in-out;
   pointer-events: none;
@@ -47,6 +54,10 @@
   background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%);
   filter: blur(20px);
   pointer-events: none;
+}
+
+.web3-background-container.dark-mode .web3-glow {
+  background: radial-gradient(circle, rgba(255,105,180,0.15) 0%, rgba(255,105,180,0) 70%);
 }
 
 .web3-blockchain {
@@ -69,6 +80,10 @@
   pointer-events: none;
 }
 
+.web3-background-container.dark-mode .web3-block {
+  background-color: #ff69b4; /* Hot pink for dark mode */
+}
+
 .web3-block::after {
   content: '';
   position: absolute;
@@ -79,6 +94,10 @@
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
+}
+
+.web3-background-container.dark-mode .web3-block::after {
+  background-color: #ff69b4;
 }
 
 .web3-block:last-child::after {

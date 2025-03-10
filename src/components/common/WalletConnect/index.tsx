@@ -19,42 +19,31 @@ import walletService, {
   TokenBalance,
 } from "@lib/services/walletService";
 import { createPortal } from "react-dom";
+import { useTheme } from "@/context/ThemeContext";
 
-// Interface for Props
 interface WalletConnectProps {
   fullWidth?: boolean;
   size?: "sm" | "md" | "lg";
 }
 
-// Wallet configuration
 const walletConfig: Record<WalletName, { name: string; logo: string }> = {
-  phantom: {
-    name: "Phantom",
-    logo: "/images/wallets/phantom.png",
-  },
-  solflare: {
-    name: "Solflare",
-    logo: "/images/wallets/solflare.png",
-  },
-  other: {
-    name: "Other",
-    logo: "/images/wallets/default.png",
-  },
+  phantom: { name: "Phantom", logo: "/images/wallets/phantom.png" },
+  solflare: { name: "Solflare", logo: "/images/wallets/solflare.png" },
+  other: { name: "Other", logo: "/images/wallets/default.png" },
 };
 
 const networkOptions: Network[] = ["mainnet", "devnet"];
-
 const customTokens = [{ symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 }];
 
-// Main Component
 const WalletConnect = ({
   fullWidth = false,
   size = "md",
 }: WalletConnectProps) => {
+  const { isDarkMode } = useTheme();
   const { connection, connecting, availableWallets, connect, disconnect } =
     useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false); // For mobile modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [showCopied, setShowCopied] = useState(false);
   const [balances, setBalances] = useState<WalletBalance>({
     sol: 0,
@@ -65,59 +54,42 @@ const WalletConnect = ({
   const [selectedNetwork, setSelectedNetwork] = useState<Network>("mainnet");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
+  const [isSupported, setIsSupported] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Define types for window extensions
   interface ExtendedWindow extends Window {
     phantom?: any;
     solana?: any;
     solflare?: any;
   }
 
-  // Check if device/browser supports wallets
-  const [isSupported, setIsSupported] = useState(true);
-
-  // Detect if device is mobile or tablet
   useEffect(() => {
     const checkDevice = () => {
-      const userAgent = navigator.userAgent;
       const isMobileOrTabletDevice =
         /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-          userAgent,
-        ) || window.innerWidth <= 1024; // Tablets typically up to 1024px
+          navigator.userAgent,
+        ) || window.innerWidth < 1280;
       setIsMobileOrTablet(isMobileOrTabletDevice);
     };
-
     checkDevice();
     window.addEventListener("resize", checkDevice);
     return () => window.removeEventListener("resize", checkDevice);
   }, []);
 
-  // Check for wallet compatibility on mount
   useEffect(() => {
     const extWindow = window as ExtendedWindow;
-    const isIOS =
-      /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
-    const isAndroidMobileBrowser =
-      /Android/.test(navigator.userAgent) &&
-      /Chrome\/[.0-9]*Mobile/.test(navigator.userAgent) &&
-      !/wv/.test(navigator.userAgent);
-    setIsSupported(
-      !isIOS &&
-        (!isAndroidMobileBrowser ||
-          typeof extWindow.solana !== "undefined" ||
-          typeof extWindow.phantom !== "undefined"),
-    );
+    const hasWalletProvider =
+      typeof extWindow.solana !== "undefined" ||
+      typeof extWindow.phantom !== "undefined" ||
+      typeof extWindow.solflare !== "undefined";
+    setIsSupported(hasWalletProvider); // Support if any wallet provider is detected
   }, []);
 
-  // Fetch and subscribe to balance updates
   useEffect(() => {
     if (connection.connected && connection.wallet?.address) {
       setLoadingBalances(true);
       setBalanceError(null);
-
       walletService.switchNetwork(selectedNetwork);
-
       const unsubscribe = walletService.subscribeToBalanceUpdates(
         connection.wallet.address,
         (newBalances) => {
@@ -127,7 +99,6 @@ const WalletConnect = ({
         customTokens,
         30000,
       );
-
       return () => unsubscribe();
     } else {
       setBalances({ sol: 0, tokens: [] });
@@ -136,7 +107,55 @@ const WalletConnect = ({
     }
   }, [connection.connected, connection.wallet?.address, selectedNetwork]);
 
-  // Manual refresh
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+        setIsModalOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleConnect = async (walletName: WalletName) => {
+    setConnectionError(null);
+    const extWindow = window as ExtendedWindow;
+
+    let walletProvider: any = null;
+    if (walletName === "phantom") {
+      walletProvider = extWindow.phantom?.solana || extWindow.solana;
+    } else if (walletName === "solflare") {
+      walletProvider = extWindow.solflare;
+    }
+
+    if (!walletProvider) {
+      setConnectionError(
+        `${walletConfig[walletName].name} not detected. Please ensure it’s installed or use its in-app browser.`,
+      );
+      return;
+    }
+
+    try {
+      await connect(walletName);
+      setIsMenuOpen(false);
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error("Connection error:", error);
+      setConnectionError(
+        error instanceof Error
+          ? error.message
+          : "Failed to connect. Please try again.",
+      );
+    }
+  };
+
+  const handleDisconnect = () => {
+    disconnect();
+    setIsMenuOpen(false);
+    setIsModalOpen(false);
+  };
+
   const handleRefresh = async () => {
     if (connection.wallet?.address) {
       setLoadingBalances(true);
@@ -156,70 +175,12 @@ const WalletConnect = ({
     }
   };
 
-  // Network switch
   const handleNetworkChange = (network: Network) => {
     setSelectedNetwork(network);
     walletService.switchNetwork(network);
     handleRefresh();
   };
 
-  // Close menu/modal when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
-        setIsModalOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // Connect to a wallet with error handling
-  const handleConnect = async (walletName: WalletName) => {
-    setConnectionError(null);
-    const extWindow = window as ExtendedWindow;
-
-    let walletExists = false;
-    if (walletName === "phantom") {
-      walletExists =
-        typeof extWindow.phantom !== "undefined" ||
-        (typeof extWindow.solana !== "undefined" &&
-          extWindow.solana?.isPhantom === true);
-    } else if (walletName === "solflare") {
-      walletExists = typeof extWindow.solflare !== "undefined";
-    }
-
-    if (!walletExists) {
-      setConnectionError(
-        `${walletConfig[walletName].name} extension not detected`,
-      );
-      return;
-    }
-
-    try {
-      await connect(walletName);
-      setIsMenuOpen(false);
-      setIsModalOpen(false);
-    } catch (error) {
-      console.error("Connection error:", error);
-      if (error instanceof Error) {
-        setConnectionError(error.message);
-      } else {
-        setConnectionError("Failed to connect. Please try again.");
-      }
-    }
-  };
-
-  // Disconnect from wallet
-  const handleDisconnect = () => {
-    disconnect();
-    setIsMenuOpen(false);
-    setIsModalOpen(false);
-  };
-
-  // Copy wallet address to clipboard
   const copyAddress = async () => {
     if (connection.wallet?.address) {
       try {
@@ -232,14 +193,12 @@ const WalletConnect = ({
     }
   };
 
-  // Open wallet on Solscan
   const openOnSolscan = () => {
     if (connection.wallet?.address) {
       walletService.openSolscan(connection.wallet.address);
     }
   };
 
-  // Toggle wallet dropdown or modal
   const toggleMenu = () => {
     if (isMobileOrTablet) {
       setIsModalOpen(!isModalOpen);
@@ -251,14 +210,6 @@ const WalletConnect = ({
     }
   };
 
-  // Size-specific classes
-  const sizeClasses = {
-    sm: "text-sm py-1.5 px-3",
-    md: "py-2 px-4",
-    lg: "text-lg py-3 px-6",
-  };
-
-  // Redirect to app store or web store based on device
   const handleGetWallet = (walletName: WalletName) => {
     if (walletName === "phantom") {
       if (
@@ -282,12 +233,19 @@ const WalletConnect = ({
     }
   };
 
-  // Wallet selection content (used for both dropdown and modal)
+  const sizeClasses = {
+    sm: "text-sm py-1.5 px-3",
+    md: "py-2 px-4",
+    lg: "text-lg py-3 px-6",
+  };
+
   const WalletSelectionContent = () => (
     <>
       <div className="p-4 border-b border-gray-800">
-        <h3 className="text-white font-bold">Connect Wallet</h3>
-        <p className="text-gray-400 text-sm">
+        <h3 className={isDarkMode ? "text-white" : "text-gray-900"}>
+          Connect Wallet
+        </h3>
+        <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>
           Select a wallet to connect to BUDJU
         </p>
       </div>
@@ -307,10 +265,11 @@ const WalletConnect = ({
             <FaExclamationTriangle className="mr-2 mt-0.5" />
             <div>
               <span className="text-sm block">
-                Your device or browser may not support wallet extensions.
+                Wallet not detected on this device.
               </span>
               <span className="text-xs block mt-1">
-                Please install a Solana wallet app and use its built-in browser.
+                Open this page in your wallet app’s browser (e.g., Phantom or
+                Solflare).
               </span>
             </div>
           </div>
@@ -323,14 +282,18 @@ const WalletConnect = ({
             <div key={wallet} className="mb-2">
               <button
                 onClick={() => handleConnect(wallet)}
-                className="flex items-center w-full p-3 rounded-lg hover:bg-gray-800 transition-colors"
+                className={`flex items-center w-full p-3 rounded-lg transition-colors ${
+                  isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
+                }`}
               >
                 <img
                   src={walletConfig[wallet].logo}
                   alt={walletConfig[wallet].name}
                   className="w-8 h-8 mr-3"
                 />
-                <span className="text-white">{walletConfig[wallet].name}</span>
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>
+                  {walletConfig[wallet].name}
+                </span>
               </button>
               {!isSupported && (
                 <button
@@ -343,7 +306,9 @@ const WalletConnect = ({
             </div>
           ))
         ) : (
-          <div className="p-3 text-center text-gray-400">
+          <div
+            className={`p-3 text-center ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
+          >
             No compatible wallets found.
             <a
               href="https://phantom.app/"
@@ -366,22 +331,28 @@ const WalletConnect = ({
     >
       {!connection.connected ? (
         <>
-          {/* Updated Button with Web3 Styling */}
           <button
             onClick={toggleMenu}
-            className={`group relative flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
-              sizeClasses[size]
-            } ${fullWidth ? "w-full" : ""}`}
+            className={`group relative flex items-center justify-center space-x-2 ${
+              isDarkMode
+                ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+            } text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${sizeClasses[size]} ${
+              fullWidth ? "w-full" : ""
+            }`}
             disabled={connecting}
           >
-            <span className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.2)_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
-            <FaWallet className="text-white" />
+            <span
+              className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
+                isDarkMode ? "0.2" : "0.3"
+              })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+            />
+            <FaWallet />
             <span className="font-semibold">
               {connecting ? "Connecting..." : "Connect Wallet"}
             </span>
           </button>
 
-          {/* Dropdown for Desktop */}
           {!isMobileOrTablet && (
             <AnimatePresence>
               {isMenuOpen && (
@@ -390,9 +361,11 @@ const WalletConnect = ({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
                   transition={{ duration: 0.2 }}
-                  className={`absolute z-50 right-0 mt-2 w-64 bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800 ${
-                    fullWidth ? "left-0" : ""
-                  }`}
+                  className={`absolute z-50 right-0 mt-2 w-64 ${
+                    isDarkMode
+                      ? "bg-gray-900 border-gray-800"
+                      : "bg-gray-100 border-gray-300"
+                  } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
                 >
                   <WalletSelectionContent />
                 </motion.div>
@@ -400,7 +373,6 @@ const WalletConnect = ({
             </AnimatePresence>
           )}
 
-          {/* Modal for Mobile/Tablet */}
           {isMobileOrTablet &&
             isModalOpen &&
             createPortal(
@@ -410,12 +382,20 @@ const WalletConnect = ({
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.9 }}
                   transition={{ duration: 0.2 }}
-                  className="w-11/12 max-w-sm bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800"
+                  className={`w-11/12 max-w-sm ${
+                    isDarkMode
+                      ? "bg-gray-900 border-gray-800"
+                      : "bg-gray-100 border-gray-300"
+                  } rounded-xl overflow-hidden shadow-xl border`}
                 >
                   <div className="flex justify-end p-2">
                     <button
                       onClick={() => setIsModalOpen(false)}
-                      className="text-gray-400 hover:text-white"
+                      className={
+                        isDarkMode
+                          ? "text-gray-400 hover:text-white"
+                          : "text-gray-600 hover:text-gray-900"
+                      }
                     >
                       ✕
                     </button>
@@ -430,11 +410,19 @@ const WalletConnect = ({
         <>
           <button
             onClick={toggleMenu}
-            className={`group relative flex items-center justify-center space-x-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${
-              sizeClasses[size]
-            } ${fullWidth ? "w-full" : ""}`}
+            className={`group relative flex items-center justify-center space-x-2 ${
+              isDarkMode
+                ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+            } text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${sizeClasses[size]} ${
+              fullWidth ? "w-full" : ""
+            }`}
           >
-            <span className="absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,0.2)_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300"></span>
+            <span
+              className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
+                isDarkMode ? "0.2" : "0.3"
+              })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
+            />
             <img
               src={walletConfig[connection.wallet?.name || "other"].logo}
               alt="Wallet"
@@ -455,19 +443,27 @@ const WalletConnect = ({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ duration: 0.2 }}
-                className={`absolute z-50 right-0 mt-2 w-72 bg-gray-900 rounded-xl overflow-hidden shadow-xl border border-gray-800 ${
-                  fullWidth ? "left-0" : ""
-                }`}
+                className={`absolute z-50 right-0 mt-2 w-72 ${
+                  isDarkMode
+                    ? "bg-gray-900 border-gray-800"
+                    : "bg-gray-100 border-gray-300"
+                } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
               >
                 <div className="p-4 border-b border-gray-800">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-white font-bold">Connected</h3>
+                    <h3 className={isDarkMode ? "text-white" : "text-gray-900"}>
+                      Connected
+                    </h3>
                     <select
                       value={selectedNetwork}
                       onChange={(e) =>
                         handleNetworkChange(e.target.value as Network)
                       }
-                      className="bg-gray-800 text-white text-xs px-2 py-1 rounded-full border border-gray-700"
+                      className={`text-xs px-2 py-1 rounded-full border ${
+                        isDarkMode
+                          ? "bg-gray-800 text-white border-gray-700"
+                          : "bg-gray-200 text-gray-900 border-gray-400"
+                      }`}
                     >
                       {networkOptions.map((network) => (
                         <option key={network} value={network}>
@@ -484,33 +480,57 @@ const WalletConnect = ({
                       alt="Wallet"
                       className="w-6 h-6 mr-2"
                     />
-                    <span className="text-white">
+                    <span
+                      className={isDarkMode ? "text-white" : "text-gray-900"}
+                    >
                       {walletConfig[connection.wallet?.name || "other"].name}
                     </span>
                   </div>
                 </div>
 
                 <div className="p-4 border-b border-gray-800">
-                  <div className="text-xs text-gray-400 mb-1">Address</div>
+                  <div
+                    className={isDarkMode ? "text-gray-400" : "text-gray-600"}
+                  >
+                    Address
+                  </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-white font-mono text-sm truncate max-w-[160px]">
+                    <span
+                      className={`font-mono text-sm truncate max-w-[160px] ${
+                        isDarkMode ? "text-white" : "text-gray-900"
+                      }`}
+                    >
                       {connection.wallet?.address.substring(0, 14)}...
                     </span>
                     <div className="flex space-x-2">
                       <button
                         onClick={copyAddress}
-                        className="p-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors relative"
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isDarkMode
+                            ? "bg-gray-800 hover:bg-gray-700"
+                            : "bg-gray-200 hover:bg-gray-300"
+                        } relative`}
                       >
                         <FaCopy className="text-budju-blue" />
                         {showCopied && (
-                          <span className="absolute top-full right-0 mt-1 px-2 py-1 bg-green-500 text-white text-xs rounded">
+                          <span
+                            className={`absolute top-full right-0 mt-1 px-2 py-1 text-xs rounded ${
+                              isDarkMode
+                                ? "bg-green-600 text-white"
+                                : "bg-green-500 text-gray-900"
+                            }`}
+                          >
                             Copied!
                           </span>
                         )}
                       </button>
                       <button
                         onClick={openOnSolscan}
-                        className="p-1.5 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
+                        className={`p-1.5 rounded-lg transition-colors ${
+                          isDarkMode
+                            ? "bg-gray-800 hover:bg-gray-700"
+                            : "bg-gray-200 hover:bg-gray-300"
+                        }`}
                       >
                         <FaExternalLinkAlt className="text-budju-blue" />
                       </button>
@@ -520,10 +540,18 @@ const WalletConnect = ({
 
                 <div className="p-4 border-b border-gray-800">
                   <div className="flex justify-between items-center mb-2">
-                    <div className="text-xs text-gray-400">Balances</div>
+                    <div
+                      className={isDarkMode ? "text-gray-400" : "text-gray-600"}
+                    >
+                      Balances
+                    </div>
                     <button
                       onClick={handleRefresh}
-                      className="p-1 bg-gray-800 rounded-full hover:bg-gray-700 transition-colors"
+                      className={`p-1 rounded-full transition-colors ${
+                        isDarkMode
+                          ? "bg-gray-800 hover:bg-gray-700"
+                          : "bg-gray-200 hover:bg-gray-300"
+                      }`}
                       disabled={loadingBalances}
                     >
                       <FaSyncAlt
@@ -532,13 +560,13 @@ const WalletConnect = ({
                     </button>
                   </div>
                   {loadingBalances ? (
-                    <div className="text-center text-gray-400">
+                    <div
+                      className={isDarkMode ? "text-gray-400" : "text-gray-600"}
+                    >
                       Loading balances...
                     </div>
                   ) : balanceError ? (
-                    <div className="text-center text-red-400">
-                      {balanceError}
-                    </div>
+                    <div className="text-red-400">{balanceError}</div>
                   ) : (
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
@@ -548,9 +576,19 @@ const WalletConnect = ({
                             alt="SOL"
                             className="w-5 h-5 mr-2"
                           />
-                          <span className="text-white">SOL</span>
+                          <span
+                            className={
+                              isDarkMode ? "text-white" : "text-gray-900"
+                            }
+                          >
+                            SOL
+                          </span>
                         </div>
-                        <span className="text-white">
+                        <span
+                          className={
+                            isDarkMode ? "text-white" : "text-gray-900"
+                          }
+                        >
                           {balances.sol.toFixed(4)}
                         </span>
                       </div>
@@ -569,9 +607,19 @@ const WalletConnect = ({
                               alt={token.symbol}
                               className="w-5 h-5 mr-2"
                             />
-                            <span className="text-white">{token.symbol}</span>
+                            <span
+                              className={
+                                isDarkMode ? "text-white" : "text-gray-900"
+                              }
+                            >
+                              {token.symbol}
+                            </span>
                           </div>
-                          <span className="text-white">
+                          <span
+                            className={
+                              isDarkMode ? "text-white" : "text-gray-900"
+                            }
+                          >
                             {token.amount.toLocaleString()}
                           </span>
                         </div>

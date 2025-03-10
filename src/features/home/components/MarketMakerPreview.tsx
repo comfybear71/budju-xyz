@@ -1,9 +1,11 @@
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import Button from "@components/common/Button";
+import { useTheme } from "@/context/ThemeContext";
 
 const MarketMakerPreview = () => {
+  const { isDarkMode } = useTheme();
   return (
-    <section className="py-20 bg-gradient-to-b from-gray-900 to-budju-black">
+    <section className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -12,14 +14,17 @@ const MarketMakerPreview = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">Become a</span>{" "}
+            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+              Become a
+            </span>{" "}
             <span className="text-budju-blue">Market Maker</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} max-w-3xl mx-auto`}
+          >
             Join the BUDJU liquidity pools to earn fees and help build a
             stronger ecosystem
           </p>
-
           <div className="mt-8">
             <Button as="link" to="/pool" size="lg">
               Explore BUDJU Pools

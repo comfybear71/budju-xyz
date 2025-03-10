@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTheme } from "@/context/ThemeContext";
 
 interface ScrollingBannerProps {
   text: string;
@@ -17,12 +18,12 @@ const ScrollingBanner = ({
   className = "",
   textClassName = "",
 }: ScrollingBannerProps) => {
-  // Generate repeated text with proper spacing
+  const { isDarkMode } = useTheme();
+
   const repeatedText = useMemo(() => {
     return Array(repetitions).fill(text).join(" ");
   }, [text, repetitions]);
 
-  // Determine animation duration based on speed
   const getDuration = () => {
     switch (speed) {
       case "slow":
@@ -35,16 +36,25 @@ const ScrollingBanner = ({
     }
   };
 
-  // Create animation style directly
   const animationStyle = {
     animation: `${reverse ? "marquee-reverse" : "marquee"} ${getDuration()} linear infinite`,
   };
 
   return (
-    <div className={`w-full overflow-hidden bg-black py-3 ${className}`}>
+    <div
+      className={`w-full overflow-hidden py-3 ${
+        isDarkMode
+          ? "bg-gray-900 border-y border-budju-pink/20"
+          : "bg-gray-100 border-y border-budju-pink/30"
+      } ${className}`}
+    >
       <div className="flex whitespace-nowrap">
-        {/* Just one long continuous text element */}
-        <div className={`inline-block ${textClassName}`} style={animationStyle}>
+        <div
+          className={`inline-block ${
+            isDarkMode ? "text-white" : "text-gray-800"
+          } text-base sm:text-lg md:text-xl font-bold px-4 ${textClassName}`}
+          style={animationStyle}
+        >
           {repeatedText}
         </div>
       </div>
@@ -52,14 +62,14 @@ const ScrollingBanner = ({
   );
 };
 
-// Pre-configured BUDJU Parade Banner
 export const BudjuParadeBanner = () => {
+  const { isDarkMode } = useTheme();
   return (
     <ScrollingBanner
       text="* JOIN THE BUDJU PARADE *"
       repetitions={10}
-      className="bg-black border-y border-budju-pink/20"
-      textClassName="text-xl md:text-2xl font-bold text-white px-4"
+      className={`${isDarkMode ? "bg-gray-900" : "bg-gray-100"} border-y border-budju-pink/20`}
+      textClassName="text-xl md:text-2xl font-bold px-4"
     />
   );
 };

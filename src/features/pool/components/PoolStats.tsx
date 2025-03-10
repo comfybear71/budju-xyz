@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { gsap } from "gsap";
 import { POOL_SOL_BUDJU, POOL_USDC_BUDJU } from "@constants/addresses";
 import { animateCounter } from "@/lib/utils/animation";
+import { useTheme } from "@/context/ThemeContext";
 
 // Mock data for pool statistics - in a production app, this would come from API calls
 interface PoolStatData {
@@ -46,6 +47,7 @@ const initialPoolData: Record<string, PoolStatData> = {
 };
 
 const PoolStats = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const statsCardsRef = useRef<HTMLDivElement>(null);
   const [poolData, setPoolData] = useState(initialPoolData);
@@ -131,11 +133,7 @@ const PoolStats = () => {
   );
 
   return (
-    <section
-      id="pool-stats"
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section id="pool-stats" ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -145,9 +143,13 @@ const PoolStats = () => {
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             <span className="text-budju-blue">Live</span>{" "}
-            <span className="text-white">Pool Statistics</span>
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              Pool Statistics
+            </span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Current data from the official BUDJU liquidity pools
           </p>
         </motion.div>
@@ -158,8 +160,14 @@ const PoolStats = () => {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="text-center mb-10"
         >
-          <div className="text-gray-400 mb-1">Total Value Locked</div>
-          <div className="text-4xl font-bold text-white">
+          <div
+            className={isDarkMode ? "text-gray-400 mb-1" : "text-white/80 mb-1"}
+          >
+            Total Value Locked
+          </div>
+          <div
+            className={`text-4xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+          >
             ${totalTVL.toLocaleString()}
           </div>
         </motion.div>
@@ -170,7 +178,7 @@ const PoolStats = () => {
         >
           {/* SOL-BUDJU Pool Stats */}
           <div
-            className="pool-stats-card budju-card p-6 relative overflow-hidden border-purple-600/30"
+            className={`pool-stats-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 relative overflow-hidden border-purple-600/30`}
             data-pool-id={POOL_SOL_BUDJU}
           >
             {/* Background decoration */}
@@ -187,44 +195,92 @@ const PoolStats = () => {
                     <span className="text-sm font-bold text-white">BUDJU</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white ml-3">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} ml-3`}
+                >
                   SOL-BUDJU Pool
                 </h3>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">TVL</div>
-                  <div className="text-xl font-bold text-white stat-tvl">
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    TVL
+                  </div>
+                  <div
+                    className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} stat-tvl`}
+                  >
                     ${poolData[POOL_SOL_BUDJU].tvl.toLocaleString()}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">24h Volume</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    24h Volume
+                  </div>
                   <div className="text-xl font-bold text-budju-blue stat-volume">
                     ${poolData[POOL_SOL_BUDJU].volume24h.toLocaleString()}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">24h Fees</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    24h Fees
+                  </div>
                   <div className="text-xl font-bold text-green-400 stat-fees">
                     ${poolData[POOL_SOL_BUDJU].fees24h.toFixed(2)}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">Est. APR</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    Est. APR
+                  </div>
                   <div className="text-xl font-bold text-budju-pink stat-apr">
                     {poolData[POOL_SOL_BUDJU].apr.toFixed(1)}%
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 text-center text-gray-400">
+              <div
+                className={`mt-4 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+              >
                 Active Positions:{" "}
-                <span className="text-white font-medium">
+                <span
+                  className={isDarkMode ? "text-white" : "text-budju-white"}
+                >
                   {poolData[POOL_SOL_BUDJU].positions}
                 </span>
               </div>
@@ -233,7 +289,7 @@ const PoolStats = () => {
 
           {/* USDC-BUDJU Pool Stats */}
           <div
-            className="pool-stats-card budju-card p-6 relative overflow-hidden border-blue-500/30"
+            className={`pool-stats-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 relative overflow-hidden border-blue-500/30`}
             data-pool-id={POOL_USDC_BUDJU}
           >
             {/* Background decoration */}
@@ -250,44 +306,92 @@ const PoolStats = () => {
                     <span className="text-sm font-bold text-white">BUDJU</span>
                   </div>
                 </div>
-                <h3 className="text-xl font-bold text-white ml-3">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} ml-3`}
+                >
                   USDC-BUDJU Pool
                 </h3>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">TVL</div>
-                  <div className="text-xl font-bold text-white stat-tvl">
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    TVL
+                  </div>
+                  <div
+                    className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} stat-tvl`}
+                  >
                     ${poolData[POOL_USDC_BUDJU].tvl.toLocaleString()}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">24h Volume</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    24h Volume
+                  </div>
                   <div className="text-xl font-bold text-budju-blue stat-volume">
                     ${poolData[POOL_USDC_BUDJU].volume24h.toLocaleString()}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">24h Fees</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    24h Fees
+                  </div>
                   <div className="text-xl font-bold text-green-400 stat-fees">
                     ${poolData[POOL_USDC_BUDJU].fees24h.toFixed(2)}
                   </div>
                 </div>
 
-                <div className="bg-gray-800/50 p-3 rounded-lg">
-                  <div className="text-gray-400 text-sm mb-1">Est. APR</div>
+                <div
+                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-3 rounded-lg`}
+                >
+                  <div
+                    className={
+                      isDarkMode
+                        ? "text-gray-400 text-sm mb-1"
+                        : "text-white/80 text-sm mb-1"
+                    }
+                  >
+                    Est. APR
+                  </div>
                   <div className="text-xl font-bold text-budju-pink stat-apr">
                     {poolData[POOL_USDC_BUDJU].apr.toFixed(1)}%
                   </div>
                 </div>
               </div>
 
-              <div className="mt-4 text-center text-gray-400">
+              <div
+                className={`mt-4 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+              >
                 Active Positions:{" "}
-                <span className="text-white font-medium">
+                <span
+                  className={isDarkMode ? "text-white" : "text-budju-white"}
+                >
                   {poolData[POOL_USDC_BUDJU].positions}
                 </span>
               </div>
@@ -295,7 +399,9 @@ const PoolStats = () => {
           </div>
         </div>
 
-        <div className="text-center mt-6 text-gray-400 text-sm">
+        <div
+          className={`text-center mt-6 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm`}
+        >
           Data updates automatically every 60 seconds. Last updated:{" "}
           {new Date().toLocaleTimeString()}
         </div>

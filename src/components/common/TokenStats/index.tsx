@@ -5,6 +5,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { FaFireAlt, FaDollarSign, FaUsers, FaChartLine } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import Button from "@components/common/Button";
+import { useTheme } from "@/context/ThemeContext";
 import {
   fetchHeliusTokenMetrics,
   getTokenBalances,
@@ -26,6 +27,7 @@ interface TokenData {
 }
 
 const TokenStats = () => {
+  const { isDarkMode } = useTheme();
   const [tokenData, setTokenData] = useState<TokenData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,20 +47,15 @@ const TokenStats = () => {
     try {
       setLoading(true);
       setError(null);
-
       const metrics = await fetchHeliusTokenMetrics();
-      console.log("Fetched token metrics (including price):", metrics);
-
       const tokenBalances: HeliusTokenBalance[] = await getTokenBalances();
       const sortedBalances = tokenBalances
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
-
       const totalTokens = tokenBalances.reduce(
         (sum, balance) => sum + balance.amount,
         0,
       );
-
       const topHoldersWithPercentage = sortedBalances.map((balance) => ({
         address: balance.owner,
         percentage: totalTokens > 0 ? (balance.amount / totalTokens) * 100 : 0,
@@ -84,7 +81,7 @@ const TokenStats = () => {
 
   useEffect(() => {
     fetchTokenData();
-    const interval = setInterval(fetchTokenData, 300000);
+    const interval = setInterval(fetchTokenData, 300000); // Refresh every 5 minutes
     return () => clearInterval(interval);
   }, []);
 
@@ -98,22 +95,15 @@ const TokenStats = () => {
       holdersRef.current &&
       supplyRef.current
     ) {
-      console.log("Animating price:", tokenData.price);
       const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: statsRef.current,
-          start: "top 80%",
-        },
+        scrollTrigger: { trigger: statsRef.current, start: "top 80%" },
       });
-
       tl.add(() => {
         animateCounterPrice(priceRef.current!, tokenData.price, {
           prefix: "$",
           decimals: 8,
         });
-        animateCounter(mcapRef.current!, tokenData.marketCap, {
-          prefix: "$",
-        });
+        animateCounter(mcapRef.current!, tokenData.marketCap, { prefix: "$" });
         animateCounter(holdersRef.current!, tokenData.holders);
         animateCounter(
           supplyRef.current!,
@@ -127,9 +117,8 @@ const TokenStats = () => {
     ? tokenData.totalSupply - tokenData.burned
     : 0;
 
-  console.log(tokenData, "token data");
   return (
-    <section className="py-16 bg-gradient-to-b from-gray-900 to-budju-black">
+    <section className="py-16">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -139,7 +128,9 @@ const TokenStats = () => {
         >
           <h2 className="text-3xl md:text-4xl font-bold">
             <span className="text-budju-blue">LIVE</span>{" "}
-            <span className="text-white">TOKEN STATS</span>
+            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+              TOKEN STATS
+            </span>
           </h2>
         </motion.div>
 
@@ -153,6 +144,7 @@ const TokenStats = () => {
           ref={statsRef}
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
         >
+          {/* BUDJU Price */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -160,15 +152,26 @@ const TokenStats = () => {
             className="budju-card flex flex-col items-center p-6"
           >
             <div className="bg-budju-pink/20 p-3 rounded-full mb-4">
-              <FaDollarSign size={24} className="text-budju-pink" />
+              <FaDollarSign
+                size={24}
+                className={
+                  isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
+                }
+              />
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">BUDJU Price</h3>
-            <p className="text-2xl font-bold text-white mb-1">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+            >
+              BUDJU Price
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+            >
               <span ref={priceRef}>
                 {loading
                   ? "Loading..."
                   : tokenData
-                    ? `$${tokenData.price.toFixed(8)}` // Static display
+                    ? `$${tokenData.price.toFixed(8)}`
                     : "N/A"}
               </span>
             </p>
@@ -177,6 +180,7 @@ const TokenStats = () => {
             </p>
           </motion.div>
 
+          {/* Market Cap */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -184,10 +188,21 @@ const TokenStats = () => {
             className="budju-card flex flex-col items-center p-6"
           >
             <div className="bg-budju-blue/20 p-3 rounded-full mb-4">
-              <FaChartLine size={24} className="text-budju-blue" />
+              <FaChartLine
+                size={24}
+                className={
+                  isDarkMode ? "text-budju-blue" : "text-budju-blue-dark"
+                }
+              />
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Market Cap</h3>
-            <p className="text-2xl font-bold text-white mb-1">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+            >
+              Market Cap
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+            >
               <span ref={mcapRef}>
                 {loading
                   ? "Loading..."
@@ -201,6 +216,7 @@ const TokenStats = () => {
             </p>
           </motion.div>
 
+          {/* Holders */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -208,10 +224,19 @@ const TokenStats = () => {
             className="budju-card flex flex-col items-center p-6"
           >
             <div className="bg-green-500/20 p-3 rounded-full mb-4">
-              <FaUsers size={24} className="text-green-500" />
+              <FaUsers
+                size={24}
+                className={isDarkMode ? "text-green-500" : "text-budju-yellow"}
+              />
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Holders</h3>
-            <p className="text-2xl font-bold text-white mb-1">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+            >
+              Holders
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+            >
               <span ref={holdersRef}>
                 {loading
                   ? "Loading..."
@@ -225,6 +250,7 @@ const TokenStats = () => {
             </p>
           </motion.div>
 
+          {/* Circulating Supply */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -232,10 +258,21 @@ const TokenStats = () => {
             className="budju-card flex flex-col items-center p-6"
           >
             <div className="bg-budju-pink/20 p-3 rounded-full mb-4">
-              <FaFireAlt size={24} className="text-budju-pink" />
+              <FaFireAlt
+                size={24}
+                className={
+                  isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
+                }
+              />
             </div>
-            <h3 className="text-lg text-gray-300 mb-2">Circulating Supply</h3>
-            <p className="text-2xl font-bold text-white mb-1">
+            <h3
+              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+            >
+              Circulating Supply
+            </h3>
+            <p
+              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+            >
               <span ref={supplyRef}>
                 {loading
                   ? "Loading..."
@@ -257,26 +294,33 @@ const TokenStats = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
-          className="mt-12 bg-gray-900/50 rounded-xl border border-gray-800 p-6"
+          className={`mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
         >
           <h3 className="text-xl font-semibold mb-4 text-center">
-            <span className="text-white">Top</span>{" "}
+            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+              Top
+            </span>{" "}
             <span className="text-budju-blue">Holders</span>
           </h3>
-
           <div className="space-y-3">
             {topHolders.map((holder, index) => (
               <div
                 key={holder.address}
-                className="flex justify-between items-center bg-gray-800/50 p-3 rounded-lg"
+                className={`flex justify-between items-center ${isDarkMode ? "bg-gray-700/50" : "bg-gray-800/50"} p-3 rounded-lg`}
               >
                 <div className="flex items-center">
-                  <span className="mr-3 text-gray-400">{index + 1}.</span>
+                  <span
+                    className={`mr-3 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
+                  >
+                    {index + 1}.
+                  </span>
                   <code className="text-sm text-budju-blue font-mono">
                     {holder.address.slice(0, 6)}...{holder.address.slice(-4)}
                   </code>
                 </div>
-                <span className="text-white font-medium">
+                <span
+                  className={`${isDarkMode ? "text-gray-200" : "text-white"} font-medium`}
+                >
                   {holder.percentage.toFixed(2)}%
                 </span>
               </div>
@@ -288,36 +332,46 @@ const TokenStats = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
-          className="mt-12 bg-gray-900/50 rounded-xl border border-gray-800 p-6"
+          className={`mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h3 className="text-xl font-semibold mb-2">
                 <span className="text-budju-blue">TOKEN</span>{" "}
-                <span className="text-white">ADDRESS</span>
+                <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+                  ADDRESS
+                </span>
               </h3>
-              <div className="flex items-center bg-gray-800/80 p-2 rounded-lg">
-                <code className="text-sm text-gray-300 font-mono truncate flex-1">
+              <div
+                className={`flex items-center ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+              >
+                <code
+                  className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
+                >
                   {TOKEN_ADDRESS}
                 </code>
                 <CopyToClipboard text={TOKEN_ADDRESS} />
               </div>
             </div>
-
             <div>
               <h3 className="text-xl font-semibold mb-2">
-                <span className="text-white">BURN</span>{" "}
+                <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+                  BURN
+                </span>{" "}
                 <span className="text-budju-pink">ADDRESS</span>
               </h3>
-              <div className="flex items-center bg-gray-800/80 p-2 rounded-lg">
-                <code className="text-sm text-gray-300 font-mono truncate flex-1">
+              <div
+                className={`flex items-center ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+              >
+                <code
+                  className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
+                >
                   {BURN_ADDRESS}
                 </code>
                 <CopyToClipboard text={BURN_ADDRESS} />
               </div>
             </div>
           </div>
-
           <div className="mt-6 flex justify-center">
             <Button
               as="a"

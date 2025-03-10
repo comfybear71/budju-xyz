@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { gsap } from "gsap";
 import { FaChevronDown } from "react-icons/fa";
+import { useTheme } from "@/context/ThemeContext";
 
 // FAQ Questions and Answers
 const faqItems = [
@@ -56,23 +57,40 @@ interface FaqItemProps {
   isOpen: boolean;
   toggleOpen: () => void;
   index: number;
+  isDarkMode: boolean;
 }
 
-const FaqItem = ({ question, answer, isOpen, toggleOpen }: FaqItemProps) => {
+const FaqItem = ({
+  question,
+  answer,
+  isOpen,
+  toggleOpen,
+  isDarkMode,
+}: FaqItemProps) => {
   const contentRef = useRef<HTMLDivElement>(null);
 
   return (
-    <div className="border-b border-gray-800 last:border-b-0">
+    <div
+      className={
+        isDarkMode
+          ? "border-b border-gray-800 last:border-b-0"
+          : "border-b border-white/30 last:border-b-0"
+      }
+    >
       <button
         className={`flex justify-between items-center w-full py-5 px-4 text-left focus:outline-none ${
-          isOpen ? "text-budju-blue" : "text-white"
+          isOpen
+            ? "text-budju-blue"
+            : isDarkMode
+              ? "text-white"
+              : "text-budju-white"
         }`}
         onClick={toggleOpen}
         aria-expanded={isOpen}
       >
         <h3 className="text-xl font-semibold">{question}</h3>
         <FaChevronDown
-          className={`transition-transform duration-300 ${isOpen ? "rotate-180 text-budju-blue" : "text-gray-400"}`}
+          className={`transition-transform duration-300 ${isOpen ? "rotate-180 text-budju-blue" : isDarkMode ? "text-gray-400" : "text-white/70"}`}
         />
       </button>
 
@@ -86,7 +104,11 @@ const FaqItem = ({ question, answer, isOpen, toggleOpen }: FaqItemProps) => {
             ref={contentRef}
             className="overflow-hidden"
           >
-            <div className="py-3 px-4 text-gray-300 text-lg">{answer}</div>
+            <div
+              className={`py-3 px-4 ${isDarkMode ? "text-gray-300" : "text-white"} text-lg`}
+            >
+              {answer}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -95,6 +117,7 @@ const FaqItem = ({ question, answer, isOpen, toggleOpen }: FaqItemProps) => {
 };
 
 const PoolFAQ = () => {
+  const { isDarkMode } = useTheme();
   const [openIndex, setOpenIndex] = useState<number | null>(0);
   const sectionRef = useRef<HTMLDivElement>(null);
 
@@ -125,10 +148,7 @@ const PoolFAQ = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -137,16 +157,22 @@ const PoolFAQ = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">FREQUENTLY</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              FREQUENTLY
+            </span>{" "}
             <span className="text-budju-blue">ASKED QUESTIONS</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Common questions about BUDJU liquidity pools
           </p>
         </motion.div>
 
         {/* FAQ Accordion */}
-        <div className="max-w-3xl mx-auto bg-gray-900/50 rounded-xl border border-gray-800 overflow-hidden">
+        <div
+          className={`max-w-3xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border overflow-hidden`}
+        >
           {faqItems.map((item, index) => (
             <FaqItem
               key={index}
@@ -155,13 +181,14 @@ const PoolFAQ = () => {
               isOpen={openIndex === index}
               toggleOpen={() => toggleOpen(index)}
               index={index}
+              isDarkMode={isDarkMode}
             />
           ))}
         </div>
 
         {/* More Questions */}
         <div className="text-center mt-10">
-          <p className="text-gray-300">
+          <p className={isDarkMode ? "text-gray-300" : "text-white"}>
             Still have questions about BUDJU pools? Join our{" "}
             <a
               href="http://t.me/budjucoingroup"

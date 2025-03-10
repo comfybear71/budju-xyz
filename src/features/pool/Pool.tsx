@@ -11,8 +11,11 @@ import PoolFAQ from "./components/PoolFAQ";
 import PoolStats from "./components/PoolStats";
 import RebalanceGuide from "./components/RebalanceGuide";
 import RemoveLiquidityGuide from "./components/RemoveLiquidityGuide";
+import { useTheme } from "@/context/ThemeContext";
 
 const Pool = () => {
+  const { isDarkMode } = useTheme();
+
   useEffect(() => {
     // Scroll to top on page load
     window.scrollTo(0, 0);
@@ -39,7 +42,7 @@ const Pool = () => {
   return (
     <main>
       {/* Hero Section */}
-      <section className="pt-24 pb-16 bg-gradient-to-b from-budju-black to-gray-900">
+      <section className="pt-24 pb-16">
         <div className="budju-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -48,10 +51,14 @@ const Pool = () => {
             className="text-center max-w-3xl mx-auto"
           >
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
-              <span className="text-white">Pool of </span>
+              <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+                Pool of{" "}
+              </span>
               <span className="text-budju-blue">BUDJU</span>
             </h1>
-            <p className="text-xl text-gray-300">
+            <p
+              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-white"}`}
+            >
               Become a market maker, provide liquidity, and earn rewards in the
               BUDJU ecosystem.
             </p>

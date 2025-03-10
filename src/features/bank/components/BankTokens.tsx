@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { gsap } from "gsap";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { useTheme } from "@/context/ThemeContext";
 
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
@@ -223,8 +224,9 @@ async function fetchBankHoldings(): Promise<TokenHolding[]> {
   }
 }
 
-// BankTokens Component with Image 2 Styling
+// BankTokens Component with Dark Mode Support
 const BankTokens = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
@@ -249,7 +251,7 @@ const BankTokens = () => {
     loadBankHoldings();
   }, []);
 
-  // GSAP animations (simplified to match Image 2's static layout)
+  // GSAP animations
   useEffect(() => {
     if (sectionRef.current && cardsRef.current && tokenHoldings.length > 0) {
       const cards = cardsRef.current.querySelectorAll(".token-card");
@@ -297,7 +299,7 @@ const BankTokens = () => {
   return (
     <section
       ref={sectionRef}
-      className="py-10 bg-[#0a0a0a] text-white" // Dark background like Image 2
+      className={`py-10 ${isDarkMode ? "bg-[#0a0a0a]" : "bg-gradient-to-b from-purple-400 to-budju-pink-light"} text-white`}
     >
       <div className="max-w-5xl mx-auto px-4">
         <motion.div
@@ -307,7 +309,9 @@ const BankTokens = () => {
           className="text-center mb-8"
         >
           <h2 className="text-3xl font-bold mb-2 text-white">BANK HOLDINGS</h2>
-          <p className="text-sm text-gray-400">
+          <p
+            className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             Current assets held in the Bank of BUDJU
           </p>
         </motion.div>
@@ -319,7 +323,15 @@ const BankTokens = () => {
           transition={{ duration: 0.6, delay: 0.2 }}
           className="text-center mb-8"
         >
-          <div className="text-gray-400 text-sm mb-1">Total Bank Assets</div>
+          <div
+            className={
+              isDarkMode
+                ? "text-gray-400 text-sm mb-1"
+                : "text-white text-sm mb-1"
+            }
+          >
+            Total Bank Assets
+          </div>
           <div className="text-4xl font-bold text-white">
             $
             {totalBankValue.toLocaleString(undefined, {
@@ -331,7 +343,9 @@ const BankTokens = () => {
 
         {/* Loading/Error State */}
         {loading && (
-          <div className="text-center text-gray-400">
+          <div
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             Loading bank holdings...
           </div>
         )}
@@ -365,7 +379,7 @@ const BankTokens = () => {
             {tokenHoldings.map((token, _) => (
               <div
                 key={token.symbol + token.name}
-                className="token-card bg-[#1a1a1a] rounded-lg shadow-md overflow-hidden"
+                className={`token-card ${isDarkMode ? "bg-[#1a1a1a]" : "bg-white/20 border border-white/30"} rounded-lg shadow-md overflow-hidden`}
               >
                 {/* Top colored bar */}
                 <div className={`h-2 ${token.color}`}></div>
@@ -385,7 +399,13 @@ const BankTokens = () => {
                       <div className="text-white font-bold text-lg">
                         {token.name}
                       </div>
-                      <div className="text-gray-400 text-sm">
+                      <div
+                        className={
+                          isDarkMode
+                            ? "text-gray-400 text-sm"
+                            : "text-white/80 text-sm"
+                        }
+                      >
                         {token.symbol}
                       </div>
                     </div>
@@ -393,7 +413,15 @@ const BankTokens = () => {
 
                   {/* Token amount */}
                   <div className="mb-2">
-                    <div className="text-gray-400 text-xs">Amount</div>
+                    <div
+                      className={
+                        isDarkMode
+                          ? "text-gray-400 text-xs"
+                          : "text-white/80 text-xs"
+                      }
+                    >
+                      Amount
+                    </div>
                     <div className="text-white text-base font-mono">
                       {token.amount.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
@@ -404,7 +432,15 @@ const BankTokens = () => {
 
                   {/* Token value */}
                   <div className="mb-2">
-                    <div className="text-gray-400 text-xs">Value</div>
+                    <div
+                      className={
+                        isDarkMode
+                          ? "text-gray-400 text-xs"
+                          : "text-white/80 text-xs"
+                      }
+                    >
+                      Value
+                    </div>
                     <div className="text-blue-400 text-base font-bold">
                       $
                       {token.value.toLocaleString(undefined, {
@@ -416,14 +452,24 @@ const BankTokens = () => {
 
                   {/* Percentage of total */}
                   <div>
-                    <div className="text-gray-400 text-xs">% of Bank</div>
+                    <div
+                      className={
+                        isDarkMode
+                          ? "text-gray-400 text-xs"
+                          : "text-white/80 text-xs"
+                      }
+                    >
+                      % of Bank
+                    </div>
                     <div className="text-white text-base">
                       {((token.value / totalBankValue) * 100).toFixed(1)}%
                     </div>
                   </div>
 
                   {/* Progress bar */}
-                  <div className="mt-2 h-2 bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className={`mt-2 h-2 ${isDarkMode ? "bg-gray-700" : "bg-white/30"} rounded-full overflow-hidden`}
+                  >
                     <div
                       className={`h-full ${token.color}`}
                       style={{
@@ -439,12 +485,16 @@ const BankTokens = () => {
 
         {/* Fallback if no holdings */}
         {!loading && !error && tokenHoldings.length === 0 && (
-          <div className="text-center text-gray-400">
+          <div
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             No bank holdings found.
           </div>
         )}
 
-        <div className="text-center mt-8 text-gray-400 text-sm max-w-2xl mx-auto">
+        <div
+          className={`text-center mt-8 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
+        >
           All Bank of BUDJU holdings are verifiable on the Solana blockchain and
           regularly updated. Assets are used for token buybacks, burns, and
           ecosystem development.

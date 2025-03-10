@@ -2,8 +2,8 @@ import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router";
 import Layout from "@components/common/Layout";
 import { WalletProvider } from "@hooks/useWallet";
-import LogoImage from "@assets/images/logo.png";
 import Web3Background from "./components/common/Web3Background";
+import { ThemeProvider } from "@/context/ThemeContext";
 
 // Lazy-loaded pages for better performance
 const Home = lazy(() => import("@features/home/Home"));
@@ -21,7 +21,7 @@ const LoadingFallback = () => (
     <div className="min-h-screen flex items-center justify-center">
       <div className="animate-pulse flex flex-col items-center">
         <img
-          src={LogoImage}
+          src="/images/logo.svg"
           alt="BUDJU Loading"
           className="w-24 h-24 animate-bounce"
         />
@@ -51,22 +51,24 @@ const App = () => {
 
   return (
     <BrowserRouter>
-      <WalletProvider>
-        <Suspense fallback={<LoadingFallback />}>
-          <Layout>
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/nft" element={<NFT />} />
-              <Route path="/how-to-buy" element={<HowToBuy />} />
-              <Route path="/pool" element={<Pool />} />
-              <Route path="/shop" element={<Shop />} />
-              <Route path="/tokenomics" element={<Tokenomics />} />
-              <Route path="/bank" element={<Bank />} />
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Layout>
-        </Suspense>
-      </WalletProvider>
+      <ThemeProvider>
+        <WalletProvider>
+          <Suspense fallback={<LoadingFallback />}>
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/nft" element={<NFT />} />
+                <Route path="/how-to-buy" element={<HowToBuy />} />
+                <Route path="/pool" element={<Pool />} />
+                <Route path="/shop" element={<Shop />} />
+                <Route path="/tokenomics" element={<Tokenomics />} />
+                <Route path="/bank" element={<Bank />} />
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Layout>
+          </Suspense>
+        </WalletProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 };

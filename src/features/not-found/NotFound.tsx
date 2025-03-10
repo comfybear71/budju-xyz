@@ -2,8 +2,11 @@ import { useEffect } from "react";
 import { motion } from "motion/react";
 import Button from "@components/common/Button";
 import { ROUTES } from "@constants/routes";
+import { useTheme } from "@/context/ThemeContext";
 
 const NotFound = () => {
+  const { isDarkMode } = useTheme();
+
   useEffect(() => {
     // Set document title and metadata
     document.title = "Page Not Found - BUDJU Coin";
@@ -26,11 +29,15 @@ const NotFound = () => {
         <h1 className="text-5xl md:text-6xl font-bold mb-6">
           <span className="text-budju-pink">404</span>
         </h1>
-        <h2 className="text-3xl md:text-4xl font-bold mb-6 text-white">
+        <h2
+          className={`text-3xl md:text-4xl font-bold mb-6 ${isDarkMode ? "text-white" : "text-budju-white"}`}
+        >
           Page Not Found
         </h2>
 
-        <p className="text-xl text-gray-400 mb-8">
+        <p
+          className={`text-xl ${isDarkMode ? "text-gray-400" : "text-white/80"} mb-8`}
+        >
           Looks like you've wandered off the BUDJU parade route. Let's get you
           back to the celebration!
         </p>
@@ -50,7 +57,7 @@ const NotFound = () => {
             href="http://t.me/budjucoingroup"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-400 hover:text-budju-blue transition-colors"
+            className={`${isDarkMode ? "text-gray-400 hover:text-budju-blue" : "text-white/70 hover:text-budju-blue"} transition-colors`}
           >
             Telegram
           </a>
@@ -58,7 +65,7 @@ const NotFound = () => {
             href="https://x.com/budjucoin?s=21"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-gray-400 hover:text-budju-blue transition-colors"
+            className={`${isDarkMode ? "text-gray-400 hover:text-budju-blue" : "text-white/70 hover:text-budju-blue"} transition-colors`}
           >
             Twitter
           </a>

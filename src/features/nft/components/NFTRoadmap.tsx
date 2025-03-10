@@ -1,6 +1,7 @@
 import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
+import { useTheme } from "@/context/ThemeContext";
 
 // Roadmap phase interface
 interface RoadmapPhase {
@@ -68,6 +69,7 @@ const phases: RoadmapPhase[] = [
 ];
 
 const NFTRoadmap = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const roadmapRef = useRef<HTMLDivElement>(null);
 
@@ -98,10 +100,7 @@ const NFTRoadmap = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -111,9 +110,13 @@ const NFTRoadmap = () => {
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
             <span className="text-budju-blue">NFT</span>{" "}
-            <span className="text-white">ROADMAP</span>
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              ROADMAP
+            </span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Our ambitious plan for the BUDJU NFT collection from mint to
             metaverse
           </p>
@@ -147,22 +150,32 @@ const NFTRoadmap = () => {
                     <div className="text-budju-blue font-medium mb-1">
                       {phase.date}
                     </div>
-                    <h3 className="text-xl font-bold text-white">
+                    <h3
+                      className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                    >
                       {phase.title}
                     </h3>
-                    <p className="text-gray-400 mt-2">{phase.description}</p>
+                    <p
+                      className={
+                        isDarkMode ? "text-gray-400 mt-2" : "text-white/80 mt-2"
+                      }
+                    >
+                      {phase.description}
+                    </p>
                   </div>
                 </div>
 
                 {/* Circle marker */}
-                <div className="absolute left-0 md:left-1/2 md:-translate-x-1/2 mt-1 md:mt-0 w-8 h-8 rounded-full bg-gray-900 border-4 border-budju-blue flex items-center justify-center z-10">
+                <div
+                  className={`absolute left-0 md:left-1/2 md:-translate-x-1/2 mt-1 md:mt-0 w-8 h-8 rounded-full ${isDarkMode ? "bg-gray-900" : "bg-gray-900/50"} border-4 border-budju-blue flex items-center justify-center z-10`}
+                >
                   <span>{index + 1}</span>
                 </div>
 
                 {/* Phase Details */}
                 <div className="md:w-1/2">
                   <div
-                    className={`budju-card ${phase.color} ${
+                    className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} ${phase.color} ${
                       index % 2 === 0 ? "md:mr-8" : "md:ml-8"
                     }`}
                   >
@@ -172,12 +185,22 @@ const NFTRoadmap = () => {
                           <li key={itemIndex} className="flex items-start">
                             <div
                               className={`mt-1 mr-3 min-w-4 h-4 rounded-full ${
-                                item.completed ? "bg-green-500" : "bg-gray-600"
+                                item.completed
+                                  ? "bg-green-500"
+                                  : isDarkMode
+                                    ? "bg-gray-600"
+                                    : "bg-white/40"
                               }`}
                             ></div>
                             <span
                               className={
-                                item.completed ? "text-white" : "text-gray-400"
+                                item.completed
+                                  ? isDarkMode
+                                    ? "text-white"
+                                    : "text-budju-white"
+                                  : isDarkMode
+                                    ? "text-gray-400"
+                                    : "text-white/80"
                               }
                             >
                               {item.text}
@@ -196,7 +219,9 @@ const NFTRoadmap = () => {
           </div>
         </div>
 
-        <div className="text-center mt-12 text-gray-300 max-w-2xl mx-auto">
+        <div
+          className={`text-center mt-12 ${isDarkMode ? "text-gray-300" : "text-white"} max-w-2xl mx-auto`}
+        >
           <p>
             The BUDJU NFT roadmap represents our vision for the future, but
             specific timelines may be adjusted based on market conditions and

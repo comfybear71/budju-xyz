@@ -1,11 +1,10 @@
+/* src/styles/globals.css */
 @import "tailwindcss";
 @theme {
-  /* Font Definitions */
   --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
   --font-display: 'Montserrat', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Roboto Mono', ui-monospace, monospace;
 
-  /* Color Tokens */
   --color-budju-pink: #FF69B4;
   --color-budju-pink-light: #FF8EC7;
   --color-budju-pink-dark: #D14C92;
@@ -18,7 +17,7 @@
 
 @source "../src";
 @import './web3Background.css';
-/* Utility Definitions */
+
 @utility base-html {
   scroll-behavior: smooth;
 }
@@ -28,6 +27,11 @@
   color: var(--color-budju-white);
   font-family: var(--font-sans);
   overflow-x: hidden;
+}
+
+.web3-background-container.dark-mode @utility base-body {
+  background-color: #1a1a2e; /* Dark mode base color */
+  color: #e0e0e0; /* Softer white for readability */
 }
 
 @utility base-headings {
@@ -152,6 +156,10 @@
 
 ::-webkit-scrollbar-track {
   background-color: theme(colors.gray.900);
+}
+
+.web3-background-container.dark-mode ::-webkit-scrollbar-track {
+  background-color: #16213e;
 }
 
 ::-webkit-scrollbar-thumb {

@@ -5,8 +5,11 @@ import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import FaqSection from "./components/FaqSection";
 import HowToBuySteps from "./components/HowToBuySteps";
 import WalletOptions from "./components/WalletOptions";
+import { useTheme } from "@/context/ThemeContext";
 
 const HowToBuy = () => {
+  const { isDarkMode } = useTheme();
+
   useEffect(() => {
     // Scroll to top on page load
     window.scrollTo(0, 0);
@@ -33,7 +36,7 @@ const HowToBuy = () => {
   return (
     <main>
       {/* Hero Section */}
-      <section className="pt-24 pb-16 bg-gradient-to-b from-budju-black to-gray-900">
+      <section className="pt-24 pb-16">
         <div className="budju-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -42,10 +45,14 @@ const HowToBuy = () => {
             className="text-center max-w-3xl mx-auto"
           >
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
-              <span className="text-white">HOW</span>{" "}
+              <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+                HOW
+              </span>{" "}
               <span className="text-budju-blue">TO BUY BUDJU</span>
             </h1>
-            <p className="text-xl text-gray-300">
+            <p
+              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-white"}`}
+            >
               Join the BUDJU parade in just a few simple steps. Follow this
               guide to get your first BUDJU tokens and become part of our
               vibrant community.

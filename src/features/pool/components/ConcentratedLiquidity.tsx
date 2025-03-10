@@ -1,8 +1,10 @@
 import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
+import { useTheme } from "@/context/ThemeContext";
 
 const ConcentratedLiquidity = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -201,11 +203,7 @@ const ConcentratedLiquidity = () => {
   }, []);
 
   return (
-    <section
-      id="concentrated-liquidity"
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section id="concentrated-liquidity" ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -214,10 +212,14 @@ const ConcentratedLiquidity = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">Concentrated</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              Concentrated
+            </span>{" "}
             <span className="text-budju-pink">Liquidity</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Understanding the power of focused liquidity positions
           </p>
         </motion.div>
@@ -229,7 +231,13 @@ const ConcentratedLiquidity = () => {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.6 }}
           >
-            <div className="budju-card p-4 aspect-video">
+            <div
+              className={
+                isDarkMode
+                  ? "budju-card p-4 aspect-video"
+                  : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-4 aspect-video"
+              }
+            >
               <canvas
                 ref={canvasRef}
                 className="w-full h-full"
@@ -249,11 +257,15 @@ const ConcentratedLiquidity = () => {
             </h3>
 
             <div className="space-y-6">
-              <div className="bg-gray-900/50 rounded-lg p-5 border border-gray-800">
-                <h4 className="text-xl font-semibold text-white mb-3">
+              <div
+                className={`${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-lg p-5 border`}
+              >
+                <h4
+                  className={`text-xl font-semibold ${isDarkMode ? "text-white" : "text-budju-white"} mb-3`}
+                >
                   What is Concentrated Liquidity?
                 </h4>
-                <p className="text-gray-300">
+                <p className={isDarkMode ? "text-gray-300" : "text-white"}>
                   Unlike traditional liquidity pools that spread funds across
                   the entire price range (0 to ∞), concentrated liquidity allows
                   you to focus your capital within a specific price range. This
@@ -262,18 +274,28 @@ const ConcentratedLiquidity = () => {
                 </p>
               </div>
 
-              <div className="bg-gray-900/50 rounded-lg p-5 border border-gray-800">
-                <h4 className="text-xl font-semibold text-white mb-3">
+              <div
+                className={`${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-lg p-5 border`}
+              >
+                <h4
+                  className={`text-xl font-semibold ${isDarkMode ? "text-white" : "text-budju-white"} mb-3`}
+                >
                   Benefits for BUDJU Liquidity Providers
                 </h4>
                 <ul className="space-y-3">
                   <li className="flex items-start">
                     <span className="text-budju-pink mr-2 text-xl">•</span>
                     <div>
-                      <span className="font-medium text-white">
+                      <span
+                        className={`font-medium ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                      >
                         Higher APRs
                       </span>
-                      <p className="text-gray-400">
+                      <p
+                        className={
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }
+                      >
                         Earn significantly higher fees per unit of capital
                         compared to traditional pools.
                       </p>
@@ -282,10 +304,16 @@ const ConcentratedLiquidity = () => {
                   <li className="flex items-start">
                     <span className="text-budju-pink mr-2 text-xl">•</span>
                     <div>
-                      <span className="font-medium text-white">
+                      <span
+                        className={`font-medium ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                      >
                         Customization
                       </span>
-                      <p className="text-gray-400">
+                      <p
+                        className={
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }
+                      >
                         Set your own price range based on your market outlook
                         for BUDJU.
                       </p>
@@ -294,10 +322,16 @@ const ConcentratedLiquidity = () => {
                   <li className="flex items-start">
                     <span className="text-budju-pink mr-2 text-xl">•</span>
                     <div>
-                      <span className="font-medium text-white">
+                      <span
+                        className={`font-medium ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                      >
                         Multiple Positions
                       </span>
-                      <p className="text-gray-400">
+                      <p
+                        className={
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }
+                      >
                         Create multiple positions with different ranges to
                         optimize your strategy.
                       </p>
@@ -307,16 +341,22 @@ const ConcentratedLiquidity = () => {
               </div>
 
               <div className="bg-budju-pink/10 rounded-lg p-5 border border-budju-pink/30">
-                <h4 className="text-xl font-semibold text-white mb-3">
+                <h4
+                  className={`text-xl font-semibold ${isDarkMode ? "text-white" : "text-budju-white"} mb-3`}
+                >
                   Important Considerations
                 </h4>
-                <p className="text-gray-300 mb-3">
+                <p
+                  className={
+                    isDarkMode ? "text-gray-300 mb-3" : "text-white mb-3"
+                  }
+                >
                   With concentrated liquidity, your position will only earn fees
                   when the market price is within your chosen range. Once the
                   price moves outside your range, your position becomes
                   inactive.
                 </p>
-                <p className="text-gray-300">
+                <p className={isDarkMode ? "text-gray-300" : "text-white"}>
                   This is why monitoring and rebalancing your positions is
                   crucial for maximizing returns in concentrated liquidity
                   pools.
