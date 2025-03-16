@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { FaFireAlt, FaDollarSign, FaUsers, FaChartLine } from "react-icons/fa";
+import { FaFireAlt, FaDollarSign, FaUsers, FaChartLine, FaExternalLinkAlt } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
-import Button from "@components/common/Button";
 import { useTheme } from "@/context/ThemeContext";
 import {
   fetchHeliusTokenMetrics,
@@ -41,7 +40,8 @@ const TokenStats = () => {
   const holdersRef = useRef<HTMLSpanElement>(null);
   const supplyRef = useRef<HTMLSpanElement>(null);
 
-  const SOLSCAN_LINK = `https://solscan.io/token/${TOKEN_ADDRESS}`;
+  const SOLSCAN_TOKEN_LINK = `https://solscan.io/token/${TOKEN_ADDRESS}`;
+  const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS}`;
 
   const fetchTokenData = async () => {
     try {
@@ -118,7 +118,7 @@ const TokenStats = () => {
     : 0;
 
   return (
-    <section className="py-16">
+    <section className="pt-0 pb-16"> {/* Changed py-16 to pt-0 pb-16 */}
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -126,12 +126,7 @@ const TokenStats = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold">
-            <span className="text-budju-blue">LIVE</span>{" "}
-            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
-              TOKEN STATS
-            </span>
-          </h2>
+          {/* Commented out heading remains commented */}
         </motion.div>
 
         {error && (
@@ -226,7 +221,7 @@ const TokenStats = () => {
             <div className="bg-green-500/20 p-3 rounded-full mb-4">
               <FaUsers
                 size={24}
-                className={isDarkMode ? "text-green-500" : "text-budju-yellow"}
+                className={isDarkMode ? "text-green-500" : "text-yellow-700"}
               />
             </div>
             <h3
@@ -343,7 +338,7 @@ const TokenStats = () => {
                 </span>
               </h3>
               <div
-                className={`flex items-center ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+                className={`flex items-center space-x-2 ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
               >
                 <code
                   className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
@@ -351,6 +346,15 @@ const TokenStats = () => {
                   {TOKEN_ADDRESS}
                 </code>
                 <CopyToClipboard text={TOKEN_ADDRESS} />
+                <a
+                  href={SOLSCAN_TOKEN_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-blue hover:bg-gray-600" : "text-budju-blue-dark hover:bg-gray-700"}`}
+                  aria-label="View on Solscan"
+                >
+                  <FaExternalLinkAlt size={16} />
+                </a>
               </div>
             </div>
             <div>
@@ -361,7 +365,7 @@ const TokenStats = () => {
                 <span className="text-budju-pink">ADDRESS</span>
               </h3>
               <div
-                className={`flex items-center ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+                className={`flex items-center space-x-2 ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
               >
                 <code
                   className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
@@ -369,20 +373,17 @@ const TokenStats = () => {
                   {BURN_ADDRESS}
                 </code>
                 <CopyToClipboard text={BURN_ADDRESS} />
+                <a
+                  href={SOLSCAN_BURN_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-pink hover:bg-gray-600" : "text-budju-pink-dark hover:bg-gray-700"}`}
+                  aria-label="View on Solscan"
+                >
+                  <FaExternalLinkAlt size={16} />
+                </a>
               </div>
             </div>
-          </div>
-          <div className="mt-6 flex justify-center">
-            <Button
-              as="a"
-              href={SOLSCAN_LINK}
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="secondary"
-              size="md"
-            >
-              View on Solscan
-            </Button>
           </div>
         </motion.div>
       </div>

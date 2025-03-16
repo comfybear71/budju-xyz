@@ -1,5 +1,5 @@
 // App config
-export const APP_NAME = "BUDJU Coin";
+export const APP_NAME = "BUDJU";
 export const APP_DESCRIPTION =
   "Join the BUDJU Parade - Solana's Most Vibrant Community";
 export const APP_URL =

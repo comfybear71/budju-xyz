@@ -3,6 +3,7 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 
 // Components
 import Hero from "./components/Hero";
+import ShopOfBudjus from "./components/ShopOfBudjusPreview";
 import NFTShowcase from "./components/NFTShowcase";
 import JoinParade from "./components/JoinParade";
 import HowToBuyPreview from "./components/HowToBuyPreview";
@@ -16,7 +17,7 @@ const Home = () => {
     window.scrollTo(0, 0);
 
     // Set document title and metadata
-    document.title = `${APP_NAME} - Join the BUDJU Parade`;
+    document.title = `${APP_NAME} - JOIN THE PARADE`;
 
     // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
@@ -55,6 +56,9 @@ const Home = () => {
 
       {/* Token Stats */}
       <TokenStats />
+
+      {/* Shop of Budju's */}
+      <ShopOfBudjus />
 
       {/* NFT Collection Showcase */}
       <NFTShowcase />

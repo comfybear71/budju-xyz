@@ -12,6 +12,7 @@ import { gsap } from "gsap";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { TOKEN_ADDRESS } from "@/constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
+import WalletConnect from "@components/common/WalletConnect";
 
 const socialLinks = [
   {
@@ -215,30 +216,7 @@ const Footer = () => {
                 </p>
               </div>
               <div className="pt-2">
-                <a
-                  href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-block group relative font-bold text-xs md:text-lg py-1 md:py-2 px-4 md:px-8 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 hover:shadow-xl cursor-pointer ${
-                    isDarkMode
-                      ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-gray-600/20"
-                      : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-white/20"
-                  } border-2 active:scale-95 active:shadow-md`}
-                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.transform = "scale(1.05)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.transform = "scale(1)")
-                  }
-                >
-                  <span
-                    className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
-                      isDarkMode ? "0.2" : "0.3"
-                    })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                  />
-                  BUY BUDJU
-                </a>
+                <WalletConnect size="lg" />
               </div>
             </div>
           </div>

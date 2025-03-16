@@ -1,24 +1,28 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
-import { FaBars, FaTimes, FaSun, FaMoon } from "react-icons/fa";
+import { FaBars, FaTimes, FaExchangeAlt, FaSwimmingPool, FaShoppingCart, FaPiggyBank, FaEllipsisH, FaSun, FaMoon } from "react-icons/fa";
 import { gsap } from "gsap";
 import { useTheme } from "@/context/ThemeContext";
 import WalletConnect from "../WalletConnect";
 
+// Define a type for icon components that accept SVG props
+interface IconComponentProps {
+  className?: string;
+}
+
 interface NavItem {
   name: string;
   path: string;
+  icon: React.ComponentType<IconComponentProps>;
 }
 
 const navItems: NavItem[] = [
-  { name: "Home", path: "/" },
-  { name: "NFT Collection", path: "/nft" },
-  { name: "How To Buy", path: "/how-to-buy" },
-  { name: "Pool of BUDJU", path: "/pool" },
-  { name: "Shop", path: "/shop" },
-  { name: "Tokenomics", path: "/tokenomics" },
-  { name: "Bank of BUDJU", path: "/bank" },
+  { name: "SWAP", path: "/nft", icon: FaExchangeAlt },
+  { name: "POOLS of BUDJU's", path: "/how-to-buy", icon: FaSwimmingPool },
+  { name: "SHOP of BUDJU's", path: "https://shop.budjucoin.com", icon: FaShoppingCart }, // Updated path to external URL
+  { name: "BANK of BUDJU's", path: "/tokenomics", icon: FaPiggyBank },
+  { name: "MORE", path: "/bank", icon: FaEllipsisH },
 ];
 
 const Navbar = () => {
@@ -48,7 +52,7 @@ const Navbar = () => {
           scale: 1.1,
           duration: 0.3,
           ease: "power2.out",
-        }),
+        })
       );
       logo.addEventListener("mouseleave", () =>
         gsap.to(logo, {
@@ -56,7 +60,7 @@ const Navbar = () => {
           scale: 1,
           duration: 0.5,
           ease: "elastic.out(1, 0.3)",
-        }),
+        })
       );
     }
   }, []);
@@ -98,28 +102,31 @@ const Navbar = () => {
             />
           </Link>
 
+          {/* Desktop Navigation with Icons */}
           <div className="hidden xl:flex items-center space-x-6">
             {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
-                className={`relative font-semibold text-sm md:text-base lg:text-lg transform transition duration-300 cursor-pointer
-        ${
-          location.pathname === item.path
-            ? isDarkMode
-              ? "text-budju-pink"
-              : "text-black"
-            : isDarkMode
-              ? "text-gray-300 hover:text-budju-pink" // Dark mode: default gray-300, hover budju-pink
-              : "text-white hover:text-black"
-        } hover:scale-105`}
+                {...(item.path.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                className={`relative font-semibold text-sm md:text-base lg:text-lg transform transition duration-300 cursor-pointer flex items-center space-x-2
+                  ${
+                    location.pathname === item.path
+                      ? isDarkMode
+                        ? "text-budju-pink"
+                        : "text-black"
+                      : isDarkMode
+                        ? "text-gray-300 hover:text-budju-pink"
+                        : "text-white hover:text-black"
+                  } hover:scale-105`}
               >
-                {item.name}
-                {location.pathname === item.path && (
+                <item.icon className="w-5 h-5" />
+                <span>{item.name}</span>
+                {location.pathname === item.path && !item.path.startsWith("http") && (
                   <motion.div
                     layoutId="navbar-indicator"
                     className={`absolute -bottom-1 left-0 right-0 h-0.5 ${
-                      isDarkMode ? "bg-budju-pink" : "bg-black" // Light mode: indikator hitam, Dark mode: indikator budju-pink
+                      isDarkMode ? "bg-budju-pink" : "bg-black"
                     }`}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -132,18 +139,6 @@ const Navbar = () => {
 
           <div className="hidden xl:flex items-center space-x-4">
             <WalletConnect />
-            <a
-              href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`text-sm md:text-base px-4 py-2 rounded-full bg-gradient-to-r ${
-                isDarkMode
-                  ? "from-budju-pink to-purple-600 hover:from-purple-600 hover:to-budju-pink"
-                  : "from-budju-pink to-purple-400 hover:from-purple-400 hover:to-budju-pink"
-              } text-white transition-all shadow-md hover:shadow-lg cursor-pointer`}
-            >
-              BUY BUDJU
-            </a>
             <motion.button
               onClick={toggleTheme}
               className={`p-2 rounded-full transition-all duration-300 cursor-pointer ${
@@ -166,18 +161,7 @@ const Navbar = () => {
           </div>
 
           <div className="xl:hidden flex items-center space-x-2">
-            <a
-              href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`text-xs sm:text-sm px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-gradient-to-r ${
-                isDarkMode
-                  ? "from-budju-pink to-purple-600 hover:from-purple-600 hover:to-budju-pink"
-                  : "from-budju-pink to-purple-400 hover:from-purple-400 hover:to-budju-pink"
-              } text-white transition-all shadow-md hover:shadow-lg cursor-pointer`}
-            >
-              BUY BUDJU
-            </a>
+            <WalletConnect size="sm" /> {/* Replaced BUY BUDJU with WalletConnect */}
             <motion.button
               onClick={toggleTheme}
               className={`p-2 rounded-full transition-all duration-300 cursor-pointer ${
@@ -219,6 +203,7 @@ const Navbar = () => {
         </div>
       </nav>
 
+      {/* Mobile Menu with Icons */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -267,7 +252,8 @@ const Navbar = () => {
                 >
                   <Link
                     to={item.path}
-                    className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer ${
+                    {...(item.path.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer flex items-center space-x-2 ${
                       location.pathname === item.path
                         ? isDarkMode
                           ? "bg-gray-800/50 text-budju-pink"
@@ -278,7 +264,8 @@ const Navbar = () => {
                     }`}
                     onClick={toggleMenu}
                   >
-                    {item.name}
+                    <item.icon className="w-6 h-6" />
+                    <span>{item.name}</span>
                   </Link>
                 </motion.div>
               ))}
