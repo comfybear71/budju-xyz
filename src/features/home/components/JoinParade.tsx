@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
-import Button from "@components/common/Button"; // Still imported but not used unless needed elsewhere
+// import Button from "@components/common/Button"; // Still imported but not used unless needed elsewhere
 import WalletConnect from "@components/common/WalletConnect"; // Added import
 import { useTheme } from "@/context/ThemeContext";
 
