@@ -4,8 +4,9 @@ import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import BankIntro from "./components/BankIntro";
 import BurnStatistics from "./components/BurnStatistics";
-import BankDeposit from "./components/BankDeposit";
+// import BankDeposit from "./components/BankDeposit";
 import BankTokens from "./components/BankTokens";
+import BankChart from "./components/BankChart";
 import BankTransactions from "./components/BankTransactions";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -67,6 +68,9 @@ const Bank = () => {
 
      {/* Bank Tokens */}
       <BankTokens />
+
+      {/* Bank Chart */}
+      <BankChart />
 
       {/* Burn Statistics */}
       <BurnStatistics />

@@ -231,6 +231,7 @@ const PriceChart = () => {
     drawChart();
   }, [drawChart, dimensions]);
 
+  
   return (
     <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-b from-gray-900 to-budju-black">
       <div className="budju-container px-4 sm:px-6">

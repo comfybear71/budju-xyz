@@ -1,0 +1,243 @@
+import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { Doughnut } from "react-chartjs-2";
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
+
+// Register Chart.js components
+ChartJS.register(ArcElement, Tooltip, Legend);
+
+// Constants
+const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
+const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+
+// Validate API key
+if (!HELIUS_API_KEY) throw new Error("Missing Helius API key");
+
+// Solana connection
+const connection = new Connection(HELIUS_RPC_ENDPOINT, {
+  commitment: "confirmed",
+  confirmTransactionInitialTimeout: 60000,
+});
+
+// Cache
+const cache: Record<string, { data: any; expiry: number }> = {};
+
+const getCachedData = (key: string): any | null => {
+  const cached = cache[key];
+  return cached && Date.now() < cached.expiry ? cached.data : null;
+};
+
+const setCachedData = (key: string, data: any, ttl: number): void => {
+  cache[key] = { data, expiry: Date.now() + ttl };
+};
+
+// Fetch with retry
+const retryFetch = async (url: string, options: RequestInit, retries = 3, delay = 1000): Promise<Response> => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const response = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!response.ok && response.status === 429 && attempt < retries) {
+        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, attempt)));
+        continue;
+      }
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      return response;
+    } catch (error) {
+      if (attempt === retries) throw new Error(`Failed after ${retries} attempts: ${error}`);
+      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, attempt)));
+    }
+  }
+  throw new Error("Unexpected error in retryFetch");
+};
+
+// Fetch token price
+const fetchTokenPrice = async (tokenAddress: string): Promise<number> => {
+  const cacheKey = `price_${tokenAddress}`;
+  const cachedPrice = getCachedData(cacheKey);
+  if (cachedPrice !== null) return cachedPrice;
+
+  try {
+    const response = await retryFetch(`https://api.jup.ag/price/v2?ids=${tokenAddress}`, {
+      headers: { Accept: "application/json" },
+    });
+    const data = await response.json();
+    const price = Number(data.data[tokenAddress]?.price || 0);
+    if (!isNaN(price) && price > 0) {
+      setCachedData(cacheKey, price, 5 * 60 * 1000); // 5 minutes
+      return price;
+    }
+    throw new Error("No valid price from Jupiter");
+  } catch (error) {
+    console.error("Error fetching price:", error);
+    return 0;
+  }
+};
+
+// Fetch token metadata
+const fetchTokenMetadata = async (tokenAddress: string): Promise<{
+  name: string;
+  symbol: string;
+  logo: string;
+  color: string;
+}> => {
+  const cacheKey = `metadata_${tokenAddress}`;
+  const cachedMetadata = getCachedData(cacheKey);
+  if (cachedMetadata !== null) return cachedMetadata;
+
+  try {
+    const response = await retryFetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "token-metadata",
+        method: "getAsset",
+        params: { id: tokenAddress },
+      }),
+    });
+    const data = await response.json();
+    const tokenData = data.result?.content?.metadata || {};
+    const metadata = {
+      name: tokenData.name || "Unknown Token",
+      symbol: tokenData.symbol || "UNKNOWN",
+      logo: data.result?.content?.links?.image || "/images/tokens/default.png",
+      color: "bg-gray-500",
+    };
+    setCachedData(cacheKey, metadata, 60 * 60 * 1000); // 1 hour
+    return metadata;
+  } catch (error) {
+    console.error(`Metadata error for ${tokenAddress}:`, error);
+    return { name: "Unknown Token", symbol: "UNKNOWN", logo: "/images/tokens/default.png", color: "bg-gray-500" };
+  }
+};
+
+// SOL metadata
+const SOL_METADATA = {
+  name: "Solana",
+  symbol: "SOL",
+  logo: "https://cryptologos.cc/logos/solana-sol-logo.png",
+  color: "bg-purple-500",
+};
+
+// Token holding type
+type TokenHolding = {
+  name: string;
+  symbol: string;
+  logo: string;
+  amount: number;
+  value: number;
+  color: string;
+};
+
+// Fetch bank holdings
+const fetchBankHoldings = async (): Promise<TokenHolding[]> => {
+  const cacheKey = `bank_holdings_${BANK_OF_BUDJU_ADDRESS}`;
+  const cachedHoldings = getCachedData(cacheKey);
+  if (cachedHoldings !== null) return cachedHoldings;
+
+  try {
+    const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
+    const solBalanceLamports = await connection.getBalance(bankPublicKey);
+    const solAmount = solBalanceLamports / 1e9;
+    const solPrice = await fetchTokenPrice("So11111111111111111111111111111111111111112");
+    const solHolding: TokenHolding = { ...SOL_METADATA, amount: solAmount, value: solAmount * solPrice };
+
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(bankPublicKey, { programId: TOKEN_PROGRAM_ID });
+    const holdings: TokenHolding[] = [solHolding];
+    const fetchPromises = tokenAccounts.value.map(async account => {
+      const info = account.account.data.parsed.info;
+      const tokenAddress = info.mint;
+      const amount = info.tokenAmount.uiAmount || 0;
+      if (amount < 0.0001) return;
+
+      const [price, metadata] = await Promise.all([fetchTokenPrice(tokenAddress), fetchTokenMetadata(tokenAddress)]);
+      const value = amount * price;
+      if (value > 0) holdings.push({ ...metadata, amount, value });
+    });
+
+    await Promise.all(fetchPromises);
+    const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
+    setCachedData(cacheKey, sortedHoldings, 10 * 60 * 1000); // 10 minutes
+    return sortedHoldings;
+  } catch (error) {
+    console.error("Error fetching holdings:", error);
+    return [];
+  }
+};
+
+// Colors
+const chartColors = ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF", "#FF9F40"];
+
+// Component
+const BankChart = () => {
+  const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const holdings = await fetchBankHoldings();
+        setTokenHoldings(holdings);
+      } catch (err) {
+        setError("Failed to load holdings.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  const totalValue = tokenHoldings.reduce((sum, t) => sum + t.value, 0);
+  const doughnutData = {
+    labels: tokenHoldings.map(t => t.name),
+    datasets: [
+      {
+        data: tokenHoldings.map(t => (t.value / totalValue) * 100),
+        backgroundColor: tokenHoldings.map((_, i) => chartColors[i % chartColors.length]),
+        borderColor: "#333",
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const options = {
+    responsive: true,
+    plugins: {
+      legend: { position: "right" as const },
+      tooltip: { callbacks: { label: (ctx: any) => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } },
+    },
+  };
+
+  return (
+    <section className="py-10 bg-[#0a0a0a] text-white">
+      <div className="max-w-5xl mx-auto px-4">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center mb-8">
+          <h2 className="text-3xl font-bold mb-2">BANK HOLDINGS DISTRIBUTION</h2>
+          <p className="text-sm text-gray-400">Percentage breakdown of tokens in Bank of BUDJU</p>
+        </motion.div>
+        {loading && <div className="text-center text-gray-400">Loading...</div>}
+        {error && <div className="text-center text-red-500">{error}</div>}
+        {!loading && !error && tokenHoldings.length > 0 && (
+          <div className="flex justify-center">
+            <div style={{ width: "100%", maxWidth: "600px" }}>
+              <Doughnut data={doughnutData} options={options} />
+            </div>
+          </div>
+        )}
+        {!loading && !error && tokenHoldings.length === 0 && (
+          <div className="text-center text-gray-400">No holdings found.</div>
+        )}
+      </div>
+    </section>
+  );
+};
+
+export default BankChart;
