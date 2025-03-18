@@ -1,21 +1,23 @@
 // Application routes
 export const ROUTES = {
   HOME: "/",
-  NFT: "/nft",
-  HOW_TO_BUY: "/how-to-buy",
-  POOL: "/pool", // Add this line
+  SWAP: "/swap",           // New Swap page
   SHOP: "/shop",
-  TOKENOMICS: "/tokenomics",
+  POOL: "/pool",
   BANK: "/bank",
+  TOKENOMICS: "/tokenomics",
+  NFT: "/nft",
+  HOW_TO_BUY: "/how-to-buy", // Added back
 };
 
 // Route names for navbar
 export const ROUTE_NAMES = {
   [ROUTES.HOME]: "Home",
-  [ROUTES.NFT]: "NFT Collection",
-  [ROUTES.HOW_TO_BUY]: "How To Buy",
-  [ROUTES.POOL]: "Pool of BUDJU", // Add this line
+  [ROUTES.SWAP]: "Swap",              // Name for Swap
   [ROUTES.SHOP]: "Shop",
-  [ROUTES.TOKENOMICS]: "Tokenomics",
+  [ROUTES.POOL]: "Pool of BUDJU",
   [ROUTES.BANK]: "Bank of BUDJU",
+  [ROUTES.TOKENOMICS]: "Tokenomics",
+  [ROUTES.NFT]: "NFT's",              // Updated per your previous request
+  [ROUTES.HOW_TO_BUY]: "How To Buy",  // Added back
 };

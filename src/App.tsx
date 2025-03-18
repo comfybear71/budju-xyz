@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router";
+import { BrowserRouter, Routes, Route } from "react-router-dom"; // Updated import to "react-router-dom"
 import Layout from "@components/common/Layout";
 import { WalletProvider } from "@hooks/useWallet";
 import Web3Background from "./components/common/Web3Background";
@@ -12,8 +12,9 @@ const HowToBuy = lazy(() => import("@features/how-to-buy/HowToBuy"));
 const Shop = lazy(() => import("@features/shop/Shop"));
 const Tokenomics = lazy(() => import("@features/tokenomics/Tokenomics"));
 const Bank = lazy(() => import("@features/bank/Bank"));
-const NotFound = lazy(() => import("@features/not-found/NotFound"));
 const Pool = lazy(() => import("@features/pool/Pool"));
+const Swap = lazy(() => import("@features/swap/Swap")); // Added SwapTool
+const NotFound = lazy(() => import("@features/not-found/NotFound"));
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -63,6 +64,7 @@ const App = () => {
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/tokenomics" element={<Tokenomics />} />
                 <Route path="/bank" element={<Bank />} />
+                <Route path="/swap" element={<Swap />} /> {/* Added Swap route */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>

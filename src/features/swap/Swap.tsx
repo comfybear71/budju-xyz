@@ -1,36 +1,27 @@
 import { useEffect } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { APP_NAME } from "@constants/config";
-import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
-import BankIntro from "./components/BankIntro";
-import BurnStatistics from "./components/BurnStatistics";
-import BankDeposit from "./components/BankDeposit";
-import BankTokens from "./components/BankTokens";
-import BankTransactions from "./components/BankTransactions";
+import SwapTool from "./components/SwapTool";// Relative path from src/features/swap/
 import { useTheme } from "@/context/ThemeContext";
 
-const Bank = () => {
+const Swap = () => {
   const { isDarkMode } = useTheme();
 
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
+    document.title = `Swap - ${APP_NAME}`;
 
-    // Set document title and metadata
-    document.title = `Bank of ${APP_NAME} - Deposit, Burn, and Grow`;
-
-    // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
       metaDescription.setAttribute(
         "content",
-        "The Bank of BUDJU uses revenue to invest in the platform development, provide liquidity, and burn tokens to boost value.",
+        "Swap your tokens with BUDJU on the Bank of BUDJU platform.",
       );
     } else {
       const newMetaDescription = document.createElement("meta");
       newMetaDescription.name = "description";
       newMetaDescription.content =
-        "The Bank of BUDJU uses revenue to invest in the platform development, provide liquidity, and burn tokens to boost value.";
+        "Swap your tokens with BUDJU on the Bank of BUDJU platform.";
       document.head.appendChild(newMetaDescription);
     }
   }, []);
@@ -50,40 +41,23 @@ const Bank = () => {
           >
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
               <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-                Bank of{" "}
+                Swap with{" "}
               </span>
               <span className="text-budju-blue">BUDJU</span>
             </h1>
             <p
               className={`text-xl ${isDarkMode ? "text-gray-300" : "text-budju-white"}`}
             >
-              Fuel the future of BUDJU! Deposit into the Bank of BUDJU and watch
-              your contribution grow with interest—burning BUDJU coins to boost
-              value. The bigger your deposit, the bigger your rewards.
+              Easily swap your tokens with BUDJU to participate in the ecosystem.
             </p>
           </motion.div>
         </div>
       </section>
 
-     {/* Bank Tokens */}
-      <BankTokens />
-
-      {/* Burn Statistics */}
-      <BurnStatistics />
-
-      {/* Scrolling Banner */}
-      <BudjuParadeBanner />
-
-      {/* Bank Introduction */}
-      <BankIntro />
-
-      {/* Bank Transactions */}
-      <BankTransactions />
-
-      {/* Bank Deposit Interface */}
-      {/* <BankDeposit /> */}
+      {/* Swap Interface (formerly BankDeposit) */}
+      <SwapTool />
     </main>
   );
 };
 
-export default Bank;
+export default Swap;
