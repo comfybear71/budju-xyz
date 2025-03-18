@@ -24,6 +24,7 @@ const TokenSupply = () => {
   const [burnedTokens, setBurnedTokens] = useState<number>(0);
   const [raydiumVault, setRaydiumVault] = useState<number>(0);
   const [bankOfBudju, setBankOfBudju] = useState<number>(0);
+  const [communityVault, setcommunityVault] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
   const fetchTokenSupplyData = async () => {
@@ -39,8 +40,8 @@ const TokenSupply = () => {
       const burned = metrics.burned;
       const raydiumVault = metrics.raydiumVault;
       const bankOfBudju = metrics.bankOfBudju;
-      const circulatingSupply =
-        totalSupply - burned - raydiumVault - bankOfBudju;
+      const communityVault = metrics.communityVault;
+      const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
 
       const realAllocation: TokenAllocation[] = [
         {
@@ -67,6 +68,13 @@ const TokenSupply = () => {
           color: "#FF851B", // Orange
           value: bankOfBudju,
         },
+        {
+          name: "BUDJU Community POOLS",
+          percentage: (communityVault / totalSupply) * 100,
+          color: "#FF69B4", // Hot Pink
+          value: communityVault,
+        },
+
       ].filter((item) => item.value > 0); // Filter out zero-value categories
 
       setTokenAllocation(realAllocation);
@@ -74,6 +82,7 @@ const TokenSupply = () => {
       setBurnedTokens(burned);
       setRaydiumVault(raydiumVault);
       setBankOfBudju(bankOfBudju);
+      setcommunityVault(communityVault);
     } catch (error) {
       console.error("Error fetching token supply data:", error);
       setTokenAllocation([
@@ -101,11 +110,18 @@ const TokenSupply = () => {
           color: "#FF851B",
           value: 600_000,
         },
+        {
+          name: "Community Vault of BUDJU",
+          percentage: 0.06,
+          color: "#FF69B4",
+          value: 600_000,
+        },
       ]);
       setTotalSupply(1_000_000_000);
       setBurnedTokens(15_600_000);
       setRaydiumVault(89_400_000);
       setBankOfBudju(600_000);
+      setcommunityVault(600_000);
     } finally {
       setLoading(false);
     }
@@ -212,7 +228,7 @@ const TokenSupply = () => {
   }, [tokenAllocation, loading]);
 
   const remainingSupply =
-    totalSupply - burnedTokens - raydiumVault - bankOfBudju;
+    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
 
   return (
     <section
@@ -310,6 +326,12 @@ const TokenSupply = () => {
                   <span className="text-gray-300">Bank of BUDJU:</span>
                   <span className="text-orange-400 font-medium">
                     {bankOfBudju.toLocaleString()} BUDJU
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Community Vault:</span>
+                  <span className="text-pink-400 font-medium">
+                    {communityVault.toLocaleString()} BUDJU
                   </span>
                 </div>
                 <div className="flex justify-between items-center">

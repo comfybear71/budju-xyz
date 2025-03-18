@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion"; // Corrected import
 import { gsap } from "gsap";
 import {
   FaExternalLinkAlt,
@@ -15,9 +15,9 @@ const BankTransactions = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [filter, setFilter] = useState<
-    "all" | "deposit" | "withdrawal" | "burn"
-  >("all");
+  const [filter, setFilter] = useState<"all" | "deposit" | "withdrawal" | "burn">(
+    "all",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,7 +25,7 @@ const BankTransactions = () => {
     const loadTransactions = async () => {
       try {
         setLoading(true);
-        const txs = await fetchBankTransactions();
+        const txs = await fetchBankTransactions(); // Uses default BANK_OF_BUDJU_ADDRESS
         setTransactions(txs);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
@@ -117,30 +117,48 @@ const BankTransactions = () => {
               filter === "all"
                 ? "bg-budju-blue text-white"
                 : isDarkMode
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  : "bg-white/30 text-white hover:bg-white/40"
+                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                : "bg-white/30 text-white hover:bg-white/40"
             }`}
           >
             All Transactions
           </button>
-          {/* <button
+          <button
             onClick={() => setFilter("deposit")}
-            className={`px-4 py-2 rounded-lg transition-colors ${filter === "deposit" ? "bg-green-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              filter === "deposit"
+                ? "bg-green-600 text-white"
+                : isDarkMode
+                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                : "bg-white/30 text-white hover:bg-white/40"
+            }`}
           >
             Deposits
           </button>
           <button
             onClick={() => setFilter("withdrawal")}
-            className={`px-4 py-2 rounded-lg transition-colors ${filter === "withdrawal" ? "bg-yellow-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              filter === "withdrawal"
+                ? "bg-yellow-600 text-white"
+                : isDarkMode
+                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                : "bg-white/30 text-white hover:bg-white/40"
+            }`}
           >
             Withdrawals
           </button>
           <button
             onClick={() => setFilter("burn")}
-            className={`px-4 py-2 rounded-lg transition-colors ${filter === "burn" ? "bg-red-600 text-white" : "bg-gray-800 text-gray-400 hover:bg-gray-700"}`}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              filter === "burn"
+                ? "bg-red-600 text-white"
+                : isDarkMode
+                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                : "bg-white/30 text-white hover:bg-white/40"
+            }`}
           >
             Burns
-          </button> */}
+          </button>
         </div>
 
         <div

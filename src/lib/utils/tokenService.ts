@@ -25,6 +25,7 @@ const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
 const RAYDIUM_VAULT_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+const COMMUNITY_VAULT_ADDRESS = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
 
 // Create Solana connection
 const connection = new Connection(HELIUS_RPC_ENDPOINT, {
@@ -58,6 +59,7 @@ interface TokenMetrics {
   burned: number;
   raydiumVault: number;
   bankOfBudju: number;
+  communityVault: number;
   circulatingSupply: number;
 }
 
@@ -242,6 +244,7 @@ async function fetchTokenSupplyAndBalances(
   burned: number;
   raydiumVault: number;
   bankOfBudju: number;
+  communityVault: number;
 }> {
   const cacheKey = `supply_${tokenAddress}`;
   const cachedSupply = getCachedData(cacheKey);
@@ -287,6 +290,9 @@ async function fetchTokenSupplyAndBalances(
       bankOfBudju: BANK_OF_BUDJU_ADDRESS
         ? sumBalancesForOwner(BANK_OF_BUDJU_ADDRESS)
         : 0,
+      communityVault: COMMUNITY_VAULT_ADDRESS
+        ? sumBalancesForOwner(COMMUNITY_VAULT_ADDRESS)
+        : 0,
     };
 
     setCachedData(cacheKey, result, 10 * 60 * 1000);
@@ -299,6 +305,7 @@ async function fetchTokenSupplyAndBalances(
       burned: 0,
       raydiumVault: 0,
       bankOfBudju: 0,
+      communityVault: 0,
     };
   }
 }
@@ -331,6 +338,7 @@ export async function fetchHeliusTokenMetrics(
             burned: 0,
             raydiumVault: 0,
             bankOfBudju: 0,
+            communityVault: 0,
           };
     const holders =
       holdersResult.status === "fulfilled" ? holdersResult.value : [];
@@ -345,6 +353,7 @@ export async function fetchHeliusTokenMetrics(
       burned: supplyData.burned,
       raydiumVault: supplyData.raydiumVault,
       bankOfBudju: supplyData.bankOfBudju,
+      communityVault: supplyData.communityVault,
       circulatingSupply,
     };
   } catch (error) {
@@ -358,6 +367,7 @@ export async function fetchHeliusTokenMetrics(
       burned: 0,
       raydiumVault: 0,
       bankOfBudju: 0,
+      communityVault: 0,
       circulatingSupply: 0,
     };
   }

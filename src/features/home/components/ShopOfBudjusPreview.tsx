@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
-// import { NFT_TARGET_HOLDERS } from "@constants/addresses";
+import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
 
 const shopImages = [
@@ -19,7 +19,7 @@ const shopImages = [
 const ShopOfBudjusPreview = () => {
   const { isDarkMode } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(0);
-//   const [holderCount, setHolderCount] = useState(123);
+  const [holderCount, setHolderCount] = useState(123);
   const [autoplay, setAutoplay] = useState(true);
   const sliderRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -69,18 +69,18 @@ const ShopOfBudjusPreview = () => {
     }
   }, []);
 
-//   useEffect(() => {
-//     const fetchHolderCount = () =>
-//       setHolderCount(Math.floor(Math.random() * 30) + 120);
-//     fetchHolderCount();
-//     const interval = setInterval(fetchHolderCount, 30000);
-//     return () => clearInterval(interval);
-//   }, []);
+  useEffect(() => {
+    const fetchHolderCount = () =>
+      setHolderCount(Math.floor(Math.random() * 30) + 120);
+    fetchHolderCount();
+    const interval = setInterval(fetchHolderCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
-//   const percentComplete = Math.min(
-//     100,
-//     Math.round((holderCount / NFT_TARGET_HOLDERS) * 100),
-//   );
+  const percentComplete = Math.min(
+    100,
+    Math.round((holderCount / NFT_TARGET_HOLDERS) * 100),
+  );
 
   return (
     <section className="py-20">
@@ -231,7 +231,7 @@ const ShopOfBudjusPreview = () => {
               </button>
             </div>
           </div>
-         
+          
         </div>
       </div>
     </section>

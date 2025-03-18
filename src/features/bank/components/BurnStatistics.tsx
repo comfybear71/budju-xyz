@@ -26,6 +26,9 @@ const BurnStatistics = () => {
   const percentageRef = useRef<HTMLSpanElement>(null);
   const valueRef = useRef<HTMLSpanElement>(null);
 
+
+  
+
   const [burnEvents, setBurnEvents] = useState<BurnEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +75,8 @@ const BurnStatistics = () => {
       clearInterval(interval);
     };
   }, []);
+
+  
 
   const totalBurned = burnEvents.reduce((sum, event) => sum + event.amount, 0);
   const totalValue = burnEvents.reduce((sum, event) => sum + event.value, 0);

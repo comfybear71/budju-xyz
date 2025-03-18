@@ -65,23 +65,27 @@ const Bank = () => {
         </div>
       </section>
 
-      {/* Scrolling Banner */}
-      {/* <BudjuParadeBanner /> */}
-
-      {/* Bank Introduction */}
-      {/* <BankIntro /> */}
+     {/* Bank Tokens */}
+      <BankTokens />
 
       {/* Burn Statistics */}
-      {/* <BurnStatistics /> */}
+      <BurnStatistics />
+
+      {/* Scrolling Banner */}
+      <BudjuParadeBanner />
+
+      {/* Bank Introduction */}
+      <BankIntro />
+
+      
+
+      
+
+      {/* Bank Transactions */}
+      <BankTransactions />
 
       {/* Bank Deposit Interface */}
       <BankDeposit />
-
-      {/* Bank Tokens */}
-      {/* <BankTokens /> */}
-
-      {/* Bank Transactions */}
-      {/* <BankTransactions /> */}
     </main>
   );
 };

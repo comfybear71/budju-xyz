@@ -18,11 +18,12 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { name: "SWAP", path: "/nft", icon: FaExchangeAlt },
+  { name: "SWAP", path: "/swap", icon: FaExchangeAlt },
+  { name: "NFT", path: "/nft", icon: FaExchangeAlt },
   { name: "POOLS of BUDJU's", path: "/how-to-buy", icon: FaSwimmingPool },
   { name: "SHOP of BUDJU's", path: "https://shop.budjucoin.com", icon: FaShoppingCart }, // Updated path to external URL
-  { name: "BANK of BUDJU's", path: "/tokenomics", icon: FaPiggyBank },
-  { name: "MORE", path: "/bank", icon: FaEllipsisH },
+  { name: "TOKENOMICS", path: "/tokenomics", icon: FaPiggyBank },
+  { name: "BANK of BUDJU's", path: "/bank", icon: FaEllipsisH },
 ];
 
 const Navbar = () => {
