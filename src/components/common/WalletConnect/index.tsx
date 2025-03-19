@@ -18,7 +18,6 @@ import walletService, {
   Network,
   TokenBalance,
 } from "@lib/services/walletService";
-import { createPortal } from "react-dom";
 import { useTheme } from "@/context/ThemeContext";
 
 interface WalletConnectProps {
@@ -43,7 +42,6 @@ const WalletConnect = ({
   const { connection, connecting, availableWallets, connect, disconnect } =
     useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [showCopied, setShowCopied] = useState(false);
   const [balances, setBalances] = useState<WalletBalance>({
     sol: 0,
@@ -53,7 +51,6 @@ const WalletConnect = ({
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<Network>("mainnet");
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const [isMobileOrTablet, setIsMobileOrTablet] = useState(false);
   const [isSupported, setIsSupported] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -62,19 +59,6 @@ const WalletConnect = ({
     solana?: any;
     solflare?: any;
   }
-
-  useEffect(() => {
-    const checkDevice = () => {
-      const isMobileOrTabletDevice =
-        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-          navigator.userAgent,
-        ) || window.innerWidth < 1280;
-      setIsMobileOrTablet(isMobileOrTabletDevice);
-    };
-    checkDevice();
-    window.addEventListener("resize", checkDevice);
-    return () => window.removeEventListener("resize", checkDevice);
-  }, []);
 
   useEffect(() => {
     const extWindow = window as ExtendedWindow;
@@ -111,7 +95,6 @@ const WalletConnect = ({
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setIsMenuOpen(false);
-        setIsModalOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -122,33 +105,6 @@ const WalletConnect = ({
     setConnectionError(null);
     const extWindow = window as ExtendedWindow;
 
-    if (walletName === "phantom" && isMobileOrTablet) {
-      // Handle Phantom deep linking on mobile
-      const deepLink = `https://phantom.app/ul/v1/connect?app_url=${encodeURIComponent(
-        window.location.origin,
-      )}&dapp_encryption_public_key=${encodeURIComponent(
-        "YOUR_DAPP_PUBLIC_KEY", // Replace with your actual dapp encryption public key if available
-      )}&redirect_link=${encodeURIComponent(
-        window.location.href,
-      )}&network=${selectedNetwork}`;
-      
-      try {
-        window.location.href = deepLink;
-        // Give some time for the wallet to open before showing an error
-        setTimeout(() => {
-          if (!connection.connected) {
-            setConnectionError(
-              "Phantom wallet not detected. Please ensure it’s installed on your device.",
-            );
-          }
-        }, 3000);
-      } catch (error) {
-        console.error("Deep link error:", error);
-        setConnectionError("Failed to open Phantom wallet. Please try again.");
-      }
-      return;
-    }
-
     let walletProvider: any = null;
     if (walletName === "phantom") {
       walletProvider = extWindow.phantom?.solana || extWindow.solana;
@@ -156,9 +112,9 @@ const WalletConnect = ({
       walletProvider = extWindow.solflare;
     }
 
-    if (!walletProvider && !isMobileOrTablet) {
+    if (!walletProvider) {
       setConnectionError(
-        `${walletConfig[walletName].name} not detected. Please ensure it’s installed or use its in-app browser.`,
+        `${walletConfig[walletName].name} not detected. Please ensure it’s installed or use its in-app browser on mobile.`,
       );
       return;
     }
@@ -166,7 +122,6 @@ const WalletConnect = ({
     try {
       await connect(walletName);
       setIsMenuOpen(false);
-      setIsModalOpen(false);
     } catch (error) {
       console.error("Connection error:", error);
       setConnectionError(
@@ -180,7 +135,6 @@ const WalletConnect = ({
   const handleDisconnect = () => {
     disconnect();
     setIsMenuOpen(false);
-    setIsModalOpen(false);
   };
 
   const handleRefresh = async () => {
@@ -227,12 +181,8 @@ const WalletConnect = ({
   };
 
   const toggleMenu = () => {
-    if (isMobileOrTablet) {
-      setIsModalOpen(!isModalOpen);
-    } else {
-      setIsMenuOpen(!isMenuOpen);
-    }
-    if (!isMenuOpen && !isModalOpen) {
+    setIsMenuOpen(!isMenuOpen);
+    if (!isMenuOpen) {
       setConnectionError(null);
     }
   };
@@ -292,11 +242,11 @@ const WalletConnect = ({
             <FaExclamationTriangle className="mr-2 mt-0.5" />
             <div>
               <span className="text-sm block">
-                Wallet not detected on this device.
+                No wallet detected on this device.
               </span>
               <span className="text-xs block mt-1">
-                Open this page in your wallet app’s browser (e.g., Phantom or
-                Solflare) or install it below.
+                Install a wallet extension (desktop) or open this page in your
+                wallet app’s browser (mobile, e.g., Phantom or Solflare).
               </span>
             </div>
           </div>
@@ -380,58 +330,23 @@ const WalletConnect = ({
             </span>
           </button>
 
-          {!isMobileOrTablet && (
-            <AnimatePresence>
-              {isMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  transition={{ duration: 0.2 }}
-                  className={`absolute z-50 right-0 mt-2 w-64 ${
-                    isDarkMode
-                      ? "bg-gray-900 border-gray-800"
-                      : "bg-gray-100 border-gray-300"
-                  } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
-                >
-                  <WalletSelectionContent />
-                </motion.div>
-              )}
-            </AnimatePresence>
-          )}
-
-          {isMobileOrTablet &&
-            isModalOpen &&
-            createPortal(
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ duration: 0.2 }}
-                  className={`w-11/12 max-w-sm ${
-                    isDarkMode
-                      ? "bg-gray-900 border-gray-800"
-                      : "bg-gray-100 border-gray-300"
-                  } rounded-xl overflow-hidden shadow-xl border`}
-                >
-                  <div className="flex justify-end p-2">
-                    <button
-                      onClick={() => setIsModalOpen(false)}
-                      className={
-                        isDarkMode
-                          ? "text-gray-400 hover:text-white"
-                          : "text-gray-600 hover:text-gray-900"
-                      }
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <WalletSelectionContent />
-                </motion.div>
-              </div>,
-              document.body,
+          <AnimatePresence>
+            {isMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className={`absolute z-50 right-0 mt-2 w-64 ${
+                  isDarkMode
+                    ? "bg-gray-900 border-gray-800"
+                    : "bg-gray-100 border-gray-300"
+                } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
+              >
+                <WalletSelectionContent />
+              </motion.div>
             )}
+          </AnimatePresence>
         </>
       ) : (
         <>

@@ -29,7 +29,7 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_BANK_ADDRESS": JSON.stringify(env.VITE_BANK_ADDRESS),
       "process.env.VITE_ENVIRONMENT": JSON.stringify(env.VITE_ENVIRONMENT),
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
-        env.VITE_NFT_TARGET_HOLDERS
+        env.VITE_NFT_TARGET_HOLDERS,
       ),
       // Polyfill globals
       global: "globalThis",
@@ -49,9 +49,5 @@ export default defineConfig(({ mode }) => {
         transformMixedEsModules: true,
       },
     },
-    // server: {
-    //   host: "0.0.0.0", // Bind to all interfaces for network access
-    //   port: 5173, // Default Vite port, consistent with your setup
-    // },
   };
 });
