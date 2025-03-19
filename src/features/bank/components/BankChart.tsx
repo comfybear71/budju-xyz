@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { Doughnut } from "react-chartjs-2";
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from "chart.js";
+import { Bar } from "react-chartjs-2";
+import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js";
+import { useTheme } from "@/context/ThemeContext";
 
 // Register Chart.js components
-ChartJS.register(ArcElement, Tooltip, Legend);
+ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 // Constants
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
@@ -176,6 +177,7 @@ const chartColors = ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF", "#FF
 
 // Component
 const BankChart = () => {
+  const { isDarkMode } = useTheme();
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -195,14 +197,14 @@ const BankChart = () => {
     loadData();
   }, []);
 
-  const totalValue = tokenHoldings.reduce((sum, t) => sum + t.value, 0);
-  const doughnutData = {
-    labels: tokenHoldings.map(t => t.name),
+  const barData = {
+    labels: tokenHoldings.map(t => t.symbol),
     datasets: [
       {
-        data: tokenHoldings.map(t => (t.value / totalValue) * 100),
+        label: "Token Value (USD)",
+        data: tokenHoldings.map(t => t.value),
         backgroundColor: tokenHoldings.map((_, i) => chartColors[i % chartColors.length]),
-        borderColor: "#333",
+        borderColor: isDarkMode ? "#333" : "#E5E7EB",
         borderWidth: 1,
       },
     ],
@@ -211,29 +213,89 @@ const BankChart = () => {
   const options = {
     responsive: true,
     plugins: {
-      legend: { position: "right" as const },
-      tooltip: { callbacks: { label: (ctx: any) => `${ctx.label}: ${ctx.raw.toFixed(2)}%` } },
+      legend: { display: false },
+      tooltip: {
+        callbacks: { label: (ctx: any) => `${ctx.label}: $${ctx.raw.toFixed(2)}` },
+        backgroundColor: isDarkMode ? "#1F2937" : "#ffffff",
+        titleColor: isDarkMode ? "#ffffff" : "#333333",
+        bodyColor: isDarkMode ? "#ffffff" : "#333333",
+      },
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        title: {
+          display: true,
+          text: "Value (USD)",
+          color: isDarkMode ? "#ffffff" : "#333333",
+        },
+        grid: {
+          color: isDarkMode ? "#374151" : "#E5E7EB",
+        },
+        ticks: {
+          color: isDarkMode ? "#ffffff" : "#333333",
+        },
+      },
+      x: {
+        title: {
+          display: true,
+          text: "Tokens",
+          color: isDarkMode ? "#ffffff" : "#333333",
+        },
+        grid: {
+          color: isDarkMode ? "#374151" : "#E5E7EB",
+        },
+        ticks: {
+          color: isDarkMode ? "#ffffff" : "#333333",
+        },
+      },
     },
   };
 
   return (
-    <section className="py-10 bg-[#0a0a0a] text-white">
+    <section
+      className={`py-20 ${
+        isDarkMode
+          ? "bg-gradient-to-b from-budju-black to-gray-900"
+          : "bg-gradient-to-b from-budju-pink-light to-purple-400"
+      }`}
+    >
       <div className="max-w-5xl mx-auto px-4">
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="text-center mb-8">
-          <h2 className="text-3xl font-bold mb-2">BANK HOLDINGS DISTRIBUTION</h2>
-          <p className="text-sm text-gray-400">Percentage breakdown of tokens in Bank of BUDJU</p>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-center mb-8"
+        >
+          <h2 className="text-3xl md:text-4xl font-bold mb-2">
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>CURRENT</span>{" "}
+            <span className="text-budju-pink">TOKEN VALUES</span>
+          </h2>
+          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+            Current value of tokens in Bank of BUDJU
+          </p>
         </motion.div>
-        {loading && <div className="text-center text-gray-400">Loading...</div>}
-        {error && <div className="text-center text-red-500">{error}</div>}
+        {loading && (
+          <div className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+            Loading...
+          </div>
+        )}
+        {error && (
+          <div className={`text-center ${isDarkMode ? "text-red-400" : "text-red-400"}`}>
+            {error}
+          </div>
+        )}
         {!loading && !error && tokenHoldings.length > 0 && (
           <div className="flex justify-center">
-            <div style={{ width: "100%", maxWidth: "600px" }}>
-              <Doughnut data={doughnutData} options={options} />
+            <div style={{ width: "100%", maxWidth: "800px" }}>
+              <Bar data={barData} options={options} />
             </div>
           </div>
         )}
         {!loading && !error && tokenHoldings.length === 0 && (
-          <div className="text-center text-gray-400">No holdings found.</div>
+          <div className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+            No holdings found.
+          </div>
         )}
       </div>
     </section>

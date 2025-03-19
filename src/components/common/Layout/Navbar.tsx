@@ -136,8 +136,8 @@ const Navbar = () => {
                   rel="noopener noreferrer"
                   className={`relative font-semibold text-sm md:text-base lg:text-lg transform transition duration-300 cursor-pointer flex items-center space-x-2 ${
                     isDarkMode
-                      ? "text-gray-300 hover:text-budju-pink"
-                      : "text-white hover:text-black"
+                      ? "text-gray-300/50 hover:text-budju-pink"
+                      : "text-white/50 hover:text-black"
                   } hover:scale-105`}
                 >
                   <item.icon className="w-4 h-4" />
@@ -153,8 +153,8 @@ const Navbar = () => {
                         ? "text-budju-pink"
                         : "text-black"
                       : isDarkMode
-                      ? "text-gray-300 hover:text-budju-pink"
-                      : "text-white hover:text-black"
+                      ? "text-gray-300/50 hover:text-budju-pink"
+                      : "text-white/50 hover:text-black"
                   } hover:scale-105`}
                 >
                   <item.icon className="w-4 h-4" />
@@ -179,9 +179,9 @@ const Navbar = () => {
                 onClick={toggleDropdown}
                 className={`font-semibold text-sm md:text-base lg:text-lg transform transition duration-300 cursor-pointer flex items-center space-x-2 ${
                   isDarkMode
-                    ? "text-gray-300 hover:text-budju-pink"
-                    : "text-white hover:text-black"
-                  } hover:scale-105`}
+                    ? "text-gray-300/50 hover:text-budju-pink"
+                    : "text-white/50 hover:text-black"
+                } hover:scale-105`}
               >
                 <FaArrowDown className="w-4 h-4" />
                 <span>More</span>
@@ -209,8 +209,8 @@ const Navbar = () => {
                             ? "bg-gray-700 text-budju-pink"
                             : "bg-gray-200 text-black"
                           : isDarkMode
-                          ? "text-gray-300 hover:bg-gray-700/30 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-200/30 hover:text-black"
+                          ? "text-gray-300/50 hover:bg-gray-700/30 hover:text-budju-pink"
+                          : "text-gray-700/50 hover:bg-gray-200/30 hover:text-black"
                       }`}
                       onClick={() => setDropdownOpen(false)}
                     >
@@ -348,8 +348,8 @@ const Navbar = () => {
                       rel="noopener noreferrer"
                       className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer flex items-center space-x-2 ${
                         isDarkMode
-                          ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
+                          ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
+                          : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
                       }`}
                       onClick={toggleMenu}
                     >
@@ -372,8 +372,8 @@ const Navbar = () => {
                             ? "bg-gray-800/30 text-budju-pink"
                             : "bg-gray-300/30 text-budju-pink"
                           : isDarkMode
-                          ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
+                          ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
+                          : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
                       }`}
                       onClick={toggleMenu}
                     >
@@ -390,7 +390,7 @@ const Navbar = () => {
               >
                 <div
                   className={`py-3 px-4 font-medium rounded-lg ${
-                    isDarkMode ? "text-gray-200" : "text-gray-700"
+                    isDarkMode ? "text-gray-200/50" : "text-gray-700/50"
                   } flex items-center space-x-2`}
                 >
                   <FaArrowDown className="w-5 h-5" />
@@ -415,8 +415,8 @@ const Navbar = () => {
                               ? "bg-gray-800/30 text-budju-pink"
                               : "bg-gray-300/30 text-budju-pink"
                             : isDarkMode
-                            ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
-                            : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
+                            ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
+                            : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
                         }`}
                         onClick={toggleMenu}
                       >
@@ -451,7 +451,7 @@ const Navbar = () => {
               <div className="overflow-hidden whitespace-nowrap">
                 <div
                   className={`animate-[marquee_25s_linear_infinite] text-sm ${
-                    isDarkMode ? "text-gray-300" : "text-gray-700"
+                    isDarkMode ? "text-gray-300/50" : "text-gray-700/50"
                   }`}
                 >
                   * JOIN THE BUDJU PARADE * JOIN THE BUDJU PARADE * JOIN THE
