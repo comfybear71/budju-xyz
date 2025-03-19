@@ -5,7 +5,7 @@ import {
   ISeriesApi,
   ColorType,
   Time,
-  HistogramData,
+  // HistogramData,
   CandlestickSeries,
   HistogramSeries,
 } from "lightweight-charts";

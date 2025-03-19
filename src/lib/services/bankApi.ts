@@ -14,8 +14,8 @@ import {
 import { BANK_ADDRESS, RPC_ENDPOINT } from "@constants/addresses";
 import {
   getTokenBySymbol,
-  getTokenByAddress,
-  TokenInfo,
+  // getTokenByAddress,
+  // TokenInfo,
 } from "@lib/services/tokenRegistry";
 
 // Types

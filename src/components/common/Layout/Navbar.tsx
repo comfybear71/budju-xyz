@@ -1,6 +1,5 @@
-// src/components/common/Layout/Navbar.tsx
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   FaBars,
@@ -34,15 +33,27 @@ interface NavItem {
 
 const mainNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.SWAP], path: ROUTES.SWAP, icon: FaExchangeAlt },
-  { name: ROUTE_NAMES[ROUTES.SHOP], path: "https://shop.budjucoin.com", icon: FaShoppingCart },
+  {
+    name: ROUTE_NAMES[ROUTES.SHOP],
+    path: "https://shop.budjucoin.com",
+    icon: FaShoppingCart,
+  },
   { name: ROUTE_NAMES[ROUTES.BANK], path: ROUTES.BANK, icon: FaPiggyBank },
   { name: ROUTE_NAMES[ROUTES.POOL], path: ROUTES.POOL, icon: FaSwimmingPool },
-  { name: ROUTE_NAMES[ROUTES.TOKENOMICS], path: ROUTES.TOKENOMICS, icon: FaChartBar },
+  {
+    name: ROUTE_NAMES[ROUTES.TOKENOMICS],
+    path: ROUTES.TOKENOMICS,
+    icon: FaChartBar,
+  },
 ];
 
 const moreNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.NFT], path: ROUTES.NFT, icon: FaBahai },
-  { name: ROUTE_NAMES[ROUTES.HOW_TO_BUY], path: ROUTES.HOW_TO_BUY, icon: FaQuestion },
+  {
+    name: ROUTE_NAMES[ROUTES.HOW_TO_BUY],
+    path: ROUTES.HOW_TO_BUY,
+    icon: FaQuestion,
+  },
 ];
 
 const Navbar = () => {
@@ -112,8 +123,8 @@ const Navbar = () => {
               ? "bg-gradient-to-r from-gray-900/80 via-black/80 to-gray-900/80 backdrop-blur-md shadow-lg"
               : "bg-gradient-to-r from-gray-200/20 via-transparent to-gray-200/20 backdrop-blur-md shadow-lg"
             : isDarkMode
-            ? "bg-gradient-to-r from-gray-900/50 via-transparent to-gray-900/50"
-            : "bg-gradient-to-r from-gray-200/10 via-transparent to-gray-200/10"
+              ? "bg-gradient-to-r from-gray-900/50 via-transparent to-gray-900/50"
+              : "bg-gradient-to-r from-gray-200/10 via-transparent to-gray-200/10"
         }`}
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between">
@@ -153,8 +164,8 @@ const Navbar = () => {
                         ? "text-budju-pink"
                         : "text-black"
                       : isDarkMode
-                      ? "text-gray-300/50 hover:text-budju-pink"
-                      : "text-white/50 hover:text-black"
+                        ? "text-gray-300/50 hover:text-budju-pink"
+                        : "text-white/50 hover:text-black"
                   } hover:scale-105`}
                 >
                   <item.icon className="w-4 h-4" />
@@ -209,8 +220,8 @@ const Navbar = () => {
                             ? "bg-gray-700 text-budju-pink"
                             : "bg-gray-200 text-black"
                           : isDarkMode
-                          ? "text-gray-300/50 hover:bg-gray-700/30 hover:text-budju-pink"
-                          : "text-gray-700/50 hover:bg-gray-200/30 hover:text-black"
+                            ? "text-gray-300/50 hover:bg-gray-700/30 hover:text-budju-pink"
+                            : "text-gray-700/50 hover:bg-gray-200/30 hover:text-black"
                       }`}
                       onClick={() => setDropdownOpen(false)}
                     >
@@ -372,8 +383,8 @@ const Navbar = () => {
                             ? "bg-gray-800/30 text-budju-pink"
                             : "bg-gray-300/30 text-budju-pink"
                           : isDarkMode
-                          ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
-                          : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
+                            ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
+                            : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
                       }`}
                       onClick={toggleMenu}
                     >
@@ -386,7 +397,10 @@ const Navbar = () => {
               <motion.div
                 initial={{ x: -20, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
-                transition={{ delay: 0.2 + mainNavItems.length * 0.05, duration: 0.3 }}
+                transition={{
+                  delay: 0.2 + mainNavItems.length * 0.05,
+                  duration: 0.3,
+                }}
               >
                 <div
                   className={`py-3 px-4 font-medium rounded-lg ${
@@ -415,8 +429,8 @@ const Navbar = () => {
                               ? "bg-gray-800/30 text-budju-pink"
                               : "bg-gray-300/30 text-budju-pink"
                             : isDarkMode
-                            ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
-                            : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
+                              ? "text-gray-200/50 hover:bg-gray-800/30 hover:text-budju-pink"
+                              : "text-gray-700/50 hover:bg-gray-300/30 hover:text-budju-pink"
                         }`}
                         onClick={toggleMenu}
                       >

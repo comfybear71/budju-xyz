@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import WalletConnect from "@components/common/WalletConnect";
-import { DEX_LINK } from "@constants/addresses";
+// import { DEX_LINK } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
 
 const Hero = () => {
@@ -16,7 +16,9 @@ const Hero = () => {
     >
       <div className="z-10 flex flex-col items-center justify-center text-center px-4 max-w-4xl mx-auto">
         {/* Logo */}
-        <div className="mb-4 relative"> {/* Reduced mb-6 to mb-4 */}
+        <div className="mb-4 relative">
+          {" "}
+          {/* Reduced mb-6 to mb-4 */}
           <div
             className={`absolute inset-0 ${isDarkMode ? "bg-gray-200/10" : "bg-white/10"} rounded-full blur-xl`}
           ></div>
@@ -29,7 +31,9 @@ const Hero = () => {
         </div>
 
         {/* Title */}
-        <div className="mb-4 relative -mt-24 md:-mt-36"> {/* Reduced mb-8 to mb-4 */}
+        <div className="mb-4 relative -mt-24 md:-mt-36">
+          {" "}
+          {/* Reduced mb-8 to mb-4 */}
           <div
             className={`absolute inset-0 ${
               isDarkMode
@@ -39,7 +43,11 @@ const Hero = () => {
           ></div>
           <img
             ref={titleRef}
-            src={isDarkMode ? "/images/title_budju_pink.png" : "/images/title_budju_white.png"}
+            src={
+              isDarkMode
+                ? "/images/title_budju_pink.png"
+                : "/images/title_budju_white.png"
+            }
             alt="BUDJU Title"
             className="w-full max-w-lg mx-auto z-10 relative"
           />
