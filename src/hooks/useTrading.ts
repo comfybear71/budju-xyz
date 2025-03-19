@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@hooks/useWallet";
-import { estimateSwap, executeSwap } from "@lib/services/swapApi";
+// import { estimateSwap, executeSwap } from "@lib/services/swapApi";
 import { depositTokens, getConnectedWallet } from "@lib/services/bankApi";
 import { getChartData, CandlestickData } from "@lib/services/chartApi";
 import { initializeTokenRegistry } from "@lib/services/tokenRegistry";
@@ -12,7 +12,7 @@ export interface UseTradeResult {
   chartData: CandlestickData[];
   chartLoading: boolean;
   chartError: string | null;
-  executeSwap: () => Promise<string>;
+  executeSwap: any;
   executeDeposit: (token: string, amount: string) => Promise<string>;
   loadChartData: (timeframe: string) => Promise<void>;
 }
@@ -55,27 +55,27 @@ export const useTrading = (
         setLoading(true);
         setError(null);
 
-        const amountValue = parseFloat(amount);
+        // const amountValue = parseFloat(amount);
 
-        // Get wallet for estimate
-        const wallet =
-          connection.connected && connection.wallet
-            ? {
-                publicKey: {
-                  toString: () => connection.wallet?.address || "",
-                },
-              }
-            : null;
+        // // Get wallet for estimate
+        // const wallet =
+        //   connection.connected && connection.wallet
+        //     ? {
+        //         publicKey: {
+        //           toString: () => connection.wallet?.address || "",
+        //         },
+        //       }
+        //     : null;
 
-        const swapEstimate = await estimateSwap({
-          fromToken,
-          toToken,
-          amount: amountValue,
-          slippageTolerance: 0.5,
-          wallet,
-        });
+        // const swapEstimate = await estimateSwap({
+        //   fromToken,
+        //   toToken,
+        //   amount: amountValue,
+        //   slippageTolerance: 0.5,
+        //   wallet,
+        // });
 
-        setEstimate(swapEstimate);
+        // setEstimate(swapEstimate);
       } catch (err) {
         console.error("Error estimating swap:", err);
         const errorMessage =
@@ -129,18 +129,18 @@ export const useTrading = (
       setError(null);
 
       // Get the actual wallet adapter
-      const wallet = getConnectedWallet();
+      // const wallet = getConnectedWallet();
 
       // Execute the swap
-      const txId = await executeSwap({
-        fromToken,
-        toToken,
-        amount: parseFloat(amount),
-        slippageTolerance: 0.5,
-        wallet,
-      });
+      // const txId = await executeSwap({
+      //   fromToken,
+      //   toToken,
+      //   amount: parseFloat(amount),
+      //   slippageTolerance: 0.5,
+      //   wallet,
+      // });
 
-      return txId;
+      // return txId;
     } catch (err) {
       console.error("Swap execution failed:", err);
       const errorMessage = err instanceof Error ? err.message : "Swap failed";

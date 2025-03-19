@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
-import { NFT_TARGET_HOLDERS } from "@constants/addresses";
+// import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
 
 const shopImages = [
@@ -15,11 +15,10 @@ const shopImages = [
   "/images/shop06.jpg",
 ];
 
-
 const ShopOfBudjusPreview = () => {
   const { isDarkMode } = useTheme();
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [holderCount, setHolderCount] = useState(123);
+  const [_, setHolderCount] = useState(123);
   const [autoplay, setAutoplay] = useState(true);
   const sliderRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -77,16 +76,16 @@ const ShopOfBudjusPreview = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const percentComplete = Math.min(
-    100,
-    Math.round((holderCount / NFT_TARGET_HOLDERS) * 100),
-  );
+  // const percentComplete = Math.min(
+  //   100,
+  //   Math.round((holderCount / NFT_TARGET_HOLDERS) * 100),
+  // );
 
   return (
     <section className="py-20">
       <div className="budju-container">
         <div className="flex flex-col lg:flex-row items-center gap-12">
-        <div className="w-full lg:w-1/2">
+          <div className="w-full lg:w-1/2">
             <motion.div
               initial={{ opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
@@ -99,12 +98,13 @@ const ShopOfBudjusPreview = () => {
               <p
                 className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-6`}
               >
-                The Shop of Budju’s is officially open, and it’s packed with fantastic goodies 
-                you won’t want to miss! From unique treasures to must-have items, there’s 
-                something for everyone to snag. Best of all, 100% of the profits fuel the BUY BURN BUDJU initiative, 
-                making every purchase a win for the movement. So, swing by, grab some great stuff, 
-                and shop with purpose—your support keeps the Budju vibe blazing!
-
+                The Shop of Budju’s is officially open, and it’s packed with
+                fantastic goodies you won’t want to miss! From unique treasures
+                to must-have items, there’s something for everyone to snag. Best
+                of all, 100% of the profits fuel the BUY BURN BUDJU initiative,
+                making every purchase a win for the movement. So, swing by, grab
+                some great stuff, and shop with purpose—your support keeps the
+                Budju vibe blazing!
               </p>
               {/* <div className="mb-6">
                 <div className="flex justify-between text-sm mb-1">
@@ -134,29 +134,33 @@ const ShopOfBudjusPreview = () => {
                   <ul
                     className={`space-y-2 ${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
                   >
-                     <li className="flex items-center">
-                        <span className="mr-2">●</span>Iconic BUDJU tees and hoodies in bold designs
+                    <li className="flex items-center">
+                      <span className="mr-2">●</span>Iconic BUDJU tees and
+                      hoodies in bold designs
                     </li>
                     <li className="flex items-center">
-                        <span className="mr-2">●</span>Limited edition drops—get ‘em before they’re gone
+                      <span className="mr-2">●</span>Limited edition drops—get
+                      ‘em before they’re gone
                     </li>
                     <li className="flex items-center">
-                        <span className="mr-2">●</span>Exclusive caps and accessories for true holders
+                      <span className="mr-2">●</span>Exclusive caps and
+                      accessories for true holders
                     </li>
                     <li className="flex items-center">
-                        <span className="mr-2">●</span>100% profits to BUY BURN BUDJU
+                      <span className="mr-2">●</span>100% profits to BUY BURN
+                      BUDJU
                     </li>
                   </ul>
                 </div>
                 <Button
-                    size="lg"
-                    fullWidth
-                    as="a" // Changed from "link" to "a" for external linking
-                    href="https://shop.budjucoin.com" // Replaced to="/shop" with external URL
-                    target="_blank" // Opens in a new window
-                    rel="noopener noreferrer" // Security best practice
-                    >
-                    Let's Go Shopping
+                  size="lg"
+                  fullWidth
+                  as="a" // Changed from "link" to "a" for external linking
+                  href="https://shop.budjucoin.com" // Replaced to="/shop" with external URL
+                  target="_blank" // Opens in a new window
+                  rel="noopener noreferrer" // Security best practice
+                >
+                  Let's Go Shopping
                 </Button>
               </div>
             </motion.div>
@@ -231,7 +235,6 @@ const ShopOfBudjusPreview = () => {
               </button>
             </div>
           </div>
-          
         </div>
       </div>
     </section>

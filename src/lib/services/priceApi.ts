@@ -1,5 +1,4 @@
-// lib/services/priceApi.ts
-import { getTokenBySymbol, getTokenByAddress } from "./tokenRegistry";
+import { getTokenBySymbol } from "./tokenRegistry";
 
 // Types
 export interface PriceData {

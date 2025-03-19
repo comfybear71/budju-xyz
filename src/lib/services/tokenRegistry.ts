@@ -1,5 +1,5 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { RPC_ENDPOINT } from "@constants/addresses";
+// import { Connection, PublicKey } from "@solana/web3.js";
+// import { RPC_ENDPOINT } from "@constants/addresses";
 
 // Types
 export interface TokenInfo {
