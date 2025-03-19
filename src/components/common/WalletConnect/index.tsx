@@ -82,7 +82,7 @@ const WalletConnect = ({
       typeof extWindow.solana !== "undefined" ||
       typeof extWindow.phantom !== "undefined" ||
       typeof extWindow.solflare !== "undefined";
-    setIsSupported(hasWalletProvider); // Support if any wallet provider is detected
+    setIsSupported(hasWalletProvider);
   }, []);
 
   useEffect(() => {
@@ -122,6 +122,33 @@ const WalletConnect = ({
     setConnectionError(null);
     const extWindow = window as ExtendedWindow;
 
+    if (walletName === "phantom" && isMobileOrTablet) {
+      // Handle Phantom deep linking on mobile
+      const deepLink = `https://phantom.app/ul/v1/connect?app_url=${encodeURIComponent(
+        window.location.origin,
+      )}&dapp_encryption_public_key=${encodeURIComponent(
+        "YOUR_DAPP_PUBLIC_KEY", // Replace with your actual dapp encryption public key if available
+      )}&redirect_link=${encodeURIComponent(
+        window.location.href,
+      )}&network=${selectedNetwork}`;
+      
+      try {
+        window.location.href = deepLink;
+        // Give some time for the wallet to open before showing an error
+        setTimeout(() => {
+          if (!connection.connected) {
+            setConnectionError(
+              "Phantom wallet not detected. Please ensure it’s installed on your device.",
+            );
+          }
+        }, 3000);
+      } catch (error) {
+        console.error("Deep link error:", error);
+        setConnectionError("Failed to open Phantom wallet. Please try again.");
+      }
+      return;
+    }
+
     let walletProvider: any = null;
     if (walletName === "phantom") {
       walletProvider = extWindow.phantom?.solana || extWindow.solana;
@@ -129,7 +156,7 @@ const WalletConnect = ({
       walletProvider = extWindow.solflare;
     }
 
-    if (!walletProvider) {
+    if (!walletProvider && !isMobileOrTablet) {
       setConnectionError(
         `${walletConfig[walletName].name} not detected. Please ensure it’s installed or use its in-app browser.`,
       );
@@ -269,7 +296,7 @@ const WalletConnect = ({
               </span>
               <span className="text-xs block mt-1">
                 Open this page in your wallet app’s browser (e.g., Phantom or
-                Solflare).
+                Solflare) or install it below.
               </span>
             </div>
           </div>
