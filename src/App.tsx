@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom"; // Updated import to "react-router-dom"
+import { BrowserRouter, Routes, Route } from "react-router";
 import Layout from "@components/common/Layout";
 import { WalletProvider } from "@hooks/useWallet";
 import Web3Background from "./components/common/Web3Background";
@@ -64,7 +64,8 @@ const App = () => {
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/tokenomics" element={<Tokenomics />} />
                 <Route path="/bank" element={<Bank />} />
-                <Route path="/swap" element={<Swap />} /> {/* Added Swap route */}
+                <Route path="/swap" element={<Swap />} />{" "}
+                {/* Added Swap route */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
