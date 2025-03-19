@@ -6,9 +6,10 @@ import Hero from "./components/Hero";
 import ShopOfBudjus from "./components/ShopOfBudjusPreview";
 import NFTShowcase from "./components/NFTShowcase";
 import JoinParade from "./components/JoinParade";
-import HowToBuyPreview from "./components/HowToBuyPreview";
+import RoadMap from "./components/RoadMap";
+// import HowToBuyPreview from "./components/HowToBuyPreview";
 import TokenStats from "@components/common/TokenStats";
-import MarketMakerPreview from "./components/MarketMakerPreview";
+// import MarketMakerPreview from "./components/MarketMakerPreview";
 
 const Home = () => {
   // Setup page
@@ -60,6 +61,9 @@ const Home = () => {
       {/* Shop of Budju's */}
       <ShopOfBudjus />
 
+      {/* Roadmap Section */}
+      <RoadMap />
+
       {/* NFT Collection Showcase */}
       <NFTShowcase />
 
@@ -67,10 +71,10 @@ const Home = () => {
       <JoinParade />
 
       {/* How To Buy Preview */}
-      <HowToBuyPreview />
+      {/* <HowToBuyPreview /> */}
 
       {/* Market Maker Preview */}
-      <MarketMakerPreview />
+      {/* <MarketMakerPreview /> */}
     </main>
   );
 };

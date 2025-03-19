@@ -146,7 +146,7 @@ const TokenStats = () => {
             transition={{ duration: 0.4, delay: 0.1 }}
             className="budju-card flex flex-col items-center p-6"
           >
-            <div className="bg-budju-pink/20 p-3 rounded-full mb-4">
+            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-3 rounded-full mb-4`}>
               <FaDollarSign
                 size={24}
                 className={
@@ -252,7 +252,7 @@ const TokenStats = () => {
             transition={{ duration: 0.4, delay: 0.4 }}
             className="budju-card flex flex-col items-center p-6"
           >
-            <div className="bg-budju-pink/20 p-3 rounded-full mb-4">
+            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-3 rounded-full mb-4`}>
               <FaFireAlt
                 size={24}
                 className={

@@ -9,7 +9,7 @@ import {
   FaShoppingCart,
   FaPiggyBank,
   FaSwimmingPool,
-  FaChartBar, // Added for Tokenomics
+  FaChartBar,
   FaSun,
   FaMoon,
   FaAngleDown,
@@ -37,12 +37,12 @@ const mainNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.SHOP], path: "https://shop.budjucoin.com", icon: FaShoppingCart },
   { name: ROUTE_NAMES[ROUTES.BANK], path: ROUTES.BANK, icon: FaPiggyBank },
   { name: ROUTE_NAMES[ROUTES.POOL], path: ROUTES.POOL, icon: FaSwimmingPool },
-  { name: ROUTE_NAMES[ROUTES.TOKENOMICS], path: ROUTES.TOKENOMICS, icon: FaChartBar }, // Changed to FaChartBar
+  { name: ROUTE_NAMES[ROUTES.TOKENOMICS], path: ROUTES.TOKENOMICS, icon: FaChartBar },
 ];
 
 const moreNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.NFT], path: ROUTES.NFT, icon: FaBahai },
-  { name: ROUTE_NAMES[ROUTES.HOW_TO_BUY], path: ROUTES.HOW_TO_BUY, icon: FaQuestion  },
+  { name: ROUTE_NAMES[ROUTES.HOW_TO_BUY], path: ROUTES.HOW_TO_BUY, icon: FaQuestion },
 ];
 
 const Navbar = () => {
@@ -209,8 +209,8 @@ const Navbar = () => {
                             ? "bg-gray-700 text-budju-pink"
                             : "bg-gray-200 text-black"
                           : isDarkMode
-                          ? "text-gray-300 hover:bg-gray-700 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-200 hover:text-black"
+                          ? "text-gray-300 hover:bg-gray-700/30 hover:text-budju-pink"
+                          : "text-gray-700 hover:bg-gray-200/30 hover:text-black"
                       }`}
                       onClick={() => setDropdownOpen(false)}
                     >
@@ -348,8 +348,8 @@ const Navbar = () => {
                       rel="noopener noreferrer"
                       className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer flex items-center space-x-2 ${
                         isDarkMode
-                          ? "text-gray-200 hover:bg-gray-800/50 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-300/50 hover:text-budju-pink"
+                          ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
+                          : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
                       }`}
                       onClick={toggleMenu}
                     >
@@ -369,11 +369,11 @@ const Navbar = () => {
                       className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer flex items-center space-x-2 ${
                         location.pathname === item.path
                           ? isDarkMode
-                            ? "bg-gray-800/50 text-budju-pink"
-                            : "bg-gray-300/50 text-budju-pink"
+                            ? "bg-gray-800/30 text-budju-pink"
+                            : "bg-gray-300/30 text-budju-pink"
                           : isDarkMode
-                          ? "text-gray-200 hover:bg-gray-800/50 hover:text-budju-pink"
-                          : "text-gray-700 hover:bg-gray-300/50 hover:text-budju-pink"
+                          ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
+                          : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
                       }`}
                       onClick={toggleMenu}
                     >
@@ -412,11 +412,11 @@ const Navbar = () => {
                         className={`block py-3 px-4 font-medium rounded-lg transition-colors cursor-pointer flex items-center space-x-2 ${
                           location.pathname === item.path
                             ? isDarkMode
-                              ? "bg-gray-800/50 text-budju-pink"
-                              : "bg-gray-300/50 text-budju-pink"
+                              ? "bg-gray-800/30 text-budju-pink"
+                              : "bg-gray-300/30 text-budju-pink"
                             : isDarkMode
-                            ? "text-gray-200 hover:bg-gray-800/50 hover:text-budju-pink"
-                            : "text-gray-700 hover:bg-gray-300/50 hover:text-budju-pink"
+                            ? "text-gray-200 hover:bg-gray-800/30 hover:text-budju-pink"
+                            : "text-gray-700 hover:bg-gray-300/30 hover:text-budju-pink"
                         }`}
                         onClick={toggleMenu}
                       >

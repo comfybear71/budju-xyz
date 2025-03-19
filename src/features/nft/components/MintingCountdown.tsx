@@ -1,43 +1,32 @@
+// src/components/MintingCountdown.tsx
 import { useRef, useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion"; // Corrected import
 import { gsap } from "gsap";
 import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 import Button from "@components/common/Button";
 import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
+import { useTokenHolders } from "@/hooks/useTokenHolders"; // Correct import path
 
 const MintingCountdown = () => {
   const { isDarkMode } = useTheme();
+  const { holders, loading } = useTokenHolders(); // Use the hook, omitting 'error'
   const sectionRef = useRef<HTMLDivElement>(null);
   const counterRef = useRef<HTMLDivElement>(null);
-  const [currentHolders, setCurrentHolders] = useState(123); // Initial placeholder
+  const [currentHolders, setCurrentHolders] = useState<number | null>(null); // Initialize as null
 
-  // Calculate percentage progress
-  const progress = Math.min(
-    100,
-    Math.round((currentHolders / NFT_TARGET_HOLDERS) * 100),
-  );
-  const holdersNeeded = NFT_TARGET_HOLDERS - currentHolders;
-
-  // Simulate fetching updated holder count
+  // Update currentHolders when holders data is available
   useEffect(() => {
-    const fetchHolderCount = async () => {
-      // In a real implementation, this would fetch data from blockchain API
-      // Simulating API call with random increase
-      const randomIncrease = Math.floor(Math.random() * 3) + 1;
-      setCurrentHolders((prev) =>
-        Math.min(prev + randomIncrease, NFT_TARGET_HOLDERS),
-      );
-    };
+    if (!loading && holders !== null) {
+      setCurrentHolders(holders);
+    }
+  }, [holders, loading]);
 
-    // Initial fetch
-    fetchHolderCount();
-
-    // Set up interval to update every 30 seconds
-    const intervalId = setInterval(fetchHolderCount, 30000);
-
-    return () => clearInterval(intervalId);
-  }, []);
+  // Calculate percentage progress, handling null case
+  const progress = currentHolders !== null
+    ? Math.min(100, Math.round((currentHolders / NFT_TARGET_HOLDERS) * 100))
+    : 0;
+  const holdersNeeded = currentHolders !== null ? NFT_TARGET_HOLDERS - currentHolders : NFT_TARGET_HOLDERS;
 
   // Progress bar animation
   useEffect(() => {
@@ -80,7 +69,7 @@ const MintingCountdown = () => {
             className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
           >
             The BUDJU NFT Collection will be available for minting once we reach{" "}
-            {NFT_TARGET_HOLDERS} token holders. Join the community now to secure
+            {NFT_TARGET_HOLDERS.toLocaleString()} token holders. Join the community now to secure
             your chance to mint a unique BUDJU NFT!
           </p>
         </motion.div>
@@ -105,8 +94,11 @@ const MintingCountdown = () => {
                   Holders Progress
                 </span>
                 <span className="text-budju-blue font-bold">
-                  {currentHolders.toLocaleString()} /{" "}
-                  {NFT_TARGET_HOLDERS.toLocaleString()}
+                  {loading
+                    ? "Loading..."
+                    : currentHolders !== null
+                    ? `${currentHolders.toLocaleString()} / ${NFT_TARGET_HOLDERS.toLocaleString()}`
+                    : "N/A"}
                 </span>
               </div>
 
@@ -129,12 +121,27 @@ const MintingCountdown = () => {
                     className={`${isDarkMode ? "text-white" : "text-budju-white"} text-lg mb-2`}
                   >
                     <span className="text-budju-pink font-bold">
-                      {holdersNeeded.toLocaleString()}
+                      {loading
+                        ? "Loading..."
+                        : holdersNeeded.toLocaleString()}
                     </span>{" "}
                     more holders needed to unlock NFT minting!
                   </p>
                   <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
-                    Buy and hold BUDJU tokens to be counted toward the goal.
+                    Buy and hold BUDJU tokens to be counted toward LAUNCH EVENT 🚀.
+                  </p>
+                  <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
+                    NO NFT NO ENTRY 🛑 to BALI BUDJU PARTY 2025 @ LUNA BEACH CLUB{" "}
+                    <span className="text-3xl">➡</span>
+                    <a
+                      href="https://www.facebook.com/share/16CAy3AaYQ/?mibextid=wwXIfr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-budju-pink hover:underline font-bold text-2xl"
+                    >
+                      EVENT
+                    </a>
+                    <span className="text-3xl">⬅</span>.
                   </p>
                 </div>
               ) : (
@@ -167,7 +174,7 @@ const MintingCountdown = () => {
                   <div
                     className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
                   >
-                    0.25 SOL
+                    $250 USDC
                   </div>
                 </div>
 
@@ -184,7 +191,7 @@ const MintingCountdown = () => {
                   <div
                     className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
                   >
-                    5,000 NFTs
+                    200 NFTs
                   </div>
                 </div>
 
@@ -212,15 +219,16 @@ const MintingCountdown = () => {
                   {progress < 100 ? "Minting Coming Soon" : "Mint Now"}
                 </Button>
 
-                <Button
+                {/* <Button
                   variant="secondary"
                   size="lg"
                   as="link"
                   to="/how-to-buy"
                 >
                   Buy BUDJU Tokens
-                </Button>
+                </Button> */}
               </div>
+              <p>Mint will take place on Magic Eden</p>
             </div>
           </motion.div>
 
