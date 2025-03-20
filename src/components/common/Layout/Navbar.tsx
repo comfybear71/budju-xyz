@@ -15,11 +15,13 @@ import {
   FaBahai,
   FaQuestion,
   FaArrowDown,
+  FaFire,
 } from "react-icons/fa";
 import { gsap } from "gsap";
 import { useTheme } from "@/context/ThemeContext";
 import WalletConnect from "../WalletConnect";
 import { ROUTES, ROUTE_NAMES } from "@/constants/routes";
+import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 
 interface IconComponentProps {
   className?: string;
@@ -48,12 +50,21 @@ const mainNavItems: NavItem[] = [
 ];
 
 const moreNavItems: NavItem[] = [
-  { name: ROUTE_NAMES[ROUTES.NFT], path: ROUTES.NFT, icon: FaBahai },
+  {
+    name: ROUTE_NAMES[ROUTES.BURN], // "Burn"
+    path: ROUTES.BURN,             // e.g., "/burn"
+    icon: FaFire,                  // Flame icon
+  },
+  { name: ROUTE_NAMES[ROUTES.NFT], 
+    path: ROUTES.NFT, 
+    icon: FaBahai 
+  },
   {
     name: ROUTE_NAMES[ROUTES.HOW_TO_BUY],
     path: ROUTES.HOW_TO_BUY,
     icon: FaQuestion,
   },
+  
 ];
 
 const Navbar = () => {
@@ -443,16 +454,18 @@ const Navbar = () => {
               </motion.div>
             </div>
 
-            <motion.div
+            {/* <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.4, duration: 0.3 }}
               className="px-4 py-4"
             >
               <WalletConnect fullWidth size="lg" />
-            </motion.div>
+            </motion.div> */}
 
-            <motion.div
+            <BudjuParadeBanner />
+
+            {/* <motion.div
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.5, duration: 0.3 }}
@@ -472,7 +485,7 @@ const Navbar = () => {
                   BUDJU PARADE *
                 </div>
               </div>
-            </motion.div>
+            </motion.div> */}
           </motion.div>
         )}
       </AnimatePresence>

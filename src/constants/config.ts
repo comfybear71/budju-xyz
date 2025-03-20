@@ -73,7 +73,6 @@ export const ROADMAP_PHASES = [
       { text: "👑king of the hill : 100%", completed: true },
       { text: "100 budju wallet holders", completed: true },
       { text: "Marketing Campaign", completed: false },
-      { text: "Seniman Bocah 🙏🙏🙏🙏", completed: false },
     ],
   },
   {

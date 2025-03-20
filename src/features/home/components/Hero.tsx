@@ -66,9 +66,9 @@ const Hero = () => {
           BUDJU isn't just a coin—it's a movement, a vibe, a lifestyle. Join the
           heavy hitters and reap massive benefits!
         </p>
-        <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
+        {/* <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-6">
           <WalletConnect />
-        </div>
+        </div> */}
       </div>
     </div>
   );

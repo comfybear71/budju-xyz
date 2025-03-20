@@ -376,7 +376,7 @@ const BankTokens = () => {
         )}
 
         {!loading && !error && tokenHoldings.length > 0 && (
-          <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div ref={cardsRef} className="grid grid-cols-2 md:grid-cols-3 gap-6">
             {tokenHoldings.map((token) => (
               <div
                 key={token.symbol + token.name}

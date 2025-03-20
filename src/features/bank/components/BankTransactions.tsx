@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "framer-motion"; // Corrected import
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import {
   FaExternalLinkAlt,
@@ -26,7 +26,9 @@ const BankTransactions = () => {
       try {
         setLoading(true);
         const txs = await fetchBankTransactions(); // Uses default BANK_OF_BUDJU_ADDRESS
-        setTransactions(txs);
+        // Filter out transactions with amount 0
+        const filteredTxs = txs.filter((tx) => tx.amount !== 0);
+        setTransactions(filteredTxs);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -162,11 +164,11 @@ const BankTransactions = () => {
         </div>
 
         <div
-          className={`max-w-5xl mx-auto overflow-x-auto ${isDarkMode ? "budju-card p-0" : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-0"}`}
+          className={`max-w-5xl mx-auto overflow-x-auto ${isDarkMode ? "bg-gray-800 border border-gray-700 rounded-xl p-0" : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-0"}`}
         >
           <table ref={tableRef} className="w-full border-collapse">
             <thead>
-              <tr className={isDarkMode ? "bg-gray-900/70" : "bg-white/30"}>
+              <tr className={isDarkMode ? "bg-gray-900" : "bg-white/30"}>
                 <th className="py-3 px-4 text-left text-budju-blue font-medium">
                   Type
                 </th>
@@ -192,7 +194,7 @@ const BankTransactions = () => {
                 <tr>
                   <td
                     colSpan={6}
-                    className={`py-8 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+                    className={`py-8 text-center ${isDarkMode ? "text-gray-300" : "text-white/80"}`}
                   >
                     Loading transactions...
                   </td>
@@ -209,11 +211,11 @@ const BankTransactions = () => {
                     key={tx.id}
                     className={`${
                       isDarkMode
-                        ? "border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30"
+                        ? "border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50"
                         : "border-b border-white/30 last:border-b-0 hover:bg-white/40"
                     } transition-colors`}
                   >
-                    <td className="py-3 px-4 whitespace-nowrap">
+                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
                       <div className="flex items-center">
                         <span className="mr-2">
                           {getTransactionIcon(tx.type)}
@@ -221,8 +223,10 @@ const BankTransactions = () => {
                         {getTransactionText(tx.type)}
                       </div>
                     </td>
-                    <td className="py-3 px-4 whitespace-nowrap">{tx.token}</td>
-                    <td className="py-3 px-4 text-right whitespace-nowrap font-medium">
+                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
+                      {tx.token}
+                    </td>
+                    <td className={`py-3 px-4 text-right whitespace-nowrap font-medium ${isDarkMode ? "text-white" : "text-white"}`}>
                       {tx.amount.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 hidden md:table-cell">
@@ -230,12 +234,12 @@ const BankTransactions = () => {
                         <div className="text-sm">
                           <div
                             className={
-                              isDarkMode ? "text-gray-400" : "text-white/80"
+                              isDarkMode ? "text-gray-300" : "text-white/80"
                             }
                           >
                             From:
                           </div>
-                          <div className="font-mono truncate max-w-[120px]">
+                          <div className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}>
                             {tx.from}
                           </div>
                         </div>
@@ -243,18 +247,18 @@ const BankTransactions = () => {
                         <div className="text-sm">
                           <div
                             className={
-                              isDarkMode ? "text-gray-400" : "text-white/80"
+                              isDarkMode ? "text-gray-300" : "text-white/80"
                             }
                           >
                             To:
                           </div>
-                          <div className="font-mono truncate max-w-[120px]">
+                          <div className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}>
                             {tx.to}
                           </div>
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
+                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
                       {new Date(tx.date).toLocaleDateString()}
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -264,7 +268,7 @@ const BankTransactions = () => {
                         rel="noopener noreferrer"
                         className={`inline-block p-2 ${
                           isDarkMode
-                            ? "bg-gray-800 hover:bg-gray-700"
+                            ? "bg-gray-700 hover:bg-gray-600"
                             : "bg-white/30 hover:bg-white/40"
                         } rounded-lg transition-colors`}
                         title="View transaction on Solscan"
@@ -278,7 +282,7 @@ const BankTransactions = () => {
                 <tr>
                   <td
                     colSpan={6}
-                    className={`py-8 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+                    className={`py-8 text-center ${isDarkMode ? "text-gray-300" : "text-white/80"}`}
                   >
                     No transactions found matching the selected filter.
                   </td>
@@ -289,7 +293,7 @@ const BankTransactions = () => {
         </div>
 
         <div
-          className={`text-center mt-6 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm`}
+          className={`text-center mt-6 ${isDarkMode ? "text-gray-300" : "text-white/80"} text-sm`}
         >
           All transactions are recorded on the Solana blockchain and can be
           verified by clicking the details link.

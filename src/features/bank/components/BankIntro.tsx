@@ -1,7 +1,8 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
-import Button from "@components/common/Button";
+import { FaExternalLinkAlt } from "react-icons/fa";
+// import Button from "@components/common/Button";
 import { BANK_ADDRESS } from "@constants/addresses";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import {
@@ -139,9 +140,18 @@ const BankIntro = () => {
                     {BANK_ADDRESS}
                   </code>
                   <CopyToClipboard text={BANK_ADDRESS} />
+                  <a
+                    href={BANK_ADDRESS}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-pink hover:bg-gray-600" : "text-budju-pink-dark hover:bg-gray-700"}`}
+                    aria-label="View on Solscan"
+                  >
+                    <FaExternalLinkAlt size={16} />
+                  </a>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                {/* <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
                   <a
                     href={`https://solscan.io/account/${BANK_ADDRESS}`}
                     target="_blank"
@@ -154,7 +164,7 @@ const BankIntro = () => {
                   <Button as="a" href="#deposit" variant="primary">
                     Make a Deposit
                   </Button>
-                </div>
+                </div> */}
               </div>
             </div>
           </motion.div>
@@ -171,12 +181,12 @@ const BankIntro = () => {
               className={`relative ${isDarkMode ? "bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700" : "bg-gradient-to-br from-budju-pink-light to-budju-blue-light border-white/30"} rounded-xl p-8 shadow-budju border max-w-md transform perspective-1000`}
             >
               <img
-                src="/images/bank/bank-vault.png"
+                src="src/assets/images/logo.png"
                 alt="Bank of BUDJU Vault"
                 className="w-full h-auto rounded-lg"
               />
 
-              <div className="absolute -top-4 -left-4 w-16 h-16 rounded-full bg-budju-pink/30 blur-xl"></div>
+              {/* <div className="absolute -top-4 -left-4 w-16 h-16 rounded-full bg-budju-pink/30 blur-xl"></div>
               <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-budju-blue/20 blur-xl"></div>
 
               <div
@@ -212,12 +222,12 @@ const BankIntro = () => {
                       ? "Error"
                       : burnStats.lastBurnDate}
                 </div>
-              </div>
+              </div> */}
             </div>
           </motion.div>
         </div>
 
-        {/* How it Works */}
+         {/* How it Works */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -231,7 +241,7 @@ const BankIntro = () => {
             <span className="text-budju-pink">Bank Works</span>
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div
               className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 text-center`}
             >
@@ -280,6 +290,23 @@ const BankIntro = () => {
               <p className={isDarkMode ? "text-gray-300" : "text-white"}>
                 Regular token buybacks and burns create scarcity and increase
                 value for all holders.
+              </p>
+            </div>
+
+            <div
+              className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 text-center`}
+            >
+              <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">🤝</span>
+              </div>
+              <h4
+                className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} mb-2`}
+              >
+                Community Rewards
+              </h4>
+              <p className={isDarkMode ? "text-gray-300" : "text-white"}>
+                Your investment fuels growth. We note deposits—help us, and we’ll
+                reward you!
               </p>
             </div>
           </div>

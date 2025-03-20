@@ -13,6 +13,7 @@ import {
   BURN_ADDRESS,
 } from "@/lib/utils/tokenService";
 import { animateCounter, animateCounterPrice } from "@/lib/utils/animation";
+import { BURN_ADDRESS_ACCOUNT } from "@/constants/addresses";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -41,7 +42,7 @@ const TokenStats = () => {
   const supplyRef = useRef<HTMLSpanElement>(null);
 
   const SOLSCAN_TOKEN_LINK = `https://solscan.io/token/${TOKEN_ADDRESS}`;
-  const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS}`;
+  const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS_ACCOUNT}`;
 
   const fetchTokenData = async () => {
     try {

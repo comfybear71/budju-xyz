@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 // import Button from "@components/common/Button"; // Still imported but not used unless needed elsewhere
-import WalletConnect from "@components/common/WalletConnect"; // Added import
+// import WalletConnect from "@components/common/WalletConnect"; // Added import
 import { useTheme } from "@/context/ThemeContext";
 
 const JoinParade = () => {
@@ -48,9 +48,9 @@ const JoinParade = () => {
                     Join us and be part of something extraordinary!
                   </span>
                 </p>
-                <div className="flex justify-center">
-                  <WalletConnect size="lg" /> {/* Replaced Button with WalletConnect */}
-                </div>
+                {/* <div className="flex justify-center">
+                  <WalletConnect size="lg" /> 
+                </div> */}
               </div>
             </div>
           </div>

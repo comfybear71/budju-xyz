@@ -3,7 +3,7 @@ import { motion } from "motion/react";
 import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import BankIntro from "./components/BankIntro";
-import BurnStatistics from "./components/BurnStatistics";
+// import BurnStatistics from "./components/BurnStatistics";
 // import BankDeposit from "./components/BankDeposit";
 import BankTokens from "./components/BankTokens";
 import BankChart from "./components/BankChart";
@@ -73,7 +73,7 @@ const Bank = () => {
       <BankChart />
 
       {/* Burn Statistics */}
-      <BurnStatistics />
+      {/* <BurnStatistics /> */}
 
       {/* Scrolling Banner */}
       <BudjuParadeBanner />

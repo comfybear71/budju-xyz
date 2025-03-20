@@ -16,7 +16,7 @@ const wallets = [
       { icon: FaExchangeAlt, text: "Built-in DEX swaps" },
     ],
     downloadUrl: "https://phantom.app/",
-    background: "bg-gradient-to-br from-purple-700 to-purple-900",
+    background: "bg-gradient-to-br from-purple-300 to-purple-900",
   },
   {
     name: "Jupiter",
@@ -27,7 +27,18 @@ const wallets = [
       { icon: FaWallet, text: "Multiple wallet support" },
     ],
     downloadUrl: "https://jup.ag/",
-    background: "bg-gradient-to-br from-orange-700 to-red-800",
+    background: "bg-gradient-to-br from-orange-300 to-red-800",
+  },
+  {
+    name: "Solflare",
+    logo: "/images/how-to-buy/solflare-logo.png",
+    features: [
+      { icon: FaExchangeAlt, text: "Reliable wallet" },
+      { icon: FaBolt, text: "Multiple options" },
+      { icon: FaWallet, text: "Multiple wallet support" },
+    ],
+    downloadUrl: "https://www.solflare.com/",
+    background: "bg-gradient-to-br from-green-300 to-green-800",
   },
 ];
 
@@ -91,7 +102,7 @@ const WalletOptions = () => {
         {/* Wallet Cards */}
         <div
           ref={cardsRef}
-          className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto mb-12"
+          className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mb-12"
         >
           {wallets.map((wallet) => (
             <div
@@ -142,8 +153,8 @@ const WalletOptions = () => {
           transition={{ duration: 0.6, delay: 0.4 }}
           className={`max-w-4xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border p-6`}
         >
-          <h3 className="text-xl font-semibold mb-4 text-center">
-            <span className="text-budju-pink">BUDJU</span>{" "}
+          <h3 className="text-2xl font-semibold mb-4 text-center">
+            <span className="text-budju-blue">BUDJU</span>{" "}
             <span className={isDarkMode ? "text-white" : "text-budju-white"}>
               TOKEN ADDRESS
             </span>

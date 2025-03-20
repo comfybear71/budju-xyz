@@ -194,7 +194,7 @@ const NFTShowcase = () => {
               </p>
               <div className="mb-6">
                 <div className="flex justify-between text-sm mb-1">
-                  <span>Progress to minting</span>
+                  <span className="text-budju-white">Progress to minting</span>
                   <span className="text-budju-blue font-bold">
                     {loading
                       ? "Loading..."

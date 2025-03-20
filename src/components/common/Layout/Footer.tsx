@@ -12,7 +12,7 @@ import { gsap } from "gsap";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { TOKEN_ADDRESS } from "@/constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
-import WalletConnect from "@components/common/WalletConnect";
+// import WalletConnect from "@components/common/WalletConnect";
 
 const socialLinks = [
   {
@@ -95,22 +95,12 @@ const Footer = () => {
             <ul className="space-y-1 text-xs md:text-sm">
               <li>
                 <Link
-                  to="/nft"
+                  to="/swap"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
-                  NFT Collection
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/how-to-buy"
-                  className={`${
-                    isDarkMode ? "text-gray-400" : "text-gray-300"
-                  } hover:text-budju-blue transition duration-300`}
-                >
-                  How To Buy
+                  Swap
                 </Link>
               </li>
               <li>
@@ -125,6 +115,26 @@ const Footer = () => {
               </li>
               <li>
                 <Link
+                  to="/bank"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  Bank of BUDJU
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/pool"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  Pool of BUDJU
+                </Link>
+              </li>
+              <li>
+                <Link
                   to="/tokenomics"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
@@ -135,12 +145,32 @@ const Footer = () => {
               </li>
               <li>
                 <Link
-                  to="/bank"
+                  to="/burn"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
-                  Bank of BUDJU
+                  Burn Statistics
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/nft"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  NFT's
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/how-to-buy"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  How To Buy
                 </Link>
               </li>
               <li>
@@ -215,9 +245,9 @@ const Footer = () => {
                   1,000,000,000 BUDJU
                 </p>
               </div>
-              <div className="pt-2">
+              {/* <div className="pt-2">
                 <WalletConnect size="lg" />
-              </div>
+              </div> */}
             </div>
           </div>
         </div>

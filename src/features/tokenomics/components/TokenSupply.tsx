@@ -45,7 +45,7 @@ const TokenSupply = () => {
 
       const realAllocation: TokenAllocation[] = [
         {
-          name: "Circulating Supply",
+          name: "Circ. Supply",
           percentage: (circulatingSupply / totalSupply) * 100,
           color: "#87CEFA", // Light blue
           value: circulatingSupply,
@@ -69,7 +69,7 @@ const TokenSupply = () => {
           value: bankOfBudju,
         },
         {
-          name: "BUDJU Community POOLS",
+          name: "Pool of BUDJU",
           percentage: (communityVault / totalSupply) * 100,
           color: "#FF69B4", // Hot Pink
           value: communityVault,
@@ -87,7 +87,7 @@ const TokenSupply = () => {
       console.error("Error fetching token supply data:", error);
       setTokenAllocation([
         {
-          name: "Circulating Supply",
+          name: "Circ. Supply",
           percentage: 89.44,
           color: "#87CEFA",
           value: 894_400_000,
@@ -111,7 +111,7 @@ const TokenSupply = () => {
           value: 600_000,
         },
         {
-          name: "Community Vault of BUDJU",
+          name: "Pool of BUDJU",
           percentage: 0.06,
           color: "#FF69B4",
           value: 600_000,
@@ -329,13 +329,13 @@ const TokenSupply = () => {
                   </span>
                 </div>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-gray-300">Community Vault:</span>
+                  <span className="text-gray-300">Pool of BUDJU:</span>
                   <span className="text-pink-400 font-medium">
                     {communityVault.toLocaleString()} BUDJU
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">Circulating Supply:</span>
+                  <span className="text-gray-300">Circ. Supply:</span>
                   <span className="text-budju-blue font-bold">
                     {remainingSupply.toLocaleString()} BUDJU
                   </span>

@@ -12,6 +12,7 @@ const HowToBuy = lazy(() => import("@features/how-to-buy/HowToBuy"));
 const Shop = lazy(() => import("@features/shop/Shop"));
 const Tokenomics = lazy(() => import("@features/tokenomics/Tokenomics"));
 const Bank = lazy(() => import("@features/bank/Bank"));
+const Burn = lazy(() => import("@features/burn/Burn"));
 const Pool = lazy(() => import("@features/pool/Pool"));
 const Swap = lazy(() => import("@features/swap/Swap")); // Added SwapTool
 const NotFound = lazy(() => import("@features/not-found/NotFound"));
@@ -64,6 +65,7 @@ const App = () => {
                 <Route path="/shop" element={<Shop />} />
                 <Route path="/tokenomics" element={<Tokenomics />} />
                 <Route path="/bank" element={<Bank />} />
+                <Route path="/burn" element={<Burn />} />
                 <Route path="/swap" element={<Swap />} />{" "}
                 {/* Added Swap route */}
                 <Route path="*" element={<NotFound />} />
