@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import WalletConnect from "@components/common/WalletConnect";
+// import WalletConnect from "@components/common/WalletConnect";
 // import { DEX_LINK } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
 

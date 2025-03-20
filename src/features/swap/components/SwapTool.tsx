@@ -585,7 +585,7 @@ const SwapTool = () => {
               drag="y"
               dragConstraints={{ top: 0, bottom: 0 }}
               dragElastic={0.2}
-              onDragEnd={(event, info) => {
+              onDragEnd={(_, info) => {
                 if (info.offset.y > 100) {
                   setShowChartModal(false);
                 }

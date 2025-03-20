@@ -140,7 +140,12 @@ const PriceChart: React.FC<PriceChartProps> = ({
   }, [rawData, baseToken, quoteToken]);
 
   useEffect(() => {
-    if (!chartContainerRef.current || !chartWrapperRef.current || !headerRef.current) return;
+    if (
+      !chartContainerRef.current ||
+      !chartWrapperRef.current ||
+      !headerRef.current
+    )
+      return;
 
     if (chartRef.current) {
       chartRef.current.remove();
@@ -192,58 +197,64 @@ const PriceChart: React.FC<PriceChartProps> = ({
     });
 
     // Add candlestick series using addCandlestickSeries (available in 3.8.0)
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: colors.upColor,
-      downColor: colors.downColor,
-      borderUpColor: colors.borderUpColor,
-      borderDownColor: colors.borderDownColor,
-      wickUpColor: colors.wickUpColor,
-      wickDownColor: colors.wickDownColor,
-    });
+    // const candlestickSeries = chart.addCandlestickSeries({
+    //   upColor: colors.upColor,
+    //   downColor: colors.downColor,
+    //   borderUpColor: colors.borderUpColor,
+    //   borderDownColor: colors.borderDownColor,
+    //   wickUpColor: colors.wickUpColor,
+    //   wickDownColor: colors.wickDownColor,
+    // });
 
-    // Add histogram series for volume using addHistogramSeries (available in 3.8.0)
-    const volumeSeries = chart.addHistogramSeries({
-      color: "#26a69a",
-      priceFormat: { type: "volume" },
-      priceScaleId: "",
-      scaleMargins: {
-        top: 0.7, // Adjusted to give more space for candlesticks
-        bottom: 0,
-      },
-    });
+    // // Add histogram series for volume using addHistogramSeries (available in 3.8.0)
+    // const volumeSeries = chart.addHistogramSeries({
+    //   color: "#26a69a",
+    //   priceFormat: { type: "volume" },
+    //   priceScaleId: "",
+    //   scaleMargins: {
+    //     top: 0.7, // Adjusted to give more space for candlesticks
+    //     bottom: 0,
+    //   },
+    // });
 
-    const formattedData = chartData.map((item) => ({
-      time: (typeof item.time === "string"
-        ? Math.floor(new Date(item.time).getTime() / 1000)
-        : item.time) as Time,
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
-    }));
+    // const formattedData = chartData.map((item) => ({
+    //   time: (typeof item.time === "string"
+    //     ? Math.floor(new Date(item.time).getTime() / 1000)
+    //     : item.time) as Time,
+    //   open: item.open,
+    //   high: item.high,
+    //   low: item.low,
+    //   close: item.close,
+    // }));
 
-    const volumeData = chartData
-      .filter((item) => item.volume !== undefined)
-      .map((item) => ({
-        time: (typeof item.time === "string"
-          ? Math.floor(new Date(item.time).getTime() / 1000)
-          : item.time) as Time,
-        value: item.volume || 0,
-        color: item.close >= item.open ? colors.upColor : colors.downColor,
-      }));
+    // const volumeData = chartData
+    //   .filter((item) => item.volume !== undefined)
+    //   .map((item) => ({
+    //     time: (typeof item.time === "string"
+    //       ? Math.floor(new Date(item.time).getTime() / 1000)
+    //       : item.time) as Time,
+    //     value: item.volume || 0,
+    //     color: item.close >= item.open ? colors.upColor : colors.downColor,
+    //   }));
 
-    candlestickSeries.setData(formattedData);
-    volumeSeries.setData(showVolume ? volumeData : []);
+    // candlestickSeries.setData(formattedData);
+    // volumeSeries.setData(showVolume ? volumeData : []);
 
     chart.timeScale().fitContent();
 
     chartRef.current = chart;
-    candleSeriesRef.current = candlestickSeries;
-    volumeSeriesRef.current = volumeSeries;
+    // candleSeriesRef.current = candlestickSeries;
+    // volumeSeriesRef.current = volumeSeries;
 
     const handleResize = () => {
-      if (chartContainerRef.current && chartWrapperRef.current && chartRef.current && headerRef.current) {
-        const newHeaderHeight = headerRef.current.getBoundingClientRect().height;
+      if (
+        chartContainerRef.current &&
+        chartWrapperRef.current &&
+        chartRef.current &&
+        headerRef.current
+      ) {
+        const newHeaderHeight =
+          headerRef.current.getBoundingClientRect().height;
         const newContainerHeight = chartContainerRef.current.clientHeight;
         const newChartHeight = newContainerHeight - newHeaderHeight - 16; // Adjust for padding
 
@@ -386,7 +397,10 @@ const PriceChart: React.FC<PriceChartProps> = ({
       </div>
 
       {/* Chart Wrapper to Handle Overflow */}
-      <div ref={chartWrapperRef} className="w-full h-[calc(100%-theme(spacing.16))] overflow-hidden" />
+      <div
+        ref={chartWrapperRef}
+        className="w-full h-[calc(100%-theme(spacing.16))] overflow-hidden"
+      />
     </div>
   );
 };

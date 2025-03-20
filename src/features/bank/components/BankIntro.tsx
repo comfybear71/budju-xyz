@@ -21,12 +21,12 @@ const BankIntro = () => {
   const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const animatedRef = useRef<HTMLDivElement>(null);
-  const [burnStats, setBurnStats] = useState<BurnStats>({
+  const [, setBurnStats] = useState<BurnStats>({
     totalBurned: 0,
     lastBurnDate: "N/A",
   });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setLoading] = useState(true);
+  const [, setError] = useState<string | null>(null);
 
   // Fetch burn data
   useEffect(() => {
@@ -227,7 +227,7 @@ const BankIntro = () => {
           </motion.div>
         </div>
 
-         {/* How it Works */}
+        {/* How it Works */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -305,8 +305,8 @@ const BankIntro = () => {
                 Community Rewards
               </h4>
               <p className={isDarkMode ? "text-gray-300" : "text-white"}>
-                Your investment fuels growth. We note deposits—help us, and we’ll
-                reward you!
+                Your investment fuels growth. We note deposits—help us, and
+                we’ll reward you!
               </p>
             </div>
           </div>
