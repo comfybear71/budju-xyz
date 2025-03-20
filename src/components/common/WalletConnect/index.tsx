@@ -52,6 +52,7 @@ const WalletConnect = ({
   const [selectedNetwork, setSelectedNetwork] = useState<Network>("mainnet");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   interface ExtendedWindow extends Window {
@@ -60,15 +61,32 @@ const WalletConnect = ({
     solflare?: any;
   }
 
+  // Detect mobile device
   useEffect(() => {
-    const extWindow = window as ExtendedWindow;
-    const hasWalletProvider =
-      typeof extWindow.solana !== "undefined" ||
-      typeof extWindow.phantom !== "undefined" ||
-      typeof extWindow.solflare !== "undefined";
-    setIsSupported(hasWalletProvider);
+    const checkMobile = () => {
+      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      );
+      setIsMobile(isMobileDevice);
+    };
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
+  // Check wallet support (desktop only)
+  useEffect(() => {
+    if (!isMobile) {
+      const extWindow = window as ExtendedWindow;
+      const hasWalletProvider =
+        typeof extWindow.solana !== "undefined" ||
+        typeof extWindow.phantom !== "undefined" ||
+        typeof extWindow.solflare !== "undefined";
+      setIsSupported(hasWalletProvider);
+    }
+  }, [isMobile]);
+
+  // Update balances on connection
   useEffect(() => {
     if (connection.connected && connection.wallet?.address) {
       setLoadingBalances(true);
@@ -91,6 +109,7 @@ const WalletConnect = ({
     }
   }, [connection.connected, connection.wallet?.address, selectedNetwork]);
 
+  // Handle clicks outside menu
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -101,34 +120,55 @@ const WalletConnect = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Handle wallet connection with deep linking for mobile
   const handleConnect = async (walletName: WalletName) => {
     setConnectionError(null);
     const extWindow = window as ExtendedWindow;
 
-    let walletProvider: any = null;
-    if (walletName === "phantom") {
-      walletProvider = extWindow.phantom?.solana || extWindow.solana;
-    } else if (walletName === "solflare") {
-      walletProvider = extWindow.solflare;
-    }
+    if (isMobile) {
+      // Mobile: Generate deep link and redirect
+      const targetUrl = "https://budju.vercel.app/swap"; // Adjust to your app’s mobile URL
+      const refUrl = import.meta.env.DEV
+        ? "http://localhost:5173/"
+        : "https://budju.vercel.app/";
+      let deepLink = "";
 
-    if (!walletProvider) {
-      setConnectionError(
-        `${walletConfig[walletName].name} not detected. Please ensure it’s installed or use its in-app browser on mobile.`,
-      );
-      return;
-    }
+      if (walletName === "phantom") {
+        deepLink = `https://phantom.app/ul/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
+      } else if (walletName === "solflare") {
+        deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
+      }
 
-    try {
-      await connect(walletName);
+      console.log(`Generated ${walletName} deep link:`, deepLink);
+      window.location.href = deepLink;
       setIsMenuOpen(false);
-    } catch (error) {
-      console.error("Connection error:", error);
-      setConnectionError(
-        error instanceof Error
-          ? error.message
-          : "Failed to connect. Please try again.",
-      );
+    } else {
+      // Desktop: Connect normally
+      let walletProvider: any = null;
+      if (walletName === "phantom") {
+        walletProvider = extWindow.phantom?.solana || extWindow.solana;
+      } else if (walletName === "solflare") {
+        walletProvider = extWindow.solflare;
+      }
+
+      if (!walletProvider) {
+        setConnectionError(
+          `${walletConfig[walletName].name} not detected. Please ensure it’s installed.`,
+        );
+        return;
+      }
+
+      try {
+        await connect(walletName);
+        setIsMenuOpen(false);
+      } catch (error) {
+        console.error("Connection error:", error);
+        setConnectionError(
+          error instanceof Error
+            ? error.message
+            : "Failed to connect. Please try again.",
+        );
+      }
     }
   };
 
@@ -236,7 +276,7 @@ const WalletConnect = ({
         </div>
       )}
 
-      {!isSupported && (
+      {!isSupported && !isMobile && (
         <div className="p-3 bg-yellow-900/40 border-b border-gray-800">
           <div className="flex items-start text-yellow-400">
             <FaExclamationTriangle className="mr-2 mt-0.5" />
@@ -254,34 +294,38 @@ const WalletConnect = ({
       )}
 
       <div className="p-2 max-h-60 overflow-y-auto">
-        {availableWallets.length > 0 ? (
-          availableWallets.map((wallet) => (
-            <div key={wallet} className="mb-2">
-              <button
-                onClick={() => handleConnect(wallet)}
-                className={`flex items-center w-full p-3 rounded-lg transition-colors ${
-                  isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
-                }`}
-              >
-                <img
-                  src={walletConfig[wallet].logo}
-                  alt={walletConfig[wallet].name}
-                  className="w-8 h-8 mr-3"
-                />
-                <span className={isDarkMode ? "text-white" : "text-gray-900"}>
-                  {walletConfig[wallet].name}
-                </span>
-              </button>
-              {!isSupported && (
+        {isMobile || availableWallets.length > 0 ? (
+          (isMobile ? ["phantom", "solflare"] : availableWallets).map(
+            (wallet) => (
+              <div key={wallet} className="mb-2">
                 <button
-                  onClick={() => handleGetWallet(wallet)}
-                  className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
+                  onClick={() => handleConnect(wallet as WalletName)}
+                  className={`flex items-center w-full p-3 rounded-lg transition-colors ${
+                    isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
+                  }`}
                 >
-                  Download {walletConfig[wallet].name}
+                  <img
+                    src={walletConfig[wallet as WalletName].logo}
+                    alt={walletConfig[wallet as WalletName].name}
+                    className="w-8 h-8 mr-3"
+                  />
+                  <span
+                    className={isDarkMode ? "text-white" : "text-gray-900"}
+                  >
+                    {walletConfig[wallet as WalletName].name}
+                  </span>
                 </button>
-              )}
-            </div>
-          ))
+                {!isSupported && !isMobile && (
+                  <button
+                    onClick={() => handleGetWallet(wallet as WalletName)}
+                    className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
+                  >
+                    Download {walletConfig[wallet as WalletName].name}
+                  </button>
+                )}
+              </div>
+            ),
+          )
         ) : (
           <div
             className={`p-3 text-center ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}

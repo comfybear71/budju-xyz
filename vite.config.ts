@@ -49,5 +49,9 @@ export default defineConfig(({ mode }) => {
         transformMixedEsModules: true,
       },
     },
+    server: {
+      host: "0.0.0.0", // Bind to all interfaces for network access
+      port: 5173, 
+    },
   };
 });
