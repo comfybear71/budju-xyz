@@ -1,16 +1,15 @@
-import { useRef, useEffect, useMemo } from "react";
+// src/components/common/PriceChart.tsx
+import { useRef, useEffect, useMemo, useState } from "react";
 import {
   createChart,
   IChartApi,
   ISeriesApi,
   ColorType,
   Time,
-  // HistogramData,
-  CandlestickSeries,
-  HistogramSeries,
 } from "lightweight-charts";
 import { useTheme } from "@/context/ThemeContext";
 import React from "react";
+import { FaChartBar } from "react-icons/fa";
 
 const TokenImage = React.memo(({ baseToken }: { baseToken: string }) => (
   <img
@@ -70,7 +69,7 @@ const chartColors = {
 
 const generateDefaultData = (): CandlestickItem[] => {
   const data: CandlestickItem[] = [];
-  const basePrice = 75.5; // RAY per SOL
+  const basePrice = 664199; // BUDJU per SOL
   const now = new Date();
 
   for (let i = 30; i >= 0; i--) {
@@ -106,24 +105,25 @@ const PriceChart: React.FC<PriceChartProps> = ({
   quoteToken,
   timeframe,
   onTimeframeChange,
-  loading = false,
-  isConnected = false,
+  // loading = false,
+  // isConnected = false,
 }) => {
   const { isDarkMode } = useTheme();
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartWrapperRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const [showVolume, setShowVolume] = useState(false);
 
-  // Adjust data for SOL/RAY pair (inverting if necessary)
+  // Adjust data for SOL/BUDJU pair (inverting if necessary)
   const chartData = useMemo(() => {
     if (!rawData || rawData.length === 0) return generateDefaultData();
 
-    if (baseToken === "SOL" && quoteToken === "RAY") {
-      // Check if data looks inverted (e.g., RAY/SOL instead of SOL/RAY)
+    if (baseToken === "SOL" && quoteToken === "BUDJU") {
       const firstClose = rawData[0]?.close || 0;
       if (firstClose > 0 && firstClose < 1) {
-        // Likely RAY/SOL, invert to SOL/RAY (1 / price)
         return rawData.map((item) => ({
           time: (typeof item.time === "string"
             ? Math.floor(new Date(item.time).getTime() / 1000)
@@ -140,7 +140,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
   }, [rawData, baseToken, quoteToken]);
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!chartContainerRef.current || !chartWrapperRef.current || !headerRef.current) return;
 
     if (chartRef.current) {
       chartRef.current.remove();
@@ -151,9 +151,14 @@ const PriceChart: React.FC<PriceChartProps> = ({
 
     const colors = isDarkMode ? chartColors.dark : chartColors.light;
 
-    const chart = createChart(chartContainerRef.current, {
+    // Calculate the available height for the chart by subtracting the header height
+    const headerHeight = headerRef.current.getBoundingClientRect().height;
+    const containerHeight = chartContainerRef.current.clientHeight;
+    const chartHeight = containerHeight - headerHeight - 16; // Subtract padding (e.g., 16px for p-4)
+
+    const chart = createChart(chartWrapperRef.current, {
       width: chartContainerRef.current.clientWidth,
-      height: 400,
+      height: chartHeight, // Use calculated height
       layout: {
         background: { type: ColorType.Solid, color: colors.background },
         textColor: colors.text,
@@ -174,11 +179,20 @@ const PriceChart: React.FC<PriceChartProps> = ({
         borderColor: colors.grid,
       },
       handleScroll: {
-        vertTouchDrag: false,
+        mouseWheel: true,
+        pressedMouseMove: true,
+        horzTouchDrag: true,
+        vertTouchDrag: true,
+      },
+      handleScale: {
+        axisPressedMouseMove: true,
+        mouseWheel: true,
+        pinch: true,
       },
     });
 
-    const candlestickSeries = chart.addSeries(CandlestickSeries, {
+    // Add candlestick series using addCandlestickSeries (available in 3.8.0)
+    const candlestickSeries = chart.addCandlestickSeries({
       upColor: colors.upColor,
       downColor: colors.downColor,
       borderUpColor: colors.borderUpColor,
@@ -187,10 +201,15 @@ const PriceChart: React.FC<PriceChartProps> = ({
       wickDownColor: colors.wickDownColor,
     });
 
-    const volumeSeries = chart.addSeries(HistogramSeries, {
+    // Add histogram series for volume using addHistogramSeries (available in 3.8.0)
+    const volumeSeries = chart.addHistogramSeries({
       color: "#26a69a",
       priceFormat: { type: "volume" },
       priceScaleId: "",
+      scaleMargins: {
+        top: 0.7, // Adjusted to give more space for candlesticks
+        bottom: 0,
+      },
     });
 
     const formattedData = chartData.map((item) => ({
@@ -214,7 +233,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
       }));
 
     candlestickSeries.setData(formattedData);
-    volumeSeries.setData(volumeData);
+    volumeSeries.setData(showVolume ? volumeData : []);
 
     chart.timeScale().fitContent();
 
@@ -223,9 +242,14 @@ const PriceChart: React.FC<PriceChartProps> = ({
     volumeSeriesRef.current = volumeSeries;
 
     const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
+      if (chartContainerRef.current && chartWrapperRef.current && chartRef.current && headerRef.current) {
+        const newHeaderHeight = headerRef.current.getBoundingClientRect().height;
+        const newContainerHeight = chartContainerRef.current.clientHeight;
+        const newChartHeight = newContainerHeight - newHeaderHeight - 16; // Adjust for padding
+
         chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
+          height: newChartHeight,
         });
       }
     };
@@ -239,7 +263,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
         chartRef.current = null;
       }
     };
-  }, [chartData, isDarkMode]);
+  }, [chartData, isDarkMode, showVolume]);
 
   useEffect(() => {
     if (
@@ -281,93 +305,88 @@ const PriceChart: React.FC<PriceChartProps> = ({
         color: item.close >= item.open ? colors.upColor : colors.downColor,
       }));
 
-    volumeSeriesRef.current.setData(volumeData);
-  }, [isDarkMode, chartData]);
+    volumeSeriesRef.current.applyOptions({
+      color: "#26a69a",
+    });
+
+    volumeSeriesRef.current.setData(showVolume ? volumeData : []);
+  }, [isDarkMode, chartData, showVolume]);
 
   const timeframes = ["15m", "1H", "4H", "1D", "1W"];
 
   return (
-    <div className="w-full h-full">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex items-center">
-            <TokenImage baseToken={baseToken} />
-            <span className="text-white text-lg font-bold">
-              {baseToken} / {quoteToken}
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {timeframes.map((tf) => (
+    <div ref={chartContainerRef} className="w-full h-full">
+      {/* Header Section (Token Info, Timeframes, etc.) */}
+      <div ref={headerRef} className="mb-4">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex items-center">
+              <TokenImage baseToken={baseToken} />
+              <span className="text-white text-lg font-bold">
+                {baseToken} / {quoteToken}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2 items-center">
+              {timeframes.map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => onTimeframeChange && onTimeframeChange(tf)}
+                  className={`px-3 py-1 rounded-md text-sm transition-colors ${
+                    timeframe === tf
+                      ? isDarkMode
+                        ? "bg-budju-blue text-white"
+                        : "bg-white/40 text-white font-bold"
+                      : isDarkMode
+                        ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                        : "bg-white/20 text-white hover:bg-white/30"
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
               <button
-                key={tf}
-                onClick={() => onTimeframeChange && onTimeframeChange(tf)}
-                className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                  timeframe === tf
-                    ? isDarkMode
-                      ? "bg-budju-blue text-white"
-                      : "bg-white/40 text-white font-bold"
-                    : isDarkMode
-                      ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                      : "bg-white/20 text-white hover:bg-white/30"
-                }`}
+                onClick={() => setShowVolume(!showVolume)}
+                className="text-gray-400 hover:text-gray-200 ml-2"
               >
-                {tf}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {chartData.length > 0 && (
-          <div className="text-white">
-            <span className="text-2xl md:text-3xl font-bold">
-              {chartData[chartData.length - 1].close.toFixed(4)}
-            </span>
-            <span
-              className={`ml-2 ${
-                chartData[chartData.length - 1].close >=
-                  chartData[chartData.length - 2]?.close || 0
-                  ? "text-green-500"
-                  : "text-red-500"
-              }`}
-            >
-              {chartData[chartData.length - 1].close >=
-                chartData[chartData.length - 2]?.close || 0
-                ? "+"
-                : ""}
-              {(
-                ((chartData[chartData.length - 1].close -
-                  (chartData[chartData.length - 2]?.close ||
-                    chartData[chartData.length - 1].close)) /
-                  (chartData[chartData.length - 2]?.close ||
-                    chartData[chartData.length - 1].close)) *
-                100
-              ).toFixed(2)}
-              %
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="w-full h-[400px] relative">
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-budju-blue"></div>
-          </div>
-        )}
-        {!isConnected && !loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
-            <div className="text-center p-6 bg-gray-800/80 rounded-lg max-w-xs">
-              <p className="text-white mb-4">
-                Connect your wallet to see live chart data
-              </p>
-              <button className="px-4 py-2 bg-budju-blue rounded-lg text-white hover:bg-blue-600 transition-colors">
-                Connect Wallet
+                <FaChartBar className="w-5 h-5" />
               </button>
             </div>
           </div>
-        )}
-        <div ref={chartContainerRef} className="w-full h-full" />
+
+          {chartData.length > 0 && (
+            <div className="text-white">
+              <span className="text-2xl md:text-3xl font-bold">
+                {chartData[chartData.length - 1].close.toFixed(4)}
+              </span>
+              <span
+                className={`ml-2 ${
+                  chartData[chartData.length - 1].close >=
+                  (chartData[chartData.length - 2]?.close || 0)
+                    ? "text-green-500"
+                    : "text-red-500"
+                }`}
+              >
+                {chartData[chartData.length - 1].close >=
+                (chartData[chartData.length - 2]?.close || 0)
+                  ? "+"
+                  : ""}
+                {(
+                  ((chartData[chartData.length - 1].close -
+                    (chartData[chartData.length - 2]?.close ||
+                      chartData[chartData.length - 1].close)) /
+                    (chartData[chartData.length - 2]?.close ||
+                      chartData[chartData.length - 1].close)) *
+                  100
+                ).toFixed(2)}
+                %
+              </span>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Chart Wrapper to Handle Overflow */}
+      <div ref={chartWrapperRef} className="w-full h-[calc(100%-theme(spacing.16))] overflow-hidden" />
     </div>
   );
 };

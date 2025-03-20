@@ -1,11 +1,7 @@
 // src/features/swap/SwapTool.tsx
 import { useRef, useEffect, useState } from "react";
-import { motion } from "framer-motion"; // Updated from "motion/react"
+import { motion, AnimatePresence } from "framer-motion";
 import { gsap } from "gsap";
-// import Button from "@components/common/Button";
-// import { FaExchangeAlt, FaInfoCircle, FaCoins } from "react-icons/fa";
-// import { BANK_ADDRESS } from "@constants/addresses";
-// import CopyToClipboard from "@components/common/CopyToClipboard";
 import WalletConnect from "@components/common/WalletConnect";
 import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
@@ -13,6 +9,7 @@ import { useWallet } from "@hooks/useWallet";
 import { useTrading } from "@hooks/useTrading";
 import { initializeTokenRegistry } from "@lib/services/tokenRegistry";
 import PriceChart from "@components/common/PriceChart";
+import { FaChartLine, FaTimes, FaCog } from "react-icons/fa";
 
 const SwapTool = () => {
   const { isDarkMode } = useTheme();
@@ -25,13 +22,16 @@ const SwapTool = () => {
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
   const [fromToken, setFromToken] = useState("SOL");
-  const [toToken, setToToken] = useState("RAY");
+  const [toToken, setToToken] = useState("BUDJU");
   const [timeframe, setTimeframe] = useState("1D");
 
   // Success modal state
   const [showSuccess, setShowSuccess] = useState(false);
   const [successTxId, setSuccessTxId] = useState("");
   const [successAction, setSuccessAction] = useState("");
+
+  // Chart modal state (for mobile)
+  const [showChartModal, setShowChartModal] = useState(false);
 
   // Integrate with trading hook
   const {
@@ -230,50 +230,26 @@ const SwapTool = () => {
   };
 
   return (
-    <section
-      ref={sectionRef}
-      id="swap-tool"
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-purple-400 to-budju-pink-light"}`}
-    >
-      <div className="budju-container">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
-        >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              SWAP
-            </span>{" "}
-            <span className="text-budju-pink">TOOL</span>
-          </h2>
-          <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
-          >
-            Swap tokens or deposit to the Bank of BUDJU with ease.
-          </p>
-        </motion.div>
-
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Trading Chart Area */}
-          <div className="lg:flex-1 order-last lg:order-none bg-gray-900/80 backdrop-blur-sm rounded-lg p-4 h-96 overflow-hidden shadow-lg">
-            <PriceChart
-              data={chartData}
-              baseToken={fromToken}
-              quoteToken={toToken}
-              timeframe={timeframe}
-              onTimeframeChange={handleTimeframeChange}
-              loading={chartLoading}
-              isConnected={isConnected}
-            />
+    <section ref={sectionRef} id="swap-tool">
+      <div className="budju-container px-4 sm:px-6">
+        <div className="flex flex-col md:flex-row gap-6">
+          {/* Chart (Visible on Larger Screens) */}
+          <div className="hidden md:block md:w-2/3 bg-gray-900/80 backdrop-blur-sm rounded-lg p-4 h-[500px] shadow-lg">
+            <div className="relative w-full h-full">
+              <PriceChart
+                data={chartData}
+                baseToken={fromToken}
+                quoteToken={toToken}
+                timeframe={timeframe}
+                onTimeframeChange={handleTimeframeChange}
+                loading={chartLoading}
+                isConnected={isConnected}
+              />
+            </div>
           </div>
 
           {/* Trading Form */}
-          <div
-            className="lg:w-1/3 order-first lg:order-none max-w-md mx-auto lg:mx-0"
-            style={{ backdropFilter: "blur(8px)" }}
-          >
+          <div className="w-full md:w-1/3 max-w-md mx-auto md:mx-0">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               animate={{ opacity: 1, x: 0 }}
@@ -281,19 +257,32 @@ const SwapTool = () => {
             >
               <div
                 ref={formRef}
-                className={`rounded-xl p-5 ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 shadow-lg"}`}
+                className={`rounded-xl p-4 sm:p-5 ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 shadow-lg"}`}
               >
-                <h3 className="text-xl font-bold mb-4 text-center">
-                  <span
-                    className={isDarkMode ? "text-white" : "text-budju-white"}
+                {/* Top Bar with Settings and Chart Icon (Chart Icon Visible on Mobile Only) */}
+                <div className="flex justify-between items-center mb-4">
+                  <div className="flex items-center space-x-2">
+                    {/* Placeholder for Settings (Gear Icon) */}
+                    <button
+                      onClick={() => alert("Settings coming soon!")}
+                      className="text-gray-400 hover:text-gray-200"
+                    >
+                      <FaCog className="w-5 h-5" />
+                    </button>
+                    {/* Slippage Tolerance Placeholder */}
+                    <span className="text-gray-400 text-sm">0.5%</span>
+                  </div>
+                  {/* Chart Icon (Visible on Mobile Only) */}
+                  <button
+                    onClick={() => setShowChartModal(true)}
+                    className="md:hidden text-blue-400 hover:text-blue-300"
                   >
-                    Token
-                  </span>{" "}
-                  <span className="text-budju-pink">Swap & Deposit</span>
-                </h3>
+                    <FaChartLine className="w-5 h-5" />
+                  </button>
+                </div>
 
                 {/* From Field */}
-                <div className="form-element mb-6">
+                <div className="form-element mb-4 sm:mb-6">
                   <div className="flex justify-between items-center mb-2">
                     <label
                       className={isDarkMode ? "text-gray-400" : "text-white"}
@@ -303,7 +292,7 @@ const SwapTool = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setFromAmount("0")}
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         0
                       </button>
@@ -311,7 +300,7 @@ const SwapTool = () => {
                         onClick={() =>
                           alert("Max balance feature would be implemented here")
                         }
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         Max
                       </button>
@@ -319,17 +308,17 @@ const SwapTool = () => {
                         onClick={() =>
                           alert("50% balance feature would be implemented here")
                         }
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         50%
                       </button>
                     </div>
                   </div>
                   <div
-                    className={`rounded-lg p-3 flex items-center ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
+                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
                   >
                     <div
-                      className={`flex items-center rounded-lg py-2 px-3 mr-3 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
+                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
                       onClick={() => {
                         const tokens = ["SOL", "BUDJU", "USDC"];
                         const currentIndex = tokens.indexOf(fromToken);
@@ -340,7 +329,7 @@ const SwapTool = () => {
                       <img
                         src={`/images/tokens/${fromToken.toLowerCase()}.png`}
                         alt={fromToken}
-                        className="w-6 h-6 mr-2"
+                        className="w-5 sm:w-6 h-5 sm:h-6 mr-2"
                       />
                       <span
                         className={
@@ -372,16 +361,9 @@ const SwapTool = () => {
                         setFromAmount(value);
                       }}
                       placeholder="0.00"
-                      className={`bg-transparent text-right flex-1 focus:outline-none ${isDarkMode ? "text-white" : "text-white"}`}
+                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
                     />
-                    <span className="text-gray-400 ml-2">
-                      ~$
-                      {estimate?.fromAmount
-                        ? (
-                            estimate.fromAmount * (estimate.estimatedPrice || 1)
-                          ).toFixed(2)
-                        : "0"}
-                    </span>
+                    {/* Removed the ~$ value */}
                   </div>
                 </div>
 
@@ -392,7 +374,7 @@ const SwapTool = () => {
                     onClick={handleSwapTokens}
                   >
                     <svg
-                      className="w-6 h-6 text-blue-400"
+                      className="w-5 sm:w-6 h-5 sm:h-6 text-blue-400"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -409,7 +391,7 @@ const SwapTool = () => {
                 </div>
 
                 {/* To Field */}
-                <div className="form-element mb-6 mt-4">
+                <div className="form-element mb-4 sm:mb-6 mt-4">
                   <div className="flex justify-between items-center mb-2">
                     <label
                       className={isDarkMode ? "text-gray-400" : "text-white"}
@@ -419,7 +401,7 @@ const SwapTool = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setToAmount("0")}
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         0
                       </button>
@@ -427,7 +409,7 @@ const SwapTool = () => {
                         onClick={() =>
                           alert("Max balance feature would be implemented here")
                         }
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         Max
                       </button>
@@ -435,19 +417,19 @@ const SwapTool = () => {
                         onClick={() =>
                           alert("50% balance feature would be implemented here")
                         }
-                        className={`text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         50%
                       </button>
                     </div>
                   </div>
                   <div
-                    className={`rounded-lg p-3 flex items-center ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
+                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
                   >
                     <div
-                      className={`flex items-center rounded-lg py-2 px-3 mr-3 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
+                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
                       onClick={() => {
-                        const tokens = ["RAY", "BUDJU", "USDC"];
+                        const tokens = ["BUDJU", "USDC"];
                         const currentIndex = tokens.indexOf(toToken);
                         const nextIndex = (currentIndex + 1) % tokens.length;
                         setToToken(tokens[nextIndex]);
@@ -456,7 +438,7 @@ const SwapTool = () => {
                       <img
                         src={`/images/tokens/${toToken.toLowerCase()}.png`}
                         alt={toToken}
-                        className="w-6 h-6 mr-2"
+                        className="w-5 sm:w-6 h-5 sm:h-6 mr-2"
                       />
                       <span
                         className={
@@ -488,73 +470,38 @@ const SwapTool = () => {
                         setToAmount(value);
                       }}
                       placeholder="0.00"
-                      className={`bg-transparent text-right flex-1 focus:outline-none ${isDarkMode ? "text-white" : "text-white"}`}
+                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
                     />
-                    <span className="text-gray-400 ml-2">
-                      ~$
-                      {estimate?.toAmount
-                        ? (
-                            estimate.toAmount / (estimate.estimatedPrice || 1)
-                          ).toFixed(2)
-                        : "0"}
-                    </span>
+                    {/* Removed the ~$ value */}
                   </div>
                 </div>
 
-                {/* Transaction details */}
+                {/* Transaction Details */}
                 {estimate && (
                   <div
-                    className={`form-element mb-4 text-sm p-3 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/20"}`}
+                    className={`form-element mb-4 text-xs sm:text-sm p-3 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/20"} flex items-center justify-between`}
                   >
-                    <div className="flex justify-between mb-1">
+                    <div className="flex items-center">
                       <span
                         className={
                           isDarkMode ? "text-gray-400" : "text-white/80"
                         }
                       >
-                        Rate:
+                        {fromToken} / {toToken}
                       </span>
                       <span
-                        className={isDarkMode ? "text-white" : "text-white"}
+                        className={`ml-2 ${isDarkMode ? "text-white" : "text-white"}`}
                       >
-                        1 {fromToken} ={" "}
-                        {(1 / estimate.estimatedPrice).toFixed(6)} {toToken}
+                        {(1 / estimate.estimatedPrice).toFixed(6)}
                       </span>
-                    </div>
-                    <div className="flex justify-between mb-1">
-                      <span
-                        className={
-                          isDarkMode ? "text-gray-400" : "text-white/80"
-                        }
-                      >
-                        Fee:
-                      </span>
-                      <span
-                        className={isDarkMode ? "text-white" : "text-white"}
-                      >
-                        ~{estimate.fees.liquidityFee.toFixed(6)} {fromToken}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span
-                        className={
-                          isDarkMode ? "text-gray-400" : "text-white/80"
-                        }
-                      >
-                        Min received:
-                      </span>
-                      <span
-                        className={isDarkMode ? "text-white" : "text-white"}
-                      >
-                        {estimate.minReceived.toFixed(6)} {toToken}
-                      </span>
+                      <span className={`ml-2 text-red-400`}>-0.00003%</span>
                     </div>
                   </div>
                 )}
 
                 {/* Error message */}
                 {error && (
-                  <div className="form-element mb-4 p-2 bg-red-500/20 text-red-400 rounded-lg text-sm">
+                  <div className="form-element mb-4 p-2 bg-red-500/20 text-red-400 rounded-lg text-xs sm:text-sm">
                     {error}
                   </div>
                 )}
@@ -562,13 +509,13 @@ const SwapTool = () => {
                 {/* Action Buttons */}
                 <div className="form-element flex flex-col gap-2">
                   {!isConnected ? (
-                    <WalletConnect fullWidth />
+                    <WalletConnect fullWidth size="sm" />
                   ) : (
                     <>
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className="w-full bg-budju-blue hover:bg-blue-600 text-white py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-budju-blue hover:bg-blue-600 text-white py-2 sm:py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
                         onClick={handleSwap}
                         disabled={
                           loading || !fromAmount || parseFloat(fromAmount) === 0
@@ -582,7 +529,7 @@ const SwapTool = () => {
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        className="w-full bg-budju-pink hover:bg-pink-600 text-white py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="w-full bg-budju-pink hover:bg-pink-600 text-white py-2 sm:py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
                         onClick={handleDeposit}
                         disabled={
                           loading || !fromAmount || parseFloat(fromAmount) === 0
@@ -609,20 +556,83 @@ const SwapTool = () => {
         </div>
       </div>
 
+      {/* Chart Modal (Visible on Mobile Only) */}
+      <AnimatePresence>
+        {showChartModal && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-end justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            {/* Overlay */}
+            <motion.div
+              className="absolute inset-0 bg-black/50"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowChartModal(false)}
+            />
+
+            {/* Modal Content */}
+            <motion.div
+              className={`w-full max-w-md bg-gray-900/80 backdrop-blur-sm rounded-t-lg p-4 relative h-[90vh] ${isDarkMode ? "text-white" : "text-gray-900"}`}
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={0.2}
+              onDragEnd={(event, info) => {
+                if (info.offset.y > 100) {
+                  setShowChartModal(false);
+                }
+              }}
+            >
+              {/* Drag Handle */}
+              <div className="w-12 h-1 bg-gray-500 rounded-full mx-auto mb-4" />
+
+              {/* Close Button */}
+              <button
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-200"
+                onClick={() => setShowChartModal(false)}
+              >
+                <FaTimes className="w-5 h-5" />
+              </button>
+
+              {/* Chart */}
+              <div className="relative w-full h-full">
+                <PriceChart
+                  data={chartData}
+                  baseToken={fromToken}
+                  quoteToken={toToken}
+                  timeframe={timeframe}
+                  onTimeframeChange={handleTimeframeChange}
+                  loading={chartLoading}
+                  isConnected={isConnected}
+                />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Success Modal */}
       {showSuccess && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/70">
+        <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/70 px-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`relative p-6 rounded-xl shadow-xl max-w-md w-full ${isDarkMode ? "bg-gray-900" : "bg-white"}`}
+            className={`relative p-4 sm:p-6 rounded-xl shadow-xl w-full max-w-sm sm:max-w-md ${isDarkMode ? "bg-gray-900" : "bg-white"}`}
           >
             <button
               className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
               onClick={() => setShowSuccess(false)}
             >
               <svg
-                className="w-6 h-6"
+                className="w-5 sm:w-6 h-5 sm:h-6"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -638,9 +648,9 @@ const SwapTool = () => {
             </button>
             <div className="text-center">
               <div className="mb-4 flex justify-center">
-                <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center">
+                <div className="w-12 sm:w-16 h-12 sm:h-16 rounded-full bg-green-500/20 flex items-center justify-center">
                   <svg
-                    className="w-8 h-8 text-green-500"
+                    className="w-6 sm:w-8 h-6 sm:h-8 text-green-500"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -656,26 +666,26 @@ const SwapTool = () => {
                 </div>
               </div>
               <h3
-                className={`text-xl font-bold mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+                className={`text-lg sm:text-xl font-bold mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
               >
                 {successAction === "swap"
                   ? "Swap Successful!"
                   : "Deposit Successful!"}
               </h3>
               <p
-                className={`mb-4 ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}
+                className={`mb-4 text-sm sm:text-base ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}
               >
                 {successAction === "swap"
                   ? `You have successfully swapped ${fromToken} to ${toToken}.`
                   : `You have successfully deposited ${fromToken} to the Bank of BUDJU.`}
               </p>
               <div
-                className={`p-3 rounded-lg mb-4 text-sm break-all ${isDarkMode ? "bg-gray-800 text-gray-300" : "bg-gray-100 text-gray-600"}`}
+                className={`p-2 sm:p-3 rounded-lg mb-4 text-xs sm:text-sm break-all ${isDarkMode ? "bg-gray-800 text-gray-300" : "bg-gray-100 text-gray-600"}`}
               >
                 Transaction ID: {successTxId}
               </div>
               <button
-                className="w-full bg-budju-blue hover:bg-blue-600 text-white py-3 rounded-lg font-medium"
+                className="w-full bg-budju-blue hover:bg-blue-600 text-white py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base"
                 onClick={() => setShowSuccess(false)}
               >
                 Close
