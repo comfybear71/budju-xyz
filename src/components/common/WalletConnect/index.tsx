@@ -53,6 +53,7 @@ const WalletConnect = ({
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
+  const [inAppBrowser, setInAppBrowser] = useState<WalletName | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   interface ExtendedWindow extends Window {
@@ -61,17 +62,43 @@ const WalletConnect = ({
     solflare?: any;
   }
 
-  // Detect mobile device
+  // Detect mobile device and in-app browser
   useEffect(() => {
-    const checkMobile = () => {
-      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      );
+    const checkEnvironment = () => {
+      // Check if we're on mobile
+      const isMobileDevice =
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent,
+        );
       setIsMobile(isMobileDevice);
+
+      // Check if we're in a wallet's in-app browser
+      const extWindow = window as ExtendedWindow;
+
+      // Detect Phantom in-app browser
+      if (
+        typeof extWindow.phantom !== "undefined" ||
+        (typeof extWindow.solana !== "undefined" && extWindow.solana?.isPhantom)
+      ) {
+        console.log("Detected Phantom in-app browser");
+        setInAppBrowser("phantom");
+      }
+      // Detect Solflare in-app browser
+      else if (
+        typeof extWindow.solflare !== "undefined" ||
+        (typeof extWindow.solana !== "undefined" &&
+          extWindow.solana?.isSolflare)
+      ) {
+        console.log("Detected Solflare in-app browser");
+        setInAppBrowser("solflare");
+      } else {
+        setInAppBrowser(null);
+      }
     };
-    checkMobile();
-    window.addEventListener("resize", checkMobile);
-    return () => window.removeEventListener("resize", checkMobile);
+
+    checkEnvironment();
+    window.addEventListener("resize", checkEnvironment);
+    return () => window.removeEventListener("resize", checkEnvironment);
   }, []);
 
   // Check wallet support (desktop only)
@@ -85,6 +112,33 @@ const WalletConnect = ({
       setIsSupported(hasWalletProvider);
     }
   }, [isMobile]);
+
+  // Auto-connect to the wallet if we're in its in-app browser
+  useEffect(() => {
+    const autoConnectInAppBrowser = async () => {
+      if (inAppBrowser && !connection.connected) {
+        console.log(`Auto-connecting to ${inAppBrowser} in-app browser`);
+        try {
+          await connect(inAppBrowser);
+        } catch (error) {
+          console.error("Auto-connect error:", error);
+        }
+      }
+    };
+
+    // Only auto-connect on initial load, not after disconnects
+    if (!localStorage.getItem("manualDisconnect")) {
+      autoConnectInAppBrowser();
+    }
+  }, [inAppBrowser, connection.connected, connect]);
+
+  // Effect to clear the manual disconnect flag when necessary
+  useEffect(() => {
+    // If the user is connected, we can clear the manual disconnect flag
+    if (connection.connected) {
+      localStorage.removeItem("manualDisconnect");
+    }
+  }, [connection.connected]);
 
   // Update balances on connection
   useEffect(() => {
@@ -125,16 +179,43 @@ const WalletConnect = ({
     setConnectionError(null);
     const extWindow = window as ExtendedWindow;
 
-    if (isMobile) {
+    // If we're already in a wallet's in-app browser
+    if (inAppBrowser) {
+      if (inAppBrowser === walletName) {
+        // Try to connect to the current wallet
+        try {
+          await connect(walletName);
+          setIsMenuOpen(false);
+        } catch (error) {
+          console.error("Connection error:", error);
+          setConnectionError(
+            error instanceof Error
+              ? error.message
+              : "Failed to connect. Please try again.",
+          );
+        }
+      } else {
+        // User is trying to connect to a different wallet than the browser they're in
+        setConnectionError(
+          `You're currently in ${walletConfig[inAppBrowser].name}'s browser. Please use ${walletConfig[inAppBrowser].name} or open this page in a different browser.`,
+        );
+      }
+      return;
+    }
+
+    // Handle normal mobile deep linking
+    if (isMobile && !inAppBrowser) {
       // Mobile: Generate deep link and redirect
-      const targetUrl = "https://budju.vercel.app/swap"; // Adjust to your app’s mobile URL
+      const targetUrl = "https://167d-114-122-166-85.ngrok-free.app/swap"; // Adjust to your app's mobile URL
       const refUrl = import.meta.env.DEV
         ? "http://localhost:5173/"
-        : "https://budju.vercel.app/";
+        : "https://167d-114-122-166-85.ngrok-free.app";
       let deepLink = "";
 
       if (walletName === "phantom") {
-        deepLink = `https://phantom.app/ul/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
+        // Using the official Phantom deep link format based on documentation
+        // https://docs.phantom.com/phantom-deeplinks/deeplinks-ios-and-android
+        deepLink = `https://phantom.app/ul/browse?url=${encodeURIComponent(targetUrl)}`;
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       }
@@ -153,7 +234,7 @@ const WalletConnect = ({
 
       if (!walletProvider) {
         setConnectionError(
-          `${walletConfig[walletName].name} not detected. Please ensure it’s installed.`,
+          `${walletConfig[walletName].name} not detected. Please ensure it's installed.`,
         );
         return;
       }
@@ -172,9 +253,23 @@ const WalletConnect = ({
     }
   };
 
-  const handleDisconnect = () => {
-    disconnect();
-    setIsMenuOpen(false);
+  // Update the disconnect function to handle in-app browsers
+  const handleDisconnect = async () => {
+    try {
+      // Set a flag to prevent auto-reconnect
+      localStorage.setItem("manualDisconnect", "true");
+
+      // Disconnect from wallet
+      await disconnect();
+
+      // Update states
+      setIsMenuOpen(false);
+
+      // If in an in-app browser, provide guidance
+    } catch (error) {
+      console.error("Error during disconnect:", error);
+      alert("There was an issue disconnecting. Please try again.");
+    }
   };
 
   const handleRefresh = async () => {
@@ -256,6 +351,22 @@ const WalletConnect = ({
     lg: "text-lg py-3 px-6",
   };
 
+  // Determine which wallets to show based on the environment
+  const getWalletsToDisplay = () => {
+    // If we're in a wallet's in-app browser, only show that wallet
+    if (inAppBrowser) {
+      return [inAppBrowser];
+    }
+
+    // If on mobile but not in a wallet browser, show both options
+    if (isMobile) {
+      return ["phantom", "solflare"];
+    }
+
+    // On desktop, show available wallets from browser extensions
+    return availableWallets;
+  };
+
   const WalletSelectionContent = () => (
     <>
       <div className="p-4 border-b border-gray-800">
@@ -263,7 +374,9 @@ const WalletConnect = ({
           Connect Wallet
         </h3>
         <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>
-          Select a wallet to connect to BUDJU
+          {inAppBrowser
+            ? `Connect to ${walletConfig[inAppBrowser].name}`
+            : "Select a wallet to connect to BUDJU"}
         </p>
       </div>
 
@@ -276,7 +389,7 @@ const WalletConnect = ({
         </div>
       )}
 
-      {!isSupported && !isMobile && (
+      {!isSupported && !isMobile && !inAppBrowser && (
         <div className="p-3 bg-yellow-900/40 border-b border-gray-800">
           <div className="flex items-start text-yellow-400">
             <FaExclamationTriangle className="mr-2 mt-0.5" />
@@ -286,7 +399,7 @@ const WalletConnect = ({
               </span>
               <span className="text-xs block mt-1">
                 Install a wallet extension (desktop) or open this page in your
-                wallet app’s browser (mobile, e.g., Phantom or Solflare).
+                wallet app's browser (mobile, e.g., Phantom or Solflare).
               </span>
             </div>
           </div>
@@ -294,38 +407,34 @@ const WalletConnect = ({
       )}
 
       <div className="p-2 max-h-60 overflow-y-auto">
-        {isMobile || availableWallets.length > 0 ? (
-          (isMobile ? ["phantom", "solflare"] : availableWallets).map(
-            (wallet) => (
-              <div key={wallet} className="mb-2">
+        {getWalletsToDisplay().length > 0 ? (
+          getWalletsToDisplay().map((wallet) => (
+            <div key={wallet} className="mb-2">
+              <button
+                onClick={() => handleConnect(wallet as WalletName)}
+                className={`flex items-center w-full p-3 rounded-lg transition-colors ${
+                  isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
+                }`}
+              >
+                <img
+                  src={walletConfig[wallet as WalletName].logo}
+                  alt={walletConfig[wallet as WalletName].name}
+                  className="w-8 h-8 mr-3"
+                />
+                <span className={isDarkMode ? "text-white" : "text-gray-900"}>
+                  {walletConfig[wallet as WalletName].name}
+                </span>
+              </button>
+              {!isSupported && !isMobile && !inAppBrowser && (
                 <button
-                  onClick={() => handleConnect(wallet as WalletName)}
-                  className={`flex items-center w-full p-3 rounded-lg transition-colors ${
-                    isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
-                  }`}
+                  onClick={() => handleGetWallet(wallet as WalletName)}
+                  className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
                 >
-                  <img
-                    src={walletConfig[wallet as WalletName].logo}
-                    alt={walletConfig[wallet as WalletName].name}
-                    className="w-8 h-8 mr-3"
-                  />
-                  <span
-                    className={isDarkMode ? "text-white" : "text-gray-900"}
-                  >
-                    {walletConfig[wallet as WalletName].name}
-                  </span>
+                  Download {walletConfig[wallet as WalletName].name}
                 </button>
-                {!isSupported && !isMobile && (
-                  <button
-                    onClick={() => handleGetWallet(wallet as WalletName)}
-                    className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
-                  >
-                    Download {walletConfig[wallet as WalletName].name}
-                  </button>
-                )}
-              </div>
-            ),
-          )
+              )}
+            </div>
+          ))
         ) : (
           <div
             className={`p-3 text-center ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
@@ -587,7 +696,7 @@ const WalletConnect = ({
                             <img
                               src={
                                 token.symbol === "BUDJU"
-                                  ? "/images/logo.png"
+                                  ? "/images/logo.svg"
                                   : "/images/tokens/default.png"
                               }
                               alt={token.symbol}
