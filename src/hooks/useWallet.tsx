@@ -14,15 +14,33 @@ import {
   disconnectWallet,
   formatWalletAddress,
   checkWalletsAvailability,
+  WalletInfo,
 } from "@lib/web3/connection";
 import walletService, {
   WalletBalance,
   Network,
 } from "@lib/services/walletService";
+import { Transaction, VersionedTransaction, Connection } from "@solana/web3.js";
 
-// Context interface
+// Define WalletAdapter to include required transaction methods
+interface WalletAdapter {
+  signTransaction: (
+    transaction: Transaction | VersionedTransaction,
+  ) => Promise<Transaction | VersionedTransaction>;
+  sendTransaction: (
+    transaction: Transaction | VersionedTransaction,
+  ) => Promise<string>;
+  signAndSendTransaction?: (
+    transaction: VersionedTransaction,
+  ) => Promise<{ signature: string }>;
+}
+
+// Extend WalletInfo with WalletAdapter
+interface ExtendedWallet extends WalletInfo, WalletAdapter {}
+
+// Update WalletContextType to use ExtendedWallet
 interface WalletContextType {
-  connection: ConnectionState;
+  connection: ConnectionState & { wallet: ExtendedWallet | null };
   connecting: boolean;
   availableWallets: WalletName[];
   connect: (walletName: WalletName) => Promise<void>;
@@ -61,22 +79,22 @@ const WalletContext = createContext<WalletContextType>({
 // Hook to use the wallet context
 export const useWallet = () => useContext(WalletContext);
 
-// Custom tokens to track (extend as needed)
+// Custom tokens to track
 const customTokens = [
   {
     symbol: "BUDJU",
     address: "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump",
     decimals: 6,
   },
-  // Add more tokens here, e.g.:
-  // { symbol: "USDC", address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6 },
 ];
 
 // Provider component
 export const WalletProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [connection, setConnection] = useState<ConnectionState>({
+  const [connection, setConnection] = useState<
+    ConnectionState & { wallet: ExtendedWallet | null }
+  >({
     connected: false,
     wallet: null,
     rpcEndpoint: "",
@@ -104,7 +122,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         setAvailableWallets([]);
       }
     };
-
     checkWallets();
   }, []);
 
@@ -114,13 +131,96 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       try {
         setConnecting(true);
         const connectionState = await checkWalletConnection();
-        setConnection(connectionState);
+        const walletAdapter: ExtendedWallet | null =
+          connectionState.connected && connectionState.wallet
+            ? {
+                ...connectionState.wallet,
+                signTransaction: async (
+                  tx: Transaction | VersionedTransaction,
+                ) => {
+                  const provider = window.solana || window.solflare;
+                  if (!provider) throw new Error("No wallet provider found");
 
-        if (connectionState.error) {
-          setError(connectionState.error);
-        } else {
-          setError(null);
-        }
+                  // Check if the wallet has the signTransaction method
+                  if (typeof provider.signTransaction === "function") {
+                    return await provider.signTransaction(tx);
+                  }
+                  throw new Error(
+                    "Wallet does not support signTransaction method",
+                  );
+                },
+                sendTransaction: async (
+                  tx: Transaction | VersionedTransaction,
+                ) => {
+                  const provider = window.solana || window.solflare;
+                  if (!provider) throw new Error("No wallet provider found");
+
+                  // Handle legacy transactions
+                  if (tx instanceof Transaction) {
+                    if (typeof provider.signTransaction !== "function") {
+                      throw new Error(
+                        "Wallet does not support signTransaction method",
+                      );
+                    }
+                    const signedTx = await provider.signTransaction(tx);
+                    const solConnection = new Connection(
+                      connectionState.rpcEndpoint,
+                    );
+                    return await solConnection.sendRawTransaction(
+                      signedTx.serialize(),
+                    );
+                  }
+
+                  // Handle versioned transactions
+                  // First check if the wallet supports signAndSendTransaction
+                  if (typeof provider.signAndSendTransaction === "function") {
+                    const result = await provider.signAndSendTransaction(tx);
+                    return result.signature;
+                  } else {
+                    // Otherwise handle signing and sending separately
+                    if (typeof provider.signTransaction !== "function") {
+                      throw new Error(
+                        "Wallet does not support signTransaction method",
+                      );
+                    }
+                    const signedTx = await provider.signTransaction(tx);
+                    const solConnection = new Connection(
+                      connectionState.rpcEndpoint,
+                    );
+                    return await solConnection.sendRawTransaction(
+                      signedTx.serialize(),
+                    );
+                  }
+                },
+                signAndSendTransaction: async (tx: VersionedTransaction) => {
+                  const provider = window.solana || window.solflare;
+                  if (!provider) throw new Error("No wallet provider found");
+
+                  // If wallet supports it directly
+                  if (typeof provider.signAndSendTransaction === "function") {
+                    return await provider.signAndSendTransaction(tx);
+                  }
+
+                  // Otherwise simulate it
+                  if (typeof provider.signTransaction !== "function") {
+                    throw new Error(
+                      "Wallet does not support signTransaction method",
+                    );
+                  }
+                  const signedTx = await provider.signTransaction(tx);
+                  const solConnection = new Connection(
+                    connectionState.rpcEndpoint,
+                  );
+                  const signature = await solConnection.sendRawTransaction(
+                    signedTx.serialize(),
+                  );
+                  return { signature };
+                },
+              }
+            : null;
+        setConnection({ ...connectionState, wallet: walletAdapter });
+        if (connectionState.error) setError(connectionState.error);
+        else setError(null);
       } catch (error) {
         console.error("Error checking connection:", error);
         setError("Failed to check wallet connection");
@@ -128,16 +228,14 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         setConnecting(false);
       }
     };
-
     checkConnection();
   }, []);
 
-  // Subscribe to balance updates when connected
+  // Subscribe to balance updates
   useEffect(() => {
     if (connection.connected && connection.wallet?.address) {
       setLoadingBalances(true);
-      walletService.switchNetwork(network); // Ensure network is set
-
+      walletService.switchNetwork(network);
       const unsubscribe = walletService.subscribeToBalanceUpdates(
         connection.wallet.address,
         (newBalances) => {
@@ -145,9 +243,8 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
           setLoadingBalances(false);
         },
         customTokens,
-        30000, // Update every 30 seconds
+        30000,
       );
-
       return () => unsubscribe();
     } else {
       setBalances({ sol: 0, tokens: [] });
@@ -162,7 +259,74 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       setError(null);
 
       const connectionState = await connectWallet(walletName);
-      setConnection(connectionState);
+      const walletAdapter: ExtendedWallet | null =
+        connectionState.connected && connectionState.wallet
+          ? {
+              ...connectionState.wallet,
+              signTransaction: async (
+                tx: Transaction | VersionedTransaction,
+              ) => {
+                const provider = window.solana || window.solflare;
+                if (!provider) throw new Error("No wallet provider found");
+                return await provider.signTransaction(tx);
+              },
+              sendTransaction: async (
+                tx: Transaction | VersionedTransaction,
+              ) => {
+                const provider = window.solana || window.solflare;
+                if (!provider) throw new Error("No wallet provider found");
+
+                // Handle legacy transactions
+                if (tx instanceof Transaction) {
+                  const signedTx = await provider.signTransaction(tx);
+                  const solConnection = new Connection(
+                    connectionState.rpcEndpoint,
+                  );
+                  return await solConnection.sendRawTransaction(
+                    signedTx.serialize(),
+                  );
+                }
+
+                // Handle versioned transactions
+                // First check if the wallet supports signAndSendTransaction
+                if (provider.signAndSendTransaction) {
+                  const { signature } =
+                    await provider.signAndSendTransaction(tx);
+                  return signature;
+                } else {
+                  // Otherwise handle signing and sending separately
+                  const signedTx = await provider.signTransaction(tx);
+                  const solConnection = new Connection(
+                    connectionState.rpcEndpoint,
+                  );
+                  return await solConnection.sendRawTransaction(
+                    signedTx.serialize(),
+                  );
+                }
+              },
+              signAndSendTransaction: async (tx: VersionedTransaction) => {
+                const provider = window.solana || window.solflare;
+                if (!provider) throw new Error("No wallet provider found");
+
+                // If wallet supports it directly
+                if (provider.signAndSendTransaction) {
+                  return await provider.signAndSendTransaction(tx);
+                }
+
+                // Otherwise simulate it
+                const signedTx = await provider.signTransaction(tx);
+                const solConnection = new Connection(
+                  connectionState.rpcEndpoint,
+                );
+                const signature = await solConnection.sendRawTransaction(
+                  signedTx.serialize(),
+                );
+                return { signature };
+              },
+            }
+          : null;
+
+      setConnection({ ...connectionState, wallet: walletAdapter });
 
       if (connectionState.connected && connectionState.wallet) {
         localStorage.setItem(
@@ -173,9 +337,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         localStorage.setItem("budjuWalletConnected", "true");
       }
 
-      if (connectionState.error) {
-        setError(connectionState.error);
-      }
+      if (connectionState.error) setError(connectionState.error);
     } catch (error) {
       console.error("Error connecting to wallet:", error);
       setError("Failed to connect to wallet");
@@ -188,9 +350,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
   const disconnect = useCallback(async () => {
     try {
       setConnecting(true);
-
       await disconnectWallet();
-
       setConnection({
         connected: false,
         wallet: null,
@@ -198,11 +358,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         network: "",
         error: null,
       });
-
       localStorage.removeItem("budjuWalletAddress");
       localStorage.removeItem("budjuWalletName");
       localStorage.removeItem("budjuWalletConnected");
-
       setError(null);
     } catch (error) {
       console.error("Error disconnecting from wallet:", error);
@@ -218,7 +376,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       setNetwork(newNetwork);
       walletService.switchNetwork(newNetwork);
       if (connection.connected && connection.wallet?.address) {
-        refreshBalances(); // Refresh balances on network switch
+        refreshBalances();
       }
     },
     [connection.connected, connection.wallet?.address],

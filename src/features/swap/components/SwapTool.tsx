@@ -1,4 +1,3 @@
-// src/features/swap/SwapTool.tsx
 import { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { gsap } from "gsap";
@@ -7,7 +6,7 @@ import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
 import { useWallet } from "@hooks/useWallet";
 import { useTrading } from "@hooks/useTrading";
-import { initializeTokenRegistry } from "@lib/services/tokenRegistry";
+import { getTokenBySymbol } from "@lib/services/tokenRegistry"; // Updated to use async
 import PriceChart from "@components/common/PriceChart";
 import { FaChartLine, FaTimes, FaCog } from "react-icons/fa";
 
@@ -45,22 +44,27 @@ const SwapTool = () => {
     loadChartData,
   } = useTrading(fromToken, toToken, fromAmount);
 
-  // Initialize token registry on mount
-  useEffect(() => {
-    initializeTokenRegistry();
-  }, []);
-
   // Check wallet connection status
   const isConnected = connection.connected;
 
   // Update toAmount when estimate changes
   useEffect(() => {
-    if (estimate) {
-      setToAmount(estimate.toAmount.toFixed(6));
-    } else {
-      setToAmount("");
-    }
-  }, [estimate]);
+    const updateToAmount = async () => {
+      if (estimate) {
+        const toTokenInfo = await getTokenBySymbol(toToken);
+        if (toTokenInfo) {
+          setToAmount(
+            (estimate.outAmount / Math.pow(10, toTokenInfo.decimals)).toFixed(
+              6,
+            ),
+          );
+        }
+      } else {
+        setToAmount("");
+      }
+    };
+    updateToAmount();
+  }, [estimate, toToken]);
 
   // Coin animation
   useEffect(() => {
@@ -169,33 +173,20 @@ const SwapTool = () => {
     }
   };
 
-  // Handle deposit execution
+  // Handle deposit execution (placeholder)
   const handleDeposit = async () => {
     if (!isConnected) {
       alert("Please connect your wallet first");
       return;
     }
 
-    if (!connection.wallet || !connection.wallet.address) {
-      alert("Wallet connection issue detected. Please reconnect your wallet.");
-      return;
-    }
-
     try {
-      console.log("Executing deposit with:", {
-        token: fromToken,
-        amount: fromAmount,
-        wallet: connection.wallet ? "Connected" : "Not connected",
-      });
-
       const txId = await executeDeposit(fromToken, fromAmount);
 
-      // Set success state
       setSuccessTxId(txId);
       setSuccessAction("deposit");
       setShowSuccess(true);
 
-      // Success animation
       if (sectionRef.current) {
         particleBurst(sectionRef.current, {
           count: 30,
@@ -205,7 +196,6 @@ const SwapTool = () => {
         });
       }
 
-      // Reset form
       setFromAmount("");
     } catch (error) {
       console.error("Deposit error:", error);
@@ -259,20 +249,17 @@ const SwapTool = () => {
                 ref={formRef}
                 className={`rounded-xl p-4 sm:p-5 ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 shadow-lg"}`}
               >
-                {/* Top Bar with Settings and Chart Icon (Chart Icon Visible on Mobile Only) */}
+                {/* Top Bar */}
                 <div className="flex justify-between items-center mb-4">
                   <div className="flex items-center space-x-2">
-                    {/* Placeholder for Settings (Gear Icon) */}
                     <button
                       onClick={() => alert("Settings coming soon!")}
                       className="text-gray-400 hover:text-gray-200"
                     >
                       <FaCog className="w-5 h-5" />
                     </button>
-                    {/* Slippage Tolerance Placeholder */}
                     <span className="text-gray-400 text-sm">0.5%</span>
                   </div>
-                  {/* Chart Icon (Visible on Mobile Only) */}
                   <button
                     onClick={() => setShowChartModal(true)}
                     className="md:hidden text-blue-400 hover:text-blue-300"
@@ -297,20 +284,10 @@ const SwapTool = () => {
                         0
                       </button>
                       <button
-                        onClick={() =>
-                          alert("Max balance feature would be implemented here")
-                        }
+                        onClick={() => alert("Max balance feature coming soon")}
                         className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
                       >
                         Max
-                      </button>
-                      <button
-                        onClick={() =>
-                          alert("50% balance feature would be implemented here")
-                        }
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
-                      >
-                        50%
                       </button>
                     </div>
                   </div>
@@ -363,7 +340,6 @@ const SwapTool = () => {
                       placeholder="0.00"
                       className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
                     />
-                    {/* Removed the ~$ value */}
                   </div>
                 </div>
 
@@ -405,22 +381,6 @@ const SwapTool = () => {
                       >
                         0
                       </button>
-                      <button
-                        onClick={() =>
-                          alert("Max balance feature would be implemented here")
-                        }
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
-                      >
-                        Max
-                      </button>
-                      <button
-                        onClick={() =>
-                          alert("50% balance feature would be implemented here")
-                        }
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
-                      >
-                        50%
-                      </button>
                     </div>
                   </div>
                   <div
@@ -429,7 +389,7 @@ const SwapTool = () => {
                     <div
                       className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
                       onClick={() => {
-                        const tokens = ["BUDJU", "USDC"];
+                        const tokens = ["BUDJU", "USDC", "SOL"];
                         const currentIndex = tokens.indexOf(toToken);
                         const nextIndex = (currentIndex + 1) % tokens.length;
                         setToToken(tokens[nextIndex]);
@@ -472,7 +432,6 @@ const SwapTool = () => {
                       placeholder="0.00"
                       className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
                     />
-                    {/* Removed the ~$ value */}
                   </div>
                 </div>
 
@@ -492,9 +451,11 @@ const SwapTool = () => {
                       <span
                         className={`ml-2 ${isDarkMode ? "text-white" : "text-white"}`}
                       >
-                        {(1 / estimate.estimatedPrice).toFixed(6)}
+                        {estimate.estimatedPrice.toFixed(6)}
                       </span>
-                      <span className={`ml-2 text-red-400`}>-0.00003%</span>
+                      <span className={`ml-2 text-gray-400`}>
+                        Slippage: {estimate.slippageBps / 100}%
+                      </span>
                     </div>
                   </div>
                 )}
@@ -540,7 +501,6 @@ const SwapTool = () => {
                           : `Deposit ${fromToken} to Bank`}
                       </motion.button>
 
-                      {/* Debug button - can be removed in production */}
                       <button
                         className="mt-2 p-2 bg-gray-700/50 text-white/70 rounded text-xs"
                         onClick={debugWalletConnection}
@@ -556,7 +516,7 @@ const SwapTool = () => {
         </div>
       </div>
 
-      {/* Chart Modal (Visible on Mobile Only) */}
+      {/* Chart Modal (Mobile) */}
       <AnimatePresence>
         {showChartModal && (
           <motion.div
@@ -566,7 +526,6 @@ const SwapTool = () => {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.3 }}
           >
-            {/* Overlay */}
             <motion.div
               className="absolute inset-0 bg-black/50"
               initial={{ opacity: 0 }}
@@ -574,8 +533,6 @@ const SwapTool = () => {
               exit={{ opacity: 0 }}
               onClick={() => setShowChartModal(false)}
             />
-
-            {/* Modal Content */}
             <motion.div
               className={`w-full max-w-md bg-gray-900/80 backdrop-blur-sm rounded-t-lg p-4 relative h-[90vh] ${isDarkMode ? "text-white" : "text-gray-900"}`}
               initial={{ y: "100%" }}
@@ -586,23 +543,16 @@ const SwapTool = () => {
               dragConstraints={{ top: 0, bottom: 0 }}
               dragElastic={0.2}
               onDragEnd={(_, info) => {
-                if (info.offset.y > 100) {
-                  setShowChartModal(false);
-                }
+                if (info.offset.y > 100) setShowChartModal(false);
               }}
             >
-              {/* Drag Handle */}
               <div className="w-12 h-1 bg-gray-500 rounded-full mx-auto mb-4" />
-
-              {/* Close Button */}
               <button
                 className="absolute top-4 right-4 text-gray-400 hover:text-gray-200"
                 onClick={() => setShowChartModal(false)}
               >
                 <FaTimes className="w-5 h-5" />
               </button>
-
-              {/* Chart */}
               <div className="relative w-full h-full">
                 <PriceChart
                   data={chartData}

@@ -1,18 +1,29 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@hooks/useWallet";
-// import { estimateSwap, executeSwap } from "@lib/services/swapApi";
-import { depositTokens, getConnectedWallet } from "@lib/services/bankApi";
+import { Transaction, VersionedTransaction, Connection } from "@solana/web3.js";
+import {
+  initializeTokenRegistry,
+  getTokenBySymbol,
+} from "@lib/services/tokenRegistry";
 import { getChartData, CandlestickData } from "@lib/services/chartApi";
-import { initializeTokenRegistry } from "@lib/services/tokenRegistry";
+
+const JUPITER_API_URL = "https://quote-api.jup.ag/v6";
+
+export interface SwapEstimate {
+  inAmount: number;
+  outAmount: number;
+  estimatedPrice: number;
+  slippageBps: number;
+}
 
 export interface UseTradeResult {
   loading: boolean;
   error: string | null;
-  estimate: any;
+  estimate: SwapEstimate | null;
   chartData: CandlestickData[];
   chartLoading: boolean;
   chartError: string | null;
-  executeSwap: any;
+  executeSwap: () => Promise<string>;
   executeDeposit: (token: string, amount: string) => Promise<string>;
   loadChartData: (timeframe: string) => Promise<void>;
 }
@@ -24,28 +35,25 @@ export const useTrading = (
 ): UseTradeResult => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [estimate, setEstimate] = useState<any>(null);
+  const [estimate, setEstimate] = useState<SwapEstimate | null>(null);
   const [chartData, setChartData] = useState<CandlestickData[]>([]);
   const [chartLoading, setChartLoading] = useState(false);
   const [chartError, setChartError] = useState<string | null>(null);
   const [timeframe, setTimeframe] = useState("1D");
   const { connection } = useWallet();
 
-  // Initialize token registry on load
   useEffect(() => {
     initializeTokenRegistry().catch((err) =>
       console.error("Failed to initialize token registry:", err),
     );
   }, []);
 
-  // Load chart data on token change or timeframe change
   useEffect(() => {
     loadChartData(timeframe);
   }, [fromToken, toToken, timeframe]);
 
-  // Get swap estimate when input changes
   useEffect(() => {
-    if (!amount || parseFloat(amount) === 0) {
+    if (!amount || parseFloat(amount) <= 0 || !connection.connected) {
       setEstimate(null);
       return;
     }
@@ -55,41 +63,185 @@ export const useTrading = (
         setLoading(true);
         setError(null);
 
-        // const amountValue = parseFloat(amount);
+        const fromTokenInfo = await getTokenBySymbol(fromToken);
+        const toTokenInfo = await getTokenBySymbol(toToken);
 
-        // // Get wallet for estimate
-        // const wallet =
-        //   connection.connected && connection.wallet
-        //     ? {
-        //         publicKey: {
-        //           toString: () => connection.wallet?.address || "",
-        //         },
-        //       }
-        //     : null;
+        if (!fromTokenInfo || !toTokenInfo) {
+          throw new Error("Token not found in registry");
+        }
 
-        // const swapEstimate = await estimateSwap({
-        //   fromToken,
-        //   toToken,
-        //   amount: amountValue,
-        //   slippageTolerance: 0.5,
-        //   wallet,
-        // });
+        const inputAmount =
+          parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
 
-        // setEstimate(swapEstimate);
+        const quoteResponse = await fetch(
+          `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=50`,
+        );
+
+        if (!quoteResponse.ok) {
+          throw new Error("Failed to fetch swap quote");
+        }
+
+        const quote = await quoteResponse.json();
+
+        setEstimate({
+          inAmount: quote.inAmount,
+          outAmount: quote.outAmount,
+          estimatedPrice: quote.outAmount / quote.inAmount,
+          slippageBps: quote.slippageBps,
+        });
       } catch (err) {
         console.error("Error estimating swap:", err);
-        const errorMessage =
-          err instanceof Error ? err.message : "Failed to estimate swap";
-        setError(errorMessage);
+        setError(
+          err instanceof Error ? err.message : "Failed to estimate swap",
+        );
       } finally {
         setLoading(false);
       }
     };
 
     fetchEstimate();
-  }, [fromToken, toToken, amount, connection.connected, connection.wallet]);
+  }, [fromToken, toToken, amount, connection.connected]);
 
-  // Load chart data
+  const executeSwap = useCallback(async () => {
+    if (!connection.connected || !connection.wallet) {
+      throw new Error("Wallet not connected");
+    }
+
+    if (!amount || parseFloat(amount) <= 0) {
+      throw new Error("Amount must be greater than 0");
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const fromTokenInfo = await getTokenBySymbol(fromToken);
+      const toTokenInfo = await getTokenBySymbol(toToken);
+
+      if (!fromTokenInfo || !toTokenInfo) {
+        throw new Error("Token not found in registry");
+      }
+
+      const inputAmount =
+        parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
+
+      // Step 1: Get a quote first
+      console.log("Fetching quote...");
+      const quoteResponse = await fetch(
+        `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=50`,
+      );
+
+      if (!quoteResponse.ok) {
+        const errorText = await quoteResponse.text();
+        console.error("Quote response error:", errorText);
+        throw new Error(`Failed to fetch swap quote: ${errorText}`);
+      }
+
+      const quoteData = await quoteResponse.json();
+      console.log("Quote data received:", quoteData);
+
+      // Step 2: Create a swap transaction using the quote
+      console.log("Creating swap transaction...");
+
+      // Format the request body according to Jupiter API v6 requirements
+      const swapRequestBody = {
+        quoteResponse: quoteData,
+        userPublicKey: connection.wallet.address,
+        wrapUnwrapSOL: true,
+      };
+
+      console.log("Swap request body:", JSON.stringify(swapRequestBody));
+
+      const swapResponse = await fetch(`${JUPITER_API_URL}/swap`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(swapRequestBody),
+      });
+
+      if (!swapResponse.ok) {
+        const errorText = await swapResponse.text();
+        console.error("Swap response error:", errorText);
+        throw new Error(`Failed to fetch swap transaction: ${errorText}`);
+      }
+
+      const swapData = await swapResponse.json();
+      console.log("Swap data received:", swapData);
+
+      if (!swapData.swapTransaction) {
+        throw new Error("No swap transaction received from API");
+      }
+
+      // Step 3: Process the transaction with the wallet
+      console.log("Processing transaction with wallet...");
+
+      // Handle versioned transaction from Jupiter v6
+      const transactionBuffer = Buffer.from(swapData.swapTransaction, "base64");
+      const versionedTransaction =
+        VersionedTransaction.deserialize(transactionBuffer);
+
+      console.log("Signing transaction...");
+
+      // For versioned transactions, we need to handle it differently based on wallet
+      const provider = window.solana || window.solflare;
+      if (!provider) throw new Error("No wallet provider found");
+
+      try {
+        // Use the appropriate signing method for versioned transactions
+        if (typeof provider.signAndSendTransaction === "function") {
+          // Some wallets have a combined method
+          console.log("Using wallet's signAndSendTransaction method...");
+          const result =
+            await provider.signAndSendTransaction(versionedTransaction);
+          const signature = result.signature;
+          console.log("Transaction sent, ID:", signature);
+          return signature;
+        } else {
+          // Otherwise handle signing and sending separately
+          console.log("Signing versioned transaction...");
+          // Most wallets support signTransaction for versioned transactions
+          const signedTx = await provider.signTransaction(versionedTransaction);
+
+          console.log("Sending transaction...");
+          // For versioned transactions, we'll use connection's sendRawTransaction
+          const solanaConnection = new Connection(connection.rpcEndpoint);
+          const signature = await solanaConnection.sendRawTransaction(
+            signedTx.serialize(),
+          );
+          console.log("Transaction sent, ID:", signature);
+          return signature;
+        }
+      } catch (err) {
+        console.error("Error processing transaction:", err);
+        throw new Error(
+          `Transaction signing failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      console.log("Transaction sent, ID:", txId);
+
+      return txId;
+    } catch (err) {
+      console.error("Swap execution failed:", err);
+      const errorMessage = err instanceof Error ? err.message : "Swap failed";
+      setError(errorMessage);
+      throw new Error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, [fromToken, toToken, amount, connection]);
+
+  const executeDeposit = useCallback(
+    async (token: string, depositAmount: string) => {
+      if (!connection.connected) {
+        throw new Error("Wallet not connected");
+      }
+      // This functionality is not implemented yet, but keeping the parameters
+      // for future implementation
+      console.log(`Deposit requested: ${depositAmount} ${token}`);
+      throw new Error("Deposit functionality not implemented yet");
+    },
+    [connection],
+  );
+
   const loadChartData = async (newTimeframe: string) => {
     try {
       setChartLoading(true);
@@ -106,95 +258,13 @@ export const useTrading = (
       setChartData(data);
     } catch (err) {
       console.error("Error loading chart data:", err);
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to load chart data";
-      setChartError(errorMessage);
+      setChartError(
+        err instanceof Error ? err.message : "Failed to load chart data",
+      );
     } finally {
       setChartLoading(false);
     }
   };
-
-  // Execute swap function
-  const performSwap = useCallback(async () => {
-    if (!connection.connected) {
-      throw new Error("Wallet not connected");
-    }
-
-    if (!amount || parseFloat(amount) === 0) {
-      throw new Error("Amount must be greater than 0");
-    }
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Get the actual wallet adapter
-      // const wallet = getConnectedWallet();
-
-      // Execute the swap
-      // const txId = await executeSwap({
-      //   fromToken,
-      //   toToken,
-      //   amount: parseFloat(amount),
-      //   slippageTolerance: 0.5,
-      //   wallet,
-      // });
-
-      // return txId;
-    } catch (err) {
-      console.error("Swap execution failed:", err);
-      const errorMessage = err instanceof Error ? err.message : "Swap failed";
-      setError(errorMessage);
-      throw new Error(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  }, [fromToken, toToken, amount, connection.connected]);
-
-  // Execute deposit function
-  const performDeposit = useCallback(
-    async (token: string, depositAmount: string) => {
-      if (!connection.connected) {
-        throw new Error("Wallet not connected");
-      }
-
-      if (!depositAmount || parseFloat(depositAmount) === 0) {
-        throw new Error("Amount must be greater than 0");
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Get the actual wallet adapter
-        const wallet = getConnectedWallet();
-
-        const result = await depositTokens({
-          token,
-          amount: parseFloat(depositAmount),
-          wallet,
-          onProgress: (step, progress) => {
-            console.log(`Deposit progress: ${step} (${progress * 100}%)`);
-          },
-        });
-
-        if (result.status === "error") {
-          throw new Error(result.errorMessage || "Deposit failed");
-        }
-
-        return result.txId;
-      } catch (err) {
-        console.error("Deposit execution failed:", err);
-        const errorMessage =
-          err instanceof Error ? err.message : "Deposit failed";
-        setError(errorMessage);
-        throw new Error(errorMessage);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [connection.connected],
-  );
 
   return {
     loading,
@@ -203,8 +273,8 @@ export const useTrading = (
     chartData,
     chartLoading,
     chartError,
-    executeSwap: performSwap,
-    executeDeposit: performDeposit,
+    executeSwap,
+    executeDeposit,
     loadChartData,
   };
 };
