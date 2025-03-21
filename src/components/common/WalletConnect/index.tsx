@@ -206,16 +206,14 @@ const WalletConnect = ({
     // Handle normal mobile deep linking
     if (isMobile && !inAppBrowser) {
       // Mobile: Generate deep link and redirect
-      const targetUrl = "https://167d-114-122-166-85.ngrok-free.app/swap"; // Adjust to your app's mobile URL
-      const refUrl = import.meta.env.DEV
-        ? "http://localhost:5173/"
-        : "https://167d-114-122-166-85.ngrok-free.app";
+      const targetUrl = `${window.location.origin}/swap`;
+      const refUrl = window.location.origin;
       let deepLink = "";
 
       if (walletName === "phantom") {
         // Using the official Phantom deep link format based on documentation
         // https://docs.phantom.com/phantom-deeplinks/deeplinks-ios-and-android
-        deepLink = `https://phantom.app/ul/browse?url=${encodeURIComponent(targetUrl)}`;
+        deepLink = `https://phantom.app/ul/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       }
