@@ -50,8 +50,12 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      allowedHosts: [
+        "167d-114-122-166-85.ngrok-free.app", // Add your ngrok host here
+        "localhost", // Optional: keep localhost allowed
+      ],
       host: "0.0.0.0", // Bind to all interfaces for network access
-      port: 5173, 
+      port: 5173,
     },
   };
 });
