@@ -3,10 +3,13 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 
 // Components
 import Hero from "./components/Hero";
+import ShopOfBudjus from "./components/ShopOfBudjusPreview";
 import NFTShowcase from "./components/NFTShowcase";
 import JoinParade from "./components/JoinParade";
-import HowToBuyPreview from "./components/HowToBuyPreview";
+import RoadMap from "./components/RoadMap";
+// import HowToBuyPreview from "./components/HowToBuyPreview";
 import TokenStats from "@components/common/TokenStats";
+// import MarketMakerPreview from "./components/MarketMakerPreview";
 
 const Home = () => {
   // Setup page
@@ -15,7 +18,7 @@ const Home = () => {
     window.scrollTo(0, 0);
 
     // Set document title and metadata
-    document.title = `${APP_NAME} - Join the BUDJU Parade`;
+    document.title = `${APP_NAME} - JOIN THE PARADE`;
 
     // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
@@ -48,12 +51,18 @@ const Home = () => {
   };
 
   return (
-    <main>
+    <main className="flex flex-col">
       {/* Hero Section */}
       <Hero />
 
       {/* Token Stats */}
       <TokenStats />
+
+      {/* Shop of Budju's */}
+      <ShopOfBudjus />
+
+      {/* Roadmap Section */}
+      <RoadMap />
 
       {/* NFT Collection Showcase */}
       <NFTShowcase />
@@ -62,7 +71,10 @@ const Home = () => {
       <JoinParade />
 
       {/* How To Buy Preview */}
-      <HowToBuyPreview />
+      {/* <HowToBuyPreview /> */}
+
+      {/* Market Maker Preview */}
+      {/* <MarketMakerPreview /> */}
     </main>
   );
 };

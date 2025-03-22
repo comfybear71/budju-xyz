@@ -30,10 +30,7 @@ const DexScreener = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section ref={sectionRef} className="py-20 bg-gradient-to-b ">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

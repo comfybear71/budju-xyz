@@ -1,57 +1,142 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
-import { TOKEN_INFO } from "@constants/config";
+import {
+  fetchHeliusTokenMetrics,
+  TOKEN_ADDRESS,
+  BURN_ADDRESS,
+} from "@/lib/utils/tokenService";
 
-// Dummy data for token allocation - in a real app, this would come from an API
-const tokenAllocation = [
-  {
-    name: "Circulating Supply",
-    percentage: 89.44,
-    color: "#87CEFA",
-    value: 894_400_000,
-  },
-  {
-    name: "Burned Tokens",
-    percentage: 1.56,
-    color: "#FF4136",
-    value: 15_600_000,
-  },
-  {
-    name: "Raydium Vault",
-    percentage: 8.94,
-    color: "#2ECC40",
-    value: 89_400_000,
-  },
-  { name: "Bank of BUDJU", percentage: 0.06, color: "#FF851B", value: 600_000 },
-];
+gsap.registerPlugin();
+
+interface TokenAllocation {
+  name: string;
+  percentage: number;
+  color: string;
+  value: number;
+}
 
 const TokenSupply = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<HTMLDivElement>(null);
-  const [burnedTokens, setBurnedTokens] = useState(1_569_299);
+  const [tokenAllocation, setTokenAllocation] = useState<TokenAllocation[]>([]);
+  const [totalSupply, setTotalSupply] = useState<number>(0);
+  const [burnedTokens, setBurnedTokens] = useState<number>(0);
+  const [raydiumVault, setRaydiumVault] = useState<number>(0);
+  const [bankOfBudju, setBankOfBudju] = useState<number>(0);
+  const [communityVault, setcommunityVault] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Simulate getting updated burn data
+  const fetchTokenSupplyData = async () => {
+    try {
+      setLoading(true);
+      const metrics = await fetchHeliusTokenMetrics(
+        TOKEN_ADDRESS,
+        BURN_ADDRESS,
+      );
+      console.log("Fetched token metrics for supply:", metrics);
+
+      const totalSupply = metrics.totalSupply;
+      const burned = metrics.burned;
+      const raydiumVault = metrics.raydiumVault;
+      const bankOfBudju = metrics.bankOfBudju;
+      const communityVault = metrics.communityVault;
+      const circulatingSupply =
+        totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
+
+      const realAllocation: TokenAllocation[] = [
+        {
+          name: "Circ. Supply",
+          percentage: (circulatingSupply / totalSupply) * 100,
+          color: "#87CEFA", // Light blue
+          value: circulatingSupply,
+        },
+        {
+          name: "Burned Tokens",
+          percentage: (burned / totalSupply) * 100,
+          color: "#FF4136", // Red
+          value: burned,
+        },
+        {
+          name: "Raydium Vault",
+          percentage: (raydiumVault / totalSupply) * 100,
+          color: "#2ECC40", // Green
+          value: raydiumVault,
+        },
+        {
+          name: "Bank of BUDJU",
+          percentage: (bankOfBudju / totalSupply) * 100,
+          color: "#FF851B", // Orange
+          value: bankOfBudju,
+        },
+        {
+          name: "Pool of BUDJU",
+          percentage: (communityVault / totalSupply) * 100,
+          color: "#FF69B4", // Hot Pink
+          value: communityVault,
+        },
+      ].filter((item) => item.value > 0); // Filter out zero-value categories
+
+      setTokenAllocation(realAllocation);
+      setTotalSupply(totalSupply);
+      setBurnedTokens(burned);
+      setRaydiumVault(raydiumVault);
+      setBankOfBudju(bankOfBudju);
+      setcommunityVault(communityVault);
+    } catch (error) {
+      console.error("Error fetching token supply data:", error);
+      setTokenAllocation([
+        {
+          name: "Circ. Supply",
+          percentage: 89.44,
+          color: "#87CEFA",
+          value: 894_400_000,
+        },
+        {
+          name: "Burned Tokens",
+          percentage: 1.56,
+          color: "#FF4136",
+          value: 15_600_000,
+        },
+        {
+          name: "Raydium Vault",
+          percentage: 8.94,
+          color: "#2ECC40",
+          value: 89_400_000,
+        },
+        {
+          name: "Bank of BUDJU",
+          percentage: 0.06,
+          color: "#FF851B",
+          value: 600_000,
+        },
+        {
+          name: "Pool of BUDJU",
+          percentage: 0.06,
+          color: "#FF69B4",
+          value: 600_000,
+        },
+      ]);
+      setTotalSupply(1_000_000_000);
+      setBurnedTokens(15_600_000);
+      setRaydiumVault(89_400_000);
+      setBankOfBudju(600_000);
+      setcommunityVault(600_000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    // In a real app, this would fetch from the blockchain
-    const interval = setInterval(() => {
-      // Small random increase in burned tokens
-      setBurnedTokens((prev) => prev + Math.floor(Math.random() * 10));
-    }, 30000);
-
+    fetchTokenSupplyData();
+    const interval = setInterval(fetchTokenSupplyData, 300000);
     return () => clearInterval(interval);
   }, []);
 
-  // Calculate remaining supply
-  const remainingSupply = TOKEN_INFO.TOTAL_SUPPLY - burnedTokens;
-
-  // Create pie chart animation
   useEffect(() => {
-    if (chartRef.current) {
-      // Clear previous chart if any
+    if (chartRef.current && !loading && tokenAllocation.length > 0) {
       chartRef.current.innerHTML = "";
 
-      // Create SVG element
       const svgNS = "http://www.w3.org/2000/svg";
       const svg = document.createElementNS(svgNS, "svg");
       svg.setAttribute("width", "100%");
@@ -59,19 +144,16 @@ const TokenSupply = () => {
       svg.setAttribute("viewBox", "0 0 100 100");
       chartRef.current.appendChild(svg);
 
-      // Constants for the pie chart
       const center = { x: 50, y: 50 };
       const radius = 40;
       let cumulativeAngle = 0;
 
-      // Create pie slices
       tokenAllocation.forEach((segment) => {
         const startAngle = cumulativeAngle;
         const angle = (segment.percentage / 100) * 360;
         cumulativeAngle += angle;
         const endAngle = cumulativeAngle;
 
-        // Convert angles to radians and calculate coordinates
         const startRad = (startAngle - 90) * (Math.PI / 180);
         const endRad = (endAngle - 90) * (Math.PI / 180);
 
@@ -80,10 +162,8 @@ const TokenSupply = () => {
         const x2 = center.x + radius * Math.cos(endRad);
         const y2 = center.y + radius * Math.sin(endRad);
 
-        // Determine which arc to use (large or small)
         const largeArc = angle > 180 ? 1 : 0;
 
-        // Create path for the slice
         const path = document.createElementNS(svgNS, "path");
         path.setAttribute(
           "d",
@@ -98,17 +178,12 @@ const TokenSupply = () => {
         path.setAttribute("stroke", "#121212");
         path.setAttribute("stroke-width", "0.5");
 
-        // Add tooltip attributes
         path.setAttribute("data-name", segment.name);
-        path.setAttribute("data-percentage", segment.percentage.toString());
+        path.setAttribute("data-percentage", segment.percentage.toFixed(2));
 
-        // Animate the slice
         gsap.fromTo(
           path,
-          {
-            scale: 0,
-            transformOrigin: "center",
-          },
+          { scale: 0, transformOrigin: "center" },
           {
             scale: 1,
             duration: 0.8,
@@ -120,7 +195,6 @@ const TokenSupply = () => {
         svg.appendChild(path);
       });
 
-      // Add center circle for donut effect
       const circle = document.createElementNS(svgNS, "circle");
       circle.setAttribute("cx", center.x.toString());
       circle.setAttribute("cy", center.y.toString());
@@ -130,7 +204,6 @@ const TokenSupply = () => {
       circle.setAttribute("stroke-width", "0.5");
       svg.appendChild(circle);
 
-      // Add percentage text in the center
       const text = document.createElementNS(svgNS, "text");
       text.setAttribute("x", center.x.toString());
       text.setAttribute("y", center.y.toString());
@@ -142,7 +215,6 @@ const TokenSupply = () => {
       text.textContent = "100%";
       svg.appendChild(text);
 
-      // Add BUDJU text below percentage
       const subText = document.createElementNS(svgNS, "text");
       subText.setAttribute("x", center.x.toString());
       subText.setAttribute("y", (center.y + 10).toString());
@@ -153,13 +225,13 @@ const TokenSupply = () => {
       subText.textContent = "BUDJU";
       svg.appendChild(subText);
     }
-  }, [tokenAllocation]);
+  }, [tokenAllocation, loading]);
+
+  const remainingSupply =
+    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20 bg-gradient-to-b">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -176,8 +248,13 @@ const TokenSupply = () => {
           </p>
         </motion.div>
 
+        {loading && (
+          <div className="text-center text-gray-400 mb-6">
+            Loading supply data...
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center max-w-5xl mx-auto">
-          {/* Pie Chart */}
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -187,7 +264,6 @@ const TokenSupply = () => {
             <div ref={chartRef} className="w-full h-full"></div>
           </motion.div>
 
-          {/* Token Allocation Details */}
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             animate={{ opacity: 1, x: 0 }}
@@ -199,7 +275,6 @@ const TokenSupply = () => {
                 <span className="text-white">Distribution</span>
               </h3>
 
-              {/* Legend and Details */}
               <div className="space-y-4">
                 {tokenAllocation.map((item, index) => (
                   <div
@@ -215,7 +290,7 @@ const TokenSupply = () => {
                     </div>
                     <div className="text-right">
                       <div className="text-white font-medium">
-                        {item.percentage}%
+                        {item.percentage.toFixed(2)}%
                       </div>
                       <div className="text-gray-400 text-sm">
                         {item.value.toLocaleString()} BUDJU
@@ -229,19 +304,35 @@ const TokenSupply = () => {
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-300">Total Supply:</span>
                   <span className="text-white font-bold">
-                    {TOKEN_INFO.TOTAL_SUPPLY.toLocaleString()} BUDJU
+                    {totalSupply.toLocaleString()} BUDJU
                   </span>
                 </div>
-
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-300">Burned Tokens:</span>
                   <span className="text-red-400 font-medium">
                     {burnedTokens.toLocaleString()} BUDJU
                   </span>
                 </div>
-
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Raydium Vault:</span>
+                  <span className="text-green-400 font-medium">
+                    {raydiumVault.toLocaleString()} BUDJU
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Bank of BUDJU:</span>
+                  <span className="text-orange-400 font-medium">
+                    {bankOfBudju.toLocaleString()} BUDJU
+                  </span>
+                </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Pool of BUDJU:</span>
+                  <span className="text-pink-400 font-medium">
+                    {communityVault.toLocaleString()} BUDJU
+                  </span>
+                </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">Remaining Supply:</span>
+                  <span className="text-gray-300">Circ. Supply:</span>
                   <span className="text-budju-blue font-bold">
                     {remainingSupply.toLocaleString()} BUDJU
                   </span>

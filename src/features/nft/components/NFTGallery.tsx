@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
 import { createTiltEffect } from "@/lib/utils/animation";
+import { useTheme } from "@/context/ThemeContext";
 
 // NFT trait types
 type Rarity = "Common" | "Uncommon" | "Rare" | "Epic" | "Legendary";
@@ -120,6 +121,7 @@ const rarityColors = {
 };
 
 const NFTGallery = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const galleryRef = useRef<HTMLDivElement>(null);
   const [selectedNFT, setSelectedNFT] = useState<NFT | null>(null);
@@ -179,10 +181,7 @@ const NFTGallery = () => {
   };
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -191,10 +190,14 @@ const NFTGallery = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">EXPLORE THE</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              EXPLORE THE
+            </span>{" "}
             <span className="text-budju-blue">COLLECTION</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Browse through our preview collection of BUDJU NFTs, each with
             unique traits and varying rarities. These are just a sample of
             what's to come in the full 5,000 NFT collection!
@@ -214,7 +217,9 @@ const NFTGallery = () => {
                   ? rarity === "All"
                     ? "bg-budju-blue text-white"
                     : `${rarityColors[rarity as Rarity].replace("bg-", "bg-")} text-white`
-                  : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  : isDarkMode
+                    ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                    : "bg-white/30 text-white hover:bg-white/40"
               }`}
             >
               {rarity}
@@ -229,7 +234,7 @@ const NFTGallery = () => {
               {filteredNFTs.map((nft) => (
                 <div
                   key={nft.id}
-                  className={`nft-card budju-card overflow-hidden cursor-pointer transition-all duration-300 ${
+                  className={`nft-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} overflow-hidden cursor-pointer transition-all duration-300 ${
                     selectedNFT?.id === nft.id
                       ? "border-budju-pink"
                       : "hover:border-budju-blue"
@@ -237,7 +242,9 @@ const NFTGallery = () => {
                   onClick={() => handleNFTSelect(nft)}
                 >
                   {/* NFT Image */}
-                  <div className="aspect-square overflow-hidden bg-gray-900">
+                  <div
+                    className={`aspect-square overflow-hidden ${isDarkMode ? "bg-gray-900" : "bg-white/10"}`}
+                  >
                     <img
                       src={nft.image}
                       alt={nft.name}
@@ -248,7 +255,9 @@ const NFTGallery = () => {
                   {/* NFT Info */}
                   <div className="p-4">
                     <div className="flex justify-between items-center mb-2">
-                      <h3 className="text-lg font-bold text-white">
+                      <h3
+                        className={`text-lg font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                      >
                         {nft.name}
                       </h3>
                       <span
@@ -257,7 +266,13 @@ const NFTGallery = () => {
                         {nft.traits.rarity}
                       </span>
                     </div>
-                    <p className="text-gray-400 text-sm">
+                    <p
+                      className={
+                        isDarkMode
+                          ? "text-gray-400 text-sm"
+                          : "text-white/80 text-sm"
+                      }
+                    >
                       Click to view details
                     </p>
                   </div>
@@ -265,7 +280,9 @@ const NFTGallery = () => {
               ))}
 
               {filteredNFTs.length === 0 && (
-                <div className="col-span-full py-12 text-center text-gray-400">
+                <div
+                  className={`col-span-full py-12 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+                >
                   No NFTs found matching the selected filter.
                 </div>
               )}
@@ -279,9 +296,11 @@ const NFTGallery = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ duration: 0.4 }}
-                className="budju-card p-6 sticky top-24"
+                className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-6 sticky top-24`}
               >
-                <div className="aspect-square mb-6 rounded-xl overflow-hidden border-2 border-gray-800">
+                <div
+                  className={`aspect-square mb-6 rounded-xl overflow-hidden border-2 ${isDarkMode ? "border-gray-800" : "border-white/30"}`}
+                >
                   <img
                     src={selectedNFT.image}
                     alt={selectedNFT.name}
@@ -289,7 +308,9 @@ const NFTGallery = () => {
                   />
                 </div>
 
-                <h3 className="text-2xl font-bold text-white mb-4">
+                <h3
+                  className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} mb-4`}
+                >
                   {selectedNFT.name}
                 </h3>
 
@@ -307,37 +328,95 @@ const NFTGallery = () => {
                   </h4>
 
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-gray-800/70 p-3 rounded-lg">
-                      <div className="text-sm text-gray-400">Background</div>
-                      <div className="text-white">
+                    <div
+                      className={`${isDarkMode ? "bg-gray-800/70" : "bg-white/30"} p-3 rounded-lg`}
+                    >
+                      <div
+                        className={
+                          isDarkMode
+                            ? "text-sm text-gray-400"
+                            : "text-sm text-white/80"
+                        }
+                      >
+                        Background
+                      </div>
+                      <div
+                        className={
+                          isDarkMode ? "text-white" : "text-budju-white"
+                        }
+                      >
                         {selectedNFT.traits.background}
                       </div>
                     </div>
 
-                    <div className="bg-gray-800/70 p-3 rounded-lg">
-                      <div className="text-sm text-gray-400">Body</div>
-                      <div className="text-white">
+                    <div
+                      className={`${isDarkMode ? "bg-gray-800/70" : "bg-white/30"} p-3 rounded-lg`}
+                    >
+                      <div
+                        className={
+                          isDarkMode
+                            ? "text-sm text-gray-400"
+                            : "text-sm text-white/80"
+                        }
+                      >
+                        Body
+                      </div>
+                      <div
+                        className={
+                          isDarkMode ? "text-white" : "text-budju-white"
+                        }
+                      >
                         {selectedNFT.traits.body}
                       </div>
                     </div>
 
-                    <div className="bg-gray-800/70 p-3 rounded-lg">
-                      <div className="text-sm text-gray-400">Expression</div>
-                      <div className="text-white">
+                    <div
+                      className={`${isDarkMode ? "bg-gray-800/70" : "bg-white/30"} p-3 rounded-lg`}
+                    >
+                      <div
+                        className={
+                          isDarkMode
+                            ? "text-sm text-gray-400"
+                            : "text-sm text-white/80"
+                        }
+                      >
+                        Expression
+                      </div>
+                      <div
+                        className={
+                          isDarkMode ? "text-white" : "text-budju-white"
+                        }
+                      >
                         {selectedNFT.traits.expression}
                       </div>
                     </div>
 
-                    <div className="bg-gray-800/70 p-3 rounded-lg">
-                      <div className="text-sm text-gray-400">Accessories</div>
-                      <div className="text-white">
+                    <div
+                      className={`${isDarkMode ? "bg-gray-800/70" : "bg-white/30"} p-3 rounded-lg`}
+                    >
+                      <div
+                        className={
+                          isDarkMode
+                            ? "text-sm text-gray-400"
+                            : "text-sm text-white/80"
+                        }
+                      >
+                        Accessories
+                      </div>
+                      <div
+                        className={
+                          isDarkMode ? "text-white" : "text-budju-white"
+                        }
+                      >
                         {selectedNFT.traits.accessories}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-8 text-gray-400 text-sm">
+                <div
+                  className={`mt-8 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm`}
+                >
                   <p className="mb-2">
                     Each BUDJU NFT has a unique combination of traits that
                     determine its rarity. Legendary NFTs are the rarest and most
@@ -351,19 +430,23 @@ const NFTGallery = () => {
                 </div>
               </motion.div>
             ) : (
-              <div className="budju-card p-8 text-center">
-                <div className="aspect-square max-w-[200px] mx-auto mb-6 opacity-30">
+              <div
+                className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-8 text-center`}
+              >
+                <div className="aspect-square max-w-[200px] mx-auto mb-6 opacity-90">
                   <img
-                    src="/images/logo.png"
+                    src="images/budju.png"
                     alt="BUDJU Logo"
                     className="w-full h-full object-contain"
                   />
                 </div>
 
-                <h3 className="text-xl font-bold text-white mb-4">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} mb-4`}
+                >
                   Select an NFT
                 </h3>
-                <p className="text-gray-400">
+                <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
                   Click on any NFT from the collection to view its details and
                   traits.
                 </p>
@@ -372,7 +455,9 @@ const NFTGallery = () => {
           </div>
         </div>
 
-        <div className="text-center mt-6 text-gray-400 text-sm max-w-2xl mx-auto">
+        <div
+          className={`text-center mt-6 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
+        >
           The full BUDJU NFT collection will feature 5,000 unique NFTs with over
           200 different trait combinations. Rarity distribution will be: 60%
           Common, 25% Uncommon, 10% Rare, 4% Epic, and 1% Legendary.

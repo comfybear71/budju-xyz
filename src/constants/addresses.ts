@@ -2,9 +2,15 @@
 export const TOKEN_ADDRESS =
   import.meta.env.VITE_TOKEN_ADDRESS ||
   "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
+
 export const BURN_ADDRESS =
   import.meta.env.VITE_BURN_ADDRESS ||
   "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
+
+export const BURN_ADDRESS_ACCOUNT = 
+  import.meta.env.BURN_ADDRESS_ACCOUNT ||
+  "9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
+  
 export const BANK_ADDRESS =
   import.meta.env.VITE_BANK_ADDRESS ||
   "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
@@ -18,6 +24,8 @@ export const DEXSCREENER_LINK =
   "https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez";
 export const SHOP_URL =
   import.meta.env.VITE_SHOP_URL || "https://shop.budjucoin.com";
+export const BURN_URL = 
+  "https://solscan.io/account/9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
 
 // NFT config
 export const NFT_TARGET_HOLDERS = Number(
@@ -32,3 +40,7 @@ export const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_
 
 // Wallet config
 export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
+
+// Pool addresses
+export const POOL_SOL_BUDJU = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+export const POOL_USDC_BUDJU = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";

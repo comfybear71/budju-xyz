@@ -9,6 +9,7 @@ import {
   FaShoppingBag,
   FaChartLine,
 } from "react-icons/fa";
+import { useTheme } from "@/context/ThemeContext";
 
 // Benefit interface
 interface Benefit {
@@ -62,6 +63,7 @@ const benefits: Benefit[] = [
 ];
 
 const NFTHolderBenefits = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
 
@@ -112,10 +114,7 @@ const NFTHolderBenefits = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -124,10 +123,14 @@ const NFTHolderBenefits = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-white">HOLDER</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              HOLDER
+            </span>{" "}
             <span className="text-budju-pink">BENEFITS</span>
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Owning a BUDJU NFT comes with exclusive benefits and rewards. The
             rarer your NFT, the greater your benefits!
           </p>
@@ -141,7 +144,7 @@ const NFTHolderBenefits = () => {
           {benefits.map((benefit, index) => (
             <div
               key={index}
-              className="benefit-card budju-card overflow-hidden hover:border-gray-600 transition-all duration-300"
+              className={`benefit-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} overflow-hidden hover:border-gray-600 transition-all duration-300`}
             >
               <div className="p-6">
                 {/* Icon with colored background */}
@@ -152,12 +155,16 @@ const NFTHolderBenefits = () => {
                 </div>
 
                 {/* Benefit Title */}
-                <h3 className="text-xl font-bold text-white mb-3">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} mb-3`}
+                >
                   {benefit.title}
                 </h3>
 
                 {/* Benefit Description */}
-                <p className="text-gray-400">{benefit.description}</p>
+                <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
+                  {benefit.description}
+                </p>
               </div>
             </div>
           ))}
@@ -172,16 +179,26 @@ const NFTHolderBenefits = () => {
         >
           <h3 className="text-2xl font-bold text-center mb-8">
             <span className="text-budju-blue">RARITY</span>{" "}
-            <span className="text-white">TIERS</span>
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              TIERS
+            </span>
           </h3>
 
           <div className="space-y-4">
             <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4">
               <div className="flex items-center mb-2">
                 <div className="w-4 h-4 bg-yellow-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-bold text-white">Legendary (1%)</h4>
+                <h4
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  Legendary (1%)
+                </h4>
               </div>
-              <p className="text-gray-300 pl-7">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
+                }
+              >
                 All benefits at maximum level, including 5x token airdrops,
                 exclusive merchandise, and VIP events access
               </p>
@@ -190,9 +207,17 @@ const NFTHolderBenefits = () => {
             <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
               <div className="flex items-center mb-2">
                 <div className="w-4 h-4 bg-purple-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-bold text-white">Epic (4%)</h4>
+                <h4
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  Epic (4%)
+                </h4>
               </div>
-              <p className="text-gray-300 pl-7">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
+                }
+              >
                 Enhanced benefits with 3x token airdrops, special merchandise
                 access, and increased staking rewards
               </p>
@@ -201,9 +226,17 @@ const NFTHolderBenefits = () => {
             <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
               <div className="flex items-center mb-2">
                 <div className="w-4 h-4 bg-blue-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-bold text-white">Rare (10%)</h4>
+                <h4
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  Rare (10%)
+                </h4>
               </div>
-              <p className="text-gray-300 pl-7">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
+                }
+              >
                 Improved benefits with 2x token airdrops, merchandise discounts,
                 and community voting rights
               </p>
@@ -212,9 +245,17 @@ const NFTHolderBenefits = () => {
             <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
               <div className="flex items-center mb-2">
                 <div className="w-4 h-4 bg-green-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-bold text-white">Uncommon (25%)</h4>
+                <h4
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  Uncommon (25%)
+                </h4>
               </div>
-              <p className="text-gray-300 pl-7">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
+                }
+              >
                 Standard benefits plus small bonus airdrops and early access to
                 new features
               </p>
@@ -223,9 +264,17 @@ const NFTHolderBenefits = () => {
             <div className="bg-gray-500/20 border border-gray-500/30 rounded-lg p-4">
               <div className="flex items-center mb-2">
                 <div className="w-4 h-4 bg-gray-500 rounded-full mr-3"></div>
-                <h4 className="text-xl font-bold text-white">Common (60%)</h4>
+                <h4
+                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  Common (60%)
+                </h4>
               </div>
-              <p className="text-gray-300 pl-7">
+              <p
+                className={
+                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
+                }
+              >
                 Base level benefits including airdrops, community access, and
                 merchandise giveaways
               </p>
@@ -233,7 +282,9 @@ const NFTHolderBenefits = () => {
           </div>
         </motion.div>
 
-        <div className="text-center mt-10 text-gray-400 text-sm max-w-2xl mx-auto">
+        <div
+          className={`text-center mt-10 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
+        >
           Benefits are subject to change and may be expanded as the BUDJU
           ecosystem grows. All NFT holders, regardless of rarity, will receive
           the core benefits listed above.

@@ -1,68 +1,76 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import Button from "@components/common/Button";
 import { DEX_LINK } from "@constants/addresses";
-
-// Dummy price data for the chart
-// In a real application, this would come from a blockchain API
-const generateDummyPriceData = () => {
-  const today = new Date();
-  const data = [];
-  let price = 0.00015; // Starting price
-
-  // Generate 30 days of price data
-  for (let i = 29; i >= 0; i--) {
-    const date = new Date();
-    date.setDate(today.getDate() - i);
-
-    // Add some randomness to the price
-    // More likely to go up than down to simulate a generally positive trend
-    const changePercent = Math.random() * 10 - 3; // -3% to +7% daily change
-    price = price * (1 + changePercent / 100);
-
-    data.push({
-      date: date.toISOString().split("T")[0],
-      price: price,
-      volume: Math.floor(Math.random() * 50000) + 10000,
-    });
-  }
-
-  return data;
-};
+import {
+  fetchHeliusTokenMetrics,
+  fetchHistoricalPriceData,
+  TOKEN_ADDRESS,
+} from "@/lib/utils/tokenService";
 
 const timeframes = [
-  { label: "1D", days: 1 },
-  { label: "7D", days: 7 },
-  { label: "30D", days: 30 },
-  { label: "ALL", days: 30 }, // Using our full dataset for the 'ALL' option
+  { label: "1D", days: 1, type: "15m" }, // 15-minute intervals for 1 day
+  { label: "7D", days: 7, type: "1H" }, // 1-hour intervals for 7 days
+  { label: "30D", days: 30, type: "1D" }, // Daily intervals for 30 days
+  { label: "ALL", days: 90, type: "1D" }, // Daily intervals for 90 days
 ];
+
+interface PriceDataPoint {
+  date: string;
+  price: number;
+  volume: number;
+}
 
 const PriceChart = () => {
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const [priceData] = useState(generateDummyPriceData());
+  const [priceData, setPriceData] = useState<PriceDataPoint[]>([]);
+  const [currentPrice, setCurrentPrice] = useState<number>(0);
   const [selectedTimeframe, setSelectedTimeframe] = useState(timeframes[2]); // Default to 30D
   const [priceChange, setPriceChange] = useState({ value: 0, percentage: 0 });
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [loading, setLoading] = useState(true);
 
-  // Calculate price change for selected timeframe
+  // Fetch price data
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+
+      // Fetch current price
+      const metrics = await fetchHeliusTokenMetrics(TOKEN_ADDRESS);
+      setCurrentPrice(metrics.price);
+
+      // Fetch historical price data
+      const historicalData = await fetchHistoricalPriceData(
+        TOKEN_ADDRESS,
+        selectedTimeframe.days,
+        selectedTimeframe.type,
+      );
+      setPriceData(historicalData);
+
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [selectedTimeframe]);
+
+  // Calculate price change
   useEffect(() => {
     if (priceData.length === 0) return;
 
-    const currentPrice = priceData[priceData.length - 1].price;
-    const startIndex = Math.max(0, priceData.length - selectedTimeframe.days);
-    const startPrice = priceData[startIndex].price;
+    const startPrice = priceData[0].price;
+    const endPrice = priceData[priceData.length - 1].price;
 
-    const change = currentPrice - startPrice;
-    const percentChange = (change / startPrice) * 100;
+    const change = endPrice - startPrice;
+    const percentChange = startPrice !== 0 ? (change / startPrice) * 100 : 0;
 
     setPriceChange({
       value: change,
       percentage: percentChange,
     });
-  }, [priceData, selectedTimeframe]);
+  }, [priceData]);
 
-  // Draw the price chart - extracted as a callback to prevent recreating on every render
+  // Draw the chart
   const drawChart = useCallback(() => {
     if (!chartRef.current || priceData.length === 0 || dimensions.width === 0)
       return;
@@ -71,36 +79,23 @@ const PriceChart = () => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Set canvas dimensions based on device pixel ratio for sharper rendering
     const pixelRatio = window.devicePixelRatio || 1;
     canvas.width = dimensions.width * pixelRatio;
     canvas.height = dimensions.height * pixelRatio;
-
-    // Scale all drawing operations by the device pixel ratio
     ctx.scale(pixelRatio, pixelRatio);
-
-    // Set the CSS size
     canvas.style.width = `${dimensions.width}px`;
     canvas.style.height = `${dimensions.height}px`;
 
-    // Clear the canvas
     ctx.clearRect(0, 0, dimensions.width, dimensions.height);
 
-    // Filter data based on selected timeframe
-    const startIndex = Math.max(0, priceData.length - selectedTimeframe.days);
-    const filteredData = priceData.slice(startIndex);
+    const filteredData = priceData;
 
-    // Find min and max price for scaling
     let minPrice = Math.min(...filteredData.map((d) => d.price));
     let maxPrice = Math.max(...filteredData.map((d) => d.price));
-
-    // Add some padding
     const padding = (maxPrice - minPrice) * 0.1;
     minPrice -= padding;
     maxPrice += padding;
 
-    // Determine chart dimensions based on screen size
-    // Increase left padding for price labels on smaller screens
     const isMobile = dimensions.width < 480;
     const isTablet = dimensions.width >= 480 && dimensions.width < 768;
 
@@ -109,7 +104,6 @@ const PriceChart = () => {
     const topPadding = 20;
     const bottomPadding = 30;
 
-    // Set chart dimensions
     const chartWidth = dimensions.width - leftPadding - rightPadding;
     const chartHeight = dimensions.height - topPadding - bottomPadding;
     const startX = leftPadding;
@@ -118,14 +112,10 @@ const PriceChart = () => {
     // Draw axes
     ctx.strokeStyle = "#444";
     ctx.lineWidth = 1;
-
-    // Y-axis
     ctx.beginPath();
     ctx.moveTo(startX, startY);
     ctx.lineTo(startX, startY + chartHeight);
     ctx.stroke();
-
-    // X-axis
     ctx.beginPath();
     ctx.moveTo(startX, startY + chartHeight);
     ctx.lineTo(startX + chartWidth, startY + chartHeight);
@@ -133,28 +123,17 @@ const PriceChart = () => {
 
     // Draw price labels (y-axis)
     ctx.fillStyle = "#aaa";
-    // Adjust font size based on screen size
     ctx.font = isMobile ? "10px Arial" : "12px Arial";
     ctx.textAlign = "right";
-
-    // Determine number of y-axis labels based on screen height
     const yLabelCount = isMobile ? 3 : isTablet ? 4 : 5;
 
     for (let i = 0; i <= yLabelCount; i++) {
       const y = startY + chartHeight - i * (chartHeight / yLabelCount);
       const price = minPrice + i * ((maxPrice - minPrice) / yLabelCount);
-
-      // Format price based on its value for better readability
-      let priceText;
-      if (price < 0.0001) {
-        priceText = price.toExponential(2);
-      } else {
-        priceText = price.toFixed(8);
-      }
+      const priceText =
+        price < 0.0001 ? price.toExponential(2) : price.toFixed(8);
 
       ctx.fillText(priceText, startX - 5, y + 4);
-
-      // Grid line
       ctx.strokeStyle = "#333";
       ctx.beginPath();
       ctx.moveTo(startX, y);
@@ -164,34 +143,21 @@ const PriceChart = () => {
 
     // Draw date labels (x-axis)
     ctx.textAlign = "center";
-
-    // Determine label frequency based on timeframe and screen width
-    let labelStep;
-    if (isMobile) {
-      labelStep = Math.max(1, Math.floor(filteredData.length / 3));
-    } else if (isTablet) {
-      labelStep = Math.max(1, Math.floor(filteredData.length / 4));
-    } else {
-      labelStep = Math.max(1, Math.floor(filteredData.length / 5));
-    }
+    let labelStep = isMobile
+      ? Math.max(1, Math.floor(filteredData.length / 3))
+      : isTablet
+        ? Math.max(1, Math.floor(filteredData.length / 4))
+        : Math.max(1, Math.floor(filteredData.length / 5));
 
     for (let i = 0; i < filteredData.length; i += labelStep) {
       const x = startX + i * (chartWidth / (filteredData.length - 1));
       const date = new Date(filteredData[i].date);
-
-      // Format date label based on timeframe
-      let label;
-      if (selectedTimeframe.days <= 1) {
-        // For 1D, show hours
-        label = date.getHours() + ":00";
-      } else {
-        // For longer timeframes, show date
-        label = date.getDate() + "/" + (date.getMonth() + 1);
-      }
+      const label =
+        selectedTimeframe.days <= 1
+          ? `${date.getHours()}:00`
+          : `${date.getDate()}/${date.getMonth() + 1}`;
 
       ctx.fillText(label, x, startY + chartHeight + 20);
-
-      // Grid line
       ctx.strokeStyle = "#333";
       ctx.beginPath();
       ctx.moveTo(x, startY);
@@ -212,11 +178,8 @@ const PriceChart = () => {
         ((filteredData[i].price - minPrice) / (maxPrice - minPrice)) *
           chartHeight;
 
-      if (i === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     }
 
     ctx.stroke();
@@ -234,7 +197,6 @@ const PriceChart = () => {
     // Draw dots at data points
     if (selectedTimeframe.days <= 7 && !isMobile) {
       ctx.fillStyle = priceChange.percentage >= 0 ? "#2ECC40" : "#FF4136";
-
       for (let i = 0; i < filteredData.length; i++) {
         const x = startX + i * (chartWidth / (filteredData.length - 1));
         const y =
@@ -250,37 +212,27 @@ const PriceChart = () => {
     }
   }, [priceData, selectedTimeframe, priceChange, dimensions]);
 
-  // Update dimensions whenever container size changes
+  // Update dimensions
   const updateDimensions = useCallback(() => {
     if (chartContainerRef.current) {
       const { width } = chartContainerRef.current.getBoundingClientRect();
-      // Calculate height based on aspect ratio (responsive)
-      const height = Math.min(400, Math.max(250, width * 0.5)); // Min height 250px, Max height 400px
-
+      const height = Math.min(400, Math.max(250, width * 0.5));
       setDimensions({ width, height });
     }
   }, []);
 
-  // Handle window resize to make the chart responsive
   useEffect(() => {
     window.addEventListener("resize", updateDimensions);
-    // Initial setup
     updateDimensions();
-
     return () => window.removeEventListener("resize", updateDimensions);
   }, [updateDimensions]);
 
-  // Update chart when dimensions or data changes
   useEffect(() => {
     drawChart();
   }, [drawChart, dimensions]);
 
-  // Get the most recent price
-  const currentPrice =
-    priceData.length > 0 ? priceData[priceData.length - 1].price : 0;
-
   return (
-    <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-b from-gray-900 to-budju-black">
+    <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-b">
       <div className="budju-container px-4 sm:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -304,7 +256,12 @@ const PriceChart = () => {
             transition={{ duration: 0.6, delay: 0.2 }}
             className="budju-card p-3 sm:p-4 md:p-6"
           >
-            {/* Price Header */}
+            {loading && (
+              <div className="text-center text-gray-400 mb-4">
+                Loading chart data...
+              </div>
+            )}
+
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 sm:mb-6">
               <div>
                 <div className="text-sm sm:text-base text-gray-400 mb-1">
@@ -325,7 +282,6 @@ const PriceChart = () => {
                 </div>
               </div>
 
-              {/* Timeframe Selector */}
               <div className="flex mt-3 sm:mt-0">
                 {timeframes.map((tf) => (
                   <button
@@ -343,7 +299,6 @@ const PriceChart = () => {
               </div>
             </div>
 
-            {/* Chart Canvas Container - Controls aspect ratio */}
             <div
               ref={chartContainerRef}
               className="relative w-full my-2 md:my-4"
@@ -354,36 +309,8 @@ const PriceChart = () => {
                 style={{ height: `${dimensions.height}px` }}
               />
             </div>
-
-            {/* Action Buttons */}
-            <div className="mt-4 sm:mt-6 md:mt-8 flex flex-col xs:flex-row justify-center space-y-3 xs:space-y-0 xs:space-x-4 sm:space-x-6">
-              <Button
-                as="a"
-                href={DEX_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="lg"
-                className="text-sm sm:text-base py-2 sm:py-3 px-4 sm:px-6 w-full xs:w-auto"
-              >
-                Buy BUDJU
-              </Button>
-
-              <Button
-                as="a"
-                href="https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez"
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="secondary"
-                size="lg"
-                className="text-sm sm:text-base py-2 sm:py-3 px-4 sm:px-6 w-full xs:w-auto"
-              >
-                View on DexScreener
-              </Button>
-            </div>
-
             <div className="mt-3 sm:mt-4 text-center text-gray-500 text-xs sm:text-sm">
-              * Chart data is for demonstration purposes. Live price data is
-              displayed at the top of the chart.
+              * Historical price data sourced from Birdeye API
             </div>
           </motion.div>
         </div>

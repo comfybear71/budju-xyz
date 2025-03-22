@@ -1,10 +1,9 @@
 import { useRef, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
 import { ROUTES } from "@constants/routes";
-
-// Step icons
+import { useTheme } from "@/context/ThemeContext";
 import {
   FaWallet,
   FaDollarSign,
@@ -34,44 +33,35 @@ const steps = [
   {
     icon: FaCheckCircle,
     title: "You are a holder!",
-    description: `Congratulations! You're now part of the BUDJU community`,
+    description: "Congratulations! You're now part of the BUDJU community",
     color: "bg-green-600",
   },
 ];
 
 const HowToBuyPreview = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (sectionRef.current && stepsRef.current) {
-      // Animate steps on scroll
       gsap.fromTo(
         stepsRef.current.children,
-        {
-          y: 50,
-          opacity: 0,
-        },
+        { y: 50, opacity: 0 },
         {
           y: 0,
           opacity: 1,
           stagger: 0.2,
           duration: 0.8,
           ease: "power2.out",
-          scrollTrigger: {
-            trigger: stepsRef.current,
-            start: "top 80%",
-          },
+          scrollTrigger: { trigger: stepsRef.current, start: "top 80%" },
         },
       );
     }
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -80,16 +70,18 @@ const HowToBuyPreview = () => {
           className="text-center mb-12"
         >
           <h2 className="text-3xl md:text-4xl font-bold">
-            <span className="text-white">HOW</span>{" "}
+            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
+              HOW
+            </span>{" "}
             <span className="text-budju-blue">TO BUY BUDJU</span>
           </h2>
-          <p className="text-xl text-gray-300 mt-4 max-w-3xl mx-auto">
+          <p
+            className={`text-xl ${isDarkMode ? "text-gray-400" : "text-gray-300"} mt-4 max-w-3xl mx-auto`}
+          >
             Follow these simple steps to join the BUDJU community and start your
             journey to the moon!
           </p>
         </motion.div>
-
-        {/* Steps */}
         <div
           ref={stepsRef}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12"
@@ -97,7 +89,7 @@ const HowToBuyPreview = () => {
           {steps.map((step, index) => (
             <div
               key={index}
-              className="budju-card hover:border-budju-blue transition-all duration-500"
+              className={`budju-card ${isDarkMode ? "hover:border-gray-600" : "hover:border-budju-blue"} transition-all duration-500`}
             >
               <div className="flex flex-col items-center text-center p-6">
                 <div
@@ -105,16 +97,18 @@ const HowToBuyPreview = () => {
                 >
                   <step.icon size={32} className="text-white" />
                 </div>
-                <h3 className="text-xl font-bold text-white mb-2">
+                <h3
+                  className={`text-xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-2`}
+                >
                   {step.title}
                 </h3>
-                <p className="text-gray-400">{step.description}</p>
+                <p className={isDarkMode ? "text-gray-500" : "text-gray-400"}>
+                  {step.description}
+                </p>
               </div>
             </div>
           ))}
         </div>
-
-        {/* CTA */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -124,7 +118,7 @@ const HowToBuyPreview = () => {
           <Button as="link" to={ROUTES.HOW_TO_BUY} size="lg">
             Detailed Buying Guide
           </Button>
-          <p className="text-gray-400 mt-4">
+          <p className={`text-${isDarkMode ? "gray-500" : "gray-400"} mt-4`}>
             Need help? Join our{" "}
             <a
               href="http://t.me/budjucoingroup"

@@ -3,7 +3,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { useLocation } from "react-router";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
+
 import { pageTransition } from "@/lib/utils/animation";
+import Web3Background from "../Web3Background";
 
 interface LayoutProps {
   children: ReactNode;
@@ -18,24 +20,26 @@ const Layout = ({ children }: LayoutProps) => {
   }, [pathname]);
 
   return (
-    <div className="flex flex-col min-h-screen bg-budju-black text-white">
-      <Navbar />
+    <Web3Background>
+      <div className="flex flex-col min-h-screen relative z-10">
+        <Navbar />
 
-      <AnimatePresence mode="wait">
-        <motion.main
-          key={pathname}
-          initial="initial"
-          animate="animate"
-          exit="exit"
-          variants={pageTransition}
-          className="flex-grow pt-24" // Account for fixed navbar
-        >
-          {children}
-        </motion.main>
-      </AnimatePresence>
+        <AnimatePresence mode="wait">
+          <motion.main
+            key={pathname}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+            variants={pageTransition}
+            className="flex-grow " // Account for fixed navbar
+          >
+            {children}
+          </motion.main>
+        </AnimatePresence>
 
-      <Footer />
-    </div>
+        <Footer />
+      </div>
+    </Web3Background>
   );
 };
 

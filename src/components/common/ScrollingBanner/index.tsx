@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTheme } from "@/context/ThemeContext";
 
 interface ScrollingBannerProps {
   text: string;
@@ -11,48 +12,48 @@ interface ScrollingBannerProps {
 
 const ScrollingBanner = ({
   text,
-  repetitions = 5,
+  repetitions = 10,
   speed = "normal",
   reverse = false,
   className = "",
   textClassName = "",
 }: ScrollingBannerProps) => {
-  // Generate repeated text
+  const { isDarkMode } = useTheme();
+
   const repeatedText = useMemo(() => {
     return Array(repetitions).fill(text).join(" ");
   }, [text, repetitions]);
 
-  // Determine animation duration based on speed
-  const getDurationClass = () => {
+  const getDuration = () => {
     switch (speed) {
       case "slow":
-        return "animate-[marquee_40s_linear_infinite]";
+        return "40s";
       case "fast":
-        return "animate-[marquee_15s_linear_infinite]";
+        return "15s";
       case "normal":
       default:
-        return "animate-[marquee_25s_linear_infinite]";
+        return "25s";
     }
   };
 
-  // Determine animation direction
-  const getDirectionClass = () => {
-    return reverse
-      ? "animate-[marquee-reverse_25s_linear_infinite]"
-      : getDurationClass();
+  const animationStyle = {
+    animation: `${reverse ? "marquee-reverse" : "marquee"} ${getDuration()} linear infinite`,
   };
 
   return (
-    <div className={`w-full overflow-hidden bg-budju-black py-3 ${className}`}>
-      <div className="relative whitespace-nowrap flex">
-        {/* First copy for continuous loop */}
-        <div className={`inline-block ${getDirectionClass()} ${textClassName}`}>
-          {repeatedText}
-        </div>
-
-        {/* Duplicate to ensure smooth infinite loop */}
+    <div
+      className={`w-full overflow-hidden py-3 ${
+        isDarkMode
+          ? "bg-gray-900 border-y border-budju-pink/20"
+          : "bg-gray-100 border-y border-budju-pink/30"
+      } ${className}`}
+    >
+      <div className="flex whitespace-nowrap">
         <div
-          className={`inline-block ${getDirectionClass()} ${textClassName} absolute top-0 left-full`}
+          className={`inline-block ${
+            isDarkMode ? "text-white" : "text-gray-800"
+          } text-base sm:text-lg md:text-xl font-bold px-4 ${textClassName}`}
+          style={animationStyle}
         >
           {repeatedText}
         </div>
@@ -61,14 +62,14 @@ const ScrollingBanner = ({
   );
 };
 
-// Pre-configured BUDJU Parade Banner
 export const BudjuParadeBanner = () => {
+  const { isDarkMode } = useTheme();
   return (
     <ScrollingBanner
       text="* JOIN THE BUDJU PARADE *"
-      repetitions={8}
-      className="bg-budju-black border-y border-budju-pink/20"
-      textClassName="text-xl md:text-2xl font-bold text-white px-4"
+      repetitions={10}
+      className={`${isDarkMode ? "bg-gray-900" : "bg-gray-100"} border-y border-budju-pink/20`}
+      textClassName="text-xl md:text-2xl font-bold px-4"
     />
   );
 };

@@ -1,5 +1,5 @@
 // App config
-export const APP_NAME = "BUDJU Coin";
+export const APP_NAME = "BUDJU";
 export const APP_DESCRIPTION =
   "Join the BUDJU Parade - Solana's Most Vibrant Community";
 export const APP_URL =
@@ -73,7 +73,6 @@ export const ROADMAP_PHASES = [
       { text: "👑king of the hill : 100%", completed: true },
       { text: "100 budju wallet holders", completed: true },
       { text: "Marketing Campaign", completed: false },
-      { text: "Seniman Bocah 🙏🙏🙏🙏", completed: false },
     ],
   },
   {

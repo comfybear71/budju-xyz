@@ -1,25 +1,14 @@
-// vite.config.ts
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import svgr from "vite-plugin-svgr";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
-  // Load env file based on `mode` in the current directory
   const env = loadEnv(mode, process.cwd(), "");
 
   return {
-    plugins: [
-      react(),
-      svgr({
-        svgrOptions: {
-          // svgr options
-        },
-      }),
-      tailwindcss(),
-    ],
+    plugins: [react(), svgr({ svgrOptions: {} }), tailwindcss()],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
@@ -34,7 +23,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      // Define global variables to expose environment variables to the client
+      // Existing env variables
       "process.env.VITE_TOKEN_ADDRESS": JSON.stringify(env.VITE_TOKEN_ADDRESS),
       "process.env.VITE_BURN_ADDRESS": JSON.stringify(env.VITE_BURN_ADDRESS),
       "process.env.VITE_BANK_ADDRESS": JSON.stringify(env.VITE_BANK_ADDRESS),
@@ -42,24 +31,31 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
         env.VITE_NFT_TARGET_HOLDERS,
       ),
+      // Polyfill globals
+      global: "globalThis",
     },
     optimizeDeps: {
       esbuildOptions: {
-        // Node.js global to browser globalThis
         define: {
           global: "globalThis",
         },
       },
     },
-    // Handling Web3 polyfills
     build: {
       rollupOptions: {
-        external: ["@solana/web3.js"],
+        // Optional: Ensure external modules are handled correctly if needed
+      },
+      commonjsOptions: {
+        transformMixedEsModules: true,
       },
     },
     server: {
-      // Add this to allow the specific ngrok host
-      allowedHosts: ["e515-2a09-bac5-d562-88c-00-da-153.ngrok-free.app"],
+      allowedHosts: [
+        "167d-114-122-166-85.ngrok-free.app", // Add your ngrok host here
+        "localhost", // Optional: keep localhost allowed
+      ],
+      host: "0.0.0.0", // Bind to all interfaces for network access
+      port: 5173,
     },
   };
 });

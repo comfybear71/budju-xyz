@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import {
   FaWallet,
@@ -9,19 +9,21 @@ import {
 } from "react-icons/fa";
 import Button from "@components/common/Button";
 import { DEX_LINK } from "@constants/addresses";
+import { useTheme } from "@/context/ThemeContext";
 
 const steps = [
   {
     id: "create-wallet",
     icon: FaWallet,
-    title: "1. Create a wallet with Phantom or Jupiter",
+    title: "1. Create a wallet with Phantom, Jupiter or Solflare",
     description:
-      "Visit phantom.app or jupiter.ag and follow the simple steps to create a new account with the Phantom app, Jupiter app or browser extension.",
+      "Visit phantom.app, jupiter.ag or solflare.com and follow the simple steps to create a new account with the Phantom app, Jupiter app or browser extension.",
     image: "/images/how-to-buy/phantom-wallet.webp",
     color: "bg-blue-600",
     links: [
       { label: "Download Phantom", url: "https://phantom.app", external: true },
       { label: "Download Jupiter", url: "https://jup.ag", external: true },
+      { label: "Download Solflare", url: "https://www.solflare.com/", external: true },
     ],
   },
   {
@@ -57,6 +59,7 @@ const steps = [
 ];
 
 const HowToBuySteps = () => {
+  const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const stepsRef = useRef<HTMLDivElement>(null);
 
@@ -64,7 +67,6 @@ const HowToBuySteps = () => {
     if (sectionRef.current && stepsRef.current) {
       const stepItems = stepsRef.current.querySelectorAll(".step-item");
 
-      // Add animation for each step item
       gsap.fromTo(
         stepItems,
         {
@@ -87,10 +89,7 @@ const HowToBuySteps = () => {
   }, []);
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-gray-900 to-budju-black"
-    >
+    <section ref={sectionRef} className="py-20">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -98,10 +97,14 @@ const HowToBuySteps = () => {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+          <h2
+            className={`text-3xl md:text-4xl font-bold mb-4 ${isDarkMode ? "text-white" : "text-budju-white"}`}
+          >
             Step-by-Step Guide
           </h2>
-          <p className="text-lg text-gray-300 max-w-3xl mx-auto">
+          <p
+            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+          >
             Follow these easy steps to get your BUDJU tokens. If you're new to
             crypto, don't worry – we've made this as simple as possible!
           </p>
@@ -125,11 +128,21 @@ const HowToBuySteps = () => {
                   <step.icon size={32} className="text-white" />
                 </div>
 
-                <h3 className="text-2xl font-bold text-white">{step.title}</h3>
-                <p className="text-gray-300 text-lg">{step.description}</p>
+                <h3
+                  className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                >
+                  {step.title}
+                </h3>
+                <p
+                  className={
+                    isDarkMode ? "text-gray-300 text-lg" : "text-white text-lg"
+                  }
+                >
+                  {step.description}
+                </p>
 
                 {step.links.length > 0 && (
-                  <div className="flex flex-wrap gap-3 pt-2">
+                  <div className="flex gap-2 pt-2">
                     {step.links.map((link, linkIndex) => (
                       <Button
                         key={linkIndex}
@@ -139,6 +152,15 @@ const HowToBuySteps = () => {
                         rel={link.external ? "noopener noreferrer" : undefined}
                         variant={linkIndex === 0 ? "primary" : "secondary"}
                         size="md"
+                        className={
+                          link.label === "Download Phantom"
+                            ? "bg-purple-300 hover:bg-purple-400 text-black"
+                            : link.label === "Download Jupiter"
+                            ? "bg-green-300 hover:bg-green-400 text-black"
+                            : link.label === "Download Solflare"
+                            ? "bg-yellow-500 hover:bg-yellow-600 text-black"
+                            : ""
+                        }
                       >
                         {link.label}
                       </Button>
@@ -147,9 +169,9 @@ const HowToBuySteps = () => {
                 )}
               </div>
 
-              {/* Step Image */}
+              {/* Step Image (Commented Out) */}
               {/* <div className="w-full md:w-1/2">
-                <div className="bg-gray-800 rounded-xl overflow-hidden shadow-budju-lg border border-gray-700 transition-transform hover:scale-105 duration-500">
+                <div className={`${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white/20 border-white/30"} rounded-xl overflow-hidden shadow-budju-lg border transition-transform hover:scale-105 duration-500`}>
                   <img
                     src={step.image}
                     alt={step.title}
@@ -168,7 +190,7 @@ const HowToBuySteps = () => {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center mt-16"
         >
-          <Button
+          {/* <Button
             as="a"
             href={DEX_LINK}
             target="_blank"
@@ -177,9 +199,11 @@ const HowToBuySteps = () => {
             className="animate-pulse"
           >
             BUY BUDJU NOW
-          </Button>
+          </Button> */}
 
-          <p className="text-gray-400 mt-4">
+          <p
+            className={isDarkMode ? "text-gray-400 mt-4 text-lg" : "text-white/80 mt-4 text-lg"}
+          >
             Have questions? Join our{" "}
             <a
               href="http://t.me/budjucoingroup"
