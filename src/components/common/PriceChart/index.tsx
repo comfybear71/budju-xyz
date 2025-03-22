@@ -1,4 +1,3 @@
-// src/components/common/PriceChart.tsx
 import { useRef, useEffect, useMemo, useState } from "react";
 import {
   createChart,
