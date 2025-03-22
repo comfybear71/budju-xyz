@@ -488,11 +488,11 @@ const WalletConnect = ({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ duration: 0.2 }}
-                className={`absolute z-50 right-0 mt-2 w-64 ${
+                className={`absolute z-50 mt-2 w-64 ${
                   isDarkMode
                     ? "bg-gray-900 border-gray-800"
                     : "bg-gray-100 border-gray-300"
-                } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
+                } rounded-xl overflow-hidden shadow-xl border left-1/2 transform -translate-x-1/2`}
               >
                 <WalletSelectionContent />
               </motion.div>
@@ -536,11 +536,11 @@ const WalletConnect = ({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
                 transition={{ duration: 0.2 }}
-                className={`absolute z-50 right-0 mt-2 w-72 ${
+                className={`absolute z-50 mt-2 w-72 ${
                   isDarkMode
                     ? "bg-gray-900 border-gray-800"
                     : "bg-gray-100 border-gray-300"
-                } rounded-xl overflow-hidden shadow-xl border ${fullWidth ? "left-0" : ""}`}
+                } rounded-xl overflow-hidden shadow-xl border left-1/2 transform -translate-x-1/2`}
               >
                 <div className="p-4 border-b border-gray-800">
                   <div className="flex items-center justify-between">
@@ -722,26 +722,14 @@ const WalletConnect = ({
                 </div>
 
                 <div className="p-4">
-                  <div className="grid grid-cols-1 gap-2">
-                    <Button
-                      variant="ghost"
-                      onClick={handleDisconnect}
-                      fullWidth
-                      leftIcon={<FaSignOutAlt />}
-                    >
-                      Disconnect
-                    </Button>
-                    <Button
-                      as="a"
-                      href={`https://ape.pro/solana/${TOKEN_ADDRESS}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      variant="primary"
-                      fullWidth
-                    >
-                      Buy BUDJU
-                    </Button>
-                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={handleDisconnect}
+                    fullWidth
+                    leftIcon={<FaSignOutAlt />}
+                  >
+                    Disconnect
+                  </Button>
                 </div>
               </motion.div>
             )}
