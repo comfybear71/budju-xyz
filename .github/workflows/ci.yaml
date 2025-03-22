@@ -7,58 +7,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v2
       
-      # Use Node.js 18 which has better Web API support
+      # Build steps if needed (for example with Node.js)
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v2
         with:
-          node-version: '18'
-          cache: 'npm'
-      
-      # Install dependencies
+          node-version: '16'
+          
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
       
-      # Make sure the required packages are installed
-      - name: Install build dependencies
-        run: |
-          npm install --save-dev @vitejs/plugin-react-swc
-          npm install --save-dev @tailwindcss/vite
-          npm install --save-dev vite-plugin-svgr
-      
-      # Create crypto polyfill
-      - name: Create polyfill file
-        run: |
-          echo '// crypto-polyfill.js
-          const crypto = require("crypto");
-          if (typeof global !== "undefined") {
-            if (!global.crypto) {
-              global.crypto = {};
-            }
-            if (!global.crypto.getRandomValues) {
-              global.crypto.getRandomValues = function getRandomValues(array) {
-                return crypto.randomFillSync(array);
-              };
-            }
-          }' > crypto-polyfill.js
-      
-      # Build with the polyfill
       - name: Build project
-        run: |
-          node --require ./crypto-polyfill.js node_modules/vite/bin/vite.js build
-      
-      # Verify build output
-      - name: Verify build output
-        run: |
-          ls -la
-          if [ -d "dist" ]; then
-            echo "✅ Build succeeded! Contents of dist directory:"
-            ls -la dist
-          else
-            echo "❌ Build failed: No dist directory found"
-            exit 1
-          fi
+        run: npm run build
       
       # Deploy to cPanel via FTP
       - name: Deploy to cPanel
@@ -67,5 +28,5 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/
-          server-dir: public_html/
+          local-dir: ./dist/ 
+          server-dir: public_html/dist/

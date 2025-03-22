@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
         env.VITE_NFT_TARGET_HOLDERS,
       ),
-      // Simple global definition - remove the problematic expression
+      // Polyfill globals
       global: "globalThis",
     },
     optimizeDeps: {
@@ -42,8 +42,6 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      outDir: "dist",
-      emptyOutDir: true,
       rollupOptions: {
         // Optional: Ensure external modules are handled correctly if needed
       },
@@ -53,7 +51,6 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       allowedHosts: [
-        "167d-114-122-166-85.ngrok-free.app", // Add your ngrok host here
         "localhost", // Optional: keep localhost allowed
       ],
       host: "0.0.0.0", // Bind to all interfaces for network access
