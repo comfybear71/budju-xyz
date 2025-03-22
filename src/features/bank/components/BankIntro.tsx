@@ -92,7 +92,7 @@ const BankIntro = () => {
   return (
     <section
       ref={sectionRef}
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b from-gray-900 to-budju-black" : "bg-gradient-to-b from-budju-pink to-purple-400"}`}
+      className={`py-20 ${isDarkMode ? "bg-gradient-to-b " : "bg-gradient-to-b"}`}
     >
       <div className="budju-container">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">

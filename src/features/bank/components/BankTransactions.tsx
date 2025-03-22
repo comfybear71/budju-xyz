@@ -15,9 +15,9 @@ const BankTransactions = () => {
   const sectionRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [filter, setFilter] = useState<"all" | "deposit" | "withdrawal" | "burn">(
-    "all",
-  );
+  const [filter, setFilter] = useState<
+    "all" | "deposit" | "withdrawal" | "burn"
+  >("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,7 +90,7 @@ const BankTransactions = () => {
   return (
     <section
       ref={sectionRef}
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-purple-400 to-budju-pink"}`}
+      className={`py-20 ${isDarkMode ? "bg-gradient-to-b " : "bg-gradient-to-b "}`}
     >
       <div className="budju-container">
         <motion.div
@@ -119,8 +119,8 @@ const BankTransactions = () => {
               filter === "all"
                 ? "bg-budju-blue text-white"
                 : isDarkMode
-                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                : "bg-white/30 text-white hover:bg-white/40"
+                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  : "bg-white/30 text-white hover:bg-white/40"
             }`}
           >
             All Transactions
@@ -131,8 +131,8 @@ const BankTransactions = () => {
               filter === "deposit"
                 ? "bg-green-600 text-white"
                 : isDarkMode
-                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                : "bg-white/30 text-white hover:bg-white/40"
+                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  : "bg-white/30 text-white hover:bg-white/40"
             }`}
           >
             Deposits
@@ -143,8 +143,8 @@ const BankTransactions = () => {
               filter === "withdrawal"
                 ? "bg-yellow-600 text-white"
                 : isDarkMode
-                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                : "bg-white/30 text-white hover:bg-white/40"
+                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  : "bg-white/30 text-white hover:bg-white/40"
             }`}
           >
             Withdrawals
@@ -155,8 +155,8 @@ const BankTransactions = () => {
               filter === "burn"
                 ? "bg-red-600 text-white"
                 : isDarkMode
-                ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                : "bg-white/30 text-white hover:bg-white/40"
+                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                  : "bg-white/30 text-white hover:bg-white/40"
             }`}
           >
             Burns
@@ -215,7 +215,9 @@ const BankTransactions = () => {
                         : "border-b border-white/30 last:border-b-0 hover:bg-white/40"
                     } transition-colors`}
                   >
-                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
+                    <td
+                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
+                    >
                       <div className="flex items-center">
                         <span className="mr-2">
                           {getTransactionIcon(tx.type)}
@@ -223,10 +225,14 @@ const BankTransactions = () => {
                         {getTransactionText(tx.type)}
                       </div>
                     </td>
-                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
+                    <td
+                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
+                    >
                       {tx.token}
                     </td>
-                    <td className={`py-3 px-4 text-right whitespace-nowrap font-medium ${isDarkMode ? "text-white" : "text-white"}`}>
+                    <td
+                      className={`py-3 px-4 text-right whitespace-nowrap font-medium ${isDarkMode ? "text-white" : "text-white"}`}
+                    >
                       {tx.amount.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 hidden md:table-cell">
@@ -239,7 +245,9 @@ const BankTransactions = () => {
                           >
                             From:
                           </div>
-                          <div className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}>
+                          <div
+                            className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}
+                          >
                             {tx.from}
                           </div>
                         </div>
@@ -252,13 +260,17 @@ const BankTransactions = () => {
                           >
                             To:
                           </div>
-                          <div className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}>
+                          <div
+                            className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}
+                          >
                             {tx.to}
                           </div>
                         </div>
                       )}
                     </td>
-                    <td className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}>
+                    <td
+                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
+                    >
                       {new Date(tx.date).toLocaleDateString()}
                     </td>
                     <td className="py-3 px-4 text-center">

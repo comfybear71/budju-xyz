@@ -180,11 +180,13 @@ async function fetchBankHoldings(): Promise<TokenHolding[]> {
 
   try {
     const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
-    
+
     // Fetch SOL balance
     const solBalanceLamports = await connection.getBalance(bankPublicKey);
     const solAmount = solBalanceLamports / 1e9; // Convert lamports to SOL
-    const solPrice = await fetchTokenPrice("So11111111111111111111111111111111111111112"); // SOL mint address
+    const solPrice = await fetchTokenPrice(
+      "So11111111111111111111111111111111111111112",
+    ); // SOL mint address
     const solHolding: TokenHolding = {
       ...SOL_METADATA,
       amount: solAmount,
@@ -298,12 +300,15 @@ const BankTokens = () => {
     }
   }, [tokenHoldings]);
 
-  const totalBankValue = tokenHoldings.reduce((sum, token) => sum + token.value, 0);
+  const totalBankValue = tokenHoldings.reduce(
+    (sum, token) => sum + token.value,
+    0,
+  );
 
   return (
     <section
       ref={sectionRef}
-      className={`py-10 ${isDarkMode ? "bg-[#0a0a0a]" : "bg-gradient-to-b from-purple-400 to-budju-pink-light"} text-white`}
+      className={`py-10 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"} text-white`}
     >
       <div className="max-w-5xl mx-auto px-4">
         <motion.div

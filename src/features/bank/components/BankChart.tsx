@@ -3,7 +3,14 @@ import { motion } from "framer-motion";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Bar } from "react-chartjs-2";
-import { Chart as ChartJS, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from "chart.js";
+import {
+  Chart as ChartJS,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend,
+} from "chart.js";
 import { useTheme } from "@/context/ThemeContext";
 
 // Register Chart.js components
@@ -36,22 +43,36 @@ const setCachedData = (key: string, data: any, ttl: number): void => {
 };
 
 // Fetch with retry
-const retryFetch = async (url: string, options: RequestInit, retries = 3, delay = 1000): Promise<Response> => {
+const retryFetch = async (
+  url: string,
+  options: RequestInit,
+  retries = 3,
+  delay = 1000,
+): Promise<Response> => {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
-      const response = await fetch(url, { ...options, signal: controller.signal });
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
       clearTimeout(timeoutId);
       if (!response.ok && response.status === 429 && attempt < retries) {
-        await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, attempt)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, delay * Math.pow(2, attempt)),
+        );
         continue;
       }
-      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      if (!response.ok)
+        throw new Error(`HTTP error! Status: ${response.status}`);
       return response;
     } catch (error) {
-      if (attempt === retries) throw new Error(`Failed after ${retries} attempts: ${error}`);
-      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, attempt)));
+      if (attempt === retries)
+        throw new Error(`Failed after ${retries} attempts: ${error}`);
+      await new Promise((resolve) =>
+        setTimeout(resolve, delay * Math.pow(2, attempt)),
+      );
     }
   }
   throw new Error("Unexpected error in retryFetch");
@@ -64,9 +85,12 @@ const fetchTokenPrice = async (tokenAddress: string): Promise<number> => {
   if (cachedPrice !== null) return cachedPrice;
 
   try {
-    const response = await retryFetch(`https://api.jup.ag/price/v2?ids=${tokenAddress}`, {
-      headers: { Accept: "application/json" },
-    });
+    const response = await retryFetch(
+      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
     const data = await response.json();
     const price = Number(data.data[tokenAddress]?.price || 0);
     if (!isNaN(price) && price > 0) {
@@ -81,7 +105,9 @@ const fetchTokenPrice = async (tokenAddress: string): Promise<number> => {
 };
 
 // Fetch token metadata
-const fetchTokenMetadata = async (tokenAddress: string): Promise<{
+const fetchTokenMetadata = async (
+  tokenAddress: string,
+): Promise<{
   name: string;
   symbol: string;
   logo: string;
@@ -114,7 +140,12 @@ const fetchTokenMetadata = async (tokenAddress: string): Promise<{
     return metadata;
   } catch (error) {
     console.error(`Metadata error for ${tokenAddress}:`, error);
-    return { name: "Unknown Token", symbol: "UNKNOWN", logo: "/images/tokens/default.png", color: "bg-gray-500" };
+    return {
+      name: "Unknown Token",
+      symbol: "UNKNOWN",
+      logo: "/images/tokens/default.png",
+      color: "bg-gray-500",
+    };
   }
 };
 
@@ -146,18 +177,30 @@ const fetchBankHoldings = async (): Promise<TokenHolding[]> => {
     const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
     const solBalanceLamports = await connection.getBalance(bankPublicKey);
     const solAmount = solBalanceLamports / 1e9;
-    const solPrice = await fetchTokenPrice("So11111111111111111111111111111111111111112");
-    const solHolding: TokenHolding = { ...SOL_METADATA, amount: solAmount, value: solAmount * solPrice };
+    const solPrice = await fetchTokenPrice(
+      "So11111111111111111111111111111111111111112",
+    );
+    const solHolding: TokenHolding = {
+      ...SOL_METADATA,
+      amount: solAmount,
+      value: solAmount * solPrice,
+    };
 
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(bankPublicKey, { programId: TOKEN_PROGRAM_ID });
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      bankPublicKey,
+      { programId: TOKEN_PROGRAM_ID },
+    );
     const holdings: TokenHolding[] = [solHolding];
-    const fetchPromises = tokenAccounts.value.map(async account => {
+    const fetchPromises = tokenAccounts.value.map(async (account) => {
       const info = account.account.data.parsed.info;
       const tokenAddress = info.mint;
       const amount = info.tokenAmount.uiAmount || 0;
       if (amount < 0.0001) return;
 
-      const [price, metadata] = await Promise.all([fetchTokenPrice(tokenAddress), fetchTokenMetadata(tokenAddress)]);
+      const [price, metadata] = await Promise.all([
+        fetchTokenPrice(tokenAddress),
+        fetchTokenMetadata(tokenAddress),
+      ]);
       const value = amount * price;
       if (value > 0) holdings.push({ ...metadata, amount, value });
     });
@@ -173,7 +216,14 @@ const fetchBankHoldings = async (): Promise<TokenHolding[]> => {
 };
 
 // Colors
-const chartColors = ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF", "#FF9F40"];
+const chartColors = [
+  "#FF6384",
+  "#36A2EB",
+  "#FFCE56",
+  "#4BC0C0",
+  "#9966FF",
+  "#FF9F40",
+];
 
 // Component
 const BankChart = () => {
@@ -198,12 +248,14 @@ const BankChart = () => {
   }, []);
 
   const barData = {
-    labels: tokenHoldings.map(t => t.symbol),
+    labels: tokenHoldings.map((t) => t.symbol),
     datasets: [
       {
         label: "Token Value (USD)",
-        data: tokenHoldings.map(t => t.value),
-        backgroundColor: tokenHoldings.map((_, i) => chartColors[i % chartColors.length]),
+        data: tokenHoldings.map((t) => t.value),
+        backgroundColor: tokenHoldings.map(
+          (_, i) => chartColors[i % chartColors.length],
+        ),
         borderColor: isDarkMode ? "#333" : "#E5E7EB",
         borderWidth: 1,
       },
@@ -215,7 +267,9 @@ const BankChart = () => {
     plugins: {
       legend: { display: false },
       tooltip: {
-        callbacks: { label: (ctx: any) => `${ctx.label}: $${ctx.raw.toFixed(2)}` },
+        callbacks: {
+          label: (ctx: any) => `${ctx.label}: $${ctx.raw.toFixed(2)}`,
+        },
         backgroundColor: isDarkMode ? "#1F2937" : "#ffffff",
         titleColor: isDarkMode ? "#ffffff" : "#333333",
         bodyColor: isDarkMode ? "#ffffff" : "#333333",
@@ -255,9 +309,7 @@ const BankChart = () => {
   return (
     <section
       className={`py-20 ${
-        isDarkMode
-          ? "bg-gradient-to-b from-budju-black to-gray-900"
-          : "bg-gradient-to-b from-budju-pink-light to-purple-400"
+        isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"
       }`}
     >
       <div className="max-w-5xl mx-auto px-4">
@@ -268,20 +320,28 @@ const BankChart = () => {
           className="text-center mb-8"
         >
           <h2 className="text-3xl md:text-4xl font-bold mb-2">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>CURRENT</span>{" "}
+            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
+              CURRENT
+            </span>{" "}
             <span className="text-budju-pink">TOKEN VALUES</span>
           </h2>
-          <p className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+          <p
+            className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             Current value of tokens in Bank of BUDJU
           </p>
         </motion.div>
         {loading && (
-          <div className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+          <div
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             Loading...
           </div>
         )}
         {error && (
-          <div className={`text-center ${isDarkMode ? "text-red-400" : "text-red-400"}`}>
+          <div
+            className={`text-center ${isDarkMode ? "text-red-400" : "text-red-400"}`}
+          >
             {error}
           </div>
         )}
@@ -293,7 +353,9 @@ const BankChart = () => {
           </div>
         )}
         {!loading && !error && tokenHoldings.length === 0 && (
-          <div className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}>
+          <div
+            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          >
             No holdings found.
           </div>
         )}
