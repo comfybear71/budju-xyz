@@ -32,7 +32,7 @@ const HarvestRewards = () => {
     <section
       id="harvest-rewards"
       ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
+      className="py-20 bg-gradient-to-b"
     >
       <div className="budju-container">
         <motion.div

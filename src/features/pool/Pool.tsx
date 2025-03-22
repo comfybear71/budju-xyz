@@ -42,7 +42,9 @@ const Pool = () => {
   return (
     <main>
       {/* Hero Section */}
-      <section className="pt-24 pb-16">
+      <section
+        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"}`}
+      >
         <div className="budju-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -57,7 +59,7 @@ const Pool = () => {
               <span className="text-budju-blue">BUDJU</span>
             </h1>
             <p
-              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-white"}`}
+              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-budju-white"}`}
             >
               Become a market maker, provide liquidity, and earn rewards in the
               BUDJU ecosystem.
@@ -65,34 +67,23 @@ const Pool = () => {
           </motion.div>
         </div>
       </section>
-
-      {/* Scrolling Banner */}
       <BudjuParadeBanner />
-
       {/* Pool Introduction */}
       <PoolIntro />
-
       {/* Pool Statistics */}
       <PoolStats />
-
       {/* Concentrated Liquidity Explanation */}
       <ConcentratedLiquidity />
-
       {/* Add Liquidity Guide */}
       <AddLiquidityGuide />
-
       {/* Remove Liquidity Guide */}
       <RemoveLiquidityGuide />
-
       {/* Rebalance Guide */}
       <RebalanceGuide />
-
       {/* Harvest Rewards */}
       <HarvestRewards />
-
       {/* Pool Links */}
       <PoolLinks />
-
       {/* Pool FAQ */}
       <PoolFAQ />
     </main>
