@@ -20,6 +20,9 @@ import walletService, {
 } from "@lib/services/walletService";
 import { useTheme } from "@/context/ThemeContext";
 
+// Placeholder USDC address (replace with actual Solana USDC address)
+const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
 interface WalletConnectProps {
   fullWidth?: boolean;
   size?: "sm" | "md" | "lg";
@@ -32,7 +35,10 @@ const walletConfig: Record<WalletName, { name: string; logo: string }> = {
 };
 
 const networkOptions: Network[] = ["mainnet", "devnet"];
-const customTokens = [{ symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 }];
+const customTokens = [
+  { symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 },
+  { symbol: "USDC", address: USDC_ADDRESS, decimals: 6 }, // Add USDC here
+];
 
 const WalletConnect = ({
   fullWidth = false,
@@ -65,26 +71,20 @@ const WalletConnect = ({
   // Detect mobile device and in-app browser
   useEffect(() => {
     const checkEnvironment = () => {
-      // Check if we're on mobile
       const isMobileDevice =
         /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
           navigator.userAgent,
         );
       setIsMobile(isMobileDevice);
 
-      // Check if we're in a wallet's in-app browser
       const extWindow = window as ExtendedWindow;
-
-      // Detect Phantom in-app browser
       if (
         typeof extWindow.phantom !== "undefined" ||
         (typeof extWindow.solana !== "undefined" && extWindow.solana?.isPhantom)
       ) {
         console.log("Detected Phantom in-app browser");
         setInAppBrowser("phantom");
-      }
-      // Detect Solflare in-app browser
-      else if (
+      } else if (
         typeof extWindow.solflare !== "undefined" ||
         (typeof extWindow.solana !== "undefined" &&
           extWindow.solana?.isSolflare)
@@ -126,15 +126,12 @@ const WalletConnect = ({
       }
     };
 
-    // Only auto-connect on initial load, not after disconnects
     if (!localStorage.getItem("manualDisconnect")) {
       autoConnectInAppBrowser();
     }
   }, [inAppBrowser, connection.connected, connect]);
 
-  // Effect to clear the manual disconnect flag when necessary
   useEffect(() => {
-    // If the user is connected, we can clear the manual disconnect flag
     if (connection.connected) {
       localStorage.removeItem("manualDisconnect");
     }
@@ -174,15 +171,12 @@ const WalletConnect = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle wallet connection with deep linking for mobile
   const handleConnect = async (walletName: WalletName) => {
     setConnectionError(null);
     const extWindow = window as ExtendedWindow;
 
-    // If we're already in a wallet's in-app browser
     if (inAppBrowser) {
       if (inAppBrowser === walletName) {
-        // Try to connect to the current wallet
         try {
           await connect(walletName);
           setIsMenuOpen(false);
@@ -195,7 +189,6 @@ const WalletConnect = ({
           );
         }
       } else {
-        // User is trying to connect to a different wallet than the browser they're in
         setConnectionError(
           `You're currently in ${walletConfig[inAppBrowser].name}'s browser. Please use ${walletConfig[inAppBrowser].name} or open this page in a different browser.`,
         );
@@ -203,26 +196,19 @@ const WalletConnect = ({
       return;
     }
 
-    // Handle normal mobile deep linking
     if (isMobile && !inAppBrowser) {
-      // Mobile: Generate deep link and redirect
       const targetUrl = `${window.location.origin}/swap`;
       const refUrl = window.location.origin;
       let deepLink = "";
-
       if (walletName === "phantom") {
-        // Using the official Phantom deep link format based on documentation
-        // https://docs.phantom.com/phantom-deeplinks/deeplinks-ios-and-android
         deepLink = `https://phantom.app/ul/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       }
-
       console.log(`Generated ${walletName} deep link:`, deepLink);
       window.location.href = deepLink;
       setIsMenuOpen(false);
     } else {
-      // Desktop: Connect normally
       let walletProvider: any = null;
       if (walletName === "phantom") {
         walletProvider = extWindow.phantom?.solana || extWindow.solana;
@@ -251,19 +237,11 @@ const WalletConnect = ({
     }
   };
 
-  // Update the disconnect function to handle in-app browsers
   const handleDisconnect = async () => {
     try {
-      // Set a flag to prevent auto-reconnect
       localStorage.setItem("manualDisconnect", "true");
-
-      // Disconnect from wallet
       await disconnect();
-
-      // Update states
       setIsMenuOpen(false);
-
-      // If in an in-app browser, provide guidance
     } catch (error) {
       console.error("Error during disconnect:", error);
       alert("There was an issue disconnecting. Please try again.");
@@ -349,19 +327,13 @@ const WalletConnect = ({
     lg: "text-lg py-3 px-6",
   };
 
-  // Determine which wallets to show based on the environment
   const getWalletsToDisplay = () => {
-    // If we're in a wallet's in-app browser, only show that wallet
     if (inAppBrowser) {
       return [inAppBrowser];
     }
-
-    // If on mobile but not in a wallet browser, show both options
     if (isMobile) {
       return ["phantom", "solflare"];
     }
-
-    // On desktop, show available wallets from browser extensions
     return availableWallets;
   };
 
@@ -695,7 +667,9 @@ const WalletConnect = ({
                               src={
                                 token.symbol === "BUDJU"
                                   ? "/images/logo.svg"
-                                  : "/images/tokens/default.png"
+                                  : token.symbol === "USDC"
+                                    ? "/images/tokens/usdc.png"
+                                    : "/images/tokens/default.png"
                               }
                               alt={token.symbol}
                               className="w-5 h-5 mr-2"
