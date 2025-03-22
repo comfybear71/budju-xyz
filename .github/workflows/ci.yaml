@@ -25,9 +25,6 @@ jobs:
         run: npm ci
       
       # Use the polyfill for the build
-      - name: Build project
-        run: |
-          node --require ./crypto-polyfill.js node_modules/vite/bin/vite.js build
       
       # Deploy to cPanel via FTP
       - name: Deploy to cPanel
