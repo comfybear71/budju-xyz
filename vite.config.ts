@@ -4,9 +4,6 @@ import svgr from "vite-plugin-svgr";
 import path from "path";
 import tailwindcss from "@tailwindcss/vite";
 
-// Node polyfills - only used when importing this file with 'require'
-// This doesn't affect the actual bundle
-
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
 
@@ -23,10 +20,6 @@ export default defineConfig(({ mode }) => {
         "@assets": path.resolve(__dirname, "./src/assets"),
         "@constants": path.resolve(__dirname, "./src/constants"),
         "@types": path.resolve(__dirname, "./src/types"),
-        // Add polyfill aliases
-        crypto: path.resolve(__dirname, "./node_modules/crypto-browserify"),
-        stream: path.resolve(__dirname, "./node_modules/stream-browserify"),
-        buffer: path.resolve(__dirname, "./node_modules/buffer"),
       },
     },
     define: {
@@ -38,9 +31,8 @@ export default defineConfig(({ mode }) => {
       "process.env.VITE_NFT_TARGET_HOLDERS": JSON.stringify(
         env.VITE_NFT_TARGET_HOLDERS,
       ),
-      // Enhanced polyfill globals
+      // Simple global definition - remove the problematic expression
       global: "globalThis",
-      "globalThis.crypto": "globalThis.crypto || {}",
     },
     optimizeDeps: {
       esbuildOptions: {
@@ -50,7 +42,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      sourcemap: mode !== "production", // Enable sourcemaps for non-production builds
+      outDir: "dist",
+      emptyOutDir: true,
       rollupOptions: {
         // Optional: Ensure external modules are handled correctly if needed
       },
@@ -60,7 +53,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       allowedHosts: [
-        // "167d-114-122-166-85.ngrok-free.app", // Add your ngrok host here
+        "167d-114-122-166-85.ngrok-free.app", // Add your ngrok host here
         "localhost", // Optional: keep localhost allowed
       ],
       host: "0.0.0.0", // Bind to all interfaces for network access
