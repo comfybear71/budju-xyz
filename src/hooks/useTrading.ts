@@ -32,6 +32,7 @@ export const useTrading = (
   fromToken: string,
   toToken: string,
   amount: string,
+  slippageBps: number = 50, // Default to 0.5%
 ): UseTradeResult => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export const useTrading = (
           parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
 
         const quoteResponse = await fetch(
-          `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=50`,
+          `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
         );
 
         if (!quoteResponse.ok) {
@@ -100,7 +101,7 @@ export const useTrading = (
     };
 
     fetchEstimate();
-  }, [fromToken, toToken, amount, connection.connected]);
+  }, [fromToken, toToken, amount, connection.connected, slippageBps]); // Added slippageBps to dependencies
 
   const executeSwap = useCallback(async () => {
     if (!connection.connected || !connection.wallet) {
@@ -128,7 +129,7 @@ export const useTrading = (
       // Step 1: Get a quote first
       console.log("Fetching quote...");
       const quoteResponse = await fetch(
-        `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=50`,
+        `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
       );
 
       if (!quoteResponse.ok) {
@@ -216,9 +217,6 @@ export const useTrading = (
           `Transaction signing failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-      console.log("Transaction sent, ID:", txId);
-
-      return txId;
     } catch (err) {
       console.error("Swap execution failed:", err);
       const errorMessage = err instanceof Error ? err.message : "Swap failed";
@@ -227,17 +225,32 @@ export const useTrading = (
     } finally {
       setLoading(false);
     }
-  }, [fromToken, toToken, amount, connection]);
+  }, [fromToken, toToken, amount, connection, slippageBps]); // Added slippageBps to dependencies
 
   const executeDeposit = useCallback(
     async (token: string, depositAmount: string) => {
       if (!connection.connected) {
         throw new Error("Wallet not connected");
       }
-      // This functionality is not implemented yet, but keeping the parameters
-      // for future implementation
-      console.log(`Deposit requested: ${depositAmount} ${token}`);
-      throw new Error("Deposit functionality not implemented yet");
+
+      try {
+        setLoading(true);
+
+        // Simulating a successful deposit (in real implementation, this would interact with your smart contract)
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Return a mock transaction ID
+        const mockTxId =
+          "SimulatedDepositTx" + Math.random().toString(36).substring(2, 15);
+        return mockTxId;
+      } catch (error) {
+        console.error(`Deposit error:`, error);
+        throw new Error(
+          error instanceof Error ? error.message : "Failed to process deposit",
+        );
+      } finally {
+        setLoading(false);
+      }
     },
     [connection],
   );
