@@ -33,9 +33,10 @@ const Burn = () => {
 
     // Detect mobile device
     const checkMobile = () => {
-      const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-        navigator.userAgent
-      );
+      const isMobileDevice =
+        /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+          navigator.userAgent,
+        );
       setIsMobile(isMobileDevice);
     };
     checkMobile();
@@ -57,7 +58,7 @@ const Burn = () => {
     <main>
       {/* Hero Section */}
       <section
-        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-budju-pink"}`}
+        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b "}`}
       >
         <div className="budju-container">
           <motion.div
@@ -67,21 +68,25 @@ const Burn = () => {
             className="text-center max-w-3xl mx-auto"
           >
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
-            <span className="text-5xl">🔥</span>{" "}
-            <span className="text-budju-blue">Burn</span>{" "}
+              <span className="text-5xl">🔥</span>{" "}
+              <span className="text-budju-blue">Burn</span>{" "}
               <span className={isDarkMode ? "text-white" : "text-budju-white"}>
                 {APP_NAME}{" "}
               </span>
-              <span className="text-budju-blue">Burn</span>
-              {" "}<span className="text-5xl">🔥</span>
+              <span className="text-budju-blue">Burn</span>{" "}
+              <span className="text-5xl">🔥</span>
             </h1>
             <p
               className={`text-xl ${isDarkMode ? "text-gray-300" : "text-budju-white"}`}
             >
-              Track the burning of {APP_NAME} tokens to boost value and reduce supply.
+              Track the burning of {APP_NAME} tokens to boost value and reduce
+              supply.
             </p>
             {isMobile && (
-              <button onClick={handleOpenInPhantom} className="deeplink-button mt-4">
+              <button
+                onClick={handleOpenInPhantom}
+                className="deeplink-button mt-4"
+              >
                 Open in Phantom
               </button>
             )}

@@ -27,7 +27,6 @@ const BurnStatistics = () => {
   const percentageRef = useRef<HTMLSpanElement>(null);
   const valueRef = useRef<HTMLSpanElement>(null);
 
-
   const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS_ACCOUNT}`;
 
   const [burnEvents, setBurnEvents] = useState<BurnEvent[]>([]);
@@ -76,8 +75,6 @@ const BurnStatistics = () => {
       clearInterval(interval);
     };
   }, []);
-
-  
 
   const totalBurned = burnEvents.reduce((sum, event) => sum + event.amount, 0);
   const totalValue = burnEvents.reduce((sum, event) => sum + event.value, 0);
@@ -133,7 +130,7 @@ const BurnStatistics = () => {
   return (
     <section
       ref={sectionRef}
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-purple-400"}`}
+      className={`py-20 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"}`}
     >
       {/* Add CSS for pulsing animation */}
       <style>
