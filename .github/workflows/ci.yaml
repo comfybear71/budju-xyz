@@ -9,7 +9,6 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       
-      # Build steps if needed (for example with Node.js)
       - name: Setup Node.js
         uses: actions/setup-node@v2
         with:
@@ -21,7 +20,7 @@ jobs:
       - name: Build project
         run: npm run build
       
-      # Deploy to cPanel via FTP
+
       - name: Deploy to cPanel
         uses: SamKirkland/FTP-Deploy-Action@4.3.0
         with:
