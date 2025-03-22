@@ -7,25 +7,34 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       
+      # Use Node.js 18 which has better Web API support
       - name: Setup Node.js
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v3
         with:
-          node-version: '16'
+          node-version: '18'
           
+      # Set the NODE_ENV explicitly 
+      - name: Set environment
+        run: |
+          echo "NODE_ENV=production" >> $GITHUB_ENV
+          
+      # Clean installation for CI environment
       - name: Install dependencies
-        run: npm install
+        run: npm ci
       
+      # Use the polyfill for the build
       - name: Build project
-        run: npm run build
+        run: |
+          node --require ./crypto-polyfill.js node_modules/vite/bin/vite.js build
       
-
+      # Deploy to cPanel via FTP
       - name: Deploy to cPanel
         uses: SamKirkland/FTP-Deploy-Action@4.3.0
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/ 
+          local-dir: ./dist/
           server-dir: public_html/dist/
