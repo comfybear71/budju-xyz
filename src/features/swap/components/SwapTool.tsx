@@ -6,13 +6,13 @@ import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
 import { useWallet } from "@hooks/useWallet";
 import { useTrading } from "@hooks/useTrading";
-import { getTokenBySymbol } from "@lib/services/tokenRegistry"; // Updated to use async
+import { getTokenBySymbol } from "@lib/services/tokenRegistry";
 import PriceChart from "@components/common/PriceChart";
 import { FaChartLine, FaTimes, FaCog } from "react-icons/fa";
 
 const SwapTool = () => {
   const { isDarkMode } = useTheme();
-  const { connection } = useWallet();
+  const { connection, balances } = useWallet();
   const sectionRef = useRef(null);
   const formRef = useRef(null);
   const coinRef = useRef(null);
@@ -24,6 +24,10 @@ const SwapTool = () => {
   const [toToken, setToToken] = useState("BUDJU");
   const [timeframe, setTimeframe] = useState("1D");
 
+  // Slippage settings
+  const [slippageBps, setSlippageBps] = useState(50); // 0.5%
+  const [showSettings, setShowSettings] = useState(false);
+
   // Success modal state
   const [showSuccess, setShowSuccess] = useState(false);
   const [successTxId, setSuccessTxId] = useState("");
@@ -31,6 +35,13 @@ const SwapTool = () => {
 
   // Chart modal state (for mobile)
   const [showChartModal, setShowChartModal] = useState(false);
+
+  // Notification state
+  const [notification, setNotification] = useState({
+    show: false,
+    message: "",
+    type: "info", // "info", "error", "success"
+  });
 
   // Integrate with trading hook
   const {
@@ -42,7 +53,7 @@ const SwapTool = () => {
     executeSwap,
     executeDeposit,
     loadChartData,
-  } = useTrading(fromToken, toToken, fromAmount);
+  } = useTrading(fromToken, toToken, fromAmount, slippageBps);
 
   // Check wallet connection status
   const isConnected = connection.connected;
@@ -125,15 +136,67 @@ const SwapTool = () => {
     setToAmount(tempAmount);
   };
 
+  // Show notification
+  const showNotification = (message: string, type = "info") => {
+    setNotification({
+      show: true,
+      message,
+      type,
+    });
+
+    // Auto-hide after 5 seconds
+    setTimeout(() => {
+      setNotification((prev) => ({ ...prev, show: false }));
+    }, 5000);
+  };
+
+  // Set max amount based on wallet balance
+  const setMaxAmount = async () => {
+    if (!isConnected) {
+      showNotification("Please connect your wallet first", "error");
+      return;
+    }
+
+    try {
+      let maxAmount = 0;
+
+      if (fromToken === "SOL") {
+        maxAmount = Math.max(0, balances.sol - 0.01);
+      } else {
+        const tokenBalance = balances.tokens.find(
+          (token) => token.symbol === fromToken,
+        );
+        if (tokenBalance) {
+          maxAmount = tokenBalance.amount;
+        }
+      }
+
+      if (maxAmount > 0) {
+        setFromAmount(maxAmount.toString());
+      } else {
+        showNotification(
+          `No ${fromToken} balance found in your wallet`,
+          "info",
+        );
+      }
+    } catch (error) {
+      console.error("Error setting max amount:", error);
+      showNotification("Failed to set maximum amount", "error");
+    }
+  };
+
   // Handle swap execution
   const handleSwap = async () => {
     if (!isConnected) {
-      alert("Please connect your wallet first");
+      showNotification("Please connect your wallet first", "error");
       return;
     }
 
     if (!connection.wallet || !connection.wallet.address) {
-      alert("Wallet connection issue detected. Please reconnect your wallet.");
+      showNotification(
+        "Wallet connection issue detected. Please reconnect your wallet.",
+        "error",
+      );
       return;
     }
 
@@ -143,16 +206,15 @@ const SwapTool = () => {
         toToken,
         amount: fromAmount,
         wallet: connection.wallet ? "Connected" : "Not connected",
+        slippageBps,
       });
 
       const txId = await executeSwap();
 
-      // Set success state
       setSuccessTxId(txId);
       setSuccessAction("swap");
       setShowSuccess(true);
 
-      // Success animation
       if (sectionRef.current) {
         particleBurst(sectionRef.current, {
           count: 30,
@@ -162,13 +224,13 @@ const SwapTool = () => {
         });
       }
 
-      // Reset form
       setFromAmount("");
       setToAmount("");
     } catch (error) {
       console.error("Swap error:", error);
-      alert(
+      showNotification(
         `Swap failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        "error",
       );
     }
   };
@@ -176,7 +238,7 @@ const SwapTool = () => {
   // Handle deposit execution (placeholder)
   const handleDeposit = async () => {
     if (!isConnected) {
-      alert("Please connect your wallet first");
+      showNotification("Please connect your wallet first", "error");
       return;
     }
 
@@ -199,8 +261,9 @@ const SwapTool = () => {
       setFromAmount("");
     } catch (error) {
       console.error("Deposit error:", error);
-      alert(
+      showNotification(
         `Deposit failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        "error",
       );
     }
   };
@@ -217,14 +280,22 @@ const SwapTool = () => {
       solanaConnected: window.solana?.isConnected,
       solflareConnected: window.solflare?.isConnected,
     });
+
+    showNotification("Wallet debug info logged to console", "info");
   };
 
   return (
     <section ref={sectionRef} id="swap-tool">
       <div className="budju-container px-4 sm:px-6">
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* Chart (Visible on Larger Screens) */}
-          <div className="hidden md:block md:w-2/3 bg-gray-900/80 backdrop-blur-sm rounded-lg p-4 h-[500px] shadow-lg">
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Chart (Visible on Tablet and Larger Screens) */}
+          <div
+            className={`hidden sm:block sm:w-full lg:w-2/3 rounded-lg p-4 h-[400px] sm:h-[450px] lg:h-[500px] shadow-lg mb-6 lg:mb-0 ${
+              isDarkMode
+                ? "bg-gray-900/80 backdrop-blur-sm"
+                : "bg-white/20 backdrop-blur-sm border border-white/30"
+            }`}
+          >
             <div className="relative w-full h-full">
               <PriceChart
                 data={chartData}
@@ -239,7 +310,7 @@ const SwapTool = () => {
           </div>
 
           {/* Trading Form */}
-          <div className="w-full md:w-1/3 max-w-md mx-auto md:mx-0">
+          <div className="w-full sm:w-full lg:w-1/3 max-w-md mx-auto lg:mx-0">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               animate={{ opacity: 1, x: 0 }}
@@ -247,22 +318,108 @@ const SwapTool = () => {
             >
               <div
                 ref={formRef}
-                className={`rounded-xl p-4 sm:p-5 ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 shadow-lg"}`}
+                className={`rounded-xl p-4 sm:p-5 shadow-lg ${
+                  isDarkMode
+                    ? "bg-gray-800/90 backdrop-blur-sm"
+                    : "bg-white/20 backdrop-blur-sm border border-white/30"
+                }`}
               >
                 {/* Top Bar */}
                 <div className="flex justify-between items-center mb-4">
-                  <div className="flex items-center space-x-2">
+                  <div className="flex items-center space-x-2 relative">
                     <button
-                      onClick={() => alert("Settings coming soon!")}
-                      className="text-gray-400 hover:text-gray-200"
+                      onClick={() => setShowSettings(!showSettings)}
+                      className={`hover:text-budju-pink-light transition-colors ${
+                        isDarkMode ? "text-gray-400" : "text-white/80"
+                      }`}
                     >
                       <FaCog className="w-5 h-5" />
                     </button>
-                    <span className="text-gray-400 text-sm">0.5%</span>
+                    <span
+                      className={`text-sm ${
+                        isDarkMode ? "text-gray-400" : "text-white/80"
+                      }`}
+                    >
+                      {slippageBps / 100}%
+                    </span>
+
+                    {/* Settings Dropdown */}
+                    {showSettings && (
+                      <div
+                        className={`absolute top-8 left-0 z-20 p-3 rounded-lg shadow-lg w-56 backdrop-blur-sm ${
+                          isDarkMode
+                            ? "bg-gray-800/90 text-gray-300"
+                            : "bg-white/30 text-white border border-white/20"
+                        }`}
+                      >
+                        <div className="mb-3">
+                          <label
+                            className={`text-sm ${
+                              isDarkMode ? "text-gray-300" : "text-white"
+                            }`}
+                          >
+                            Slippage Tolerance
+                          </label>
+                          <div className="flex mt-2 gap-2">
+                            {[25, 50, 100, 200].map((bps) => (
+                              <button
+                                key={bps}
+                                onClick={() => setSlippageBps(bps)}
+                                className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                                  slippageBps === bps
+                                    ? "bg-budju-blue text-white"
+                                    : isDarkMode
+                                      ? "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                                      : "bg-white/50 text-white hover:bg-white/70"
+                                }`}
+                              >
+                                {bps / 100}%
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <label
+                            className={`text-sm ${
+                              isDarkMode ? "text-gray-300" : "text-white"
+                            }`}
+                          >
+                            Custom
+                          </label>
+                          <div className="flex mt-1 items-center">
+                            <input
+                              type="number"
+                              min="0.1"
+                              max="10"
+                              step="0.1"
+                              value={slippageBps / 100}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value);
+                                if (!isNaN(value) && value > 0 && value <= 10) {
+                                  setSlippageBps(Math.round(value * 100));
+                                }
+                              }}
+                              className={`w-full p-1 text-sm rounded-md border focus:outline-none focus:ring-2 focus:ring-budju-blue ${
+                                isDarkMode
+                                  ? "bg-gray-700 text-white border-gray-600"
+                                  : "bg-white/50 text-white border-white/30"
+                              }`}
+                            />
+                            <span
+                              className={`ml-2 ${
+                                isDarkMode ? "text-gray-300" : "text-white"
+                              }`}
+                            >
+                              %
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <button
                     onClick={() => setShowChartModal(true)}
-                    className="md:hidden text-blue-400 hover:text-blue-300"
+                    className="sm:hidden text-budju-blue hover:text-budju-blue-light transition-colors"
                   >
                     <FaChartLine className="w-5 h-5" />
                   </button>
@@ -279,23 +436,39 @@ const SwapTool = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setFromAmount("0")}
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded transition-colors ${
+                          isDarkMode
+                            ? "text-gray-400 bg-gray-700 hover:bg-gray-600"
+                            : "text-white/90 bg-white/30 hover:bg-white/50"
+                        }`}
                       >
                         0
                       </button>
                       <button
-                        onClick={() => alert("Max balance feature coming soon")}
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        onClick={setMaxAmount}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded transition-colors ${
+                          isDarkMode
+                            ? "text-gray-400 bg-gray-700 hover:bg-gray-600"
+                            : "text-white/90 bg-white/30 hover:bg-white/50"
+                        }`}
                       >
                         Max
                       </button>
                     </div>
                   </div>
                   <div
-                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
+                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${
+                      isDarkMode
+                        ? "bg-gray-700/50"
+                        : "bg-white/30 border border-white/20"
+                    }`}
                   >
                     <div
-                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
+                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer transition-colors ${
+                        isDarkMode
+                          ? "bg-gray-600 hover:bg-gray-500"
+                          : "bg-white/40 hover:bg-white/50"
+                      }`}
                       onClick={() => {
                         const tokens = ["SOL", "BUDJU", "USDC"];
                         const currentIndex = tokens.indexOf(fromToken);
@@ -316,7 +489,9 @@ const SwapTool = () => {
                         {fromToken}
                       </span>
                       <svg
-                        className="w-4 h-4 ml-2 text-gray-400"
+                        className={`w-4 h-4 ml-2 ${
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -338,7 +513,9 @@ const SwapTool = () => {
                         setFromAmount(value);
                       }}
                       placeholder="0.00"
-                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
+                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-budju-blue text-sm sm:text-base truncate ${
+                        isDarkMode ? "text-white" : "text-white"
+                      }`}
                     />
                   </div>
                 </div>
@@ -346,11 +523,15 @@ const SwapTool = () => {
                 {/* Arrow Button */}
                 <div className="form-element flex justify-center -my-2">
                   <div
-                    className={`rounded-full p-2 cursor-pointer transform transition-transform hover:scale-110 ${isDarkMode ? "bg-gray-800" : "bg-white/40"}`}
+                    className={`rounded-full p-2 cursor-pointer transform transition-transform hover:scale-110 ${
+                      isDarkMode
+                        ? "bg-gray-700 hover:bg-gray-600"
+                        : "bg-white/40 hover:bg-white/50"
+                    }`}
                     onClick={handleSwapTokens}
                   >
                     <svg
-                      className="w-5 sm:w-6 h-5 sm:h-6 text-blue-400"
+                      className="w-5 sm:w-6 h-5 sm:h-6 text-budju-blue"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -377,17 +558,29 @@ const SwapTool = () => {
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setToAmount("0")}
-                        className={`text-xs sm:text-sm px-2 py-1 rounded ${isDarkMode ? "text-gray-400 bg-gray-800" : "text-white/90 bg-white/30"}`}
+                        className={`text-xs sm:text-sm px-2 py-1 rounded transition-colors ${
+                          isDarkMode
+                            ? "text-gray-400 bg-gray-700 hover:bg-gray-600"
+                            : "text-white/90 bg-white/30 hover:bg-white/50"
+                        }`}
                       >
                         0
                       </button>
                     </div>
                   </div>
                   <div
-                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${isDarkMode ? "bg-gray-800" : "bg-white/30 border border-white/20"}`}
+                    className={`rounded-lg p-3 flex items-center flex-wrap gap-2 ${
+                      isDarkMode
+                        ? "bg-gray-700/50"
+                        : "bg-white/30 border border-white/20"
+                    }`}
                   >
                     <div
-                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer ${isDarkMode ? "bg-gray-700" : "bg-white/40"}`}
+                      className={`flex items-center rounded-lg py-2 px-3 mr-2 cursor-pointer transition-colors ${
+                        isDarkMode
+                          ? "bg-gray-600 hover:bg-gray-500"
+                          : "bg-white/40 hover:bg-white/50"
+                      }`}
                       onClick={() => {
                         const tokens = ["BUDJU", "USDC", "SOL"];
                         const currentIndex = tokens.indexOf(toToken);
@@ -408,7 +601,9 @@ const SwapTool = () => {
                         {toToken}
                       </span>
                       <svg
-                        className="w-4 h-4 ml-2 text-gray-400"
+                        className={`w-4 h-4 ml-2 ${
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -430,7 +625,9 @@ const SwapTool = () => {
                         setToAmount(value);
                       }}
                       placeholder="0.00"
-                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none text-sm sm:text-base truncate ${isDarkMode ? "text-white" : "text-white"}`}
+                      className={`bg-transparent text-right flex-1 min-w-0 focus:outline-none focus:ring-2 focus:ring-budju-blue text-sm sm:text-base truncate ${
+                        isDarkMode ? "text-white" : "text-white"
+                      }`}
                     />
                   </div>
                 </div>
@@ -438,7 +635,11 @@ const SwapTool = () => {
                 {/* Transaction Details */}
                 {estimate && (
                   <div
-                    className={`form-element mb-4 text-xs sm:text-sm p-3 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/20"} flex items-center justify-between`}
+                    className={`form-element mb-4 text-xs sm:text-sm p-3 rounded-lg flex items-center justify-between ${
+                      isDarkMode
+                        ? "bg-gray-700/50"
+                        : "bg-white/20 border border-white/20"
+                    }`}
                   >
                     <div className="flex items-center">
                       <span
@@ -449,12 +650,18 @@ const SwapTool = () => {
                         {fromToken} / {toToken}
                       </span>
                       <span
-                        className={`ml-2 ${isDarkMode ? "text-white" : "text-white"}`}
+                        className={`ml-2 ${
+                          isDarkMode ? "text-white" : "text-white"
+                        }`}
                       >
                         {estimate.estimatedPrice.toFixed(6)}
                       </span>
-                      <span className={`ml-2 text-gray-400`}>
-                        Slippage: {estimate.slippageBps / 100}%
+                      <span
+                        className={`ml-2 ${
+                          isDarkMode ? "text-gray-400" : "text-white/80"
+                        }`}
+                      >
+                        Slippage: {slippageBps / 100}%
                       </span>
                     </div>
                   </div>
@@ -462,53 +669,32 @@ const SwapTool = () => {
 
                 {/* Error message */}
                 {error && (
-                  <div className="form-element mb-4 p-2 bg-red-500/20 text-red-400 rounded-lg text-xs sm:text-sm">
+                  <div
+                    className={`form-element mb-4 p-2 rounded-lg text-xs sm:text-sm ${
+                      isDarkMode
+                        ? "bg-red-500/20 text-red-400"
+                        : "bg-red-500/20 text-red-400"
+                    }`}
+                  >
                     {error}
                   </div>
                 )}
 
                 {/* Action Buttons */}
                 <div className="form-element flex flex-col gap-2">
-                  {!isConnected ? (
-                    <WalletConnect fullWidth size="sm" />
-                  ) : (
-                    <>
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full bg-budju-blue hover:bg-blue-600 text-white py-2 sm:py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
-                        onClick={handleSwap}
-                        disabled={
-                          loading || !fromAmount || parseFloat(fromAmount) === 0
-                        }
-                      >
-                        {loading
-                          ? "Processing..."
-                          : `Swap ${fromToken} to ${toToken}`}
-                      </motion.button>
-
-                      <motion.button
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        className="w-full bg-budju-pink hover:bg-pink-600 text-white py-2 sm:py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base"
-                        onClick={handleDeposit}
-                        disabled={
-                          loading || !fromAmount || parseFloat(fromAmount) === 0
-                        }
-                      >
-                        {loading
-                          ? "Processing..."
-                          : `Deposit ${fromToken} to Bank`}
-                      </motion.button>
-
-                      <button
-                        className="mt-2 p-2 bg-gray-700/50 text-white/70 rounded text-xs"
-                        onClick={debugWalletConnection}
-                      >
-                        Debug Connection
-                      </button>
-                    </>
-                  )}
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className={`w-full budju-button-primary text-white py-2 sm:py-3 px-4 rounded-lg font-medium transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm sm:text-base`}
+                    onClick={handleSwap}
+                    disabled={
+                      loading || !fromAmount || parseFloat(fromAmount) === 0
+                    }
+                  >
+                    {loading
+                      ? "Processing..."
+                      : `Swap ${fromToken} to ${toToken}`}
+                  </motion.button>
                 </div>
               </div>
             </motion.div>
@@ -534,7 +720,11 @@ const SwapTool = () => {
               onClick={() => setShowChartModal(false)}
             />
             <motion.div
-              className={`w-full max-w-md bg-gray-900/80 backdrop-blur-sm rounded-t-lg p-4 relative h-[90vh] ${isDarkMode ? "text-white" : "text-gray-900"}`}
+              className={`w-full max-w-md rounded-t-lg p-4 relative h-[90vh] shadow-lg backdrop-blur-sm ${
+                isDarkMode
+                  ? "bg-gray-900/90 text-white"
+                  : "bg-white/20 text-white border-t border-white/30"
+              }`}
               initial={{ y: "100%" }}
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
@@ -548,7 +738,11 @@ const SwapTool = () => {
             >
               <div className="w-12 h-1 bg-gray-500 rounded-full mx-auto mb-4" />
               <button
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-200"
+                className={`absolute top-4 right-4 transition-colors ${
+                  isDarkMode
+                    ? "text-gray-400 hover:text-gray-200"
+                    : "text-white/80 hover:text-white"
+                }`}
                 onClick={() => setShowChartModal(false)}
               >
                 <FaTimes className="w-5 h-5" />
@@ -575,10 +769,18 @@ const SwapTool = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className={`relative p-4 sm:p-6 rounded-xl shadow-xl w-full max-w-sm sm:max-w-md ${isDarkMode ? "bg-gray-900" : "bg-white"}`}
+            className={`relative p-4 sm:p-6 rounded-xl shadow-xl w-full max-w-sm sm:max-w-md backdrop-blur-sm ${
+              isDarkMode
+                ? "bg-gray-900/90 text-white"
+                : "bg-white/20 text-white border border-white/30"
+            }`}
           >
             <button
-              className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
+              className={`absolute top-3 right-3 transition-colors ${
+                isDarkMode
+                  ? "text-gray-400 hover:text-gray-200"
+                  : "text-white/80 hover:text-white"
+              }`}
               onClick={() => setShowSuccess(false)}
             >
               <svg
@@ -616,26 +818,34 @@ const SwapTool = () => {
                 </div>
               </div>
               <h3
-                className={`text-lg sm:text-xl font-bold mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+                className={`text-lg sm:text-xl font-bold mb-2 ${
+                  isDarkMode ? "text-white" : "text-white"
+                }`}
               >
                 {successAction === "swap"
                   ? "Swap Successful!"
                   : "Deposit Successful!"}
               </h3>
               <p
-                className={`mb-4 text-sm sm:text-base ${isDarkMode ? "text-gray-300" : "text-gray-600"}`}
+                className={`mb-4 text-sm sm:text-base ${
+                  isDarkMode ? "text-gray-300" : "text-white/80"
+                }`}
               >
                 {successAction === "swap"
                   ? `You have successfully swapped ${fromToken} to ${toToken}.`
                   : `You have successfully deposited ${fromToken} to the Bank of BUDJU.`}
               </p>
               <div
-                className={`p-2 sm:p-3 rounded-lg mb-4 text-xs sm:text-sm break-all ${isDarkMode ? "bg-gray-800 text-gray-300" : "bg-gray-100 text-gray-600"}`}
+                className={`p-2 sm:p-3 rounded-lg mb-4 text-xs sm:text-sm break-all ${
+                  isDarkMode
+                    ? "bg-gray-800 text-gray-300"
+                    : "bg-white/30 text-white/80 border border-white/20"
+                }`}
               >
                 Transaction ID: {successTxId}
               </div>
               <button
-                className="w-full bg-budju-blue hover:bg-blue-600 text-white py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base"
+                className={`w-full budju-button-secondary text-white py-2 sm:py-3 rounded-lg font-medium text-sm sm:text-base transition-colors`}
                 onClick={() => setShowSuccess(false)}
               >
                 Close
@@ -644,6 +854,97 @@ const SwapTool = () => {
           </motion.div>
         </div>
       )}
+
+      {/* Notification Toast */}
+      <AnimatePresence>
+        {notification.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50"
+          >
+            <div
+              className={`px-4 py-3 rounded-lg shadow-lg max-w-sm w-full flex items-center ${
+                notification.type === "error"
+                  ? "bg-red-500"
+                  : notification.type === "success"
+                    ? "bg-green-500"
+                    : "bg-budju-blue"
+              }`}
+            >
+              <div className="flex-shrink-0 mr-3">
+                {notification.type === "error" ? (
+                  <svg
+                    className="w-5 h-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                ) : notification.type === "success" ? (
+                  <svg
+                    className="w-5 h-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M5 13l4 4L19 7"
+                    />
+                  </svg>
+                ) : (
+                  <svg
+                    className="w-5 h-5 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1 text-white text-sm">
+                {notification.message}
+              </div>
+              <button
+                onClick={() =>
+                  setNotification((prev) => ({ ...prev, show: false }))
+                }
+                className="flex-shrink-0 ml-2 text-white"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 };

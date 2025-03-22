@@ -30,7 +30,7 @@ const Swap = () => {
     <main>
       {/* Hero Section */}
       <section
-        className={`pt-16 pb-12 md:pt-24 md:pb-16 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-budju-pink"}`}
+        className={`pt-16 pb-12 md:pt-24 md:pb-16 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b "}`}
       >
         <div className="budju-container px-4 sm:px-6">
           <motion.div
@@ -50,7 +50,8 @@ const Swap = () => {
             <p
               className={`text-base sm:text-lg md:text-xl ${isDarkMode ? "text-gray-300" : "text-budju-white"}`}
             >
-              Easily swap your tokens with BUDJU to participate in the ecosystem.
+              Easily swap your tokens with BUDJU to participate in the
+              ecosystem.
             </p>
           </motion.div>
         </div>

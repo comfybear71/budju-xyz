@@ -41,7 +41,8 @@ const TokenSupply = () => {
       const raydiumVault = metrics.raydiumVault;
       const bankOfBudju = metrics.bankOfBudju;
       const communityVault = metrics.communityVault;
-      const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
+      const circulatingSupply =
+        totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
 
       const realAllocation: TokenAllocation[] = [
         {
@@ -74,7 +75,6 @@ const TokenSupply = () => {
           color: "#FF69B4", // Hot Pink
           value: communityVault,
         },
-
       ].filter((item) => item.value > 0); // Filter out zero-value categories
 
       setTokenAllocation(realAllocation);
@@ -231,10 +231,7 @@ const TokenSupply = () => {
     totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20 bg-gradient-to-b">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

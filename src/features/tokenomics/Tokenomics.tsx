@@ -37,7 +37,7 @@ const Tokenomics = () => {
     <main>
       {/* Hero Section */}
       <section
-        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-budju-pink"}`}
+        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b " : "bg-gradient-to-b "}`}
       >
         <div className="budju-container">
           <motion.div
