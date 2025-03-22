@@ -181,7 +181,7 @@ const BankIntro = () => {
               className={`relative ${isDarkMode ? "bg-gradient-to-br from-gray-800 to-gray-900 border-gray-700" : "bg-gradient-to-br from-budju-pink-light to-budju-blue-light border-white/30"} rounded-xl p-8 shadow-budju border max-w-md transform perspective-1000`}
             >
               <img
-                src="src/assets/images/logo.png"
+                src="/images/logo.svg"
                 alt="Bank of BUDJU Vault"
                 className="w-full h-auto rounded-lg"
               />

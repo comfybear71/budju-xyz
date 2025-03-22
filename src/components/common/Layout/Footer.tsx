@@ -104,14 +104,16 @@ const Footer = () => {
                 </Link>
               </li>
               <li>
-                <Link
-                  to="/shop"
+                <a
+                  href="https://shop.budjucoin.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
                   Shop of BUDJU
-                </Link>
+                </a>
               </li>
               <li>
                 <Link

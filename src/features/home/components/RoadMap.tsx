@@ -46,7 +46,7 @@ const phases: RoadmapPhase[] = [
       { text: "BANK of BUDJU's", completed: true },
       { text: "SHOP of BUDJU's", completed: true },
       { text: "LP POOLS of BUDJU's", completed: true },
-      { text: "WEB3 Wallet intergration", completed: false },
+      { text: "WEB3 Wallet intergration", completed: true },
     ],
     color: "border-budju-blue",
   },
@@ -175,9 +175,9 @@ const Roadmap = () => {
 
                 {/* Circle marker */}
                 <div
-                className={`absolute left-0 md:left-1/2 md:-translate-x-1/2 mt-1 md:mt-0 w-8 h-8 rounded-full ${isDarkMode ? "bg-white" : "bg-white"} border-4 border-white flex items-center justify-center z-10`}
+                  className={`absolute left-0 md:left-1/2 md:-translate-x-1/2 mt-1 md:mt-0 w-8 h-8 rounded-full ${isDarkMode ? "bg-white" : "bg-white"} border-4 border-white flex items-center justify-center z-10`}
                 >
-                <span>{index + 1}</span>
+                  <span>{index + 1}</span>
                 </div>
 
                 {/* Phase Details */}
@@ -193,9 +193,7 @@ const Roadmap = () => {
                           <li key={itemIndex} className="flex items-start">
                             <div
                               className={`mt-1 mr-3 min-w-4 h-4 rounded-full ${
-                                item.completed
-                                    ? "bg-green-500" 
-                                    : "bg-red-600"
+                                item.completed ? "bg-green-500" : "bg-red-600"
                               }`}
                             ></div>
                             <span
@@ -228,11 +226,10 @@ const Roadmap = () => {
         <div
           className={`text-center mt-12 ${isDarkMode ? "text-gray-300" : "text-white"} max-w-2xl mx-auto`}
         >
-            <p>
-                Our BUDJU will not rest until we have conquered the universe. 
-            </p>
-            <p>
-                #BUDJU #BUDJUISM #BUDJUARMY #BUDJU4LIFE #PROPER_BUDJU #BUDJU4EVER #BUDJU2THEMOON #BUDJUBIZ
+          <p>Our BUDJU will not rest until we have conquered the universe.</p>
+          <p>
+            #BUDJU #BUDJUISM #BUDJUARMY #BUDJU4LIFE #PROPER_BUDJU #BUDJU4EVER
+            #BUDJU2THEMOON #BUDJUBIZ
           </p>
         </div>
       </div>
