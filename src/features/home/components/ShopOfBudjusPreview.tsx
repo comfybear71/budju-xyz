@@ -13,6 +13,16 @@ const shopImages = [
   "/images/shop04.jpg",
   "/images/shop05.jpg",
   "/images/shop06.jpg",
+  "/images/shop07.jpg",
+  "/images/shop08.jpg",
+  "/images/shop09.jpg",
+  "/images/shop10.jpg",
+  "/images/shop11.jpg",
+  "/images/shop12.jpg",
+  "/images/shop13.jpg",
+  "/images/shop14.jpg",
+  "/images/shop15.jpg",
+
 ];
 
 const ShopOfBudjusPreview = () => {
