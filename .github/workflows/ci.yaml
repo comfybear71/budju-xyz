@@ -1,32 +1,41 @@
 name: Deploy to cPanel
+
 on:
   push:
-    branches: [ master ]
+    branches: [ dev ]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      
-      # Build steps if needed (for example with Node.js)
-      - name: Setup Node.js
-        uses: actions/setup-node@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js v22.14.0
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '22.14.0'
           
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+            
       - name: Install dependencies
         run: npm install
-      
+        
       - name: Build project
         run: npm run build
-      
-      # Deploy to cPanel via FTP
-      - name: Deploy to cPanel
-        uses: SamKirkland/FTP-Deploy-Action@4.3.0
-        with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/ 
-          server-dir: public_html/dist/
+        
+      # - name: Deploy to cPanel
+      #   uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      #   with:
+      #     server: ${{ secrets.FTP_SERVER }}
+      #     username: ${{ secrets.FTP_USERNAME }}
+      #     password: ${{ secrets.FTP_PASSWORD }}
+      #     local-dir: ./dist/
+      #     server-dir: public_html/dist/
+      #     dangerous-clean-slate: false # Don't remove existing files
