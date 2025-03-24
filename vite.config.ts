@@ -29,7 +29,7 @@ RewriteRule ^(.*)$ /index.html [L]
 
 # Enable CORS if needed
 <IfModule mod_headers.c>
-  <FilesMatch "\.(ttf|ttc|otf|eot|woff|woff2|font.css|css|js|json|svg)$">
+  <FilesMatch "\\.(ttf|ttc|otf|eot|woff|woff2|font.css|css|js|json|svg)$">
     Header set Access-Control-Allow-Origin "*"
   </FilesMatch>
 </IfModule>
