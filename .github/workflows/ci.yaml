@@ -1,4 +1,5 @@
 name: Deploy to cPanel
+
 on:
   push:
     branches: [ master ]
@@ -7,26 +8,52 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      
-      # Build steps if needed (for example with Node.js)
-      - name: Setup Node.js
-        uses: actions/setup-node@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js v22.14.0
+        uses: actions/setup-node@v4
         with:
-          node-version: '16'
+          node-version: '22.14.0'
           
-      - name: Install dependencies
-        run: npm install
+      - name: Cache npm dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
       
+      - name: Create .env file for build
+        run: |
+          echo "VITE_ENVIRONMENT=${{ secrets.VITE_ENVIRONMENT }}" > .env
+          echo "VITE_RPC_ENDPOINT=${{ secrets.VITE_RPC_ENDPOINT }}" >> .env
+          echo "VITE_HELIUS_API_KEY=${{ secrets.VITE_HELIUS_API_KEY }}" >> .env
+          echo "VITE_TOKEN_ADDRESS=${{ secrets.VITE_TOKEN_ADDRESS }}" >> .env
+          echo "VITE_BURN_ADDRESS=${{ secrets.VITE_BURN_ADDRESS }}" >> .env
+          echo "VITE_BANK_ADDRESS=${{ secrets.VITE_BANK_ADDRESS }}" >> .env
+          echo "VITE_NFT_TARGET_HOLDERS=${{ secrets.VITE_NFT_TARGET_HOLDERS }}" >> .env
+          echo "VITE_SHOP_URL=${{ secrets.VITE_SHOP_URL }}" >> .env
+          echo "VITE_ANALYTICS_ID=${{ secrets.VITE_ANALYTICS_ID }}" >> .env
+          echo "VITE_SOLANA_RPC_ENDPOINT=${{ secrets.VITE_SOLANA_RPC_ENDPOINT }}" >> .env
+          echo "VITE_BIRDEYE_API_KEY=${{ secrets.VITE_BIRDEYE_API_KEY }}" >> .env
+          echo "VITE_CRYPTOCOMPARE_API_KEY=${{ secrets.VITE_CRYPTOCOMPARE_API_KEY }}" >> .env
+            
+      - name: Install dependencies
+        run: npm ci
+        
       - name: Build project
         run: npm run build
-      
-      # Deploy to cPanel via FTP
+        
       - name: Deploy to cPanel
-        uses: SamKirkland/FTP-Deploy-Action@4.3.0
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
-          local-dir: ./dist/ 
-          server-dir: public_html/dist/
+          local-dir: ./dist/
+          server-dir: ./
+          dangerous-clean-slate: true
+          exclude: |
+            **/telegram/**
+            **/.env*
