@@ -2,7 +2,7 @@ name: Deploy to cPanel
 
 on:
   push:
-    branches: [ dev ]
+    branches: [ master ]
 
 jobs:
   deploy:
@@ -25,17 +25,17 @@ jobs:
             ${{ runner.os }}-node-
             
       - name: Install dependencies
-        run: npm install
+        run: npm ci
         
       - name: Build project
         run: npm run build
         
-      # - name: Deploy to cPanel
-      #   uses: SamKirkland/FTP-Deploy-Action@v4.3.4
-      #   with:
-      #     server: ${{ secrets.FTP_SERVER }}
-      #     username: ${{ secrets.FTP_USERNAME }}
-      #     password: ${{ secrets.FTP_PASSWORD }}
-      #     local-dir: ./dist/
-      #     server-dir: public_html/dist/
-      #     dangerous-clean-slate: false # Don't remove existing files
+      - name: Deploy to cPanel
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./dist/
+          server-dir: public_html/
+          dangerous-clean-slate: true 
