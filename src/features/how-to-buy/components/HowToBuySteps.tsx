@@ -10,8 +10,28 @@ import {
 import Button from "@components/common/Button";
 import { DEX_LINK } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
+import phantomLogo from "@/assets/images/how-to-buy/phantom-logo.png";
+import jupiterLogo from "@/assets/images/how-to-buy/jupiter-logo.png";
+import solflareLogo from "@/assets/images/how-to-buy/solflare-logo.png";
+import { ReactElement } from "react";
 
-const steps = [
+interface Link {
+  label: string;
+  url: string;
+  external: boolean;
+  logo?: string;
+  icon?: ReactElement;
+}
+
+const steps: {
+  id: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  title: string;
+  description: string;
+  image: string;
+  color: string;
+  links: Link[];
+}[] = [
   {
     id: "create-wallet",
     icon: FaWallet,
@@ -21,9 +41,24 @@ const steps = [
     image: "/images/how-to-buy/phantom-wallet.webp",
     color: "bg-blue-600",
     links: [
-      { label: "Download Phantom", url: "https://phantom.app", external: true },
-      { label: "Download Jupiter", url: "https://jup.ag", external: true },
-      { label: "Download Solflare", url: "https://www.solflare.com/", external: true },
+      { 
+        label: "Phantom", 
+        url: "https://phantom.app", 
+        external: true, 
+        logo: phantomLogo, 
+      },
+      { 
+        label: "Jupiter", 
+        url: "https://jup.ag", 
+        external: true, 
+        logo: jupiterLogo, 
+      },
+      { 
+        label: "Solflare", 
+        url: "https://www.solflare.com/", 
+        external: true, 
+        logo: solflareLogo, 
+      },
     ],
   },
   {
@@ -66,24 +101,17 @@ const HowToBuySteps = () => {
   useEffect(() => {
     if (sectionRef.current && stepsRef.current) {
       const stepItems = stepsRef.current.querySelectorAll(".step-item");
-
       gsap.fromTo(
         stepItems,
-        {
-          opacity: 0,
-          y: 50,
-        },
+        { opacity: 0, y: 50 },
         {
           opacity: 1,
           y: 0,
           stagger: 0.3,
           duration: 0.8,
           ease: "power2.out",
-          scrollTrigger: {
-            trigger: stepsRef.current,
-            start: "top 75%",
-          },
-        },
+          scrollTrigger: { trigger: stepsRef.current, start: "top 75%" },
+        }
       );
     }
   }, []);
@@ -98,19 +126,22 @@ const HowToBuySteps = () => {
           className="text-center mb-12"
         >
           <h2
-            className={`text-3xl md:text-4xl font-bold mb-4 ${isDarkMode ? "text-white" : "text-budju-white"}`}
+            className={`text-3xl md:text-4xl font-bold mb-4 ${
+              isDarkMode ? "text-white" : "text-budju-white"
+            }`}
           >
             Step-by-Step Guide
           </h2>
           <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+            className={`text-lg ${
+              isDarkMode ? "text-gray-300" : "text-white"
+            } max-w-3xl mx-auto`}
           >
             Follow these easy steps to get your BUDJU tokens. If you're new to
             crypto, don't worry – we've made this as simple as possible!
           </p>
         </motion.div>
 
-        {/* Steps */}
         <div ref={stepsRef} className="max-w-4xl mx-auto space-y-16">
           {steps.map((step, index) => (
             <div
@@ -120,16 +151,16 @@ const HowToBuySteps = () => {
                 index % 2 === 0 ? "md:flex-row" : "md:flex-row-reverse"
               } gap-8 items-center`}
             >
-              {/* Step Content */}
               <div className="w-full md:w-1/2 space-y-4">
                 <div
                   className={`${step.color} w-16 h-16 rounded-full flex items-center justify-center mb-2`}
                 >
                   <step.icon size={32} className="text-white" />
                 </div>
-
                 <h3
-                  className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                  className={`text-2xl font-bold ${
+                    isDarkMode ? "text-white" : "text-budju-white"
+                  }`}
                 >
                   {step.title}
                 </h3>
@@ -140,9 +171,8 @@ const HowToBuySteps = () => {
                 >
                   {step.description}
                 </p>
-
                 {step.links.length > 0 && (
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-4 pt-2">
                     {step.links.map((link, linkIndex) => (
                       <Button
                         key={linkIndex}
@@ -152,57 +182,45 @@ const HowToBuySteps = () => {
                         rel={link.external ? "noopener noreferrer" : undefined}
                         variant={linkIndex === 0 ? "primary" : "secondary"}
                         size="md"
-                        className={
-                          link.label === "Download Phantom"
-                            ? "bg-purple-300 hover:bg-purple-400 text-black"
-                            : link.label === "Download Jupiter"
-                            ? "bg-green-300 hover:bg-green-400 text-black"
-                            : link.label === "Download Solflare"
-                            ? "bg-yellow-500 hover:bg-yellow-600 text-black"
-                            : ""
-                        }
+                        className={`flex-1 ${
+                          link.label === "Phantom"
+                            ? "bg-gradient-to-br from-purple-300 to-purple-900"
+                            : link.label === "Jupiter"
+                            ? "bg-gradient-to-br from-orange-300 to-red-800"
+                            : link.label === "Solflare"
+                            ? "bg-gradient-to-br from-green-300 to-green-800"
+                            : "bg-gradient-to-br from-blue-500 to-blue-900"
+                        } text-white font-bold text-xl py-4 px-4 rounded-lg text-center transition-all duration-300 hover:shadow-budju-lg hover:-translate-y-1`}
                       >
-                        {link.label}
+                        <div className="flex items-center justify-center">
+                          {link.logo && (
+                            <img
+                              src={link.logo}
+                              alt={`${link.label} logo`}
+                              className="w-8 h-8 mr-3"
+                            />
+                          )}
+                          {link.label}
+                        </div>
                       </Button>
                     ))}
                   </div>
                 )}
               </div>
-
-              {/* Step Image (Commented Out) */}
-              {/* <div className="w-full md:w-1/2">
-                <div className={`${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white/20 border-white/30"} rounded-xl overflow-hidden shadow-budju-lg border transition-transform hover:scale-105 duration-500`}>
-                  <img
-                    src={step.image}
-                    alt={step.title}
-                    className="w-full h-auto"
-                  />
-                </div>
-              </div> */}
             </div>
           ))}
         </div>
 
-        {/* Final CTA */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center mt-16"
         >
-          {/* <Button
-            as="a"
-            href={DEX_LINK}
-            target="_blank"
-            rel="noopener noreferrer"
-            size="lg"
-            className="animate-pulse"
-          >
-            BUY BUDJU NOW
-          </Button> */}
-
           <p
-            className={isDarkMode ? "text-gray-400 mt-4 text-lg" : "text-white/80 mt-4 text-lg"}
+            className={
+              isDarkMode ? "text-gray-400 mt-4 text-lg" : "text-white/80 mt-4 text-lg"
+            }
           >
             Have questions? Join our{" "}
             <a

@@ -4,6 +4,7 @@ import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import FaqSection from "./components/FaqSection";
 import HowToBuySteps from "./components/HowToBuySteps";
+import StepByStep from "./components/StepByStep";
 import WalletOptions from "./components/WalletOptions";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -66,6 +67,9 @@ const HowToBuy = () => {
 
       {/* How To Buy Steps */}
       <HowToBuySteps />
+
+      {/* Step By Step Guide */}
+      <StepByStep />
 
       {/* Wallet Options */}
       <WalletOptions />
