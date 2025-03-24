@@ -1,10 +1,6 @@
-import { useRef, useEffect, useState, SetStateAction } from "react";
+import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
-import Button from "@components/common/Button";
-import { FaExchangeAlt, FaInfoCircle, FaCoins } from "react-icons/fa";
-import { BANK_ADDRESS } from "@constants/addresses";
-import CopyToClipboard from "@components/common/CopyToClipboard";
 import WalletConnect from "@components/common/WalletConnect";
 import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";

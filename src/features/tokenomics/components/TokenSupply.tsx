@@ -24,6 +24,7 @@ const TokenSupply = () => {
   const [burnedTokens, setBurnedTokens] = useState<number>(0);
   const [raydiumVault, setRaydiumVault] = useState<number>(0);
   const [bankOfBudju, setBankOfBudju] = useState<number>(0);
+  const [communityVault, setcommunityVault] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
   const fetchTokenSupplyData = async () => {
@@ -39,12 +40,13 @@ const TokenSupply = () => {
       const burned = metrics.burned;
       const raydiumVault = metrics.raydiumVault;
       const bankOfBudju = metrics.bankOfBudju;
+      const communityVault = metrics.communityVault;
       const circulatingSupply =
-        totalSupply - burned - raydiumVault - bankOfBudju;
+        totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
 
       const realAllocation: TokenAllocation[] = [
         {
-          name: "Circulating Supply",
+          name: "Circ. Supply",
           percentage: (circulatingSupply / totalSupply) * 100,
           color: "#87CEFA", // Light blue
           value: circulatingSupply,
@@ -67,6 +69,12 @@ const TokenSupply = () => {
           color: "#FF851B", // Orange
           value: bankOfBudju,
         },
+        {
+          name: "Pool of BUDJU",
+          percentage: (communityVault / totalSupply) * 100,
+          color: "#FF69B4", // Hot Pink
+          value: communityVault,
+        },
       ].filter((item) => item.value > 0); // Filter out zero-value categories
 
       setTokenAllocation(realAllocation);
@@ -74,11 +82,12 @@ const TokenSupply = () => {
       setBurnedTokens(burned);
       setRaydiumVault(raydiumVault);
       setBankOfBudju(bankOfBudju);
+      setcommunityVault(communityVault);
     } catch (error) {
       console.error("Error fetching token supply data:", error);
       setTokenAllocation([
         {
-          name: "Circulating Supply",
+          name: "Circ. Supply",
           percentage: 89.44,
           color: "#87CEFA",
           value: 894_400_000,
@@ -101,11 +110,18 @@ const TokenSupply = () => {
           color: "#FF851B",
           value: 600_000,
         },
+        {
+          name: "Pool of BUDJU",
+          percentage: 0.06,
+          color: "#FF69B4",
+          value: 600_000,
+        },
       ]);
       setTotalSupply(1_000_000_000);
       setBurnedTokens(15_600_000);
       setRaydiumVault(89_400_000);
       setBankOfBudju(600_000);
+      setcommunityVault(600_000);
     } finally {
       setLoading(false);
     }
@@ -212,13 +228,10 @@ const TokenSupply = () => {
   }, [tokenAllocation, loading]);
 
   const remainingSupply =
-    totalSupply - burnedTokens - raydiumVault - bankOfBudju;
+    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
 
   return (
-    <section
-      ref={sectionRef}
-      className="py-20 bg-gradient-to-b from-budju-black to-gray-900"
-    >
+    <section ref={sectionRef} className="py-20 bg-gradient-to-b">
       <div className="budju-container">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -312,8 +325,14 @@ const TokenSupply = () => {
                     {bankOfBudju.toLocaleString()} BUDJU
                   </span>
                 </div>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-gray-300">Pool of BUDJU:</span>
+                  <span className="text-pink-400 font-medium">
+                    {communityVault.toLocaleString()} BUDJU
+                  </span>
+                </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300">Circulating Supply:</span>
+                  <span className="text-gray-300">Circ. Supply:</span>
                   <span className="text-budju-blue font-bold">
                     {remainingSupply.toLocaleString()} BUDJU
                   </span>

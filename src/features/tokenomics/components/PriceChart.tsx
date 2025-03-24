@@ -232,7 +232,7 @@ const PriceChart = () => {
   }, [drawChart, dimensions]);
 
   return (
-    <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-b from-gray-900 to-budju-black">
+    <section className="py-12 sm:py-16 md:py-20 bg-gradient-to-b">
       <div className="budju-container px-4 sm:px-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -309,31 +309,6 @@ const PriceChart = () => {
                 style={{ height: `${dimensions.height}px` }}
               />
             </div>
-
-            <div className="mt-4 sm:mt-6 md:mt-8 flex flex-col xs:flex-row justify-center space-y-3 xs:space-y-0 xs:space-x-4 sm:space-x-6">
-              <Button
-                as="a"
-                href={DEX_LINK}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="lg"
-                className="text-sm sm:text-base py-2 sm:py-3 px-4 sm:px-6 w-full xs:w-auto"
-              >
-                Buy BUDJU
-              </Button>
-              <Button
-                as="a"
-                href="https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez"
-                target="_blank"
-                rel="noopener noreferrer"
-                variant="secondary"
-                size="lg"
-                className="text-sm sm:text-base py-2 sm:py-3 px-4 sm:px-6 w-full xs:w-auto"
-              >
-                View on DexScreener
-              </Button>
-            </div>
-
             <div className="mt-3 sm:mt-4 text-center text-gray-500 text-xs sm:text-sm">
               * Historical price data sourced from Birdeye API
             </div>

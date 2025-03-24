@@ -433,9 +433,9 @@ const NFTGallery = () => {
               <div
                 className={`${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} p-8 text-center`}
               >
-                <div className="aspect-square max-w-[200px] mx-auto mb-6 opacity-30">
+                <div className="aspect-square max-w-[200px] mx-auto mb-6 opacity-90">
                   <img
-                    src="/images/logo.png"
+                    src="images/budju.png"
                     alt="BUDJU Logo"
                     className="w-full h-full object-contain"
                   />

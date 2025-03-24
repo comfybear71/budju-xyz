@@ -1,9 +1,11 @@
+// src/components/NFTShowcase.tsx
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { gsap } from "gsap";
 import Button from "@components/common/Button";
 import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
+import { useTokenHolders } from "@/hooks/useTokenHolders"; // Adjusted import path
 
 const nftImages = [
   "/images/budju00.png",
@@ -17,8 +19,9 @@ const nftImages = [
 
 const NFTShowcase = () => {
   const { isDarkMode } = useTheme();
+  const { holders, loading } = useTokenHolders(); // Use the hook
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [holderCount, setHolderCount] = useState(123);
+  const [holderCount, setHolderCount] = useState<number | null>(null); // Initialize as null
   const [autoplay, setAutoplay] = useState(true);
   const sliderRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -68,18 +71,17 @@ const NFTShowcase = () => {
     }
   }, []);
 
+  // Update holderCount when holders data is available
   useEffect(() => {
-    const fetchHolderCount = () =>
-      setHolderCount(Math.floor(Math.random() * 30) + 120);
-    fetchHolderCount();
-    const interval = setInterval(fetchHolderCount, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!loading && holders !== null) {
+      setHolderCount(holders);
+    }
+  }, [holders, loading]);
 
-  const percentComplete = Math.min(
-    100,
-    Math.round((holderCount / NFT_TARGET_HOLDERS) * 100),
-  );
+  // Handle null case explicitly for percentComplete
+  const percentComplete = holderCount !== null
+    ? Math.min(100, Math.round((holderCount / NFT_TARGET_HOLDERS) * 100))
+    : 0;
 
   return (
     <section className="py-20">
@@ -134,21 +136,35 @@ const NFTShowcase = () => {
                   <button
                     key={index}
                     onClick={() => setCurrentIndex(index)}
-                    className={`w-3 h-3 rounded-full transition-all ${currentIndex === index ? "bg-budju-pink scale-125" : isDarkMode ? "bg-gray-600" : "bg-gray-400 opacity-70"}`}
+                    className={`w-3 h-3 rounded-full transition-all ${
+                      currentIndex === index
+                        ? "bg-budju-pink scale-125"
+                        : isDarkMode
+                        ? "bg-gray-600"
+                        : "bg-gray-400 opacity-70"
+                    }`}
                     aria-label={`Go to slide ${index + 1}`}
                   />
                 ))}
               </div>
               <button
                 onClick={prevSlide}
-                className={`absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full ${isDarkMode ? "bg-gray-700/30 hover:bg-gray-600/50" : "bg-black/30 hover:bg-black/50"} text-white transition-colors`}
+                className={`absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full ${
+                  isDarkMode
+                    ? "bg-gray-700/30 hover:bg-gray-600/50"
+                    : "bg-black/30 hover:bg-black/50"
+                } text-white transition-colors`}
                 aria-label="Previous NFT"
               >
                 ←
               </button>
               <button
                 onClick={nextSlide}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full ${isDarkMode ? "bg-gray-700/30 hover:bg-gray-600/50" : "bg-black/30 hover:bg-black/50"} text-white transition-colors`}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center rounded-full ${
+                  isDarkMode
+                    ? "bg-gray-700/30 hover:bg-gray-600/50"
+                    : "bg-black/30 hover:bg-black/50"
+                } text-white transition-colors`}
                 aria-label="Next NFT"
               >
                 →
@@ -160,27 +176,38 @@ const NFTShowcase = () => {
               initial={{ opacity: 0, x: 30 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.6, delay: 0.2 }}
-              className={`bg-gradient-to-br ${isDarkMode ? "from-gray-800 to-gray-900" : "from-gray-900 to-black"} p-8 rounded-xl border border-gray-800`}
+              className={`bg-gradient-to-br ${
+                isDarkMode ? "from-gray-800 to-gray-900" : "from-gray-900 to-black"
+              } p-8 rounded-xl border border-gray-800`}
             >
               <h3 className="text-2xl md:text-3xl font-bold mb-4 text-budju-pink">
                 NFT's COMING SOON
               </h3>
               <p
-                className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-6`}
+                className={`text-lg ${
+                  isDarkMode ? "text-gray-400" : "text-gray-300"
+                } mb-6`}
               >
                 BUDJU NFT collection will be minted once we reach{" "}
-                {NFT_TARGET_HOLDERS} holders. Join early and be part of the
+                {NFT_TARGET_HOLDERS.toLocaleString()} holders. Join early and be part of the
                 exclusive BUDJU community!
               </p>
               <div className="mb-6">
                 <div className="flex justify-between text-sm mb-1">
-                  <span>Progress to minting</span>
+                  <span className="text-budju-white">Progress to minting</span>
                   <span className="text-budju-blue font-bold">
-                    {holderCount} / {NFT_TARGET_HOLDERS} holders
+                    {loading
+                      ? "Loading..."
+                      : holderCount !== null
+                      ? `${holderCount.toLocaleString()} / ${NFT_TARGET_HOLDERS.toLocaleString()}`
+                      : "N/A"}{" "}
+                    holders
                   </span>
                 </div>
                 <div
-                  className={`h-4 ${isDarkMode ? "bg-gray-700" : "bg-gray-800"} rounded-full overflow-hidden`}
+                  className={`h-4 ${
+                    isDarkMode ? "bg-gray-700" : "bg-gray-800"
+                  } rounded-full overflow-hidden`}
                 >
                   <div
                     className="h-full bg-gradient-to-r from-budju-pink to-budju-blue transition-all duration-1000 ease-out"
@@ -190,15 +217,21 @@ const NFTShowcase = () => {
               </div>
               <div className="flex flex-col space-y-6">
                 <div
-                  className={`${isDarkMode ? "bg-gray-700/50" : "bg-gray-800/50"} p-4 rounded-lg`}
+                  className={`${
+                    isDarkMode ? "bg-gray-700/50" : "bg-gray-800/50"
+                  } p-4 rounded-lg`}
                 >
                   <h4
-                    className={`text-xl font-semibold mb-2 ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                    className={`text-xl font-semibold mb-2 ${
+                      isDarkMode ? "text-gray-200" : "text-white"
+                    }`}
                   >
                     Collection Details
                   </h4>
                   <ul
-                    className={`space-y-2 ${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
+                    className={`space-y-2 ${
+                      isDarkMode ? "text-gray-400" : "text-gray-300"
+                    }`}
                   >
                     <li className="flex items-center">
                       <span className="mr-2">●</span>Unique BUDJU characters

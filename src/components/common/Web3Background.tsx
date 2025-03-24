@@ -4,13 +4,13 @@ import { useTheme } from "@/context/ThemeContext";
 interface Web3BackgroundProps {
   className?: string;
   children?: React.ReactNode;
-  height?: string; // New prop for controlling height
+  height?: string;
 }
 
 const Web3Background: React.FC<Web3BackgroundProps> = ({
   className = "",
   children,
-  height = "min-h-[50vh]", // Default height
+  height = "min-h-[100vh]", // Ensure full viewport height by default
 }) => {
   const { isDarkMode } = useTheme();
   const particlesContainerRef = useRef<HTMLDivElement>(null);
@@ -32,10 +32,9 @@ const Web3Background: React.FC<Web3BackgroundProps> = ({
         particle.style.left = `${Math.random() * 100}%`;
         particle.style.animationDelay = `${Math.random() * 8}s`;
 
-        // Adjust particle color based on theme (unchanged)
         particle.style.backgroundColor = isDarkMode
-          ? "rgba(255, 105, 180, 0.5)" // Hot pink for dark mode
-          : "rgba(255, 255, 255, 0.6)"; // Original for light mode
+          ? "rgba(255, 105, 180, 0.5)"
+          : "rgba(255, 255, 255, 0.6)";
 
         container.appendChild(particle);
       }
@@ -43,14 +42,13 @@ const Web3Background: React.FC<Web3BackgroundProps> = ({
       setIsInitialized(true);
     }
 
-    // Cleanup function to remove particles on unmount
     return () => {
       if (particlesContainerRef.current) {
         particlesContainerRef.current.innerHTML = "";
-        setIsInitialized(false); // Reset initialization state
+        setIsInitialized(false);
       }
     };
-  }, [isDarkMode]); // Only re-run if isDarkMode changes
+  }, [isDarkMode]);
 
   return (
     <div
@@ -58,7 +56,9 @@ const Web3Background: React.FC<Web3BackgroundProps> = ({
         isDarkMode ? "dark-mode" : ""
       }`}
     >
-      <div className="web3-grid"></div>
+      <div className="web3-grid-overlay">
+        <div className="web3-grid"></div>
+      </div>
       <div className="web3-glow" style={{ top: "20%", left: "30%" }}></div>
       <div className="web3-glow" style={{ top: "60%", left: "70%" }}></div>
       <div className="web3-glow" style={{ top: "40%", left: "50%" }}></div>
@@ -74,8 +74,7 @@ const Web3Background: React.FC<Web3BackgroundProps> = ({
         <div className="web3-block"></div>
       </div>
       <div ref={particlesContainerRef} className="web3-particles"></div>
-      <div className="relative z-10">{children}</div>{" "}
-      {/* Wrap children in a relative container */}
+      <div className="relative z-10">{children}</div>
     </div>
   );
 };

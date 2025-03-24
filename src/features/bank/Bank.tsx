@@ -3,9 +3,10 @@ import { motion } from "motion/react";
 import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import BankIntro from "./components/BankIntro";
-import BurnStatistics from "./components/BurnStatistics";
-import BankDeposit from "./components/BankDeposit";
+// import BurnStatistics from "./components/BurnStatistics";
+// import BankDeposit from "./components/BankDeposit";
 import BankTokens from "./components/BankTokens";
+import BankChart from "./components/BankChart";
 import BankTransactions from "./components/BankTransactions";
 import { useTheme } from "@/context/ThemeContext";
 
@@ -39,7 +40,7 @@ const Bank = () => {
     <main>
       {/* Hero Section */}
       <section
-        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b from-budju-black to-gray-900" : "bg-gradient-to-b from-budju-pink-light to-budju-pink"}`}
+        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"}`}
       >
         <div className="budju-container">
           <motion.div
@@ -65,23 +66,26 @@ const Bank = () => {
         </div>
       </section>
 
-      {/* Scrolling Banner */}
-      {/* <BudjuParadeBanner /> */}
+      {/* Bank Tokens */}
+      <BankTokens />
 
-      {/* Bank Introduction */}
-      {/* <BankIntro /> */}
+      {/* Bank Chart */}
+      <BankChart />
 
       {/* Burn Statistics */}
       {/* <BurnStatistics /> */}
 
-      {/* Bank Deposit Interface */}
-      <BankDeposit />
+      {/* Scrolling Banner */}
+      <BudjuParadeBanner />
 
-      {/* Bank Tokens */}
-      {/* <BankTokens /> */}
+      {/* Bank Introduction */}
+      <BankIntro />
 
       {/* Bank Transactions */}
-      {/* <BankTransactions /> */}
+      <BankTransactions />
+
+      {/* Bank Deposit Interface */}
+      {/* <BankDeposit /> */}
     </main>
   );
 };

@@ -1,3 +1,4 @@
+// src/features/shop/Shop.tsx
 import { useEffect, useState } from "react";
 import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
@@ -6,18 +7,16 @@ import Cart from "./components/Cart";
 import ProductCatalog from "./components/ProductCatalog";
 import ShopFaq from "./components/ShopFaq";
 import ShopHero from "./components/ShopHero";
+import { useTheme } from "@/context/ThemeContext"; // Added for theme support
 
 const Shop = () => {
+  const { isDarkMode } = useTheme(); // Added theme hook
   const [isCartOpen, setIsCartOpen] = useState(false);
 
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
-
-    // Set document title and metadata
     document.title = `Shop of ${APP_NAME} - Official Merchandise`;
 
-    // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
       metaDescription.setAttribute(
@@ -37,7 +36,7 @@ const Shop = () => {
     <ProductProvider>
       <main>
         {/* Hero Section */}
-        <ShopHero onCartClick={() => setIsCartOpen(true)} />
+        <ShopHero onCartClick={() => setIsCartOpen(true)} isDarkMode={isDarkMode} />
 
         {/* Scrolling Banner */}
         <BudjuParadeBanner />

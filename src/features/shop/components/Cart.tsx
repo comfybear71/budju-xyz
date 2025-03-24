@@ -207,7 +207,7 @@ const Cart = ({ isOpen, onClose }: CartProps) => {
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full p-4 text-center">
                       <img
-                        src="/images/logo.png"
+                        src="/images/logo.svg"
                         alt="Empty Cart"
                         className="w-32 h-32 opacity-30 mb-4"
                       />

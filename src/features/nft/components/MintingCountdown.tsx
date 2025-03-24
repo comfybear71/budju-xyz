@@ -1,43 +1,31 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import { NFT_TARGET_HOLDERS } from "@constants/addresses";
 import Button from "@components/common/Button";
 import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
+import { useTokenHolders } from "@/hooks/useTokenHolders";
 
 const MintingCountdown = () => {
   const { isDarkMode } = useTheme();
+  const { holders, loading } = useTokenHolders();
   const sectionRef = useRef<HTMLDivElement>(null);
   const counterRef = useRef<HTMLDivElement>(null);
-  const [currentHolders, setCurrentHolders] = useState(123); // Initial placeholder
+  const [currentHolders, setCurrentHolders] = useState<number | null>(null);
 
-  // Calculate percentage progress
-  const progress = Math.min(
-    100,
-    Math.round((currentHolders / NFT_TARGET_HOLDERS) * 100),
-  );
-  const holdersNeeded = NFT_TARGET_HOLDERS - currentHolders;
-
-  // Simulate fetching updated holder count
+  // Update currentHolders when holders data is available
   useEffect(() => {
-    const fetchHolderCount = async () => {
-      // In a real implementation, this would fetch data from blockchain API
-      // Simulating API call with random increase
-      const randomIncrease = Math.floor(Math.random() * 3) + 1;
-      setCurrentHolders((prev) =>
-        Math.min(prev + randomIncrease, NFT_TARGET_HOLDERS),
-      );
-    };
+    if (!loading && holders !== null) {
+      setCurrentHolders(holders);
+    }
+  }, [holders, loading]);
 
-    // Initial fetch
-    fetchHolderCount();
-
-    // Set up interval to update every 30 seconds
-    const intervalId = setInterval(fetchHolderCount, 30000);
-
-    return () => clearInterval(intervalId);
-  }, []);
+  // Calculate percentage progress, handling null case
+  const progress = currentHolders !== null
+    ? Math.min(100, Math.round((currentHolders / NFT_TARGET_HOLDERS) * 100))
+    : 0;
+  const holdersNeeded = currentHolders !== null ? NFT_TARGET_HOLDERS - currentHolders : NFT_TARGET_HOLDERS;
 
   // Progress bar animation
   useEffect(() => {
@@ -48,7 +36,6 @@ const MintingCountdown = () => {
         ease: "power2.out",
       });
 
-      // Celebration animation when target is reached
       if (progress >= 100 && sectionRef.current) {
         particleBurst(sectionRef.current, {
           count: 50,
@@ -80,7 +67,7 @@ const MintingCountdown = () => {
             className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
           >
             The BUDJU NFT Collection will be available for minting once we reach{" "}
-            {NFT_TARGET_HOLDERS} token holders. Join the community now to secure
+            {NFT_TARGET_HOLDERS.toLocaleString()} token holders. Join the community now to secure
             your chance to mint a unique BUDJU NFT!
           </p>
         </motion.div>
@@ -92,7 +79,7 @@ const MintingCountdown = () => {
             transition={{ duration: 0.6, delay: 0.2 }}
             className={
               isDarkMode
-                ? "budju-card p-8"
+                ? "bg-gray-800 border border-gray-700 rounded-xl p-8"
                 : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-8"
             }
           >
@@ -105,14 +92,17 @@ const MintingCountdown = () => {
                   Holders Progress
                 </span>
                 <span className="text-budju-blue font-bold">
-                  {currentHolders.toLocaleString()} /{" "}
-                  {NFT_TARGET_HOLDERS.toLocaleString()}
+                  {loading
+                    ? "Loading..."
+                    : currentHolders !== null
+                    ? `${currentHolders.toLocaleString()} / ${NFT_TARGET_HOLDERS.toLocaleString()}`
+                    : "N/A"}
                 </span>
               </div>
 
               {/* Progress Bar */}
               <div
-                className={`h-6 ${isDarkMode ? "bg-gray-800" : "bg-white/30"} rounded-full overflow-hidden mb-4`}
+                className={`h-6 ${isDarkMode ? "bg-gray-700" : "bg-white/30"} rounded-full overflow-hidden mb-4`}
               >
                 <div
                   className="progress-bar-fill h-full bg-gradient-to-r from-budju-pink to-budju-blue transition-all duration-1000 ease-out"
@@ -123,18 +113,33 @@ const MintingCountdown = () => {
               {/* Status Message */}
               {progress < 100 ? (
                 <div
-                  className={`${isDarkMode ? "bg-gray-800/70" : "bg-white/30"} rounded-lg p-4 mb-8`}
+                  className={`${isDarkMode ? "bg-gray-700/70" : "bg-white/30"} rounded-lg p-4 mb-8`}
                 >
                   <p
                     className={`${isDarkMode ? "text-white" : "text-budju-white"} text-lg mb-2`}
                   >
                     <span className="text-budju-pink font-bold">
-                      {holdersNeeded.toLocaleString()}
+                      {loading
+                        ? "Loading..."
+                        : holdersNeeded.toLocaleString()}
                     </span>{" "}
                     more holders needed to unlock NFT minting!
                   </p>
-                  <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
-                    Buy and hold BUDJU tokens to be counted toward the goal.
+                  <p className={isDarkMode ? "text-gray-300" : "text-white/80"}>
+                    Buy and hold BUDJU tokens to be counted toward LAUNCH EVENT 🚀.
+                  </p>
+                  <p className={isDarkMode ? "text-gray-300" : "text-white/80"}>
+                    NO NFT NO ENTRY 🛑 to BALI BUDJU PARTY 2025 @ LUNA BEACH CLUB{" "}
+                    <span className="text-3xl">➡</span>
+                    <a
+                      href="https://www.facebook.com/share/16CAy3AaYQ/?mibextid=wwXIfr"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-budju-pink hover:underline font-bold text-2xl"
+                    >
+                      EVENT
+                    </a>
+                    <span className="text-3xl">⬅</span>.
                   </p>
                 </div>
               ) : (
@@ -146,7 +151,7 @@ const MintingCountdown = () => {
                       NFT minting is now available!
                     </span>
                   </p>
-                  <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
+                  <p className={isDarkMode ? "text-gray-300" : "text-white/80"}>
                     Connect your wallet to mint your unique BUDJU NFT.
                   </p>
                 </div>
@@ -155,11 +160,11 @@ const MintingCountdown = () => {
               {/* Mint Details */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div
-                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-4 rounded-lg`}
+                  className={`${isDarkMode ? "bg-gray-700/50" : "bg-white/30"} p-4 rounded-lg`}
                 >
                   <div
                     className={
-                      isDarkMode ? "text-gray-400 mb-1" : "text-white/80 mb-1"
+                      isDarkMode ? "text-gray-300 mb-1" : "text-white/80 mb-1"
                     }
                   >
                     Mint Price
@@ -167,16 +172,16 @@ const MintingCountdown = () => {
                   <div
                     className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
                   >
-                    0.25 SOL
+                    $250 USDC
                   </div>
                 </div>
 
                 <div
-                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-4 rounded-lg`}
+                  className={`${isDarkMode ? "bg-gray-700/50" : "bg-white/30"} p-4 rounded-lg`}
                 >
                   <div
                     className={
-                      isDarkMode ? "text-gray-400 mb-1" : "text-white/80 mb-1"
+                      isDarkMode ? "text-gray-300 mb-1" : "text-white/80 mb-1"
                     }
                   >
                     Collection Size
@@ -184,16 +189,16 @@ const MintingCountdown = () => {
                   <div
                     className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
                   >
-                    5,000 NFTs
+                    200 NFTs
                   </div>
                 </div>
 
                 <div
-                  className={`${isDarkMode ? "bg-gray-800/50" : "bg-white/30"} p-4 rounded-lg`}
+                  className={`${isDarkMode ? "bg-gray-700/50" : "bg-white/30"} p-4 rounded-lg`}
                 >
                   <div
                     className={
-                      isDarkMode ? "text-gray-400 mb-1" : "text-white/80 mb-1"
+                      isDarkMode ? "text-gray-300 mb-1" : "text-white/80 mb-1"
                     }
                   >
                     Max Per Wallet
@@ -211,21 +216,23 @@ const MintingCountdown = () => {
                 <Button size="lg" disabled={progress < 100}>
                   {progress < 100 ? "Minting Coming Soon" : "Mint Now"}
                 </Button>
-
-                <Button
+                {/* <Button
                   variant="secondary"
                   size="lg"
                   as="link"
                   to="/how-to-buy"
                 >
                   Buy BUDJU Tokens
-                </Button>
+                </Button> */}
               </div>
+              <p className={`mt-4 ${isDarkMode ? "text-white" : "text-budju-white"}`}>
+                **Mint will take place on Magic Eden
+              </p>
             </div>
           </motion.div>
 
           <div
-            className={`text-center mt-6 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm`}
+            className={`text-center mt-6 ${isDarkMode ? "text-gray-300" : "text-white/80"} text-sm`}
           >
             Holder count updates in real-time from the Solana blockchain. All
             BUDJU token holders will have priority access to the NFT mint.

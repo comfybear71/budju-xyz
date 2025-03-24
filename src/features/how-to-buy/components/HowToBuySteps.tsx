@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import {
   FaWallet,
@@ -15,14 +15,15 @@ const steps = [
   {
     id: "create-wallet",
     icon: FaWallet,
-    title: "1. Create a wallet with Phantom or Jupiter",
+    title: "1. Create a wallet with Phantom, Jupiter or Solflare",
     description:
-      "Visit phantom.app or jupiter.ag and follow the simple steps to create a new account with the Phantom app, Jupiter app or browser extension.",
+      "Visit phantom.app, jupiter.ag or solflare.com and follow the simple steps to create a new account with the Phantom app, Jupiter app or browser extension.",
     image: "/images/how-to-buy/phantom-wallet.webp",
     color: "bg-blue-600",
     links: [
       { label: "Download Phantom", url: "https://phantom.app", external: true },
       { label: "Download Jupiter", url: "https://jup.ag", external: true },
+      { label: "Download Solflare", url: "https://www.solflare.com/", external: true },
     ],
   },
   {
@@ -66,7 +67,6 @@ const HowToBuySteps = () => {
     if (sectionRef.current && stepsRef.current) {
       const stepItems = stepsRef.current.querySelectorAll(".step-item");
 
-      // Add animation for each step item
       gsap.fromTo(
         stepItems,
         {
@@ -142,7 +142,7 @@ const HowToBuySteps = () => {
                 </p>
 
                 {step.links.length > 0 && (
-                  <div className="flex flex-wrap gap-3 pt-2">
+                  <div className="flex gap-2 pt-2">
                     {step.links.map((link, linkIndex) => (
                       <Button
                         key={linkIndex}
@@ -152,6 +152,15 @@ const HowToBuySteps = () => {
                         rel={link.external ? "noopener noreferrer" : undefined}
                         variant={linkIndex === 0 ? "primary" : "secondary"}
                         size="md"
+                        className={
+                          link.label === "Download Phantom"
+                            ? "bg-purple-300 hover:bg-purple-400 text-black"
+                            : link.label === "Download Jupiter"
+                            ? "bg-green-300 hover:bg-green-400 text-black"
+                            : link.label === "Download Solflare"
+                            ? "bg-yellow-500 hover:bg-yellow-600 text-black"
+                            : ""
+                        }
                       >
                         {link.label}
                       </Button>
@@ -160,7 +169,7 @@ const HowToBuySteps = () => {
                 )}
               </div>
 
-              {/* Step Image */}
+              {/* Step Image (Commented Out) */}
               {/* <div className="w-full md:w-1/2">
                 <div className={`${isDarkMode ? "bg-gray-800 border-gray-700" : "bg-white/20 border-white/30"} rounded-xl overflow-hidden shadow-budju-lg border transition-transform hover:scale-105 duration-500`}>
                   <img
@@ -181,7 +190,7 @@ const HowToBuySteps = () => {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center mt-16"
         >
-          <Button
+          {/* <Button
             as="a"
             href={DEX_LINK}
             target="_blank"
@@ -190,10 +199,10 @@ const HowToBuySteps = () => {
             className="animate-pulse"
           >
             BUY BUDJU NOW
-          </Button>
+          </Button> */}
 
           <p
-            className={isDarkMode ? "text-gray-400 mt-4" : "text-white/80 mt-4"}
+            className={isDarkMode ? "text-gray-400 mt-4 text-lg" : "text-white/80 mt-4 text-lg"}
           >
             Have questions? Join our{" "}
             <a

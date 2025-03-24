@@ -12,6 +12,7 @@ import { gsap } from "gsap";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { TOKEN_ADDRESS } from "@/constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
+// import WalletConnect from "@components/common/WalletConnect";
 
 const socialLinks = [
   {
@@ -94,32 +95,44 @@ const Footer = () => {
             <ul className="space-y-1 text-xs md:text-sm">
               <li>
                 <Link
-                  to="/nft"
+                  to="/swap"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
-                  NFT Collection
+                  Swap
                 </Link>
               </li>
               <li>
-                <Link
-                  to="/how-to-buy"
-                  className={`${
-                    isDarkMode ? "text-gray-400" : "text-gray-300"
-                  } hover:text-budju-blue transition duration-300`}
-                >
-                  How To Buy
-                </Link>
-              </li>
-              <li>
-                <Link
-                  to="/shop"
+                <a
+                  href="https://shop.budjucoin.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
                   Shop of BUDJU
+                </a>
+              </li>
+              <li>
+                <Link
+                  to="/bank"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  Bank of BUDJU
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/pool"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  Pool of BUDJU
                 </Link>
               </li>
               <li>
@@ -134,12 +147,32 @@ const Footer = () => {
               </li>
               <li>
                 <Link
-                  to="/bank"
+                  to="/burn"
                   className={`${
                     isDarkMode ? "text-gray-400" : "text-gray-300"
                   } hover:text-budju-blue transition duration-300`}
                 >
-                  Bank of BUDJU
+                  Burn Statistics
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/nft"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  NFT's
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/how-to-buy"
+                  className={`${
+                    isDarkMode ? "text-gray-400" : "text-gray-300"
+                  } hover:text-budju-blue transition duration-300`}
+                >
+                  How To Buy
                 </Link>
               </li>
               <li>
@@ -214,32 +247,9 @@ const Footer = () => {
                   1,000,000,000 BUDJU
                 </p>
               </div>
-              <div className="pt-2">
-                <a
-                  href="https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`inline-block group relative font-bold text-xs md:text-lg py-1 md:py-2 px-4 md:px-8 rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 hover:shadow-xl cursor-pointer ${
-                    isDarkMode
-                      ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white border-gray-600/20"
-                      : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white border-white/20"
-                  } border-2 active:scale-95 active:shadow-md`}
-                  style={{ textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.transform = "scale(1.05)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.transform = "scale(1)")
-                  }
-                >
-                  <span
-                    className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
-                      isDarkMode ? "0.2" : "0.3"
-                    })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-                  />
-                  BUY BUDJU
-                </a>
-              </div>
+              {/* <div className="pt-2">
+                <WalletConnect size="lg" />
+              </div> */}
             </div>
           </div>
         </div>

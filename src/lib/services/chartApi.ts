@@ -1,4 +1,4 @@
-import { RPC_ENDPOINT } from "@constants/addresses";
+// import { RPC_ENDPOINT } from "@constants/addresses";
 
 export interface CandlestickData {
   time: number; // Unix timestamp in seconds
@@ -218,22 +218,22 @@ export const getChartData = async (
 /**
  * Convert timeframe to seconds
  */
-const getTimeframeSeconds = (timeframe: string): number => {
-  switch (timeframe) {
-    case "15m":
-      return 15 * 60;
-    case "1H":
-      return 60 * 60;
-    case "4H":
-      return 4 * 60 * 60;
-    case "1D":
-      return 24 * 60 * 60;
-    case "1W":
-      return 7 * 24 * 60 * 60;
-    default:
-      return 24 * 60 * 60; // Default to 1 day
-  }
-};
+// const getTimeframeSeconds = (timeframe: string): number => {
+//   switch (timeframe) {
+//     case "15m":
+//       return 15 * 60;
+//     case "1H":
+//       return 60 * 60;
+//     case "4H":
+//       return 4 * 60 * 60;
+//     case "1D":
+//       return 24 * 60 * 60;
+//     case "1W":
+//       return 7 * 24 * 60 * 60;
+//     default:
+//       return 24 * 60 * 60; // Default to 1 day
+//   }
+// };
 
 /**
  * Convert timeframe to days for sample data

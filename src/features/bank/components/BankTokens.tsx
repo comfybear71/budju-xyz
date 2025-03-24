@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { motion } from "framer-motion"; // Corrected import from your code
 import { gsap } from "gsap";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -22,16 +22,6 @@ const connection = new Connection(HELIUS_RPC_ENDPOINT, {
   commitment: "confirmed",
   confirmTransactionInitialTimeout: 60000,
 });
-
-// TokenHolding interface
-interface TokenHolding {
-  name: string;
-  symbol: string;
-  logo: string;
-  amount: number;
-  value: number;
-  color: string;
-}
 
 // Simple in-memory cache
 const cache: Record<string, { data: any; expiry: number }> = {};
@@ -117,7 +107,7 @@ async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   }
 }
 
-// Fetch token metadata dynamically using Helius
+// Fetch token metadata dynamically using Helius (for SPL tokens)
 async function fetchTokenMetadata(tokenAddress: string): Promise<{
   name: string;
   symbol: string;
@@ -147,7 +137,7 @@ async function fetchTokenMetadata(tokenAddress: string): Promise<{
       name: tokenData.name || "Unknown Token",
       symbol: tokenData.symbol || "UNKNOWN",
       logo: data.result?.content?.links?.image || "/images/tokens/default.png",
-      color: "bg-gray-500", // Default color; can be mapped based on symbol
+      color: "bg-gray-500", // Default; can be customized
     };
     setCachedData(cacheKey, metadata, 60 * 60 * 1000); // Cache for 1 hour
     return metadata;
@@ -162,7 +152,25 @@ async function fetchTokenMetadata(tokenAddress: string): Promise<{
   }
 }
 
-// Fetch bank holdings for BANK_OF_BUDJU_ADDRESS
+// Static metadata for SOL
+const SOL_METADATA = {
+  name: "Solana",
+  symbol: "SOL",
+  logo: "https://cryptologos.cc/logos/solana-sol-logo.png", // Public SOL logo
+  color: "bg-purple-500",
+};
+
+// TokenHolding interface
+interface TokenHolding {
+  name: string;
+  symbol: string;
+  logo: string;
+  amount: number;
+  value: number;
+  color: string;
+}
+
+// Fetch bank holdings including SOL
 async function fetchBankHoldings(): Promise<TokenHolding[]> {
   const cacheKey = `bank_holdings_${BANK_OF_BUDJU_ADDRESS}`;
   const cachedHoldings = getCachedData(cacheKey);
@@ -171,34 +179,40 @@ async function fetchBankHoldings(): Promise<TokenHolding[]> {
   }
 
   try {
-    // Fetch all token accounts owned by BANK_OF_BUDJU_ADDRESS
     const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
+
+    // Fetch SOL balance
+    const solBalanceLamports = await connection.getBalance(bankPublicKey);
+    const solAmount = solBalanceLamports / 1e9; // Convert lamports to SOL
+    const solPrice = await fetchTokenPrice(
+      "So11111111111111111111111111111111111111112",
+    ); // SOL mint address
+    const solHolding: TokenHolding = {
+      ...SOL_METADATA,
+      amount: solAmount,
+      value: solAmount * solPrice,
+    };
+
+    // Fetch SPL token accounts
     const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
       bankPublicKey,
-      {
-        programId: TOKEN_PROGRAM_ID,
-      },
+      { programId: TOKEN_PROGRAM_ID },
     );
 
-    // Process each token account in batches
-    const holdings: TokenHolding[] = [];
+    const holdings: TokenHolding[] = [solHolding]; // Start with SOL
     const fetchPromises = tokenAccounts.value.map(async (account) => {
       const parsedInfo = account.account.data.parsed.info;
       const tokenAddress = parsedInfo.mint;
       const amount = parsedInfo.tokenAmount.uiAmount || 0;
 
-      // Skip negligible amounts
-      if (amount < 0.0001) return;
+      if (amount < 0.0001) return; // Skip negligible amounts
 
-      // Fetch token price and metadata in parallel
       const [price, metadata] = await Promise.all([
         fetchTokenPrice(tokenAddress),
         fetchTokenMetadata(tokenAddress),
       ]);
 
       const value = amount * price;
-
-      // Only include holdings with a positive value
       if (value > 0) {
         holdings.push({
           name: metadata.name,
@@ -211,10 +225,8 @@ async function fetchBankHoldings(): Promise<TokenHolding[]> {
       }
     });
 
-    // Wait for all fetches to complete
     await Promise.all(fetchPromises);
 
-    // Sort by value (descending)
     const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
     setCachedData(cacheKey, sortedHoldings, 10 * 60 * 1000); // Cache for 10 minutes
     return sortedHoldings;
@@ -233,7 +245,6 @@ const BankTokens = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch bank holdings on component mount
   useEffect(() => {
     const loadBankHoldings = async () => {
       try {
@@ -251,7 +262,6 @@ const BankTokens = () => {
     loadBankHoldings();
   }, []);
 
-  // GSAP animations
   useEffect(() => {
     if (sectionRef.current && cardsRef.current && tokenHoldings.length > 0) {
       const cards = cardsRef.current.querySelectorAll(".token-card");
@@ -290,7 +300,6 @@ const BankTokens = () => {
     }
   }, [tokenHoldings]);
 
-  // Calculate total bank value
   const totalBankValue = tokenHoldings.reduce(
     (sum, token) => sum + token.value,
     0,
@@ -299,7 +308,7 @@ const BankTokens = () => {
   return (
     <section
       ref={sectionRef}
-      className={`py-10 ${isDarkMode ? "bg-[#0a0a0a]" : "bg-gradient-to-b from-purple-400 to-budju-pink-light"} text-white`}
+      className={`py-10 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"} text-white`}
     >
       <div className="max-w-5xl mx-auto px-4">
         <motion.div
@@ -316,7 +325,6 @@ const BankTokens = () => {
           </p>
         </motion.div>
 
-        {/* Total Value */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -341,7 +349,6 @@ const BankTokens = () => {
           </div>
         </motion.div>
 
-        {/* Loading/Error State */}
         {loading && (
           <div
             className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
@@ -373,19 +380,15 @@ const BankTokens = () => {
           </div>
         )}
 
-        {/* Token Cards */}
         {!loading && !error && tokenHoldings.length > 0 && (
           <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {tokenHoldings.map((token, _) => (
+            {tokenHoldings.map((token) => (
               <div
                 key={token.symbol + token.name}
                 className={`token-card ${isDarkMode ? "bg-[#1a1a1a]" : "bg-white/20 border border-white/30"} rounded-lg shadow-md overflow-hidden`}
               >
-                {/* Top colored bar */}
                 <div className={`h-2 ${token.color}`}></div>
-
                 <div className="p-4">
-                  {/* Token header */}
                   <div className="flex items-center mb-4">
                     <img
                       src={token.logo}
@@ -410,8 +413,6 @@ const BankTokens = () => {
                       </div>
                     </div>
                   </div>
-
-                  {/* Token amount */}
                   <div className="mb-2">
                     <div
                       className={
@@ -429,8 +430,6 @@ const BankTokens = () => {
                       })}
                     </div>
                   </div>
-
-                  {/* Token value */}
                   <div className="mb-2">
                     <div
                       className={
@@ -449,8 +448,6 @@ const BankTokens = () => {
                       })}
                     </div>
                   </div>
-
-                  {/* Percentage of total */}
                   <div>
                     <div
                       className={
@@ -465,8 +462,6 @@ const BankTokens = () => {
                       {((token.value / totalBankValue) * 100).toFixed(1)}%
                     </div>
                   </div>
-
-                  {/* Progress bar */}
                   <div
                     className={`mt-2 h-2 ${isDarkMode ? "bg-gray-700" : "bg-white/30"} rounded-full overflow-hidden`}
                   >
@@ -483,7 +478,6 @@ const BankTokens = () => {
           </div>
         )}
 
-        {/* Fallback if no holdings */}
         {!loading && !error && tokenHoldings.length === 0 && (
           <div
             className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
