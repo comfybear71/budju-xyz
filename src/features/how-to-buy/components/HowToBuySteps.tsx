@@ -89,7 +89,7 @@ const steps: {
       "Congratulations! You now hold BUDJU tokens in your wallet. Welcome to the parade - enjoy the ride!",
     image: "/images/how-to-buy/holder.webp",
     color: "bg-green-600",
-    links: [{ label: "BUY BUDJU", url: DEX_LINK, external: true }],
+    links: [{ label: "BUY BUDJU", url: DEX_LINK, external: false }],
   },
 ];
 
@@ -172,7 +172,7 @@ const HowToBuySteps = () => {
                   {step.description}
                 </p>
                 {step.links.length > 0 && (
-                  <div className="flex gap-4 pt-2">
+                  <div className="flex flex-col gap-4 pt-2 md:flex-row">
                     {step.links.map((link, linkIndex) => (
                       <Button
                         key={linkIndex}
@@ -182,7 +182,7 @@ const HowToBuySteps = () => {
                         rel={link.external ? "noopener noreferrer" : undefined}
                         variant={linkIndex === 0 ? "primary" : "secondary"}
                         size="md"
-                        className={`flex-1 ${
+                        className={`w-full md:flex-1 ${
                           link.label === "Phantom"
                             ? "bg-gradient-to-br from-purple-300 to-purple-900"
                             : link.label === "Jupiter"

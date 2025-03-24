@@ -17,7 +17,7 @@ export const BANK_ADDRESS =
 
 // Platform links
 export const DEX_LINK =
-  "https://ape.pro/solana/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
+  "https://budjucoin.com/swap";
 export const SOLSCAN_LINK =
   "https://solscan.io/token/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 export const DEXSCREENER_LINK =
@@ -44,3 +44,11 @@ export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
 // Pool addresses
 export const POOL_SOL_BUDJU = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
 export const POOL_USDC_BUDJU = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";
+
+//Referral link
+export const REFERRAL_LINKS = {
+  SWYFTX: "https://trade.swyftx.com/register/?promoRef=rf_LFGXdRrCyKR3CdDmcuTHEw",
+  COINBASE: "https://coinbase.com/join/6JNXAB8?src=ios-link",
+  COINSPOT: "https://www.coinspot.com.au/join/REFCCB6ME",
+  TOKOCRYPTO: "https://www.tokocrypto.com/account/signup?ref=A2749149",
+};
