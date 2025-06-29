@@ -7,6 +7,7 @@ import ShopOfBudjus from "./components/ShopOfBudjusPreview";
 import NFTShowcase from "./components/NFTShowcase";
 import JoinParade from "./components/JoinParade";
 import RoadMap from "./components/RoadMap";
+import TraderPlatform from "./components/TraderPlatform";
 // import HowToBuyPreview from "./components/HowToBuyPreview";
 import TokenStats from "@components/common/TokenStats";
 // import MarketMakerPreview from "./components/MarketMakerPreview";
@@ -69,6 +70,9 @@ const Home = () => {
 
       {/* Join Parade Section */}
       <JoinParade />
+
+      {/* Trader Platform Section */}
+      <TraderPlatform />
 
       {/* How To Buy Preview */}
       {/* <HowToBuyPreview /> */}
