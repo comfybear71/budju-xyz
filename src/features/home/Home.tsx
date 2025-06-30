@@ -56,6 +56,9 @@ const Home = () => {
       {/* Hero Section */}
       <Hero />
 
+      {/* Trader Platform Section */}
+      <TraderPlatform />
+
       {/* Token Stats */}
       <TokenStats />
 
@@ -70,9 +73,6 @@ const Home = () => {
 
       {/* Join Parade Section */}
       <JoinParade />
-
-      {/* Trader Platform Section */}
-      <TraderPlatform />
 
       {/* How To Buy Preview */}
       {/* <HowToBuyPreview /> */}
