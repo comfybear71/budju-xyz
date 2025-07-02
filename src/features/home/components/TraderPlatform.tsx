@@ -16,72 +16,106 @@ const TraderPlatform = () => {
                   isDarkMode ? "text-gray-200" : "text-white"
                 }`}
               >
-                BUDJU TRADER
+                BUDJU BOT TRADER
               </h2>
               <div className="text-3xl md:text-5xl lg:text-6xl text-budju-pink font-bold">
                 DCA BOT
               </div>
             </div>
-            
+
             <p
               className={`text-xl md:text-2xl ${
                 isDarkMode ? "text-gray-400" : "text-gray-300"
               } max-w-3xl mx-auto`}
             >
-              Automate your crypto investing with our smart Dollar Cost Averaging Bot!
+              Automate your crypto investing with our smart Dollar Cost
+              Averaging Bot!
               <br />
               <span className="text-budju-blue font-semibold">
                 Set it, forget it, and build wealth consistently over time.
               </span>
             </p>
 
-            <div className={`mt-6 p-4 rounded-lg border-2 border-budju-pink bg-gradient-to-r ${isDarkMode ? 'from-budju-pink/10 to-budju-pink-dark/10' : 'from-budju-pink/20 to-budju-pink-dark/20'} backdrop-blur-sm`}>
+            <div
+              className={`mt-6 p-4 rounded-lg border-2 border-budju-pink bg-gradient-to-r ${isDarkMode ? "from-budju-pink/10 to-budju-pink-dark/10" : "from-budju-pink/20 to-budju-pink-dark/20"} backdrop-blur-sm`}
+            >
               <div className="flex items-center justify-center space-x-2">
                 <span className="text-2xl">🎟️</span>
-                <p className={`text-lg font-bold ${isDarkMode ? 'text-gray-200' : 'text-white'}`}>
-                  <span className="text-budju-pink">Exclusive Access:</span> Hold 1M BUDJU coins to unlock DCA Bot
+                <p
+                  className={`text-lg font-bold ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                >
+                  <span className="text-budju-pink">Exclusive Access:</span>{" "}
+                  Hold 1M BUDJU coins to unlock DCA Bot
                 </p>
               </div>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto mt-12">
-              <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-white/10'} backdrop-blur-sm`}>
+              <div
+                className={`p-6 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/10"} backdrop-blur-sm`}
+              >
                 <div className="text-budju-pink text-2xl mb-2">🛠️</div>
-                <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-white'}`}>
+                <h3
+                  className={`text-xl font-bold mb-2 ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                >
                   Automate Like a Pro
                 </h3>
-                <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-300'}`}>
-                  Set your strategy and let our DCA Bot buy crypto for you on autopilot!
+                <p
+                  className={`${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
+                >
+                  Set your strategy and let our DCA Bot buy crypto for you on
+                  autopilot!
                 </p>
               </div>
 
-              <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-white/10'} backdrop-blur-sm`}>
+              <div
+                className={`p-6 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/10"} backdrop-blur-sm`}
+              >
                 <div className="text-budju-pink text-2xl mb-2">📈</div>
-                <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-white'}`}>
+                <h3
+                  className={`text-xl font-bold mb-2 ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                >
                   Ride the Dips
                 </h3>
-                <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-300'}`}>
-                  Grab coins when prices are low and watch your portfolio grow as markets bounce back!
+                <p
+                  className={`${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
+                >
+                  Grab coins when prices are low and watch your portfolio grow
+                  as markets bounce back!
                 </p>
               </div>
 
-              <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-white/10'} backdrop-blur-sm`}>
+              <div
+                className={`p-6 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/10"} backdrop-blur-sm`}
+              >
                 <div className="text-budju-pink text-2xl mb-2">💡</div>
-                <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-white'}`}>
+                <h3
+                  className={`text-xl font-bold mb-2 ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                >
                   Smart Investing
                 </h3>
-                <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-300'}`}>
-                  DCA takes the emotion out of trading—no FOMO, no panic, just consistent gains!
+                <p
+                  className={`${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
+                >
+                  DCA takes the emotion out of trading—no FOMO, no panic, just
+                  consistent gains!
                 </p>
               </div>
 
-              <div className={`p-6 rounded-lg ${isDarkMode ? 'bg-gray-800/50' : 'bg-white/10'} backdrop-blur-sm`}>
+              <div
+                className={`p-6 rounded-lg ${isDarkMode ? "bg-gray-800/50" : "bg-white/10"} backdrop-blur-sm`}
+              >
                 <div className="text-budju-pink text-2xl mb-2">😄</div>
-                <h3 className={`text-xl font-bold mb-2 ${isDarkMode ? 'text-gray-200' : 'text-white'}`}>
+                <h3
+                  className={`text-xl font-bold mb-2 ${isDarkMode ? "text-gray-200" : "text-white"}`}
+                >
                   Easy-Peasy
                 </h3>
-                <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-300'}`}>
-                  User-friendly platform perfect for crypto newbies and seasoned traders alike!
+                <p
+                  className={`${isDarkMode ? "text-gray-400" : "text-gray-300"}`}
+                >
+                  User-friendly platform perfect for crypto newbies and seasoned
+                  traders alike!
                 </p>
               </div>
             </div>
