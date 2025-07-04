@@ -184,7 +184,7 @@ async function fetchBirdEyeData(
     );
     const data = await response.json();
     return {
-      price: Number(data.data?.price || 0),
+      price: Number(data.data?.value || 0),
       volume24h: Number(data.data?.volume || 0),
     };
   } catch (error) {
