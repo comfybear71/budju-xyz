@@ -17,7 +17,7 @@ const BIRDEYE_HOLDERS_API =
 
 // Validate API keys
 if (!HELIUS_API_KEY || !BIRDEYE_API_KEY) {
-  throw new Error("Missing API keys for Helius or BirdEye");
+  console.warn("Missing API keys for Helius or BirdEye - some features may not work");
 }
 
 // Token and wallet addresses
@@ -137,31 +137,20 @@ async function retryFetch(
   throw new Error("Unexpected error in retryFetch");
 }
 
-// Fetch token price
+// Fetch token price using only BirdEye API
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   const cacheKey = `price_${tokenAddress}`;
   const cachedPrice = getCachedData(cacheKey);
   if (cachedPrice !== null) return cachedPrice;
 
   try {
-    const response = await retryFetch(
-      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
-      { headers: { Accept: "application/json" } },
-    );
-    const data = await response.json();
-    let price = Number(data.data[tokenAddress]?.price || 0);
-    if (!isNaN(price) && price > 0) {
-      setCachedData(cacheKey, price, 5 * 60 * 1000);
-      return price;
-    }
-
     const birdEyeData = await fetchBirdEyeData(tokenAddress);
     if (birdEyeData.price > 0) {
       setCachedData(cacheKey, birdEyeData.price, 5 * 60 * 1000);
       return birdEyeData.price;
     }
 
-    throw new Error("All price sources failed");
+    throw new Error("BirdEye price fetch failed");
   } catch (error) {
     console.error("Error fetching token price:", error);
     return 0;
