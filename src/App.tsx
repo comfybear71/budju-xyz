@@ -58,7 +58,7 @@ const App = () => {
           <Suspense fallback={<LoadingFallback />}>
             <Layout>
               <Routes>
-                <Route path="/" element={<Home />} />
+                {/* <Route path="/" element={<Home />} />
                 <Route path="/nft" element={<NFT />} />
                 <Route path="/how-to-buy" element={<HowToBuy />} />
                 <Route path="/pool" element={<Pool />} />
@@ -66,9 +66,9 @@ const App = () => {
                 <Route path="/tokenomics" element={<Tokenomics />} />
                 <Route path="/bank" element={<Bank />} />
                 <Route path="/burn" element={<Burn />} />
-                <Route path="/swap" element={<Swap />} />{" "}
+                <Route path="/swap" element={<Swap />} />{" "} */}
                 {/* Added Swap route */}
-                <Route path="*" element={<NotFound />} />
+                <Route path="/" element={<NotFound />} />
               </Routes>
             </Layout>
           </Suspense>
