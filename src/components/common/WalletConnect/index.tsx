@@ -197,7 +197,7 @@ const WalletConnect = ({
     }
 
     if (isMobile && !inAppBrowser) {
-      const targetUrl = `${window.location.origin}/swap`;
+      const targetUrl = window.location.href;
       const refUrl = window.location.origin;
       let deepLink = "";
       if (walletName === "phantom") {
@@ -390,6 +390,7 @@ const WalletConnect = ({
                   src={walletConfig[wallet as WalletName].logo}
                   alt={walletConfig[wallet as WalletName].name}
                   className="w-8 h-8 mr-3"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
                 <span className={isDarkMode ? "text-white" : "text-gray-900"}>
                   {walletConfig[wallet as WalletName].name}
@@ -492,6 +493,7 @@ const WalletConnect = ({
               src={walletConfig[connection.wallet?.name || "other"].logo}
               alt="Wallet"
               className="w-5 h-5"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
             />
             <span className="font-mono">
               {walletService.formatAddress(connection.wallet?.address || "")}
@@ -544,6 +546,7 @@ const WalletConnect = ({
                       }
                       alt="Wallet"
                       className="w-6 h-6 mr-2"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                     <span
                       className={isDarkMode ? "text-white" : "text-gray-900"}
@@ -666,13 +669,14 @@ const WalletConnect = ({
                             <img
                               src={
                                 token.symbol === "BUDJU"
-                                  ? "/images/logo.svg"
+                                  ? "/images/tokens/budju.png"
                                   : token.symbol === "USDC"
                                     ? "/images/tokens/usdc.png"
-                                    : "/images/tokens/default.png"
+                                    : "/images/tokens/sol.png"
                               }
                               alt={token.symbol}
                               className="w-5 h-5 mr-2"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                             />
                             <span
                               className={
