@@ -137,20 +137,57 @@ async function retryFetch(
   throw new Error("Unexpected error in retryFetch");
 }
 
-// Fetch token price using only BirdEye API
+// Fetch price and volume data from DexScreener (no API key required)
+async function fetchDexScreenerData(
+  tokenAddress: string,
+): Promise<{ price: number; volume24h: number; priceChange24h: number }> {
+  try {
+    const response = await retryFetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
+      { headers: {} },
+    );
+    const data = await response.json();
+    if (data.pairs && data.pairs.length > 0) {
+      // Sort by liquidity to get the most liquid pair
+      const pair = [...data.pairs].sort(
+        (a: any, b: any) =>
+          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0),
+      )[0];
+      return {
+        price: parseFloat(pair.priceUsd || "0"),
+        volume24h: pair.volume?.h24 || 0,
+        priceChange24h: pair.priceChange?.h24 || 0,
+      };
+    }
+    return { price: 0, volume24h: 0, priceChange24h: 0 };
+  } catch (error) {
+    console.error("Error fetching DexScreener data:", error);
+    return { price: 0, volume24h: 0, priceChange24h: 0 };
+  }
+}
+
+// Fetch token price - tries DexScreener first (free, no key required), then BirdEye
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   const cacheKey = `price_${tokenAddress}`;
   const cachedPrice = getCachedData(cacheKey);
   if (cachedPrice !== null) return cachedPrice;
 
   try {
+    // Try DexScreener first - free, no API key required
+    const dexData = await fetchDexScreenerData(tokenAddress);
+    if (dexData.price > 0) {
+      setCachedData(cacheKey, dexData.price, 5 * 60 * 1000);
+      return dexData.price;
+    }
+
+    // Fallback to BirdEye if API key is available
     const birdEyeData = await fetchBirdEyeData(tokenAddress);
     if (birdEyeData.price > 0) {
       setCachedData(cacheKey, birdEyeData.price, 5 * 60 * 1000);
       return birdEyeData.price;
     }
 
-    throw new Error("BirdEye price fetch failed");
+    throw new Error("All price sources failed");
   } catch (error) {
     console.error("Error fetching token price:", error);
     return 0;
@@ -307,13 +344,18 @@ export async function fetchHeliusTokenMetrics(
   try {
     const results = await Promise.allSettled([
       fetchTokenPrice(tokenAddress),
+      fetchDexScreenerData(tokenAddress),
       fetchBirdEyeData(tokenAddress),
       fetchTokenSupplyAndBalances(tokenAddress, burnAddress),
       fetchTokenHolders(tokenAddress),
     ]);
 
-    const [priceResult, birdEyeResult, supplyResult, holdersResult] = results;
+    const [priceResult, dexScreenerResult, birdEyeResult, supplyResult, holdersResult] = results;
     const price = priceResult.status === "fulfilled" ? priceResult.value : 0;
+    const dexScreenerData =
+      dexScreenerResult.status === "fulfilled"
+        ? dexScreenerResult.value
+        : { price: 0, volume24h: 0, priceChange24h: 0 };
     const birdEyeData =
       birdEyeResult.status === "fulfilled"
         ? birdEyeResult.value
@@ -332,12 +374,17 @@ export async function fetchHeliusTokenMetrics(
     const holders =
       holdersResult.status === "fulfilled" ? holdersResult.value : [];
 
+    // Use DexScreener volume if available (free), else fall back to BirdEye
+    const volume24h = dexScreenerData.volume24h > 0
+      ? dexScreenerData.volume24h
+      : birdEyeData.volume24h;
+
     const circulatingSupply = supplyData.totalSupply - supplyData.burned;
     return {
       price,
       marketCap: price * circulatingSupply,
       holders: holders.length,
-      volume24h: birdEyeData.volume24h,
+      volume24h,
       totalSupply: supplyData.totalSupply,
       burned: supplyData.burned,
       raydiumVault: supplyData.raydiumVault,
@@ -509,21 +556,27 @@ async function processBurnTransactions(
   try {
     if (signatures.length === 0) return [];
     const signatureStrings = signatures.map((sig) => sig.signature);
-    const response = await fetch(HELIUS_RPC_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "batch-tx-details",
-        method: "getTransactions",
-        params: [
-          signatureStrings,
-          { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
-        ],
-      }),
-    });
-    const data = await response.json();
-    const transactions = data.result?.transactions || [];
+
+    // Fetch transactions individually using the standard getTransaction RPC method
+    const txRequests = signatureStrings.map((sig, i) => ({
+      jsonrpc: "2.0",
+      id: `tx-${i}`,
+      method: "getTransaction",
+      params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }],
+    }));
+
+    const responses = await Promise.all(
+      txRequests.map((req) =>
+        fetch(HELIUS_RPC_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req),
+        })
+          .then((r) => r.json())
+          .catch(() => ({ result: null })),
+      ),
+    );
+    const transactions = responses.map((r) => r.result);
     const price = await fetchTokenPrice(tokenAddress);
     const burnEvents: BurnEvent[] = [];
 
