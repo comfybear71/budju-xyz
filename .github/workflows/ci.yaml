@@ -2,7 +2,7 @@ name: Deploy to Vercel
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, claude/restore-solana-website-BgXcP ]
 
 jobs:
   deploy:
