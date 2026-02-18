@@ -256,11 +256,28 @@ const TokenStats = () => {
           </motion.div>
         </div>
 
+        {/* DexScreener Chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.5 }}
+          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 overflow-hidden`}
+        >
+          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+            <iframe
+              src="https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez?embed=1&theme=dark&chartTheme=dark&chartType=usd&interval=15&trades=0&info=0"
+              className="absolute top-0 left-0 w-full h-full"
+              title="BUDJU Price Chart"
+              frameBorder="0"
+            />
+          </div>
+        </motion.div>
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
-          className={`mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
+          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
         >
           <h3 className="text-xl font-semibold mb-4 text-center">
             <span className={isDarkMode ? "text-gray-200" : "text-white"}>
@@ -298,7 +315,7 @@ const TokenStats = () => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
-          className={`mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
+          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
