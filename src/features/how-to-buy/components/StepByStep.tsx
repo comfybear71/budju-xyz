@@ -2,10 +2,10 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTheme } from "@/context/ThemeContext";
 import { REFERRAL_LINKS } from "@constants/addresses";
-import swyftxLogo from "@/assets/images/how-to-buy/swyftx-logo.png";
-import coinbaseLogo from "@/assets/images/how-to-buy/coinbase-logo.png";
-import coinspotLogo from "@/assets/images/how-to-buy/coinspot-logo.png";
-import tokocryptoLogo from "@/assets/images/how-to-buy/tokocrypto-logo.png";
+const swyftxLogo = "/images/how-to-buy/swyftx-logo.png";
+const coinbaseLogo = "/images/how-to-buy/coinbase-logo.png";
+const coinspotLogo = "/images/how-to-buy/coinspot-logo.png";
+const tokocryptoLogo = "/images/how-to-buy/tokocrypto-logo.png";
 
 const tabs = [
   { name: "Swyftx", logo: swyftxLogo },

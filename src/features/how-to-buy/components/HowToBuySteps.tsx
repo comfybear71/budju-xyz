@@ -10,9 +10,9 @@ import {
 import Button from "@components/common/Button";
 import { DEX_LINK } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
-import phantomLogo from "@/assets/images/how-to-buy/phantom-logo.png";
-import jupiterLogo from "@/assets/images/how-to-buy/jupiter-logo.png";
-import solflareLogo from "@/assets/images/how-to-buy/solflare-logo.png";
+const phantomLogo = "/images/how-to-buy/phantom-logo.png";
+const jupiterLogo = "/images/how-to-buy/jupiter-logo.png";
+const solflareLogo = "/images/how-to-buy/solflare-logo.png";
 import { ReactElement } from "react";
 
 interface Link {
