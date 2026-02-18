@@ -3,21 +3,15 @@ import {
   PublicKey,
   ParsedTransactionWithMeta,
 } from "@solana/web3.js";
-import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const BIRDEYE_API_KEY = import.meta.env.VITE_BIRDEYE_API_KEY || "";
+const CRYPTOCOMPARE_API_KEY = import.meta.env.VITE_CRYPTOCOMPARE_API_KEY || "";
 const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const BIRDEYE_API_ENDPOINT = "https://public-api.birdeye.so/defi/price";
-const BIRDEYE_HISTORICAL_API =
-  "https://public-api.birdeye.so/defi/history_price";
-const BIRDEYE_HOLDERS_API =
-  "https://public-api.birdeye.so/defi/token_holder_list";
 
-// Validate API keys
-if (!HELIUS_API_KEY || !BIRDEYE_API_KEY) {
-  console.warn("Missing API keys for Helius or BirdEye - some features may not work");
+if (!HELIUS_API_KEY) {
+  console.warn("Missing HELIUS_API_KEY - holders count will not be available");
 }
 
 // Token and wallet addresses
@@ -75,12 +69,6 @@ interface BurnEvent {
   txHash: string;
   value: number;
   timestamp?: number;
-}
-
-interface Holder {
-  owner: string;
-  amount: number;
-  percentage: number;
 }
 
 // Simple in-memory cache
@@ -240,173 +228,22 @@ async function fetchHolderCount(tokenAddress: string): Promise<number> {
   }
 }
 
-// Fetch token price - tries DexScreener first (free, no key required), then BirdEye
+// Fetch token price from DexScreener (free, no key required)
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   const cacheKey = `price_${tokenAddress}`;
   const cachedPrice = getCachedData(cacheKey);
   if (cachedPrice !== null) return cachedPrice;
 
   try {
-    // Try DexScreener first - free, no API key required
     const dexData = await fetchDexScreenerData(tokenAddress);
     if (dexData.price > 0) {
       setCachedData(cacheKey, dexData.price, 5 * 60 * 1000);
       return dexData.price;
     }
-
-    // Fallback to BirdEye if API key is available
-    const birdEyeData = await fetchBirdEyeData(tokenAddress);
-    if (birdEyeData.price > 0) {
-      setCachedData(cacheKey, birdEyeData.price, 5 * 60 * 1000);
-      return birdEyeData.price;
-    }
-
-    throw new Error("All price sources failed");
+    return 0;
   } catch (error) {
     console.error("Error fetching token price:", error);
     return 0;
-  }
-}
-
-// Fetch BirdEye data
-async function fetchBirdEyeData(
-  tokenAddress: string,
-): Promise<{ price: number; volume24h: number }> {
-  try {
-    const response = await retryFetch(
-      `${BIRDEYE_API_ENDPOINT}?address=${tokenAddress}`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          "x-chain": "solana",
-        },
-      },
-    );
-    const data = await response.json();
-    return {
-      price: Number(data.data?.value || 0),
-      volume24h: Number(data.data?.volume || 0),
-    };
-  } catch (error) {
-    console.error("Error fetching BirdEye data:", error);
-    return { price: 0, volume24h: 0 };
-  }
-}
-
-// Fetch token holders
-async function fetchTokenHolders(tokenAddress: string): Promise<Holder[]> {
-  const cacheKey = `holders_${tokenAddress}`;
-  const cachedHolders = getCachedData(cacheKey);
-  if (cachedHolders !== null) return cachedHolders;
-
-  try {
-    const response = await retryFetch(
-      `${BIRDEYE_HOLDERS_API}?address=${tokenAddress}&limit=200`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          "x-chain": "solana",
-        },
-      },
-    );
-    const data = await response.json();
-    const holders = data.data.items.map((item: any) => ({
-      owner: item.owner,
-      amount: Number(item.amount || 0),
-      percentage: Number(item.percentage || 0),
-    }));
-    setCachedData(cacheKey, holders, 15 * 60 * 1000);
-    return holders;
-  } catch (error) {
-    console.error("Error fetching token holders:", error);
-    const { balances } = await fetchTokenSupplyAndBalances(tokenAddress);
-    const totalAmount = balances.reduce(
-      (sum, balance) => sum + balance.amount,
-      0,
-    );
-    const holders = balances.map((balance) => ({
-      owner: balance.owner,
-      amount: balance.amount,
-      percentage: totalAmount > 0 ? (balance.amount / totalAmount) * 100 : 0,
-    }));
-    setCachedData(cacheKey, holders, 15 * 60 * 1000);
-    return holders;
-  }
-}
-
-// Fetch token supply and balances
-async function fetchTokenSupplyAndBalances(
-  tokenAddress: string = TOKEN_ADDRESS,
-  burnAddress: string = BURN_ADDRESS,
-): Promise<{
-  balances: HeliusTokenBalance[];
-  totalSupply: number;
-  burned: number;
-  raydiumVault: number;
-  bankOfBudju: number;
-  communityVault: number;
-}> {
-  const cacheKey = `supply_${tokenAddress}`;
-  const cachedSupply = getCachedData(cacheKey);
-  if (cachedSupply !== null) return cachedSupply;
-
-  try {
-    const tokenPublicKey = new PublicKey(tokenAddress);
-    const mint = await getMint(connection, tokenPublicKey);
-    const totalSupply = Number(mint.supply) / 10 ** mint.decimals;
-
-    const accounts = await connection.getParsedProgramAccounts(
-      TOKEN_PROGRAM_ID,
-      {
-        filters: [
-          { dataSize: 165 },
-          { memcmp: { offset: 0, bytes: tokenAddress } },
-        ],
-      },
-    );
-
-    const balances: HeliusTokenBalance[] = accounts
-      .map((account) => {
-        const parsedInfo = account.account.data as { parsed: { info: any } };
-        return {
-          owner: parsedInfo.parsed.info.owner,
-          amount: parsedInfo.parsed.info.tokenAmount.uiAmount || 0,
-        };
-      })
-      .filter((balance) => balance.amount > 0.0001);
-
-    const sumBalancesForOwner = (ownerAddress: string): number =>
-      balances
-        .filter((balance) => balance.owner === ownerAddress)
-        .reduce((sum, balance) => sum + (balance.amount || 0), 0);
-
-    const result = {
-      balances,
-      totalSupply,
-      burned: burnAddress ? sumBalancesForOwner(burnAddress) : 0,
-      raydiumVault: RAYDIUM_VAULT_ADDRESS
-        ? sumBalancesForOwner(RAYDIUM_VAULT_ADDRESS)
-        : 0,
-      bankOfBudju: BANK_OF_BUDJU_ADDRESS
-        ? sumBalancesForOwner(BANK_OF_BUDJU_ADDRESS)
-        : 0,
-      communityVault: COMMUNITY_VAULT_ADDRESS
-        ? sumBalancesForOwner(COMMUNITY_VAULT_ADDRESS)
-        : 0,
-    };
-
-    setCachedData(cacheKey, result, 10 * 60 * 1000);
-    return result;
-  } catch (error) {
-    console.error("Error fetching token supply and balances:", error);
-    return {
-      balances: [],
-      totalSupply: 0,
-      burned: 0,
-      raydiumVault: 0,
-      bankOfBudju: 0,
-      communityVault: 0,
-    };
   }
 }
 
@@ -466,45 +303,72 @@ export async function fetchHeliusTokenMetrics(
   }
 }
 
-// Fetch token balances
+// Fetch token balances (top holders via Helius DAS getTokenAccounts)
 export async function getTokenBalances(
   tokenAddress: string = TOKEN_ADDRESS,
 ): Promise<HeliusTokenBalance[]> {
+  if (!HELIUS_API_KEY) return [];
   try {
-    const holders = await fetchTokenHolders(tokenAddress);
-    return holders.map((h) => ({ owner: h.owner, amount: h.amount }));
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "top-holders-query",
+        method: "getTokenAccounts",
+        params: { page: 1, limit: 1000, displayOptions: {}, mint: tokenAddress },
+      }),
+    });
+    const data = await response.json();
+    // amount is raw (pump.fun tokens have 6 decimals)
+    const accounts: Array<{ owner: string; amount: string }> =
+      data.result?.token_accounts || [];
+    return accounts
+      .map((a) => ({ owner: a.owner, amount: Number(a.amount) / 1e6 }))
+      .filter((a) => a.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
   } catch (error) {
     console.error("Error in getTokenBalances:", error);
-    const { balances } = await fetchTokenSupplyAndBalances(tokenAddress);
-    return balances;
+    return [];
   }
 }
 
-// Fetch historical price data
+// Fetch historical price data via GeckoTerminal (free, no key required)
 export async function fetchHistoricalPriceData(
   tokenAddress: string = TOKEN_ADDRESS,
   days: number,
-  type: string = "1D",
+  _type: string = "1D",
 ): Promise<HistoricalPriceData[]> {
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const timeFrom = now - days * 24 * 60 * 60;
-    const response = await retryFetch(
-      `${BIRDEYE_HISTORICAL_API}?address=${tokenAddress}&address_type=token&type=${type}&time_from=${timeFrom}&time_to=${now}`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          accept: "application/json",
-          "x-chain": "solana",
-        },
-      },
+    // Step 1: find the top pool for this token
+    const poolsResp = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${tokenAddress}/pools?page=1`,
+      { headers: { Accept: "application/json;version=20230302" } },
     );
-    const data = await response.json();
-    return (data.data.items || []).map((item: any) => ({
-      date: new Date(item.unixTime * 1000).toISOString().split("T")[0],
-      price: Number(item.value || 0),
-      volume: Number(item.volume || 0),
-    }));
+    const poolsData = await poolsResp.json();
+    const pools: any[] = poolsData.data || [];
+    if (pools.length === 0) throw new Error("No pools found for token");
+
+    // pool id format: "solana_POOL_ADDRESS"
+    const poolAddress = pools[0].id.split("_")[1];
+
+    // Step 2: fetch daily OHLCV
+    const ohlcvResp = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolAddress}/ohlcv/day?limit=${Math.min(days, 1000)}`,
+      { headers: { Accept: "application/json;version=20230302" } },
+    );
+    const ohlcvData = await ohlcvResp.json();
+    const ohlcvList: number[][] =
+      ohlcvData.data?.attributes?.ohlcv_list || [];
+
+    // GeckoTerminal returns [timestamp, open, high, low, close, volume], newest first
+    return ohlcvList
+      .map(([timestamp, , , , close, volume]) => ({
+        date: new Date(timestamp * 1000).toISOString().split("T")[0],
+        price: close,
+        volume,
+      }))
+      .reverse();
   } catch (error) {
     console.error("Error fetching historical price data:", error);
     const today = new Date();
