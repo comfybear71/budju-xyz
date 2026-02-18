@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { createChart, ColorType, IChartApi } from "lightweight-charts";
 import { FaExternalLinkAlt } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { useTheme } from "@/context/ThemeContext";
@@ -9,6 +10,7 @@ import {
   fetchHeliusTokenMetrics,
   getTokenBalances,
   HeliusTokenBalance,
+  fetchHistoricalPriceData,
   TOKEN_ADDRESS,
   BURN_ADDRESS,
 } from "@/lib/utils/tokenService";
@@ -35,11 +37,15 @@ const TokenStats = () => {
     { address: string; percentage: number }[]
   >([]);
 
+  const [priceHistory, setPriceHistory] = useState<{ time: string; value: number }[]>([]);
+
   const statsRef = useRef<HTMLDivElement>(null);
   const priceRef = useRef<HTMLSpanElement>(null);
   const mcapRef = useRef<HTMLSpanElement>(null);
   const holdersRef = useRef<HTMLSpanElement>(null);
   const supplyRef = useRef<HTMLSpanElement>(null);
+  const priceChartRef = useRef<HTMLDivElement>(null);
+  const chartInstanceRef = useRef<IChartApi | null>(null);
 
   const SOLSCAN_TOKEN_LINK = `https://solscan.io/token/${TOKEN_ADDRESS}`;
   const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS_ACCOUNT}`;
@@ -85,6 +91,60 @@ const TokenStats = () => {
     const interval = setInterval(fetchTokenData, 300000); // Refresh every 5 minutes
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    fetchHistoricalPriceData(TOKEN_ADDRESS, 30, "1D").then((data) => {
+      setPriceHistory(data.map((d) => ({ time: d.date, value: d.price })));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!priceChartRef.current || priceHistory.length === 0) return;
+    if (chartInstanceRef.current) {
+      chartInstanceRef.current.remove();
+      chartInstanceRef.current = null;
+    }
+    const chart = createChart(priceChartRef.current, {
+      width: priceChartRef.current.clientWidth,
+      height: priceChartRef.current.clientHeight,
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "rgba(156,163,175,0.8)",
+      },
+      grid: {
+        vertLines: { color: "rgba(75,85,99,0.2)" },
+        horzLines: { color: "rgba(75,85,99,0.2)" },
+      },
+      rightPriceScale: { borderColor: "rgba(75,85,99,0.3)" },
+      timeScale: { borderColor: "rgba(75,85,99,0.3)", timeVisible: false },
+      handleScroll: false,
+      handleScale: false,
+    });
+    const series = chart.addAreaSeries({
+      lineColor: "#87CEFA",
+      topColor: "rgba(135,206,250,0.3)",
+      bottomColor: "rgba(135,206,250,0)",
+      lineWidth: 2,
+    });
+    series.setData(priceHistory);
+    chart.timeScale().fitContent();
+    chartInstanceRef.current = chart;
+    const handleResize = () => {
+      if (priceChartRef.current && chartInstanceRef.current) {
+        chartInstanceRef.current.applyOptions({
+          width: priceChartRef.current.clientWidth,
+        });
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (chartInstanceRef.current) {
+        chartInstanceRef.current.remove();
+        chartInstanceRef.current = null;
+      }
+    };
+  }, [priceHistory]);
 
   useEffect(() => {
     if (
@@ -256,21 +316,17 @@ const TokenStats = () => {
           </motion.div>
         </div>
 
-        {/* DexScreener Chart */}
+        {/* Price Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.5 }}
-          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 overflow-hidden`}
+          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-4`}
         >
-          <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-            <iframe
-              src="https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez?embed=1&theme=dark&chartTheme=dark&chartType=usd&interval=15&trades=0&info=0"
-              className="absolute top-0 left-0 w-full h-full"
-              title="BUDJU Price Chart"
-              frameBorder="0"
-            />
-          </div>
+          <p className={`text-xs mb-3 ${isDarkMode ? "text-gray-400" : "text-gray-300"}`}>
+            30D Price
+          </p>
+          <div ref={priceChartRef} className="w-full h-48 sm:h-64" />
         </motion.div>
 
         <motion.div
