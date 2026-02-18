@@ -60,7 +60,7 @@ export const fetchPrice = async (
     // Try Jupiter API first
     try {
       const jupiterResponse = await fetch(
-        `https://price.jup.ag/v4/price?ids=${baseToken.address}`,
+        `https://price.jup.ag/v6/price?ids=${baseToken.address}`,
       );
 
       if (!jupiterResponse.ok) {

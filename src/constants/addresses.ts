@@ -7,8 +7,8 @@ export const BURN_ADDRESS =
   import.meta.env.VITE_BURN_ADDRESS ||
   "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
 
-export const BURN_ADDRESS_ACCOUNT = 
-  import.meta.env.BURN_ADDRESS_ACCOUNT ||
+export const BURN_ADDRESS_ACCOUNT =
+  import.meta.env.VITE_BURN_ADDRESS_ACCOUNT ||
   "9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
   
 export const BANK_ADDRESS =
