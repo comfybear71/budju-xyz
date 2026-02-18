@@ -17,6 +17,7 @@ if (!HELIUS_API_KEY) {
 // Token and wallet addresses
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const RAYDIUM_VAULT_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
 const COMMUNITY_VAULT_ADDRESS = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
@@ -156,6 +157,27 @@ async function fetchDexScreenerData(
   }
 }
 
+// Fetch price via Jupiter Quote API (free, no key — works for any Solana token with liquidity)
+// Formula: send 1 USDC in, see how many tokens come out → price = 1 / outTokens
+async function fetchJupiterPrice(tokenAddress: string): Promise<number> {
+  try {
+    const response = await fetch(
+      `https://quote-api.jup.ag/v6/quote?inputMint=${USDC_MINT}&outputMint=${tokenAddress}&amount=1000000&slippageBps=50`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!response.ok) return 0;
+    const data = await response.json();
+    const outAmount = Number(data.outAmount || 0);
+    if (outAmount <= 0) return 0;
+    // Both USDC and BUDJU have 6 decimals, so they cancel:
+    // price = (1_000_000 / 1e6 USDC) / (outAmount / 1e6 BUDJU) = 1_000_000 / outAmount
+    return 1_000_000 / outAmount;
+  } catch (error) {
+    console.error("Error fetching Jupiter price:", error);
+    return 0;
+  }
+}
+
 // Fetch total supply via a single lightweight getTokenSupply RPC call
 async function fetchTokenSupply(tokenAddress: string): Promise<number> {
   try {
@@ -228,7 +250,7 @@ async function fetchHolderCount(tokenAddress: string): Promise<number> {
   }
 }
 
-// Fetch token price from DexScreener (free, no key required)
+// Fetch token price — DexScreener first, Jupiter quote as fallback
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   const cacheKey = `price_${tokenAddress}`;
   const cachedPrice = getCachedData(cacheKey);
@@ -239,6 +261,11 @@ async function fetchTokenPrice(tokenAddress: string): Promise<number> {
     if (dexData.price > 0) {
       setCachedData(cacheKey, dexData.price, 5 * 60 * 1000);
       return dexData.price;
+    }
+    const jupiterPrice = await fetchJupiterPrice(tokenAddress);
+    if (jupiterPrice > 0) {
+      setCachedData(cacheKey, jupiterPrice, 5 * 60 * 1000);
+      return jupiterPrice;
     }
     return 0;
   } catch (error) {
@@ -253,12 +280,13 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, burnedResult, holderResult] =
+    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult] =
       await Promise.allSettled([
-        fetchDexScreenerData(tokenAddress),   // price + marketCap + volume (free, no key)
-        fetchTokenSupply(tokenAddress),        // total supply (single lightweight RPC call)
+        fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
+        fetchTokenSupply(tokenAddress),             // total supply (single lightweight RPC call)
         fetchBurnAmount(burnAddress, tokenAddress), // burned (targeted single lookup)
-        fetchHolderCount(tokenAddress),        // holders (Helius DAS, needs API key)
+        fetchHolderCount(tokenAddress),             // holders (Helius DAS, needs API key)
+        fetchJupiterPrice(tokenAddress),            // fallback price (free, no key)
       ]);
 
     const dex = dexResult.status === "fulfilled"
@@ -267,15 +295,18 @@ export async function fetchHeliusTokenMetrics(
     const totalSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
     const burned = burnedResult.status === "fulfilled" ? burnedResult.value : 0;
     const holders = holderResult.status === "fulfilled" ? holderResult.value : 0;
+    const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
 
+    // Use DexScreener price if available, else Jupiter quote
+    const price = dex.price > 0 ? dex.price : jupiterPrice;
     const circulatingSupply = totalSupply - burned;
-    // Use DexScreener market cap directly — avoids needing supply data to compute it
+    // Use DexScreener market cap if available, else compute from price × supply
     const marketCap = dex.marketCap > 0
       ? dex.marketCap
-      : dex.price * circulatingSupply;
+      : price * circulatingSupply;
 
     return {
-      price: dex.price,
+      price,
       marketCap,
       holders,
       volume24h: dex.volume24h,

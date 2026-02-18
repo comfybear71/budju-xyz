@@ -28,7 +28,7 @@ jobs:
         run: |
           echo "VITE_ENVIRONMENT=${{ secrets.VITE_ENVIRONMENT }}" > .env
           echo "VITE_RPC_ENDPOINT=${{ secrets.VITE_RPC_ENDPOINT }}" >> .env
-          echo "VITE_HELIUS_API_KEY=${{ secrets.HELIUS_API_KEY }}" >> .env
+          echo "VITE_HELIUS_API_KEY=${{ secrets.VITE_HELIUS_API_KEY }}" >> .env
           echo "VITE_TOKEN_ADDRESS=${{ secrets.VITE_TOKEN_ADDRESS }}" >> .env
           echo "VITE_BURN_ADDRESS=${{ secrets.VITE_BURN_ADDRESS }}" >> .env
           echo "VITE_BURN_ADDRESS_ACCOUNT=${{ secrets.VITE_BURN_ADDRESS_ACCOUNT }}" >> .env
