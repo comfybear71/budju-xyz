@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { FaFireAlt, FaDollarSign, FaUsers, FaChartLine, FaExternalLinkAlt } from "react-icons/fa";
+import { FaExternalLinkAlt } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { useTheme } from "@/context/ThemeContext";
 import {
@@ -145,16 +145,8 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
-            className="budju-card flex flex-col items-center p-3 sm:p-6"
+            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
           >
-            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-2 sm:p-3 rounded-full mb-2 sm:mb-4`}>
-              <FaDollarSign
-                size={18}
-                className={
-                  isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
-                }
-              />
-            </div>
             <h3
               className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
@@ -181,16 +173,8 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
-            className="budju-card flex flex-col items-center p-3 sm:p-6"
+            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
           >
-            <div className="bg-budju-blue/20 p-2 sm:p-3 rounded-full mb-2 sm:mb-4">
-              <FaChartLine
-                size={18}
-                className={
-                  isDarkMode ? "text-budju-blue" : "text-budju-blue-dark"
-                }
-              />
-            </div>
             <h3
               className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
@@ -217,14 +201,8 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.3 }}
-            className="budju-card flex flex-col items-center p-3 sm:p-6"
+            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
           >
-            <div className="bg-green-500/20 p-2 sm:p-3 rounded-full mb-2 sm:mb-4">
-              <FaUsers
-                size={18}
-                className={isDarkMode ? "text-green-500" : "text-yellow-700"}
-              />
-            </div>
             <h3
               className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
@@ -251,16 +229,8 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.4 }}
-            className="budju-card flex flex-col items-center p-3 sm:p-6"
+            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
           >
-            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-2 sm:p-3 rounded-full mb-2 sm:mb-4`}>
-              <FaFireAlt
-                size={18}
-                className={
-                  isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
-                }
-              />
-            </div>
             <h3
               className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
