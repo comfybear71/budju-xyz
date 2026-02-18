@@ -138,40 +138,40 @@ const TokenStats = () => {
 
         <div
           ref={statsRef}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+          className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6"
         >
           {/* BUDJU Price */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.1 }}
-            className="budju-card flex flex-col items-center p-6"
+            className="budju-card flex flex-col items-center p-3 sm:p-6"
           >
-            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-3 rounded-full mb-4`}>
+            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-2 sm:p-3 rounded-full mb-2 sm:mb-4`}>
               <FaDollarSign
-                size={24}
+                size={18}
                 className={
                   isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
                 }
               />
             </div>
             <h3
-              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
               BUDJU Price
             </h3>
             <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center break-all`}
             >
               <span ref={priceRef}>
                 {loading
-                  ? "Loading..."
+                  ? "..."
                   : tokenData
                     ? `$${tokenData.price.toFixed(8)}`
                     : "N/A"}
               </span>
             </p>
-            <p className="text-sm text-budju-blue">
+            <p className="text-xs text-budju-blue text-center hidden sm:block">
               {loading ? "Fetching data..." : "Updated in real-time"}
             </p>
           </motion.div>
@@ -181,33 +181,33 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.2 }}
-            className="budju-card flex flex-col items-center p-6"
+            className="budju-card flex flex-col items-center p-3 sm:p-6"
           >
-            <div className="bg-budju-blue/20 p-3 rounded-full mb-4">
+            <div className="bg-budju-blue/20 p-2 sm:p-3 rounded-full mb-2 sm:mb-4">
               <FaChartLine
-                size={24}
+                size={18}
                 className={
                   isDarkMode ? "text-budju-blue" : "text-budju-blue-dark"
                 }
               />
             </div>
             <h3
-              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
               Market Cap
             </h3>
             <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
             >
               <span ref={mcapRef}>
                 {loading
-                  ? "Loading..."
+                  ? "..."
                   : tokenData
                     ? `$${tokenData.marketCap.toLocaleString()}`
                     : "N/A"}
               </span>
             </p>
-            <p className="text-sm text-budju-blue">
+            <p className="text-xs text-budju-blue text-center hidden sm:block">
               {loading ? "Fetching data..." : "Fully diluted valuation"}
             </p>
           </motion.div>
@@ -217,31 +217,31 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.3 }}
-            className="budju-card flex flex-col items-center p-6"
+            className="budju-card flex flex-col items-center p-3 sm:p-6"
           >
-            <div className="bg-green-500/20 p-3 rounded-full mb-4">
+            <div className="bg-green-500/20 p-2 sm:p-3 rounded-full mb-2 sm:mb-4">
               <FaUsers
-                size={24}
+                size={18}
                 className={isDarkMode ? "text-green-500" : "text-yellow-700"}
               />
             </div>
             <h3
-              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
               Holders
             </h3>
             <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
             >
               <span ref={holdersRef}>
                 {loading
-                  ? "Loading..."
+                  ? "..."
                   : tokenData
                     ? tokenData.holders.toLocaleString()
                     : "N/A"}
               </span>
             </p>
-            <p className="text-sm text-budju-blue">
+            <p className="text-xs text-budju-blue text-center hidden sm:block">
               {loading ? "Fetching data..." : "BUDJU community members"}
             </p>
           </motion.div>
@@ -251,33 +251,33 @@ const TokenStats = () => {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.4 }}
-            className="budju-card flex flex-col items-center p-6"
+            className="budju-card flex flex-col items-center p-3 sm:p-6"
           >
-            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-3 rounded-full mb-4`}>
+            <div className={`${isDarkMode ? "bg-budju-pink/20" : "bg-gray-400/60"} p-2 sm:p-3 rounded-full mb-2 sm:mb-4`}>
               <FaFireAlt
-                size={24}
+                size={18}
                 className={
                   isDarkMode ? "text-budju-pink" : "text-budju-pink-dark"
                 }
               />
             </div>
             <h3
-              className={`text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-2`}
+              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
             >
-              Circulating Supply
+              Circ. Supply
             </h3>
             <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1`}
+              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
             >
               <span ref={supplyRef}>
                 {loading
-                  ? "Loading..."
+                  ? "..."
                   : tokenData
                     ? remainingSupply.toLocaleString()
                     : "N/A"}
               </span>
             </p>
-            <p className="text-sm text-budju-blue">
+            <p className="text-xs text-budju-blue text-center hidden sm:block">
               <span className="text-red-400">
                 {tokenData ? tokenData.burned.toLocaleString() : "0"}
               </span>{" "}
