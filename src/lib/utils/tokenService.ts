@@ -157,23 +157,36 @@ async function fetchDexScreenerData(
   }
 }
 
-// Fetch price via Jupiter Quote API (free, no key — works for any Solana token with liquidity)
-// Formula: send 1 USDC in, see how many tokens come out → price = 1 / outTokens
+// Fetch price via Jupiter Price API v2 (free, no key required)
 async function fetchJupiterPrice(tokenAddress: string): Promise<number> {
   try {
     const response = await fetch(
-      `https://quote-api.jup.ag/v6/quote?inputMint=${USDC_MINT}&outputMint=${tokenAddress}&amount=1000000&slippageBps=50`,
+      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
       { headers: { Accept: "application/json" } },
     );
     if (!response.ok) return 0;
     const data = await response.json();
-    const outAmount = Number(data.outAmount || 0);
-    if (outAmount <= 0) return 0;
-    // Both USDC and BUDJU have 6 decimals, so they cancel:
-    // price = (1_000_000 / 1e6 USDC) / (outAmount / 1e6 BUDJU) = 1_000_000 / outAmount
-    return 1_000_000 / outAmount;
+    const price = data?.data?.[tokenAddress]?.price;
+    return price ? Number(price) : 0;
   } catch (error) {
     console.error("Error fetching Jupiter price:", error);
+    return 0;
+  }
+}
+
+// Fetch price via GeckoTerminal (free, no key required)
+async function fetchGeckoTerminalPrice(tokenAddress: string): Promise<number> {
+  try {
+    const response = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${tokenAddress}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!response.ok) return 0;
+    const data = await response.json();
+    const price = data?.data?.attributes?.price_usd;
+    return price ? Number(price) : 0;
+  } catch (error) {
+    console.error("Error fetching GeckoTerminal price:", error);
     return 0;
   }
 }
@@ -267,6 +280,11 @@ async function fetchTokenPrice(tokenAddress: string): Promise<number> {
       setCachedData(cacheKey, jupiterPrice, 5 * 60 * 1000);
       return jupiterPrice;
     }
+    const geckoPrice = await fetchGeckoTerminalPrice(tokenAddress);
+    if (geckoPrice > 0) {
+      setCachedData(cacheKey, geckoPrice, 5 * 60 * 1000);
+      return geckoPrice;
+    }
     return 0;
   } catch (error) {
     console.error("Error fetching token price:", error);
@@ -280,13 +298,14 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult] =
+    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult] =
       await Promise.allSettled([
         fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
         fetchTokenSupply(tokenAddress),             // total supply (single lightweight RPC call)
         fetchBurnAmount(burnAddress, tokenAddress), // burned (targeted single lookup)
         fetchHolderCount(tokenAddress),             // holders (Helius DAS, needs API key)
-        fetchJupiterPrice(tokenAddress),            // fallback price (free, no key)
+        fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v2
+        fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
       ]);
 
     const dex = dexResult.status === "fulfilled"
@@ -296,9 +315,10 @@ export async function fetchHeliusTokenMetrics(
     const burned = burnedResult.status === "fulfilled" ? burnedResult.value : 0;
     const holders = holderResult.status === "fulfilled" ? holderResult.value : 0;
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
+    const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
 
-    // Use DexScreener price if available, else Jupiter quote
-    const price = dex.price > 0 ? dex.price : jupiterPrice;
+    // Use first available price: DexScreener → Jupiter → GeckoTerminal
+    const price = dex.price > 0 ? dex.price : jupiterPrice > 0 ? jupiterPrice : geckoPrice;
     const circulatingSupply = totalSupply - burned;
     // Use DexScreener market cap if available, else compute from price × supply
     const marketCap = dex.marketCap > 0
