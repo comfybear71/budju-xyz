@@ -137,10 +137,10 @@ async function retryFetch(
   throw new Error("Unexpected error in retryFetch");
 }
 
-// Fetch price and volume data from DexScreener (no API key required)
+// Fetch price, volume and market cap from DexScreener (no API key required)
 async function fetchDexScreenerData(
   tokenAddress: string,
-): Promise<{ price: number; volume24h: number; priceChange24h: number }> {
+): Promise<{ price: number; volume24h: number; priceChange24h: number; marketCap: number; fdv: number }> {
   try {
     const response = await retryFetch(
       `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
@@ -157,12 +157,86 @@ async function fetchDexScreenerData(
         price: parseFloat(pair.priceUsd || "0"),
         volume24h: pair.volume?.h24 || 0,
         priceChange24h: pair.priceChange?.h24 || 0,
+        marketCap: pair.marketCap || pair.fdv || 0,
+        fdv: pair.fdv || 0,
       };
     }
-    return { price: 0, volume24h: 0, priceChange24h: 0 };
+    return { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
   } catch (error) {
     console.error("Error fetching DexScreener data:", error);
-    return { price: 0, volume24h: 0, priceChange24h: 0 };
+    return { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
+  }
+}
+
+// Fetch total supply via a single lightweight getTokenSupply RPC call
+async function fetchTokenSupply(tokenAddress: string): Promise<number> {
+  try {
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "supply-query",
+        method: "getTokenSupply",
+        params: [tokenAddress],
+      }),
+    });
+    const data = await response.json();
+    return Number(data.result?.value?.uiAmount || 0);
+  } catch (error) {
+    console.error("Error fetching token supply:", error);
+    return 0;
+  }
+}
+
+// Fetch burned amount via targeted account lookup (much lighter than full scan)
+async function fetchBurnAmount(burnAddress: string, tokenAddress: string): Promise<number> {
+  try {
+    const burnPublicKey = new PublicKey(burnAddress);
+    const tokenPublicKey = new PublicKey(tokenAddress);
+    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+      burnPublicKey,
+      { mint: tokenPublicKey },
+    );
+    return tokenAccounts.value.reduce(
+      (sum, account) =>
+        sum + (account.account.data.parsed.info.tokenAmount.uiAmount || 0),
+      0,
+    );
+  } catch (error) {
+    console.error("Error fetching burn amount:", error);
+    return 0;
+  }
+}
+
+// Fetch holder count using Helius DAS getTokenAccounts (requires API key)
+async function fetchHolderCount(tokenAddress: string): Promise<number> {
+  if (!HELIUS_API_KEY) return 0;
+  try {
+    let page = 1;
+    let totalCount = 0;
+    const limit = 1000;
+    while (true) {
+      const response = await fetch(HELIUS_RPC_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "holders-query",
+          method: "getTokenAccounts",
+          params: { page, limit, displayOptions: {}, mint: tokenAddress },
+        }),
+      });
+      const data = await response.json();
+      const accounts = data.result?.token_accounts || [];
+      totalCount += accounts.length;
+      if (accounts.length < limit) break;
+      page++;
+    }
+    return totalCount;
+  } catch (error) {
+    console.error("Error fetching holder count:", error);
+    return 0;
   }
 }
 
@@ -342,54 +416,37 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const results = await Promise.allSettled([
-      fetchTokenPrice(tokenAddress),
-      fetchDexScreenerData(tokenAddress),
-      fetchBirdEyeData(tokenAddress),
-      fetchTokenSupplyAndBalances(tokenAddress, burnAddress),
-      fetchTokenHolders(tokenAddress),
-    ]);
+    const [dexResult, supplyResult, burnedResult, holderResult] =
+      await Promise.allSettled([
+        fetchDexScreenerData(tokenAddress),   // price + marketCap + volume (free, no key)
+        fetchTokenSupply(tokenAddress),        // total supply (single lightweight RPC call)
+        fetchBurnAmount(burnAddress, tokenAddress), // burned (targeted single lookup)
+        fetchHolderCount(tokenAddress),        // holders (Helius DAS, needs API key)
+      ]);
 
-    const [priceResult, dexScreenerResult, birdEyeResult, supplyResult, holdersResult] = results;
-    const price = priceResult.status === "fulfilled" ? priceResult.value : 0;
-    const dexScreenerData =
-      dexScreenerResult.status === "fulfilled"
-        ? dexScreenerResult.value
-        : { price: 0, volume24h: 0, priceChange24h: 0 };
-    const birdEyeData =
-      birdEyeResult.status === "fulfilled"
-        ? birdEyeResult.value
-        : { price: 0, volume24h: 0 };
-    const supplyData =
-      supplyResult.status === "fulfilled"
-        ? supplyResult.value
-        : {
-            balances: [],
-            totalSupply: 0,
-            burned: 0,
-            raydiumVault: 0,
-            bankOfBudju: 0,
-            communityVault: 0,
-          };
-    const holders =
-      holdersResult.status === "fulfilled" ? holdersResult.value : [];
+    const dex = dexResult.status === "fulfilled"
+      ? dexResult.value
+      : { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
+    const totalSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
+    const burned = burnedResult.status === "fulfilled" ? burnedResult.value : 0;
+    const holders = holderResult.status === "fulfilled" ? holderResult.value : 0;
 
-    // Use DexScreener volume if available (free), else fall back to BirdEye
-    const volume24h = dexScreenerData.volume24h > 0
-      ? dexScreenerData.volume24h
-      : birdEyeData.volume24h;
+    const circulatingSupply = totalSupply - burned;
+    // Use DexScreener market cap directly — avoids needing supply data to compute it
+    const marketCap = dex.marketCap > 0
+      ? dex.marketCap
+      : dex.price * circulatingSupply;
 
-    const circulatingSupply = supplyData.totalSupply - supplyData.burned;
     return {
-      price,
-      marketCap: price * circulatingSupply,
-      holders: holders.length,
-      volume24h,
-      totalSupply: supplyData.totalSupply,
-      burned: supplyData.burned,
-      raydiumVault: supplyData.raydiumVault,
-      bankOfBudju: supplyData.bankOfBudju,
-      communityVault: supplyData.communityVault,
+      price: dex.price,
+      marketCap,
+      holders,
+      volume24h: dex.volume24h,
+      totalSupply,
+      burned,
+      raydiumVault: 0,
+      bankOfBudju: 0,
+      communityVault: 0,
       circulatingSupply,
     };
   } catch (error) {
