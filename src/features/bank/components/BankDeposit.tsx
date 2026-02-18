@@ -343,10 +343,10 @@ const BankDeposit = () => {
                         src={`/images/tokens/${fromToken.toLowerCase()}.png`}
                         alt={fromToken}
                         className="w-6 h-6 mr-2"
-                        // onError={(e) => {
-                        //   e.currentTarget.src =
-                        //     "/images/tokens/token-placeholder.png";
-                        // }}
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            "/images/tokens/token-placeholder.png";
+                        }}
                       />
                       <span
                         className={
@@ -465,10 +465,10 @@ const BankDeposit = () => {
                         src={`/images/tokens/${toToken.toLowerCase()}.png`}
                         alt={toToken}
                         className="w-6 h-6 mr-2"
-                        // onError={(e) => {
-                        //   e.currentTarget.src =
-                        //     "/images/tokens/token-placeholder.png";
-                        // }}
+                        onError={(e) => {
+                          e.currentTarget.src =
+                            "/images/tokens/token-placeholder.png";
+                        }}
                       />
                       <span
                         className={
@@ -606,13 +606,6 @@ const BankDeposit = () => {
                           : `Deposit ${fromToken} to Bank`}
                       </motion.button>
 
-                      {/* Debug button - can be removed in production */}
-                      <button
-                        className="mt-2 p-2 bg-gray-700/50 text-white/70 rounded text-xs"
-                        onClick={debugWalletConnection}
-                      >
-                        Debug Connection
-                      </button>
                     </>
                   )}
                 </div>

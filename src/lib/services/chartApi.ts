@@ -133,7 +133,7 @@ export const getChartData = async (
 
     // Fetch data from CryptoCompare
     const response = await fetch(
-      `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${fsym}&tsym=btc&limit=${adjustedLimit}&aggregate=${aggregate}&api_key=${CRYPTOCOMPARE_API_KEY}`,
+      `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${fsym}&tsym=${tsym}&limit=${adjustedLimit}&aggregate=${aggregate}&api_key=${CRYPTOCOMPARE_API_KEY}`,
       {
         headers: {
           accept: "application/json",
