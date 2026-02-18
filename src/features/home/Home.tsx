@@ -3,13 +3,7 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 
 // Components
 import Hero from "./components/Hero";
-import ShopOfBudjus from "./components/ShopOfBudjusPreview";
-import NFTShowcase from "./components/NFTShowcase";
-import JoinParade from "./components/JoinParade";
-import RoadMap from "./components/RoadMap";
-// import HowToBuyPreview from "./components/HowToBuyPreview";
 import TokenStats from "@components/common/TokenStats";
-// import MarketMakerPreview from "./components/MarketMakerPreview";
 
 const Home = () => {
   // Setup page
@@ -52,29 +46,8 @@ const Home = () => {
 
   return (
     <main className="flex flex-col">
-      {/* Hero Section */}
       <Hero />
-
-      {/* Token Stats */}
       <TokenStats />
-
-      {/* Shop of Budju's */}
-      <ShopOfBudjus />
-
-      {/* Roadmap Section */}
-      <RoadMap />
-
-      {/* NFT Collection Showcase */}
-      <NFTShowcase />
-
-      {/* Join Parade Section */}
-      <JoinParade />
-
-      {/* How To Buy Preview */}
-      {/* <HowToBuyPreview /> */}
-
-      {/* Market Maker Preview */}
-      {/* <MarketMakerPreview /> */}
     </main>
   );
 };

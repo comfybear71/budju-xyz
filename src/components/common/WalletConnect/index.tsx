@@ -113,11 +113,11 @@ const WalletConnect = ({
     }
   }, [isMobile]);
 
-  // Auto-connect to the wallet if we're in its in-app browser
+  // Auto-connect only when actually inside a mobile wallet's in-app browser
+  // (not on desktop where window.solana exists just because the extension is installed)
   useEffect(() => {
     const autoConnectInAppBrowser = async () => {
-      if (inAppBrowser && !connection.connected) {
-        console.log(`Auto-connecting to ${inAppBrowser} in-app browser`);
+      if (isMobile && inAppBrowser && !connection.connected) {
         try {
           await connect(inAppBrowser);
         } catch (error) {
@@ -129,7 +129,7 @@ const WalletConnect = ({
     if (!localStorage.getItem("manualDisconnect")) {
       autoConnectInAppBrowser();
     }
-  }, [inAppBrowser, connection.connected, connect]);
+  }, [isMobile, inAppBrowser, connection.connected, connect]);
 
   useEffect(() => {
     if (connection.connected) {
