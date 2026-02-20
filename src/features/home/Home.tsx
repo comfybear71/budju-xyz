@@ -4,6 +4,7 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 // Components
 import Hero from "./components/Hero";
 import TokenStats from "@components/common/TokenStats";
+import EcosystemOverview from "./components/EcosystemOverview";
 
 const Home = () => {
   // Setup page
@@ -47,7 +48,14 @@ const Home = () => {
   return (
     <main className="flex flex-col">
       <Hero />
+
+      <div className="budju-section-divider"></div>
+
       <TokenStats />
+
+      <div className="budju-section-divider"></div>
+
+      <EcosystemOverview />
     </main>
   );
 };

@@ -129,6 +129,127 @@
   background-image: linear-gradient(to right, #FF69B4, #87CEFA);
 }
 
+/* Glass Morphism Card */
+.budju-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.budju-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 105, 180, 0.3);
+  box-shadow: 0 0 20px rgba(255, 105, 180, 0.15), 0 8px 32px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+.budju-card-light {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 16px;
+  transition: all 0.3s ease;
+}
+
+.budju-card-light:hover {
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(255, 105, 180, 0.4);
+  box-shadow: 0 0 20px rgba(255, 105, 180, 0.15), 0 8px 32px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Enhanced Gradient Buttons */
+.budju-btn-gradient {
+  background: linear-gradient(135deg, #FF69B4 0%, #D14C92 100%);
+  color: white;
+  font-weight: 600;
+  padding: 0.75rem 2rem;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 105, 180, 0.3);
+  border: none;
+  cursor: pointer;
+}
+
+.budju-btn-gradient:hover {
+  box-shadow: 0 6px 25px rgba(255, 105, 180, 0.5);
+  transform: translateY(-2px);
+}
+
+.budju-btn-outline {
+  background: transparent;
+  color: #FF69B4;
+  font-weight: 600;
+  padding: 0.75rem 2rem;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  border: 2px solid rgba(255, 105, 180, 0.5);
+  cursor: pointer;
+}
+
+.budju-btn-outline:hover {
+  background: rgba(255, 105, 180, 0.1);
+  border-color: #FF69B4;
+  box-shadow: 0 0 20px rgba(255, 105, 180, 0.2);
+  transform: translateY(-2px);
+}
+
+/* Section Divider */
+.budju-section-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 105, 180, 0.3), transparent);
+  margin: 0 auto;
+  max-width: 80%;
+}
+
+/* Float Animation */
+@keyframes gentleFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
+.animate-float {
+  animation: gentleFloat 4s ease-in-out infinite;
+}
+
+/* Pulse Glow */
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+/* Green Pulse (for live indicator) */
+@keyframes greenPulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(34, 197, 94, 0);
+  }
+}
+
+.animate-green-pulse {
+  animation: greenPulse 2s ease-in-out infinite;
+}
+
 /* Animation Keyframes */
 @keyframes marquee {
   0% {
@@ -159,7 +280,7 @@
 }
 
 .web3-background-container.dark-mode ::-webkit-scrollbar-track {
-  background-color: #16213e;
+  background-color: #08081a;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -182,7 +303,7 @@
 }
 
 .web3-background-container.dark-mode {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: linear-gradient(135deg, #08081a 0%, #0d1033 50%, #130a2e 100%);
 }
 
 .web3-grid-overlay {
