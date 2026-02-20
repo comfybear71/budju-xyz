@@ -100,8 +100,9 @@ const Hero = () => {
               isDarkMode ? "text-gray-400" : "text-gray-600"
             }`}
           >
-            Automated trading, real-time analytics, and a complete DeFi
-            ecosystem — all built on Solana. The bot that works while you sleep.
+            Deposit and let the bot trade for you. Dollar Cost Averaging,
+            fully automated, very low risk — built on Solana. It works while
+            you sleep.
           </p>
 
           {/* 10M BUDJU Entry Requirement — Prominent Callout */}
@@ -149,9 +150,9 @@ const Hero = () => {
                     isDarkMode ? "text-gray-500" : "text-gray-500"
                   }`}
                 >
-                  Your entry ticket to the most powerful trading board on
-                  Solana. Hold 10M BUDJU in your wallet to access automated
-                  trading, signals, and the full ecosystem.
+                  Your entry ticket to the BUDJU trading board. Hold 10M BUDJU
+                  in your wallet, deposit funds, and the bot trades on your
+                  behalf using DCA — very low risk.
                 </p>
               </div>
             </div>
@@ -344,21 +345,21 @@ const Hero = () => {
                 <TerminalLine
                   isDarkMode={isDarkMode}
                   label="STATUS"
-                  value="Monitoring SOL/BUDJU pair"
+                  value="DCA engine active"
                   color="emerald"
                   delay={0}
                 />
                 <TerminalLine
                   isDarkMode={isDarkMode}
-                  label="POOL"
-                  value="Raydium V4 — Active"
+                  label="MODE"
+                  value="Dollar Cost Averaging"
                   color="cyan"
                   delay={0.3}
                 />
                 <TerminalLine
                   isDarkMode={isDarkMode}
-                  label="SIGNAL"
-                  value="Buy zone detected"
+                  label="RISK"
+                  value="Very low — DCA strategy"
                   color="emerald"
                   delay={0.6}
                 />
@@ -372,7 +373,7 @@ const Hero = () => {
                 <TerminalLine
                   isDarkMode={isDarkMode}
                   label="NETWORK"
-                  value="Solana Mainnet — 400ms"
+                  value="Solana Mainnet"
                   color="blue"
                   delay={1.2}
                 />

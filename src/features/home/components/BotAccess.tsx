@@ -1,36 +1,42 @@
 import { Link } from "react-router";
 import { motion } from "framer-motion";
-import { FaRobot, FaChartLine, FaBolt, FaShieldAlt, FaBrain } from "react-icons/fa";
+import {
+  FaRobot,
+  FaChartLine,
+  FaShieldAlt,
+  FaBrain,
+  FaWallet,
+} from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import { ROUTES } from "@/constants/routes";
 
 const features = [
   {
-    icon: FaChartLine,
-    title: "Automated Trading",
+    icon: FaWallet,
+    title: "Deposit & Go",
     description:
-      "Execute trades on Raydium via Jupiter aggregation with precision timing and optimal routing.",
+      "Deposit your funds and the bot takes over. No manual trading required — it works while you sleep.",
     accent: "text-cyan-400",
   },
   {
-    icon: FaBolt,
-    title: "Real-Time Signals",
+    icon: FaChartLine,
+    title: "Dollar Cost Averaging",
     description:
-      "Monitor SOL/BUDJU and USDC/BUDJU pairs with live buy/sell signal detection.",
+      "The bot uses a DCA strategy — automatically buying at regular intervals to reduce risk and smooth out volatility.",
     accent: "text-emerald-400",
   },
   {
     icon: FaShieldAlt,
-    title: "Portfolio Protection",
+    title: "Very Low Risk",
     description:
-      "Built-in slippage control, MEV protection, and smart order execution on Solana.",
+      "DCA is one of the safest trading strategies. No risky leveraged bets — just consistent, disciplined accumulation.",
     accent: "text-blue-400",
   },
   {
     icon: FaBrain,
-    title: "AI-Powered Analysis",
+    title: "AI-Enhanced (Coming Soon)",
     description:
-      "Market analysis and pattern recognition to identify optimal entry and exit points.",
+      "Future upgrades will add AI-powered market analysis to optimise DCA timing and entry points.",
     accent: "text-purple-400",
   },
 ];
@@ -71,9 +77,84 @@ const BotAccess = () => {
               isDarkMode ? "text-gray-500" : "text-gray-500"
             }`}
           >
-            The centrepiece of the BUDJU ecosystem. Automated DeFi trading
-            powered by Solana's speed and Jupiter's liquidity.
+            Deposit your funds and let the bot trade on your behalf using a
+            proven Dollar Cost Averaging strategy. Low risk, fully automated,
+            powered by Solana.
           </p>
+        </motion.div>
+
+        {/* How It Works — 3 Steps */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.05 }}
+          className="mb-12"
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[
+              {
+                step: "01",
+                title: "Hold 10M BUDJU",
+                desc: "Your entry ticket. Hold 10 million BUDJU in your wallet to unlock bot access.",
+                color: isDarkMode ? "text-amber-400" : "text-amber-600",
+                border: isDarkMode
+                  ? "border-amber-500/20"
+                  : "border-amber-500/15",
+              },
+              {
+                step: "02",
+                title: "Deposit Funds",
+                desc: "Connect your wallet and deposit. The bot takes it from here — no manual trading needed.",
+                color: isDarkMode ? "text-cyan-400" : "text-cyan-600",
+                border: isDarkMode
+                  ? "border-cyan-500/20"
+                  : "border-cyan-500/15",
+              },
+              {
+                step: "03",
+                title: "Bot Trades for You",
+                desc: "The system uses DCA to trade on your behalf — buying consistently to reduce risk over time.",
+                color: isDarkMode ? "text-emerald-400" : "text-emerald-600",
+                border: isDarkMode
+                  ? "border-emerald-500/20"
+                  : "border-emerald-500/15",
+              },
+            ].map((item, index) => (
+              <motion.div
+                key={item.step}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: 0.1 + index * 0.1 }}
+                className={`rounded-xl border p-5 text-center ${item.border} ${
+                  isDarkMode
+                    ? "bg-[#0c0c20]/60"
+                    : "bg-white/60"
+                } backdrop-blur-sm`}
+              >
+                <span
+                  className={`text-3xl font-black font-mono ${item.color} opacity-40`}
+                >
+                  {item.step}
+                </span>
+                <h3
+                  className={`text-base font-bold mt-2 mb-1.5 ${
+                    isDarkMode ? "text-white" : "text-gray-900"
+                  }`}
+                >
+                  {item.title}
+                </h3>
+                <p
+                  className={`text-xs leading-relaxed ${
+                    isDarkMode ? "text-gray-500" : "text-gray-500"
+                  }`}
+                >
+                  {item.desc}
+                </p>
+              </motion.div>
+            ))}
+          </div>
         </motion.div>
 
         {/* Entry Requirement Banner */}
@@ -81,7 +162,7 @@ const BotAccess = () => {
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+          transition={{ duration: 0.5, delay: 0.15 }}
           className="mb-12"
         >
           <div
@@ -122,10 +203,11 @@ const BotAccess = () => {
                   isDarkMode ? "text-gray-400" : "text-gray-600"
                 }`}
               >
-                Hold 10 million BUDJU in your connected wallet to unlock full
-                access to the trading bot, live signals, and automated
-                execution. This is your ticket into the most exciting trading
-                board on Solana.
+                Hold 10 million BUDJU in your connected wallet to unlock access
+                to the automated trading bot. Deposit your funds and the system
+                trades on your behalf using Dollar Cost Averaging — a very low
+                risk strategy. This is your ticket into the most exciting
+                trading board on Solana.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Link

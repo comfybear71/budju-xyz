@@ -4,6 +4,7 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 // Components
 import Hero from "./components/Hero";
 import BotAccess from "./components/BotAccess";
+import LiquidityPools from "./components/LiquidityPools";
 import TokenStats from "@components/common/TokenStats";
 import EcosystemOverview from "./components/EcosystemOverview";
 
@@ -51,6 +52,10 @@ const Home = () => {
       <div className="budju-section-divider" />
 
       <BotAccess />
+
+      <div className="budju-section-divider" />
+
+      <LiquidityPools />
 
       <div className="budju-section-divider" />
 

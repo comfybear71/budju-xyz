@@ -8,8 +8,8 @@ import {
   FaExternalLinkAlt,
   FaSyncAlt,
   FaExclamationTriangle,
+  FaCheck,
 } from "react-icons/fa";
-import Button from "@components/common/Button";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
 import { TOKEN_ADDRESS } from "@constants/addresses";
@@ -20,7 +20,6 @@ import walletService, {
 } from "@lib/services/walletService";
 import { useTheme } from "@/context/ThemeContext";
 
-// Placeholder USDC address (replace with actual Solana USDC address)
 const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 interface WalletConnectProps {
@@ -37,7 +36,7 @@ const walletConfig: Record<WalletName, { name: string; logo: string }> = {
 const networkOptions: Network[] = ["mainnet", "devnet"];
 const customTokens = [
   { symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 },
-  { symbol: "USDC", address: USDC_ADDRESS, decimals: 6 }, // Add USDC here
+  { symbol: "USDC", address: USDC_ADDRESS, decimals: 6 },
 ];
 
 const WalletConnect = ({
@@ -68,7 +67,6 @@ const WalletConnect = ({
     solflare?: any;
   }
 
-  // Detect mobile device and in-app browser
   useEffect(() => {
     const checkEnvironment = () => {
       const isMobileDevice =
@@ -82,14 +80,12 @@ const WalletConnect = ({
         typeof extWindow.phantom !== "undefined" ||
         (typeof extWindow.solana !== "undefined" && extWindow.solana?.isPhantom)
       ) {
-        console.log("Detected Phantom in-app browser");
         setInAppBrowser("phantom");
       } else if (
         typeof extWindow.solflare !== "undefined" ||
         (typeof extWindow.solana !== "undefined" &&
           extWindow.solana?.isSolflare)
       ) {
-        console.log("Detected Solflare in-app browser");
         setInAppBrowser("solflare");
       } else {
         setInAppBrowser(null);
@@ -101,7 +97,6 @@ const WalletConnect = ({
     return () => window.removeEventListener("resize", checkEnvironment);
   }, []);
 
-  // Check wallet support (desktop only)
   useEffect(() => {
     if (!isMobile) {
       const extWindow = window as ExtendedWindow;
@@ -113,8 +108,6 @@ const WalletConnect = ({
     }
   }, [isMobile]);
 
-  // Auto-connect only when actually inside a mobile wallet's in-app browser
-  // (not on desktop where window.solana exists just because the extension is installed)
   useEffect(() => {
     const autoConnectInAppBrowser = async () => {
       if (isMobile && inAppBrowser && !connection.connected) {
@@ -137,7 +130,6 @@ const WalletConnect = ({
     }
   }, [connection.connected]);
 
-  // Update balances on connection
   useEffect(() => {
     if (connection.connected && connection.wallet?.address) {
       setLoadingBalances(true);
@@ -160,7 +152,6 @@ const WalletConnect = ({
     }
   }, [connection.connected, connection.wallet?.address, selectedNetwork]);
 
-  // Handle clicks outside menu
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
@@ -181,7 +172,6 @@ const WalletConnect = ({
           await connect(walletName);
           setIsMenuOpen(false);
         } catch (error) {
-          console.error("Connection error:", error);
           setConnectionError(
             error instanceof Error
               ? error.message
@@ -190,7 +180,7 @@ const WalletConnect = ({
         }
       } else {
         setConnectionError(
-          `You're currently in ${walletConfig[inAppBrowser].name}'s browser. Please use ${walletConfig[inAppBrowser].name} or open this page in a different browser.`,
+          `You're in ${walletConfig[inAppBrowser].name}'s browser. Use ${walletConfig[inAppBrowser].name} or switch browsers.`,
         );
       }
       return;
@@ -205,7 +195,6 @@ const WalletConnect = ({
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       }
-      console.log(`Generated ${walletName} deep link:`, deepLink);
       window.location.href = deepLink;
       setIsMenuOpen(false);
     } else {
@@ -218,7 +207,7 @@ const WalletConnect = ({
 
       if (!walletProvider) {
         setConnectionError(
-          `${walletConfig[walletName].name} not detected. Please ensure it's installed.`,
+          `${walletConfig[walletName].name} not detected. Install it first.`,
         );
         return;
       }
@@ -227,7 +216,6 @@ const WalletConnect = ({
         await connect(walletName);
         setIsMenuOpen(false);
       } catch (error) {
-        console.error("Connection error:", error);
         setConnectionError(
           error instanceof Error
             ? error.message
@@ -244,7 +232,6 @@ const WalletConnect = ({
       setIsMenuOpen(false);
     } catch (error) {
       console.error("Error during disconnect:", error);
-      alert("There was an issue disconnecting. Please try again.");
     }
   };
 
@@ -258,9 +245,8 @@ const WalletConnect = ({
           customTokens,
         );
         setBalances(newBalances);
-      } catch (error) {
-        setBalanceError("Failed to refresh balances");
-        console.error("Refresh error:", error);
+      } catch {
+        setBalanceError("Failed to refresh");
       } finally {
         setLoadingBalances(false);
       }
@@ -280,7 +266,7 @@ const WalletConnect = ({
         setShowCopied(true);
         setTimeout(() => setShowCopied(false), 2000);
       } catch (error) {
-        console.error("Failed to copy address:", error);
+        console.error("Failed to copy:", error);
       }
     }
   };
@@ -293,9 +279,7 @@ const WalletConnect = ({
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
-    if (!isMenuOpen) {
-      setConnectionError(null);
-    }
+    if (!isMenuOpen) setConnectionError(null);
   };
 
   const handleGetWallet = (walletName: WalletName) => {
@@ -322,214 +306,237 @@ const WalletConnect = ({
   };
 
   const sizeClasses = {
-    sm: "text-sm py-1.5 px-3",
-    md: "py-2 px-4",
-    lg: "text-lg py-3 px-6",
+    sm: "text-xs py-1.5 px-3",
+    md: "text-sm py-2 px-4",
+    lg: "text-base py-2.5 px-5",
   };
 
   const getWalletsToDisplay = () => {
-    if (inAppBrowser) {
-      return [inAppBrowser];
-    }
-    if (isMobile) {
-      return ["phantom", "solflare"];
-    }
+    if (inAppBrowser) return [inAppBrowser];
+    if (isMobile) return ["phantom", "solflare"];
     return availableWallets;
   };
 
-  const WalletSelectionContent = () => (
-    <>
-      <div className="p-4 border-b border-gray-800">
-        <h3 className={isDarkMode ? "text-white" : "text-gray-900"}>
-          Connect Wallet
-        </h3>
-        <p className={isDarkMode ? "text-gray-400" : "text-gray-600"}>
-          {inAppBrowser
-            ? `Connect to ${walletConfig[inAppBrowser].name}`
-            : "Select a wallet to connect to BUDJU"}
-        </p>
-      </div>
-
-      {connectionError && (
-        <div className="p-3 bg-red-900/40 border-b border-gray-800">
-          <div className="flex items-center text-red-400">
-            <FaExclamationTriangle className="mr-2" />
-            <span className="text-sm">{connectionError}</span>
-          </div>
-        </div>
-      )}
-
-      {!isSupported && !isMobile && !inAppBrowser && (
-        <div className="p-3 bg-yellow-900/40 border-b border-gray-800">
-          <div className="flex items-start text-yellow-400">
-            <FaExclamationTriangle className="mr-2 mt-0.5" />
-            <div>
-              <span className="text-sm block">
-                No wallet detected on this device.
-              </span>
-              <span className="text-xs block mt-1">
-                Install a wallet extension (desktop) or open this page in your
-                wallet app's browser (mobile, e.g., Phantom or Solflare).
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="p-2 max-h-60 overflow-y-auto">
-        {getWalletsToDisplay().length > 0 ? (
-          getWalletsToDisplay().map((wallet) => (
-            <div key={wallet} className="mb-2">
-              <button
-                onClick={() => handleConnect(wallet as WalletName)}
-                className={`flex items-center w-full p-3 rounded-lg transition-colors ${
-                  isDarkMode ? "hover:bg-gray-800" : "hover:bg-gray-200"
-                }`}
-              >
-                <img
-                  src={walletConfig[wallet as WalletName].logo}
-                  alt={walletConfig[wallet as WalletName].name}
-                  className="w-8 h-8 mr-3"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                />
-                <span className={isDarkMode ? "text-white" : "text-gray-900"}>
-                  {walletConfig[wallet as WalletName].name}
-                </span>
-              </button>
-              {!isSupported && !isMobile && !inAppBrowser && (
-                <button
-                  onClick={() => handleGetWallet(wallet as WalletName)}
-                  className="ml-11 mt-1 text-xs text-budju-blue hover:underline"
-                >
-                  Download {walletConfig[wallet as WalletName].name}
-                </button>
-              )}
-            </div>
-          ))
-        ) : (
-          <div
-            className={`p-3 text-center ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
-          >
-            No compatible wallets found.
-            <a
-              href="https://phantom.app/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block mt-2 text-budju-blue hover:underline"
-            >
-              Install Phantom
-            </a>
-          </div>
-        )}
-      </div>
-    </>
-  );
+  // Panel styles
+  const panelBg = isDarkMode
+    ? "bg-[#0c0c20]/95 border-white/[0.08]"
+    : "bg-white/95 border-gray-200/60";
+  const dividerColor = isDarkMode ? "border-white/[0.06]" : "border-gray-200/40";
+  const subtextColor = isDarkMode ? "text-gray-500" : "text-gray-400";
+  const textColor = isDarkMode ? "text-white" : "text-gray-900";
+  const hoverBg = isDarkMode ? "hover:bg-white/[0.04]" : "hover:bg-gray-50";
 
   return (
     <div
       className={`relative ${fullWidth ? "w-full" : "inline-block"}`}
       ref={menuRef}
     >
-      {!connection.connected ? (
-        <>
-          <button
-            onClick={toggleMenu}
-            className={`group relative flex items-center justify-center space-x-2 ${
-              isDarkMode
-                ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-                : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-            } text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${sizeClasses[size]} ${
-              fullWidth ? "w-full" : ""
-            }`}
-            disabled={connecting}
-          >
-            <span
-              className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
-                isDarkMode ? "0.2" : "0.3"
-              })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-            />
-            <FaWallet />
-            <span className="font-semibold">
-              {connecting ? "Connecting..." : "Connect Wallet"}
-            </span>
-          </button>
-
-          <AnimatePresence>
-            {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.2 }}
-                className={`absolute z-50 mt-2 w-64 ${
-                  isDarkMode
-                    ? "bg-gray-900 border-gray-800"
-                    : "bg-gray-100 border-gray-300"
-                } rounded-xl overflow-hidden shadow-xl border left-1/2 transform -translate-x-1/2`}
-              >
-                <WalletSelectionContent />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </>
-      ) : (
-        <>
-          <button
-            onClick={toggleMenu}
-            className={`group relative flex items-center justify-center space-x-2 ${
-              isDarkMode
-                ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-                : "bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-            } text-white rounded-xl shadow-lg transition-all duration-300 transform hover:scale-105 ${sizeClasses[size]} ${
-              fullWidth ? "w-full" : ""
-            }`}
-          >
-            <span
-              className={`absolute inset-0 rounded-xl bg-[radial-gradient(circle_at_center,_rgba(255,255,255,${
-                isDarkMode ? "0.2" : "0.3"
-              })_0%,_rgba(255,255,255,0)_70%)] opacity-0 group-hover:opacity-100 transition-opacity duration-300`}
-            />
+      {/* Connect / Connected Button */}
+      <button
+        onClick={toggleMenu}
+        disabled={connecting}
+        className={`wallet-btn group relative flex items-center justify-center gap-2 rounded-xl font-semibold transition-all duration-300 cursor-pointer ${sizeClasses[size]} ${
+          fullWidth ? "w-full" : ""
+        } ${
+          connection.connected
+            ? isDarkMode
+              ? "bg-[#0c0c20]/80 border border-cyan-500/20 text-white hover:border-cyan-500/40 hover:shadow-[0_0_15px_rgba(6,182,212,0.1)]"
+              : "bg-white/80 border border-cyan-500/20 text-gray-900 hover:border-cyan-500/40"
+            : isDarkMode
+              ? "wallet-connect-btn text-white"
+              : "wallet-connect-btn-light text-gray-900"
+        }`}
+      >
+        {connection.connected ? (
+          <>
+            <div className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+            </div>
             <img
               src={walletConfig[connection.wallet?.name || "other"].logo}
               alt="Wallet"
-              className="w-5 h-5"
-              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              className="w-4 h-4 rounded-sm"
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = "none";
+              }}
             />
-            <span className="font-mono">
+            <span className="font-mono text-xs">
               {walletService.formatAddress(connection.wallet?.address || "")}
             </span>
             <FaChevronDown
-              className={`transition-transform duration-300 ${isMenuOpen ? "rotate-180" : ""}`}
+              className={`w-2.5 h-2.5 transition-transform duration-300 ${
+                isDarkMode ? "text-gray-500" : "text-gray-400"
+              } ${isMenuOpen ? "rotate-180" : ""}`}
             />
-          </button>
+          </>
+        ) : (
+          <>
+            <FaWallet className="w-3.5 h-3.5" />
+            <span>{connecting ? "Connecting..." : "Connect"}</span>
+          </>
+        )}
+      </button>
 
-          <AnimatePresence>
-            {isMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.2 }}
-                className={`absolute z-50 mt-2 w-72 ${
-                  isDarkMode
-                    ? "bg-gray-900 border-gray-800"
-                    : "bg-gray-100 border-gray-300"
-                } rounded-xl overflow-hidden shadow-xl border left-1/2 transform -translate-x-1/2`}
-              >
-                <div className="p-4 border-b border-gray-800">
+      {/* Dropdown Panel */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 8, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className={`absolute z-50 mt-2 w-72 rounded-xl overflow-hidden border shadow-2xl backdrop-blur-xl ${panelBg} right-0`}
+          >
+            {!connection.connected ? (
+              <>
+                <div className={`px-4 py-3 border-b ${dividerColor}`}>
+                  <h3
+                    className={`text-[10px] font-bold uppercase tracking-widest ${subtextColor}`}
+                  >
+                    Connect Wallet
+                  </h3>
+                </div>
+
+                {connectionError && (
+                  <div
+                    className={`px-4 py-2.5 border-b ${dividerColor} ${
+                      isDarkMode ? "bg-red-500/5" : "bg-red-50"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2 text-red-400">
+                      <FaExclamationTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      <span className="text-[11px] leading-tight">
+                        {connectionError}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!isSupported && !isMobile && !inAppBrowser && (
+                  <div
+                    className={`px-4 py-2.5 border-b ${dividerColor} ${
+                      isDarkMode ? "bg-amber-500/5" : "bg-amber-50"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2 text-amber-400">
+                      <FaExclamationTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      <span className="text-[11px] leading-tight">
+                        No wallet detected. Install a wallet extension or open
+                        in your wallet's browser.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-2">
+                  {getWalletsToDisplay().length > 0 ? (
+                    getWalletsToDisplay().map((wallet) => (
+                      <div key={wallet}>
+                        <button
+                          onClick={() => handleConnect(wallet as WalletName)}
+                          className={`flex items-center w-full gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer ${hoverBg} group`}
+                        >
+                          <img
+                            src={walletConfig[wallet as WalletName].logo}
+                            alt={walletConfig[wallet as WalletName].name}
+                            className="w-8 h-8 rounded-lg"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display =
+                                "none";
+                            }}
+                          />
+                          <div className="text-left">
+                            <span
+                              className={`text-sm font-semibold block ${textColor}`}
+                            >
+                              {walletConfig[wallet as WalletName].name}
+                            </span>
+                            <span className={`text-[10px] ${subtextColor}`}>
+                              {wallet === "phantom"
+                                ? "Most popular"
+                                : wallet === "solflare"
+                                  ? "Full featured"
+                                  : "Compatible wallet"}
+                            </span>
+                          </div>
+                          <span
+                            className={`ml-auto text-[10px] font-mono opacity-0 group-hover:opacity-100 transition-opacity ${
+                              isDarkMode
+                                ? "text-cyan-400/50"
+                                : "text-cyan-600/50"
+                            }`}
+                          >
+                            &rarr;
+                          </span>
+                        </button>
+                        {!isSupported && !isMobile && !inAppBrowser && (
+                          <button
+                            onClick={() =>
+                              handleGetWallet(wallet as WalletName)
+                            }
+                            className={`ml-11 mb-1 text-[10px] cursor-pointer ${
+                              isDarkMode
+                                ? "text-cyan-400/60 hover:text-cyan-400"
+                                : "text-cyan-600/60 hover:text-cyan-600"
+                            }`}
+                          >
+                            Download{" "}
+                            {walletConfig[wallet as WalletName].name}
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <div className={`p-3 text-center ${subtextColor}`}>
+                      <p className="text-xs mb-2">
+                        No compatible wallets found.
+                      </p>
+                      <a
+                        href="https://phantom.app/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`text-xs ${
+                          isDarkMode
+                            ? "text-cyan-400 hover:text-cyan-300"
+                            : "text-cyan-600 hover:text-cyan-500"
+                        }`}
+                      >
+                        Install Phantom &rarr;
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Connected Header */}
+                <div className={`px-4 py-3 border-b ${dividerColor}`}>
                   <div className="flex items-center justify-between">
-                    <h3 className={isDarkMode ? "text-white" : "text-gray-900"}>
-                      Connected
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex h-1.5 w-1.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold uppercase tracking-widest ${
+                          isDarkMode
+                            ? "text-emerald-400/70"
+                            : "text-emerald-600/70"
+                        }`}
+                      >
+                        Connected
+                      </span>
+                    </div>
                     <select
                       value={selectedNetwork}
                       onChange={(e) =>
                         handleNetworkChange(e.target.value as Network)
                       }
-                      className={`text-xs px-2 py-1 rounded-full border ${
+                      className={`text-[10px] font-mono px-2 py-1 rounded-md border cursor-pointer ${
                         isDarkMode
-                          ? "bg-gray-800 text-white border-gray-700"
-                          : "bg-gray-200 text-gray-900 border-gray-400"
+                          ? "bg-white/[0.03] text-gray-400 border-white/[0.06]"
+                          : "bg-gray-50 text-gray-600 border-gray-200/60"
                       }`}
                     >
                       {networkOptions.map((network) => (
@@ -539,123 +546,111 @@ const WalletConnect = ({
                       ))}
                     </select>
                   </div>
-                  <div className="mt-2 flex items-center">
+                </div>
+
+                {/* Wallet Info */}
+                <div className={`px-4 py-3 border-b ${dividerColor}`}>
+                  <div className="flex items-center gap-2.5 mb-2">
                     <img
                       src={
                         walletConfig[connection.wallet?.name || "other"].logo
                       }
                       alt="Wallet"
-                      className="w-6 h-6 mr-2"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      className="w-6 h-6 rounded-md"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
                     />
-                    <span
-                      className={isDarkMode ? "text-white" : "text-gray-900"}
-                    >
+                    <span className={`text-sm font-semibold ${textColor}`}>
                       {walletConfig[connection.wallet?.name || "other"].name}
                     </span>
                   </div>
-                </div>
-
-                <div className="p-4 border-b border-gray-800">
-                  <div
-                    className={isDarkMode ? "text-gray-400" : "text-gray-600"}
-                  >
-                    Address
-                  </div>
                   <div className="flex items-center justify-between">
                     <span
-                      className={`font-mono text-sm truncate max-w-[160px] ${
-                        isDarkMode ? "text-white" : "text-gray-900"
-                      }`}
+                      className={`font-mono text-[11px] truncate max-w-[160px] ${subtextColor}`}
                     >
-                      {connection.wallet?.address.substring(0, 14)}...
+                      {connection.wallet?.address.substring(0, 16)}...
                     </span>
-                    <div className="flex space-x-2">
+                    <div className="flex gap-1">
                       <button
                         onClick={copyAddress}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isDarkMode
-                            ? "bg-gray-800 hover:bg-gray-700"
-                            : "bg-gray-200 hover:bg-gray-300"
-                        } relative`}
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer ${hoverBg}`}
                       >
-                        <FaCopy className="text-budju-blue" />
-                        {showCopied && (
-                          <span
-                            className={`absolute top-full right-0 mt-1 px-2 py-1 text-xs rounded ${
+                        {showCopied ? (
+                          <FaCheck
+                            className={`w-3 h-3 ${
                               isDarkMode
-                                ? "bg-green-600 text-white"
-                                : "bg-green-500 text-gray-900"
+                                ? "text-emerald-400"
+                                : "text-emerald-600"
                             }`}
-                          >
-                            Copied!
-                          </span>
+                          />
+                        ) : (
+                          <FaCopy
+                            className={`w-3 h-3 ${
+                              isDarkMode
+                                ? "text-cyan-400/60"
+                                : "text-cyan-600/60"
+                            }`}
+                          />
                         )}
                       </button>
                       <button
                         onClick={openOnSolscan}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          isDarkMode
-                            ? "bg-gray-800 hover:bg-gray-700"
-                            : "bg-gray-200 hover:bg-gray-300"
-                        }`}
+                        className={`p-1.5 rounded-md transition-all duration-200 cursor-pointer ${hoverBg}`}
                       >
-                        <FaExternalLinkAlt className="text-budju-blue" />
+                        <FaExternalLinkAlt
+                          className={`w-3 h-3 ${
+                            isDarkMode
+                              ? "text-cyan-400/60"
+                              : "text-cyan-600/60"
+                          }`}
+                        />
                       </button>
                     </div>
                   </div>
                 </div>
 
-                <div className="p-4 border-b border-gray-800">
-                  <div className="flex justify-between items-center mb-2">
-                    <div
-                      className={isDarkMode ? "text-gray-400" : "text-gray-600"}
+                {/* Balances */}
+                <div className={`px-4 py-3 border-b ${dividerColor}`}>
+                  <div className="flex justify-between items-center mb-2.5">
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-widest ${subtextColor}`}
                     >
                       Balances
-                    </div>
+                    </span>
                     <button
                       onClick={handleRefresh}
-                      className={`p-1 rounded-full transition-colors ${
-                        isDarkMode
-                          ? "bg-gray-800 hover:bg-gray-700"
-                          : "bg-gray-200 hover:bg-gray-300"
-                      }`}
+                      className={`p-1 rounded-md transition-all duration-200 cursor-pointer ${hoverBg}`}
                       disabled={loadingBalances}
                     >
                       <FaSyncAlt
-                        className={`text-budju-blue ${loadingBalances ? "animate-spin" : ""}`}
+                        className={`w-2.5 h-2.5 ${
+                          isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
+                        } ${loadingBalances ? "animate-spin" : ""}`}
                       />
                     </button>
                   </div>
                   {loadingBalances ? (
-                    <div
-                      className={isDarkMode ? "text-gray-400" : "text-gray-600"}
-                    >
-                      Loading balances...
-                    </div>
+                    <div className={`text-xs ${subtextColor}`}>Loading...</div>
                   ) : balanceError ? (
-                    <div className="text-red-400">{balanceError}</div>
+                    <div className="text-xs text-red-400">{balanceError}</div>
                   ) : (
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <div className="flex items-center">
+                        <div className="flex items-center gap-2">
                           <img
                             src="/images/tokens/sol.png"
                             alt="SOL"
-                            className="w-5 h-5 mr-2"
+                            className="w-5 h-5 rounded-full"
                           />
                           <span
-                            className={
-                              isDarkMode ? "text-white" : "text-gray-900"
-                            }
+                            className={`text-xs font-semibold ${textColor}`}
                           >
                             SOL
                           </span>
                         </div>
                         <span
-                          className={
-                            isDarkMode ? "text-white" : "text-gray-900"
-                          }
+                          className={`text-xs font-mono font-bold ${textColor}`}
                         >
                           {balances.sol.toFixed(4)}
                         </span>
@@ -665,7 +660,7 @@ const WalletConnect = ({
                           key={token.address}
                           className="flex justify-between items-center"
                         >
-                          <div className="flex items-center">
+                          <div className="flex items-center gap-2">
                             <img
                               src={
                                 token.symbol === "BUDJU"
@@ -675,21 +670,20 @@ const WalletConnect = ({
                                     : "/images/tokens/sol.png"
                               }
                               alt={token.symbol}
-                              className="w-5 h-5 mr-2"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              className="w-5 h-5 rounded-full"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display =
+                                  "none";
+                              }}
                             />
                             <span
-                              className={
-                                isDarkMode ? "text-white" : "text-gray-900"
-                              }
+                              className={`text-xs font-semibold ${textColor}`}
                             >
                               {token.symbol}
                             </span>
                           </div>
                           <span
-                            className={
-                              isDarkMode ? "text-white" : "text-gray-900"
-                            }
+                            className={`text-xs font-mono font-bold ${textColor}`}
                           >
                             {token.amount.toLocaleString()}
                           </span>
@@ -699,21 +693,25 @@ const WalletConnect = ({
                   )}
                 </div>
 
-                <div className="p-4">
-                  <Button
-                    variant="ghost"
+                {/* Disconnect */}
+                <div className="p-2">
+                  <button
                     onClick={handleDisconnect}
-                    fullWidth
-                    leftIcon={<FaSignOutAlt />}
+                    className={`flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
+                      isDarkMode
+                        ? "text-gray-500 hover:text-red-400 hover:bg-red-500/5"
+                        : "text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    }`}
                   >
+                    <FaSignOutAlt className="w-3 h-3" />
                     Disconnect
-                  </Button>
+                  </button>
                 </div>
-              </motion.div>
+              </>
             )}
-          </AnimatePresence>
-        </>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
