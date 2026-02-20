@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { gsap } from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { createChart, ColorType, IChartApi } from "lightweight-charts";
-import { FaExternalLinkAlt } from "react-icons/fa";
+import { FaExternalLinkAlt, FaChartLine, FaFire, FaUsers, FaCoins } from "react-icons/fa";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { useTheme } from "@/context/ThemeContext";
 import {
@@ -14,10 +12,7 @@ import {
   TOKEN_ADDRESS,
   BURN_ADDRESS,
 } from "@/lib/utils/tokenService";
-import { animateCounter, animateCounterPrice } from "@/lib/utils/animation";
 import { BURN_ADDRESS_ACCOUNT } from "@/constants/addresses";
-
-gsap.registerPlugin(ScrollTrigger);
 
 interface TokenData {
   price: number;
@@ -36,14 +31,10 @@ const TokenStats = () => {
   const [topHolders, setTopHolders] = useState<
     { address: string; percentage: number }[]
   >([]);
+  const [priceHistory, setPriceHistory] = useState<
+    { time: string; value: number }[]
+  >([]);
 
-  const [priceHistory, setPriceHistory] = useState<{ time: string; value: number }[]>([]);
-
-  const statsRef = useRef<HTMLDivElement>(null);
-  const priceRef = useRef<HTMLSpanElement>(null);
-  const mcapRef = useRef<HTMLSpanElement>(null);
-  const holdersRef = useRef<HTMLSpanElement>(null);
-  const supplyRef = useRef<HTMLSpanElement>(null);
   const priceChartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<IChartApi | null>(null);
 
@@ -72,7 +63,7 @@ const TokenStats = () => {
       setTokenData(metrics);
     } catch (err) {
       console.error("Error fetching token data:", err);
-      setError("Failed to load token data. Please try again later.");
+      setError("Failed to load token data");
       setTokenData(null);
       setTopHolders([
         { address: "ABC...XYZ", percentage: 15 },
@@ -88,7 +79,7 @@ const TokenStats = () => {
 
   useEffect(() => {
     fetchTokenData();
-    const interval = setInterval(fetchTokenData, 300000); // Refresh every 5 minutes
+    const interval = setInterval(fetchTokenData, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -104,31 +95,53 @@ const TokenStats = () => {
       chartInstanceRef.current.remove();
       chartInstanceRef.current = null;
     }
+
     const chart = createChart(priceChartRef.current, {
       width: priceChartRef.current.clientWidth,
       height: priceChartRef.current.clientHeight,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
-        textColor: "rgba(156,163,175,0.8)",
+        textColor: isDarkMode
+          ? "rgba(148,163,184,0.6)"
+          : "rgba(100,116,139,0.6)",
       },
       grid: {
-        vertLines: { color: "rgba(75,85,99,0.2)" },
-        horzLines: { color: "rgba(75,85,99,0.2)" },
+        vertLines: {
+          color: isDarkMode
+            ? "rgba(148,163,184,0.06)"
+            : "rgba(100,116,139,0.08)",
+        },
+        horzLines: {
+          color: isDarkMode
+            ? "rgba(148,163,184,0.06)"
+            : "rgba(100,116,139,0.08)",
+        },
       },
-      rightPriceScale: { borderColor: "rgba(75,85,99,0.3)" },
-      timeScale: { borderColor: "rgba(75,85,99,0.3)", timeVisible: false },
+      rightPriceScale: {
+        borderColor: isDarkMode
+          ? "rgba(148,163,184,0.1)"
+          : "rgba(100,116,139,0.1)",
+      },
+      timeScale: {
+        borderColor: isDarkMode
+          ? "rgba(148,163,184,0.1)"
+          : "rgba(100,116,139,0.1)",
+        timeVisible: false,
+      },
       handleScroll: false,
       handleScale: false,
     });
+
     const series = chart.addAreaSeries({
-      lineColor: "#87CEFA",
-      topColor: "rgba(135,206,250,0.3)",
-      bottomColor: "rgba(135,206,250,0)",
+      lineColor: "#06b6d4",
+      topColor: isDarkMode ? "rgba(6,182,212,0.2)" : "rgba(6,182,212,0.15)",
+      bottomColor: "rgba(6,182,212,0)",
       lineWidth: 2,
     });
     series.setData(priceHistory);
     chart.timeScale().fitContent();
     chartInstanceRef.current = chart;
+
     const handleResize = () => {
       if (priceChartRef.current && chartInstanceRef.current) {
         chartInstanceRef.current.applyOptions({
@@ -144,221 +157,287 @@ const TokenStats = () => {
         chartInstanceRef.current = null;
       }
     };
-  }, [priceHistory]);
-
-  useEffect(() => {
-    if (
-      !loading &&
-      tokenData &&
-      statsRef.current &&
-      priceRef.current &&
-      mcapRef.current &&
-      holdersRef.current &&
-      supplyRef.current
-    ) {
-      const tl = gsap.timeline({
-        scrollTrigger: { trigger: statsRef.current, start: "top 80%" },
-      });
-      tl.add(() => {
-        animateCounterPrice(priceRef.current!, tokenData.price, {
-          prefix: "$",
-          decimals: 8,
-        });
-        animateCounter(mcapRef.current!, tokenData.marketCap, { prefix: "$" });
-        animateCounter(holdersRef.current!, tokenData.holders);
-        animateCounter(
-          supplyRef.current!,
-          tokenData.totalSupply - tokenData.burned,
-        );
-      });
-    }
-  }, [loading, tokenData]);
+  }, [priceHistory, isDarkMode]);
 
   const remainingSupply = tokenData
     ? tokenData.totalSupply - tokenData.burned
     : 0;
 
+  const formatPrice = (p: number) => {
+    if (p < 0.01) return `$${p.toFixed(8)}`;
+    if (p < 1) return `$${p.toFixed(4)}`;
+    return `$${p.toFixed(2)}`;
+  };
+
+  const formatNumber = (n: number) => {
+    if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+    if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+    return `$${n.toFixed(0)}`;
+  };
+
+  const statCards = [
+    {
+      label: "BUDJU Price",
+      value: loading
+        ? "..."
+        : tokenData
+          ? formatPrice(tokenData.price)
+          : "N/A",
+      sub: loading ? "Loading..." : "Real-time",
+      icon: FaChartLine,
+      accent: "cyan",
+    },
+    {
+      label: "Market Cap",
+      value: loading
+        ? "..."
+        : tokenData
+          ? formatNumber(tokenData.marketCap)
+          : "N/A",
+      sub: loading ? "Loading..." : "Fully diluted",
+      icon: FaCoins,
+      accent: "emerald",
+    },
+    {
+      label: "Holders",
+      value: loading
+        ? "..."
+        : tokenData
+          ? tokenData.holders.toLocaleString()
+          : "N/A",
+      sub: loading ? "Loading..." : "Community members",
+      icon: FaUsers,
+      accent: "blue",
+    },
+    {
+      label: "Circ. Supply",
+      value: loading
+        ? "..."
+        : tokenData
+          ? remainingSupply.toLocaleString()
+          : "N/A",
+      sub: loading
+        ? "Loading..."
+        : `${tokenData ? tokenData.burned.toLocaleString() : "0"} burned`,
+      icon: FaFire,
+      accent: "pink",
+    },
+  ];
+
+  const accentColors: Record<string, { border: string; icon: string; glow: string }> = {
+    cyan: {
+      border: isDarkMode ? "border-cyan-500/20" : "border-cyan-500/15",
+      icon: isDarkMode ? "text-cyan-400" : "text-cyan-600",
+      glow: "rgba(6,182,212,0.08)",
+    },
+    emerald: {
+      border: isDarkMode ? "border-emerald-500/20" : "border-emerald-500/15",
+      icon: isDarkMode ? "text-emerald-400" : "text-emerald-600",
+      glow: "rgba(16,185,129,0.08)",
+    },
+    blue: {
+      border: isDarkMode ? "border-blue-500/20" : "border-blue-500/15",
+      icon: isDarkMode ? "text-blue-400" : "text-blue-600",
+      glow: "rgba(59,130,246,0.08)",
+    },
+    pink: {
+      border: isDarkMode ? "border-budju-pink/20" : "border-budju-pink/15",
+      icon: isDarkMode ? "text-budju-pink" : "text-budju-pink-dark",
+      glow: "rgba(255,105,180,0.08)",
+    },
+  };
+
   return (
-    <section className="pt-0 pb-16"> {/* Changed py-16 to pt-0 pb-16 */}
-      <div className="budju-container">
+    <section className="py-8 md:py-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
           className="text-center mb-10"
         >
-          {/* Commented out heading remains commented */}
+          <h2
+            className={`text-2xl md:text-3xl font-display font-bold mb-2 ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
+          >
+            Bot{" "}
+            <span className="bg-gradient-to-r from-cyan-400 to-budju-blue bg-clip-text text-transparent">
+              Dashboard
+            </span>
+          </h2>
+          <p
+            className={`text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
+            }`}
+          >
+            Live metrics from the BUDJU trading ecosystem
+          </p>
         </motion.div>
 
         {error && (
-          <div className="text-center text-red-400 mb-6">
-            {error}. Please try again later.
+          <div
+            className={`text-center text-sm mb-6 ${
+              isDarkMode ? "text-red-400/80" : "text-red-500/80"
+            }`}
+          >
+            {error}
           </div>
         )}
 
-        <div
-          ref={statsRef}
-          className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6"
-        >
-          {/* BUDJU Price */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
-            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
-          >
-            <h3
-              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
-            >
-              BUDJU Price
-            </h3>
-            <p
-              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center break-all`}
-            >
-              <span ref={priceRef}>
-                {loading
-                  ? "..."
-                  : tokenData
-                    ? `$${tokenData.price.toFixed(8)}`
-                    : "N/A"}
-              </span>
-            </p>
-            <p className="text-xs text-budju-blue text-center hidden sm:block">
-              {loading ? "Fetching data..." : "Updated in real-time"}
-            </p>
-          </motion.div>
-
-          {/* Market Cap */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
-          >
-            <h3
-              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
-            >
-              Market Cap
-            </h3>
-            <p
-              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
-            >
-              <span ref={mcapRef}>
-                {loading
-                  ? "..."
-                  : tokenData
-                    ? `$${tokenData.marketCap.toLocaleString()}`
-                    : "N/A"}
-              </span>
-            </p>
-            <p className="text-xs text-budju-blue text-center hidden sm:block">
-              {loading ? "Fetching data..." : "Fully diluted valuation"}
-            </p>
-          </motion.div>
-
-          {/* Holders */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 }}
-            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
-          >
-            <h3
-              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
-            >
-              Holders
-            </h3>
-            <p
-              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
-            >
-              <span ref={holdersRef}>
-                {loading
-                  ? "..."
-                  : tokenData
-                    ? tokenData.holders.toLocaleString()
-                    : "N/A"}
-              </span>
-            </p>
-            <p className="text-xs text-budju-blue text-center hidden sm:block">
-              {loading ? "Fetching data..." : "BUDJU community members"}
-            </p>
-          </motion.div>
-
-          {/* Circulating Supply */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.4 }}
-            className={`${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-3 sm:p-6 flex flex-col items-center`}
-          >
-            <h3
-              className={`text-xs sm:text-lg ${isDarkMode ? "text-gray-400" : "text-gray-300"} mb-1 sm:mb-2 text-center`}
-            >
-              Circ. Supply
-            </h3>
-            <p
-              className={`text-sm sm:text-2xl font-bold ${isDarkMode ? "text-gray-200" : "text-white"} mb-1 text-center`}
-            >
-              <span ref={supplyRef}>
-                {loading
-                  ? "..."
-                  : tokenData
-                    ? remainingSupply.toLocaleString()
-                    : "N/A"}
-              </span>
-            </p>
-            <p className="text-xs text-budju-blue text-center hidden sm:block">
-              <span className="text-red-400">
-                {tokenData ? tokenData.burned.toLocaleString() : "0"}
-              </span>{" "}
-              BUDJU burned
-            </p>
-          </motion.div>
+        {/* Stat Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {statCards.map((card, index) => {
+            const colors = accentColors[card.accent];
+            return (
+              <motion.div
+                key={card.label}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: index * 0.08 }}
+                className={`relative rounded-xl overflow-hidden border ${colors.border} ${
+                  isDarkMode
+                    ? "bg-[#0c0c20]/60"
+                    : "bg-white/60"
+                } backdrop-blur-sm p-4 md:p-5`}
+                style={{
+                  boxShadow: `0 0 30px ${colors.glow}`,
+                }}
+              >
+                <div className="flex items-center gap-2 mb-3">
+                  <card.icon className={`w-3.5 h-3.5 ${colors.icon}`} />
+                  <span
+                    className={`text-[10px] uppercase tracking-widest font-semibold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    {card.label}
+                  </span>
+                </div>
+                <p
+                  className={`text-lg md:text-2xl font-bold font-mono tracking-tight ${
+                    isDarkMode ? "text-white" : "text-gray-900"
+                  }`}
+                >
+                  {card.value}
+                </p>
+                <p
+                  className={`text-[10px] mt-1.5 ${
+                    isDarkMode ? "text-gray-600" : "text-gray-400"
+                  }`}
+                >
+                  {card.sub}
+                </p>
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* Price Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
-          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-4`}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+          className={`mt-4 md:mt-6 rounded-xl border overflow-hidden ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm`}
         >
-          <p className={`text-xs mb-3 ${isDarkMode ? "text-gray-400" : "text-gray-300"}`}>
-            30D Price
-          </p>
-          <div ref={priceChartRef} className="w-full h-48 sm:h-64" />
+          <div
+            className={`flex items-center justify-between px-5 py-3 border-b ${
+              isDarkMode ? "border-white/[0.06]" : "border-gray-200/40"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <FaChartLine
+                className={`w-3 h-3 ${
+                  isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
+                }`}
+              />
+              <span
+                className={`text-xs font-semibold ${
+                  isDarkMode ? "text-gray-400" : "text-gray-500"
+                }`}
+              >
+                BUDJU/USD — 30D
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
+              </span>
+              <span
+                className={`text-[10px] font-mono ${
+                  isDarkMode ? "text-cyan-400/70" : "text-cyan-600/70"
+                }`}
+              >
+                LIVE
+              </span>
+            </div>
+          </div>
+          <div ref={priceChartRef} className="w-full h-52 md:h-72 px-2" />
         </motion.div>
 
+        {/* Top Holders */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.6 }}
-          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+          className={`mt-4 md:mt-6 rounded-xl border ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm p-5`}
         >
-          <h3 className="text-xl font-semibold mb-4 text-center">
-            <span className={isDarkMode ? "text-gray-200" : "text-white"}>
-              Top
-            </span>{" "}
-            <span className="text-budju-blue">Holders</span>
+          <h3
+            className={`text-sm font-semibold mb-4 flex items-center gap-2 ${
+              isDarkMode ? "text-gray-300" : "text-gray-700"
+            }`}
+          >
+            <FaUsers
+              className={`w-3 h-3 ${
+                isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
+              }`}
+            />
+            Top Holders
           </h3>
-          <div className="space-y-3">
+          <div className="space-y-2">
             {topHolders.map((holder, index) => (
               <div
                 key={holder.address}
-                className={`flex justify-between items-center ${isDarkMode ? "bg-gray-700/50" : "bg-gray-800/50"} p-3 rounded-lg`}
+                className={`flex justify-between items-center py-2.5 px-3 rounded-lg ${
+                  isDarkMode
+                    ? "bg-white/[0.02] hover:bg-white/[0.04]"
+                    : "bg-gray-50/60 hover:bg-gray-100/60"
+                } transition-colors`}
               >
-                <div className="flex items-center">
+                <div className="flex items-center gap-3">
                   <span
-                    className={`mr-3 ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
+                    className={`text-xs font-mono w-5 ${
+                      isDarkMode ? "text-gray-600" : "text-gray-400"
+                    }`}
                   >
-                    {index + 1}.
+                    {index + 1}
                   </span>
-                  <code className="text-sm text-budju-blue font-mono">
+                  <code
+                    className={`text-xs font-mono ${
+                      isDarkMode ? "text-cyan-400/80" : "text-cyan-600/80"
+                    }`}
+                  >
                     {holder.address.slice(0, 6)}...{holder.address.slice(-4)}
                   </code>
                 </div>
                 <span
-                  className={`${isDarkMode ? "text-gray-200" : "text-white"} font-medium`}
+                  className={`text-xs font-mono font-semibold ${
+                    isDarkMode ? "text-gray-300" : "text-gray-700"
+                  }`}
                 >
                   {holder.percentage.toFixed(2)}%
                 </span>
@@ -367,25 +446,39 @@ const TokenStats = () => {
           </div>
         </motion.div>
 
+        {/* Contract Addresses */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.6 }}
-          className={`mt-6 sm:mt-12 ${isDarkMode ? "bg-gray-800/50" : "bg-gray-900/50"} rounded-xl border border-gray-800 p-6`}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+          className={`mt-4 md:mt-6 rounded-xl border ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm p-5`}
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Token Address */}
             <div>
-              <h3 className="text-xl font-semibold mb-2">
-                <span className="text-budju-blue">TOKEN</span>{" "}
-                <span className={isDarkMode ? "text-gray-200" : "text-white"}>
-                  ADDRESS
-                </span>
+              <h3
+                className={`text-xs uppercase tracking-widest font-semibold mb-2 flex items-center gap-2 ${
+                  isDarkMode ? "text-cyan-400/70" : "text-cyan-600/70"
+                }`}
+              >
+                Token Address
               </h3>
               <div
-                className={`flex items-center space-x-2 ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
+                  isDarkMode
+                    ? "bg-white/[0.03] border border-white/[0.04]"
+                    : "bg-gray-50/60 border border-gray-200/40"
+                }`}
               >
                 <code
-                  className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
+                  className={`text-[11px] font-mono truncate flex-1 ${
+                    isDarkMode ? "text-gray-400" : "text-gray-500"
+                  }`}
                 >
                   {TOKEN_ADDRESS}
                 </code>
@@ -394,25 +487,38 @@ const TokenStats = () => {
                   href={SOLSCAN_TOKEN_LINK}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-blue hover:bg-gray-600" : "text-budju-blue-dark hover:bg-gray-700"}`}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    isDarkMode
+                      ? "text-cyan-400/60 hover:text-cyan-400 hover:bg-white/[0.04]"
+                      : "text-cyan-600/60 hover:text-cyan-600 hover:bg-gray-100"
+                  }`}
                   aria-label="View on Solscan"
                 >
-                  <FaExternalLinkAlt size={16} />
+                  <FaExternalLinkAlt size={12} />
                 </a>
               </div>
             </div>
+
+            {/* Burn Address */}
             <div>
-              <h3 className="text-xl font-semibold mb-2">
-                <span className={isDarkMode ? "text-gray-200" : "text-white"}>
-                  BURN
-                </span>{" "}
-                <span className="text-budju-pink">ADDRESS</span>
+              <h3
+                className={`text-xs uppercase tracking-widest font-semibold mb-2 flex items-center gap-2 ${
+                  isDarkMode ? "text-budju-pink/70" : "text-budju-pink-dark/70"
+                }`}
+              >
+                Burn Address
               </h3>
               <div
-                className={`flex items-center space-x-2 ${isDarkMode ? "bg-gray-700/80" : "bg-gray-800/80"} p-2 rounded-lg`}
+                className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
+                  isDarkMode
+                    ? "bg-white/[0.03] border border-white/[0.04]"
+                    : "bg-gray-50/60 border border-gray-200/40"
+                }`}
               >
                 <code
-                  className={`text-sm ${isDarkMode ? "text-gray-400" : "text-gray-300"} font-mono truncate flex-1`}
+                  className={`text-[11px] font-mono truncate flex-1 ${
+                    isDarkMode ? "text-gray-400" : "text-gray-500"
+                  }`}
                 >
                   {BURN_ADDRESS}
                 </code>
@@ -421,10 +527,14 @@ const TokenStats = () => {
                   href={SOLSCAN_BURN_LINK}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-pink hover:bg-gray-600" : "text-budju-pink-dark hover:bg-gray-700"}`}
+                  className={`p-1.5 rounded-md transition-colors ${
+                    isDarkMode
+                      ? "text-budju-pink/60 hover:text-budju-pink hover:bg-white/[0.04]"
+                      : "text-budju-pink-dark/60 hover:text-budju-pink-dark hover:bg-gray-100"
+                  }`}
                   aria-label="View on Solscan"
                 >
-                  <FaExternalLinkAlt size={16} />
+                  <FaExternalLinkAlt size={12} />
                 </a>
               </div>
             </div>

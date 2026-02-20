@@ -7,16 +7,14 @@ import TokenStats from "@components/common/TokenStats";
 import EcosystemOverview from "./components/EcosystemOverview";
 
 const Home = () => {
-  // Setup page
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
 
-    // Set document title and metadata
-    document.title = `${APP_NAME} - JOIN THE PARADE`;
+    document.title = `${APP_NAME} — Trading Bot | DeFi on Solana`;
 
-    // Update meta description
-    const metaDescription = document.querySelector('meta[name="description"]');
+    const metaDescription = document.querySelector(
+      'meta[name="description"]',
+    );
     if (metaDescription) {
       metaDescription.setAttribute("content", APP_DESCRIPTION);
     } else {
@@ -26,15 +24,15 @@ const Home = () => {
       document.head.appendChild(newMetaDescription);
     }
 
-    // Update OG tags
-    updateOgTag("title", APP_NAME);
+    updateOgTag("title", `${APP_NAME} — Trading Bot`);
     updateOgTag("description", APP_DESCRIPTION);
     updateOgTag("type", "website");
   }, []);
 
-  // Helper function to update Open Graph tags
   const updateOgTag = (property: string, content: string) => {
-    const ogTag = document.querySelector(`meta[property="og:${property}"]`);
+    const ogTag = document.querySelector(
+      `meta[property="og:${property}"]`,
+    );
     if (ogTag) {
       ogTag.setAttribute("content", content);
     } else {
@@ -49,11 +47,11 @@ const Home = () => {
     <main className="flex flex-col">
       <Hero />
 
-      <div className="budju-section-divider"></div>
+      <div className="budju-section-divider" />
 
       <TokenStats />
 
-      <div className="budju-section-divider"></div>
+      <div className="budju-section-divider" />
 
       <EcosystemOverview />
     </main>

@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { useInView } from "react-intersection-observer";
+import { motion } from "framer-motion";
 import {
   FaExchangeAlt,
   FaSwimmingPool,
@@ -7,6 +7,8 @@ import {
   FaBahai,
   FaShoppingCart,
   FaChartBar,
+  FaRobot,
+  FaFire,
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import { ROUTES } from "@/constants/routes";
@@ -15,58 +17,79 @@ interface EcosystemCard {
   title: string;
   description: string;
   icon: React.ComponentType<{ className?: string; size?: number }>;
-  iconColor: string;
+  accent: string;
+  accentBorder: string;
+  accentGlow: string;
   link: string;
   external?: boolean;
+  badge?: string;
 }
 
 const ecosystemCards: EcosystemCard[] = [
   {
-    title: "Trading Board",
-    description: "Swap tokens instantly on Solana with low fees and lightning-fast execution via Raydium.",
-    icon: FaExchangeAlt,
-    iconColor: "text-green-400",
+    title: "Trading Bot",
+    description:
+      "Automated swaps powered by Jupiter. Execute trades on Solana with precision and speed.",
+    icon: FaRobot,
+    accent: "text-cyan-400",
+    accentBorder: "border-cyan-500/20 hover:border-cyan-500/40",
+    accentGlow: "rgba(6,182,212,0.06)",
     link: ROUTES.SWAP,
+    badge: "CORE",
   },
   {
     title: "Liquidity Pools",
-    description: "Provide liquidity and earn rewards. Explore SOL/BUDJU and USDC/BUDJU pool strategies.",
+    description:
+      "Provide liquidity on Raydium. Earn fees from SOL/BUDJU and USDC/BUDJU trading pairs.",
     icon: FaSwimmingPool,
-    iconColor: "text-blue-400",
+    accent: "text-blue-400",
+    accentBorder: "border-blue-500/20 hover:border-blue-500/40",
+    accentGlow: "rgba(59,130,246,0.06)",
     link: ROUTES.POOL,
   },
   {
-    title: "BUDJU Bank",
-    description: "Track deposits, view transaction history, and monitor your BUDJU holdings in real time.",
+    title: "Bank of BUDJU",
+    description:
+      "Track deposits, monitor holdings, and view transaction history in real time.",
     icon: FaPiggyBank,
-    iconColor: "text-yellow-400",
+    accent: "text-emerald-400",
+    accentBorder: "border-emerald-500/20 hover:border-emerald-500/40",
+    accentGlow: "rgba(16,185,129,0.06)",
     link: ROUTES.BANK,
   },
   {
+    title: "Token Burns",
+    description:
+      "Deflationary mechanics. Track BUDJU being removed from circulation permanently.",
+    icon: FaFire,
+    accent: "text-orange-400",
+    accentBorder: "border-orange-500/20 hover:border-orange-500/40",
+    accentGlow: "rgba(249,115,22,0.06)",
+    link: ROUTES.BURN,
+  },
+  {
     title: "NFT Collection",
-    description: "Exclusive BUDJU NFTs with holder benefits. Mint, collect, and join the inner circle.",
+    description:
+      "Exclusive BUDJU NFTs with holder benefits. Mint, collect, join the inner circle.",
     icon: FaBahai,
-    iconColor: "text-purple-400",
+    accent: "text-purple-400",
+    accentBorder: "border-purple-500/20 hover:border-purple-500/40",
+    accentGlow: "rgba(168,85,247,0.06)",
     link: ROUTES.NFT,
   },
   {
-    title: "BUDJU Shop",
-    description: "Rep the brand with official BUDJU merchandise. Caps, tees, hoodies, and more.",
-    icon: FaShoppingCart,
-    iconColor: "text-budju-pink",
-    link: "https://shop.budjucoin.com",
-    external: true,
-  },
-  {
     title: "Tokenomics",
-    description: "Live stats, supply breakdown, burn tracking, and real-time DexScreener integration.",
+    description:
+      "Live supply data, burn tracking, holder analytics, and DexScreener integration.",
     icon: FaChartBar,
-    iconColor: "text-cyan-400",
+    accent: "text-budju-pink",
+    accentBorder: "border-budju-pink/20 hover:border-budju-pink/40",
+    accentGlow: "rgba(255,105,180,0.06)",
     link: ROUTES.TOKENOMICS,
   },
 ];
 
-const EcosystemCard = ({
+const EcosystemCardComponent = ({
   card,
   index,
 }: {
@@ -74,33 +97,51 @@ const EcosystemCard = ({
   index: number;
 }) => {
   const { isDarkMode } = useTheme();
-  const { ref, inView } = useInView({
-    triggerOnce: true,
-    threshold: 0.1,
-  });
 
   const content = (
-    <div
-      ref={ref}
-      className={`${isDarkMode ? "budju-card" : "budju-card-light"} p-6 h-full flex flex-col group`}
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true }}
+      transition={{ duration: 0.4, delay: index * 0.06 }}
+      className={`relative h-full rounded-xl border p-5 transition-all duration-300 group ${
+        card.accentBorder
+      } ${
+        isDarkMode
+          ? "bg-[#0c0c20]/60 hover:bg-[#0c0c20]/80"
+          : "bg-white/60 hover:bg-white/80"
+      } backdrop-blur-sm`}
       style={{
-        opacity: inView ? 1 : 0,
-        transform: inView ? "translateY(0)" : "translateY(30px)",
-        transition: `opacity 0.6s ease ${index * 0.1}s, transform 0.6s ease ${index * 0.1}s`,
+        boxShadow: `0 0 40px ${card.accentGlow}`,
       }}
     >
+      {/* Badge */}
+      {card.badge && (
+        <div className="absolute top-3 right-3">
+          <span
+            className={`text-[9px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-full ${
+              isDarkMode
+                ? "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20"
+                : "bg-cyan-500/10 text-cyan-600 border border-cyan-500/20"
+            }`}
+          >
+            {card.badge}
+          </span>
+        </div>
+      )}
+
       {/* Icon */}
       <div
-        className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
-          isDarkMode ? "bg-white/5" : "bg-gray-900/5"
+        className={`w-10 h-10 rounded-lg flex items-center justify-center mb-4 ${
+          isDarkMode ? "bg-white/[0.04]" : "bg-gray-50"
         }`}
       >
-        <card.icon className={`${card.iconColor}`} size={24} />
+        <card.icon className={`${card.accent}`} size={18} />
       </div>
 
       {/* Title */}
       <h3
-        className={`text-lg font-bold mb-2 ${
+        className={`text-base font-bold mb-2 ${
           isDarkMode ? "text-white" : "text-gray-900"
         }`}
       >
@@ -109,19 +150,23 @@ const EcosystemCard = ({
 
       {/* Description */}
       <p
-        className={`text-sm leading-relaxed mb-4 flex-grow ${
-          isDarkMode ? "text-gray-400" : "text-gray-600"
+        className={`text-sm leading-relaxed mb-4 ${
+          isDarkMode ? "text-gray-500" : "text-gray-500"
         }`}
       >
         {card.description}
       </p>
 
-      {/* Explore Link */}
-      <span className="text-budju-pink font-medium text-sm inline-flex items-center gap-1 group-hover:gap-2 transition-all">
+      {/* Link */}
+      <span
+        className={`text-xs font-semibold inline-flex items-center gap-1.5 ${card.accent} group-hover:gap-2.5 transition-all`}
+      >
         Explore
-        <span className="transition-transform group-hover:translate-x-1">&rarr;</span>
+        <span className="transition-transform group-hover:translate-x-1">
+          &rarr;
+        </span>
       </span>
-    </div>
+    </motion.div>
   );
 
   if (card.external) {
@@ -146,23 +191,17 @@ const EcosystemCard = ({
 
 const EcosystemOverview = () => {
   const { isDarkMode } = useTheme();
-  const { ref: titleRef, inView: titleInView } = useInView({
-    triggerOnce: true,
-    threshold: 0.1,
-  });
 
   return (
     <section id="ecosystem" className="py-16 md:py-24 px-4">
       <div className="max-w-7xl mx-auto">
-        {/* Section Title */}
-        <div
-          ref={titleRef}
+        {/* Section Header */}
+        <motion.div
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
           className="text-center mb-12 md:mb-16"
-          style={{
-            opacity: titleInView ? 1 : 0,
-            transform: titleInView ? "translateY(0)" : "translateY(20px)",
-            transition: "opacity 0.6s ease, transform 0.6s ease",
-          }}
         >
           <h2
             className={`text-3xl md:text-4xl lg:text-5xl font-bold font-display mb-4 ${
@@ -170,23 +209,28 @@ const EcosystemOverview = () => {
             }`}
           >
             The{" "}
-            <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-cyan-400 via-budju-blue to-budju-pink bg-clip-text text-transparent">
               Ecosystem
             </span>
           </h2>
           <p
-            className={`text-lg max-w-2xl mx-auto ${
-              isDarkMode ? "text-gray-400" : "text-gray-600"
+            className={`text-base max-w-xl mx-auto ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
             }`}
           >
-            Everything you need in one place. Trade, earn, collect, and grow with BUDJU.
+            A complete DeFi suite built around the BUDJU trading bot. Trade,
+            earn, burn, and collect.
           </p>
-        </div>
+        </motion.div>
 
         {/* Cards Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
           {ecosystemCards.map((card, index) => (
-            <EcosystemCard key={card.title} card={card} index={index} />
+            <EcosystemCardComponent
+              key={card.title}
+              card={card}
+              index={index}
+            />
           ))}
         </div>
       </div>
