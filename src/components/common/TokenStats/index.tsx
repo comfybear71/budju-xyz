@@ -180,10 +180,10 @@ const TokenStats = () => {
       label: "BUDJU Price",
       value: loading
         ? "..."
-        : tokenData
+        : tokenData && tokenData.price > 0
           ? formatPrice(tokenData.price)
-          : "N/A",
-      sub: loading ? "Loading..." : "Real-time",
+          : "—",
+      sub: loading ? "Loading..." : tokenData && tokenData.price > 0 ? "Real-time" : "Unavailable",
       icon: FaChartLine,
       accent: "cyan",
     },
@@ -191,10 +191,10 @@ const TokenStats = () => {
       label: "Market Cap",
       value: loading
         ? "..."
-        : tokenData
+        : tokenData && tokenData.marketCap > 0
           ? formatNumber(tokenData.marketCap)
-          : "N/A",
-      sub: loading ? "Loading..." : "Fully diluted",
+          : "—",
+      sub: loading ? "Loading..." : tokenData && tokenData.marketCap > 0 ? "Fully diluted" : "Unavailable",
       icon: FaCoins,
       accent: "emerald",
     },
@@ -202,10 +202,10 @@ const TokenStats = () => {
       label: "Holders",
       value: loading
         ? "..."
-        : tokenData
+        : tokenData && tokenData.holders > 0
           ? tokenData.holders.toLocaleString()
-          : "N/A",
-      sub: loading ? "Loading..." : "Community members",
+          : "—",
+      sub: loading ? "Loading..." : tokenData && tokenData.holders > 0 ? "Community members" : "Requires API key",
       icon: FaUsers,
       accent: "blue",
     },
@@ -213,12 +213,14 @@ const TokenStats = () => {
       label: "Circ. Supply",
       value: loading
         ? "..."
-        : tokenData
+        : tokenData && remainingSupply > 0
           ? remainingSupply.toLocaleString()
-          : "N/A",
+          : "—",
       sub: loading
         ? "Loading..."
-        : `${tokenData ? tokenData.burned.toLocaleString() : "0"} burned`,
+        : tokenData && tokenData.burned > 0
+          ? `${tokenData.burned.toLocaleString()} burned`
+          : "Requires API key",
       icon: FaFire,
       accent: "pink",
     },

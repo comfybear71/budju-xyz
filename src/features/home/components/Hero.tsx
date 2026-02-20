@@ -7,6 +7,7 @@ import {
   fetchHeliusTokenMetrics,
   TOKEN_ADDRESS,
 } from "@/lib/utils/tokenService";
+import { FaRobot, FaLock } from "react-icons/fa";
 
 interface LiveMetrics {
   price: number;
@@ -40,12 +41,14 @@ const Hero = () => {
   }, []);
 
   const formatPrice = (p: number) => {
+    if (p <= 0) return "—";
     if (p < 0.01) return `$${p.toFixed(8)}`;
     if (p < 1) return `$${p.toFixed(4)}`;
     return `$${p.toFixed(2)}`;
   };
 
   const formatCompact = (n: number) => {
+    if (n <= 0) return "—";
     if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
     if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
     return `$${n.toFixed(0)}`;
@@ -93,7 +96,7 @@ const Hero = () => {
 
           {/* Subtitle */}
           <p
-            className={`text-lg md:text-xl mb-10 max-w-lg leading-relaxed font-medium ${
+            className={`text-lg md:text-xl mb-8 max-w-lg leading-relaxed font-medium ${
               isDarkMode ? "text-gray-400" : "text-gray-600"
             }`}
           >
@@ -101,24 +104,78 @@ const Hero = () => {
             ecosystem — all built on Solana. The bot that works while you sleep.
           </p>
 
+          {/* 10M BUDJU Entry Requirement — Prominent Callout */}
+          <div
+            className={`w-full max-w-lg rounded-xl p-[1px] mb-8 ${
+              isDarkMode
+                ? "bg-gradient-to-r from-amber-500/40 via-yellow-500/30 to-amber-500/40"
+                : "bg-gradient-to-r from-amber-500/30 via-yellow-500/20 to-amber-500/30"
+            }`}
+          >
+            <div
+              className={`rounded-xl px-5 py-4 flex items-start gap-4 ${
+                isDarkMode ? "bg-[#0a0a1f]/95" : "bg-white/90"
+              } backdrop-blur-sm`}
+            >
+              <div
+                className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
+                  isDarkMode ? "bg-amber-500/10" : "bg-amber-500/10"
+                }`}
+              >
+                <FaLock
+                  className={`w-4 h-4 ${
+                    isDarkMode ? "text-amber-400" : "text-amber-600"
+                  }`}
+                />
+              </div>
+              <div>
+                <p
+                  className={`text-sm font-bold mb-1 ${
+                    isDarkMode ? "text-white" : "text-gray-900"
+                  }`}
+                >
+                  Hold{" "}
+                  <span
+                    className={`${
+                      isDarkMode ? "text-amber-400" : "text-amber-600"
+                    } font-mono`}
+                  >
+                    10,000,000 BUDJU
+                  </span>{" "}
+                  to unlock the bot
+                </p>
+                <p
+                  className={`text-xs leading-relaxed ${
+                    isDarkMode ? "text-gray-500" : "text-gray-500"
+                  }`}
+                >
+                  Your entry ticket to the most powerful trading board on
+                  Solana. Hold 10M BUDJU in your wallet to access automated
+                  trading, signals, and the full ecosystem.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 mb-12">
+          <div className="flex flex-col sm:flex-row gap-4 mb-10">
             <Link
               to={ROUTES.SWAP}
-              className="hero-btn-primary text-center text-base font-bold px-10 py-4 rounded-xl"
+              className="hero-btn-primary text-center text-base font-bold px-10 py-4 rounded-xl flex items-center justify-center gap-2"
             >
+              <FaRobot className="w-4 h-4" />
               Launch Trading Bot
             </Link>
-            <a
-              href="#ecosystem"
+            <Link
+              to={ROUTES.HOW_TO_BUY}
               className={`hero-btn-secondary text-center text-base font-bold px-10 py-4 rounded-xl ${
                 !isDarkMode
                   ? "text-gray-900 border-gray-300 hover:border-gray-900"
                   : ""
               }`}
             >
-              Explore Ecosystem
-            </a>
+              How to Buy BUDJU
+            </Link>
           </div>
 
           {/* Live Metrics Bar */}
@@ -180,7 +237,9 @@ const Hero = () => {
                       isDarkMode ? "text-white" : "text-gray-900"
                     }`}
                   >
-                    {metrics ? metrics.holders.toLocaleString() : "—"}
+                    {metrics && metrics.holders > 0
+                      ? metrics.holders.toLocaleString()
+                      : "—"}
                   </p>
                 </div>
               </div>
@@ -305,10 +364,17 @@ const Hero = () => {
                 />
                 <TerminalLine
                   isDarkMode={isDarkMode}
+                  label="ACCESS"
+                  value="Requires 10M BUDJU"
+                  color="amber"
+                  delay={0.9}
+                />
+                <TerminalLine
+                  isDarkMode={isDarkMode}
                   label="NETWORK"
                   value="Solana Mainnet — 400ms"
                   color="blue"
-                  delay={0.9}
+                  delay={1.2}
                 />
               </div>
 
@@ -359,7 +425,7 @@ const TerminalLine = ({
   isDarkMode: boolean;
   label: string;
   value: string;
-  color: "emerald" | "cyan" | "blue" | "pink";
+  color: "emerald" | "cyan" | "blue" | "pink" | "amber";
   delay: number;
 }) => {
   const colorMap = {
@@ -367,6 +433,7 @@ const TerminalLine = ({
     cyan: isDarkMode ? "text-cyan-400" : "text-cyan-600",
     blue: isDarkMode ? "text-blue-400" : "text-blue-600",
     pink: isDarkMode ? "text-budju-pink" : "text-budju-pink-dark",
+    amber: isDarkMode ? "text-amber-400" : "text-amber-600",
   };
 
   return (
@@ -378,12 +445,12 @@ const TerminalLine = ({
         isDarkMode ? "text-gray-400" : "text-gray-500"
       }`}
     >
-      <span
-        className={`${isDarkMode ? "text-gray-600" : "text-gray-300"}`}
-      >
+      <span className={`${isDarkMode ? "text-gray-600" : "text-gray-300"}`}>
         &gt;
       </span>
-      <span className={`${colorMap[color]} font-semibold uppercase text-[10px] tracking-wide min-w-[52px]`}>
+      <span
+        className={`${colorMap[color]} font-semibold uppercase text-[10px] tracking-wide min-w-[52px]`}
+      >
         {label}
       </span>
       <span>{value}</span>
