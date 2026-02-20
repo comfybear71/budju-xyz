@@ -8,6 +8,7 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
 const CRYPTOCOMPARE_API_KEY = import.meta.env.VITE_CRYPTOCOMPARE_API_KEY || "";
+const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
 const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 
 if (!HELIUS_API_KEY) {
@@ -157,20 +158,59 @@ async function fetchDexScreenerData(
   }
 }
 
-// Fetch price via Jupiter Price API v2 (free, no key required)
+// Fetch price via Jupiter Price API v3
 async function fetchJupiterPrice(tokenAddress: string): Promise<number> {
   try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
     const response = await fetch(
-      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
-      { headers: { Accept: "application/json" } },
+      `https://api.jup.ag/price/v3?ids=${tokenAddress}`,
+      { headers },
     );
     if (!response.ok) return 0;
     const data = await response.json();
-    const price = data?.data?.[tokenAddress]?.price;
+    const price = data?.data?.[tokenAddress]?.usdPrice;
     return price ? Number(price) : 0;
   } catch (error) {
     console.error("Error fetching Jupiter price:", error);
     return 0;
+  }
+}
+
+// Fetch enriched token data via Jupiter Tokens v2 API
+interface JupiterTokenData {
+  price: number;
+  marketCap: number;
+  holders: number;
+  volume24h: number;
+  liquidity: number;
+}
+
+async function fetchJupiterTokenData(tokenAddress: string): Promise<JupiterTokenData | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
+    const response = await fetch(
+      `https://api.jup.ag/tokens/v2/search?query=${tokenAddress}`,
+      { headers },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const token = Array.isArray(data) ? data[0] : null;
+    if (!token) return null;
+
+    return {
+      price: token.usdPrice || 0,
+      marketCap: token.mcap || 0,
+      holders: token.holderCount || 0,
+      volume24h: (token.buyVolume24h || 0) + (token.sellVolume24h || 0),
+      liquidity: token.liquidity || 0,
+    };
+  } catch (error) {
+    console.error("Error fetching Jupiter token data:", error);
+    return null;
   }
 }
 
@@ -298,14 +338,15 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult] =
+    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult, jupTokenResult] =
       await Promise.allSettled([
         fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
         fetchTokenSupply(tokenAddress),             // total supply (single lightweight RPC call)
         fetchBurnAmount(burnAddress, tokenAddress), // burned (targeted single lookup)
         fetchHolderCount(tokenAddress),             // holders (Helius DAS, needs API key)
-        fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v2
+        fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v3
         fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
+        fetchJupiterTokenData(tokenAddress),        // enriched data via Jupiter Tokens v2
       ]);
 
     const dex = dexResult.status === "fulfilled"
@@ -313,23 +354,40 @@ export async function fetchHeliusTokenMetrics(
       : { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
     const totalSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
     const burned = burnedResult.status === "fulfilled" ? burnedResult.value : 0;
-    const holders = holderResult.status === "fulfilled" ? holderResult.value : 0;
+    const heliusHolders = holderResult.status === "fulfilled" ? holderResult.value : 0;
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
     const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
+    const jupToken = jupTokenResult.status === "fulfilled" ? jupTokenResult.value : null;
 
-    // Use first available price: DexScreener → Jupiter → GeckoTerminal
-    const price = dex.price > 0 ? dex.price : jupiterPrice > 0 ? jupiterPrice : geckoPrice;
+    // Use first available price: DexScreener → Jupiter Price → Jupiter Tokens → GeckoTerminal
+    const price = dex.price > 0
+      ? dex.price
+      : jupiterPrice > 0
+        ? jupiterPrice
+        : jupToken?.price && jupToken.price > 0
+          ? jupToken.price
+          : geckoPrice;
     const circulatingSupply = totalSupply - burned;
-    // Use DexScreener market cap if available, else compute from price × supply
+    // Use DexScreener market cap if available, then Jupiter Tokens, else compute from price × supply
     const marketCap = dex.marketCap > 0
       ? dex.marketCap
-      : price * circulatingSupply;
+      : jupToken?.marketCap && jupToken.marketCap > 0
+        ? jupToken.marketCap
+        : price * circulatingSupply;
+    // Use Helius holder count if available, fallback to Jupiter Tokens v2
+    const holders = heliusHolders > 0
+      ? heliusHolders
+      : jupToken?.holders || 0;
+    // Use DexScreener volume if available, fallback to Jupiter Tokens v2
+    const volume24h = dex.volume24h > 0
+      ? dex.volume24h
+      : jupToken?.volume24h || 0;
 
     return {
       price,
       marketCap,
       holders,
-      volume24h: dex.volume24h,
+      volume24h,
       totalSupply,
       burned,
       raydiumVault: 0,

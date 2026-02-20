@@ -7,7 +7,8 @@ import {
 } from "@lib/services/tokenRegistry";
 import { getChartData, CandlestickData } from "@lib/services/chartApi";
 
-const JUPITER_API_URL = "https://quote-api.jup.ag/v6";
+const JUPITER_API_URL = "https://api.jup.ag/swap/v1";
+const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
 
 export interface SwapEstimate {
   inAmount: number;
@@ -74,8 +75,12 @@ export const useTrading = (
         const inputAmount =
           parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
 
+        const quoteHeaders: Record<string, string> = {};
+        if (JUPITER_API_KEY) quoteHeaders["x-api-key"] = JUPITER_API_KEY;
+
         const quoteResponse = await fetch(
           `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
+          { headers: quoteHeaders },
         );
 
         if (!quoteResponse.ok) {
@@ -128,8 +133,14 @@ export const useTrading = (
 
       // Step 1: Get a quote first
       console.log("Fetching quote...");
+      const swapHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (JUPITER_API_KEY) swapHeaders["x-api-key"] = JUPITER_API_KEY;
+
       const quoteResponse = await fetch(
         `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
+        { headers: swapHeaders },
       );
 
       if (!quoteResponse.ok) {
@@ -144,7 +155,6 @@ export const useTrading = (
       // Step 2: Create a swap transaction using the quote
       console.log("Creating swap transaction...");
 
-      // Format the request body according to Jupiter API v6 requirements
       const swapRequestBody = {
         quoteResponse: quoteData,
         userPublicKey: connection.wallet.address,
@@ -155,7 +165,7 @@ export const useTrading = (
 
       const swapResponse = await fetch(`${JUPITER_API_URL}/swap`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: swapHeaders,
         body: JSON.stringify(swapRequestBody),
       });
 
@@ -175,7 +185,7 @@ export const useTrading = (
       // Step 3: Process the transaction with the wallet
       console.log("Processing transaction with wallet...");
 
-      // Handle versioned transaction from Jupiter v6
+      // Handle versioned transaction from Jupiter
       const transactionBuffer = Buffer.from(swapData.swapTransaction, "base64");
       const versionedTransaction =
         VersionedTransaction.deserialize(transactionBuffer);
