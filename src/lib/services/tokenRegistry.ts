@@ -97,7 +97,9 @@ export const initializeTokenRegistry = async (): Promise<void> => {
             };
 
             tokenCache.set(token.address, tokenInfo);
-            tokenSymbolMap.set(token.symbol, tokenInfo);
+            if (!tokenSymbolMap.has(token.symbol)) {
+              tokenSymbolMap.set(token.symbol, tokenInfo);
+            }
           }
         }
       } else {
