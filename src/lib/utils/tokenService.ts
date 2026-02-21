@@ -376,10 +376,10 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumResult, bankResult, devResult] =
+    const [dexResult, supplyResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumResult, bankResult, devResult, burnEventsResult] =
       await Promise.allSettled([
         fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
-        fetchTokenSupply(tokenAddress),             // current supply (burns reduce this via SPL burn)
+        fetchTokenSupply(tokenAddress),             // current on-chain supply
         fetchHolderCount(tokenAddress),             // holders (Helius DAS, needs API key)
         fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v3
         fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
@@ -387,16 +387,17 @@ export async function fetchHeliusTokenMetrics(
         fetchTokenBalance(RAYDIUM_AUTHORITY_V4, tokenAddress),      // Raydium liquidity pool
         fetchTokenBalance(BANK_OF_BUDJU_ADDRESS, tokenAddress),     // Bank of BUDJU balance
         fetchTokenBalance(DEVELOPER_VAULT_ADDRESS, tokenAddress),   // Developer vault (never sold)
+        fetchBurnEvents(burnAddress, tokenAddress),                 // burn transfer events
       ]);
 
     const dex = dexResult.status === "fulfilled"
       ? dexResult.value
       : { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
     const currentSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
-    // Burned tokens = initial mint (1B) minus current on-chain supply
-    // SPL burn instructions reduce the total supply directly
-    const burned = currentSupply > 0 ? INITIAL_MINT_SUPPLY - currentSupply : 0;
     const totalSupply = INITIAL_MINT_SUPPLY;
+    // Burned = sum of all transfers TO the burn address (real burn events from blockchain)
+    const burnEvts = burnEventsResult.status === "fulfilled" ? burnEventsResult.value : [];
+    const burned = burnEvts.reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
     const heliusHolders = holderResult.status === "fulfilled" ? holderResult.value : 0;
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
     const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
@@ -413,7 +414,10 @@ export async function fetchHeliusTokenMetrics(
         : jupToken?.price && jupToken.price > 0
           ? jupToken.price
           : geckoPrice;
-    const circulatingSupply = currentSupply - raydiumVault - bankOfBudju - developerVault;
+    // The burned tokens were transferred to burn address then moved to Raydium,
+    // so raydiumVault includes the burned amount. Subtract it to avoid double-counting.
+    const raydiumAdjusted = Math.max(raydiumVault - burned, 0);
+    const circulatingSupply = totalSupply - burned - raydiumAdjusted - bankOfBudju - developerVault;
     // Use DexScreener market cap if available, then Jupiter Tokens, else compute from price × supply
     const marketCap = dex.marketCap > 0
       ? dex.marketCap
@@ -432,7 +436,7 @@ export async function fetchHeliusTokenMetrics(
     console.log("[TokenService] Metrics:", {
       totalSupply,
       burned,
-      raydiumVault,
+      raydiumVault: raydiumAdjusted,
       bankOfBudju,
       developerVault,
       circulatingSupply,
@@ -446,7 +450,7 @@ export async function fetchHeliusTokenMetrics(
       volume24h,
       totalSupply,
       burned,
-      raydiumVault,
+      raydiumVault: raydiumAdjusted,
       bankOfBudju,
       developerVault,
       circulatingSupply,
