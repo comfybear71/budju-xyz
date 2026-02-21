@@ -1,21 +1,23 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { TOKEN_ADDRESS, RPC_ENDPOINT } from "@constants/addresses";
+import { TOKEN_ADDRESS } from "@constants/addresses";
 
+// Multiple RPC endpoints for fallback — try each until one works
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = HELIUS_API_KEY
-  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-  : "";
-const DEVNET_RPC_ENDPOINT = "https://api.devnet.solana.com";
 
-// Use Helius if key is available, otherwise fall back to public RPC
-const mainnetEndpoint = HELIUS_RPC_ENDPOINT || RPC_ENDPOINT;
+const MAINNET_RPC_ENDPOINTS: string[] = [
+  // Helius (if key available)
+  ...(HELIUS_API_KEY
+    ? [`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`]
+    : []),
+  // Public free RPCs that support CORS
+  "https://api.mainnet-beta.solana.com",
+  "https://rpc.ankr.com/solana",
+];
 
-// Network configurations
-const networks: Record<string, Connection> = {
-  mainnet: new Connection(mainnetEndpoint, "confirmed"),
-  devnet: new Connection(DEVNET_RPC_ENDPOINT, "confirmed"),
-};
+const DEVNET_RPC_ENDPOINTS: string[] = [
+  "https://api.devnet.solana.com",
+];
+
+const SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 
 export type Network = "mainnet" | "devnet";
 
@@ -37,30 +39,73 @@ export interface WalletData {
   balance: WalletBalance;
 }
 
+/**
+ * Make a JSON-RPC call to Solana, trying multiple endpoints until one succeeds.
+ */
+async function solanaRpc(
+  method: string,
+  params: unknown[],
+  network: Network = "mainnet",
+): Promise<any> {
+  const endpoints =
+    network === "mainnet" ? MAINNET_RPC_ENDPOINTS : DEVNET_RPC_ENDPOINTS;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method,
+          params,
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn(`RPC ${endpoint} returned ${response.status}, trying next...`);
+        continue;
+      }
+
+      const json = await response.json();
+
+      if (json.error) {
+        console.warn(`RPC ${endpoint} error: ${json.error.message}, trying next...`);
+        continue;
+      }
+
+      return json.result;
+    } catch (error) {
+      console.warn(`RPC ${endpoint} failed:`, error);
+      continue;
+    }
+  }
+
+  console.error(`All RPC endpoints failed for ${method}`);
+  return null;
+}
+
 const walletService = {
-  // Current network
   currentNetwork: "mainnet" as Network,
 
-  // Switch network
   switchNetwork(network: Network): void {
-    if (networks[network]) {
-      this.currentNetwork = network;
-    } else {
-      throw new Error(`Unsupported network: ${network}`);
-    }
+    this.currentNetwork = network;
   },
 
-  // Get current connection
-  getConnection(): Connection {
-    return networks[this.currentNetwork];
-  },
-
-  // Get SOL balance
+  // Get SOL balance via raw JSON-RPC
   async getSolBalance(walletAddress: string): Promise<number> {
     try {
-      const publicKey = new PublicKey(walletAddress);
-      const balance = await this.getConnection().getBalance(publicKey);
-      return balance / 1e9;
+      const result = await solanaRpc(
+        "getBalance",
+        [walletAddress, { commitment: "confirmed" }],
+        this.currentNetwork,
+      );
+
+      if (result && typeof result.value === "number") {
+        return result.value / 1e9;
+      }
+      return 0;
     } catch (error) {
       console.error("Error fetching SOL balance:", error);
       return 0;
@@ -68,9 +113,9 @@ const walletService = {
   },
 
   /**
-   * Fetch ALL token balances in a single RPC call using getParsedTokenAccountsByOwner.
+   * Fetch ALL SPL token balances in a single RPC call.
+   * Uses getTokenAccountsByOwner with jsonParsed encoding.
    * Returns a map of mint address -> { amount, decimals }.
-   * Works reliably on both Helius and public RPC endpoints.
    */
   async getAllTokenBalances(
     walletAddress: string,
@@ -78,19 +123,25 @@ const walletService = {
     const balances = new Map<string, { amount: number; decimals: number }>();
 
     try {
-      const publicKey = new PublicKey(walletAddress);
-      const response = await this.getConnection().getParsedTokenAccountsByOwner(
-        publicKey,
-        { programId: TOKEN_PROGRAM_ID },
+      const result = await solanaRpc(
+        "getTokenAccountsByOwner",
+        [
+          walletAddress,
+          { programId: SPL_TOKEN_PROGRAM_ID },
+          { encoding: "jsonParsed", commitment: "confirmed" },
+        ],
+        this.currentNetwork,
       );
 
-      for (const account of response.value) {
-        const parsed = account.account.data.parsed;
-        if (parsed?.info) {
-          const mint: string = parsed.info.mint;
-          const decimals: number = parsed.info.tokenAmount?.decimals || 0;
-          const uiAmount: number = parsed.info.tokenAmount?.uiAmount || 0;
-          balances.set(mint, { amount: uiAmount, decimals });
+      if (result && Array.isArray(result.value)) {
+        for (const account of result.value) {
+          const info = account?.account?.data?.parsed?.info;
+          if (info) {
+            const mint: string = info.mint;
+            const decimals: number = info.tokenAmount?.decimals || 0;
+            const uiAmount: number = info.tokenAmount?.uiAmount || 0;
+            balances.set(mint, { amount: uiAmount, decimals });
+          }
         }
       }
     } catch (error) {
@@ -108,13 +159,12 @@ const walletService = {
     ],
   ): Promise<WalletBalance> {
     try {
-      // Fetch SOL + all tokens in parallel (only 2 RPC calls total)
+      // 2 RPC calls in parallel: SOL balance + all token accounts
       const [solBalance, tokenMap] = await Promise.all([
         this.getSolBalance(walletAddress),
         this.getAllTokenBalances(walletAddress),
       ]);
 
-      // Map the requested tokens from the results
       const tokens: TokenBalance[] = customTokens.map((token) => {
         const found = tokenMap.get(token.address);
         return {
@@ -151,7 +201,7 @@ const walletService = {
       if (isActive) callback(balances);
     };
 
-    updateBalances(); // Initial fetch
+    updateBalances();
     const interval = setInterval(updateBalances, intervalMs);
 
     return () => {
@@ -160,19 +210,16 @@ const walletService = {
     };
   },
 
-  // Format address for display
   formatAddress(address: string): string {
     if (!address) return "";
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   },
 
-  // Copy address to clipboard
   async copyAddress(address: string): Promise<void> {
     if (!address) throw new Error("No address provided");
     await navigator.clipboard.writeText(address);
   },
 
-  // Open Solscan link
   openSolscan(address: string): void {
     if (!address) return;
     const baseUrl =

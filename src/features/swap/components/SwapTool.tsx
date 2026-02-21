@@ -8,6 +8,7 @@ import { useWallet } from "@hooks/useWallet";
 import { useTrading } from "@hooks/useTrading";
 import { getTokenBySymbol } from "@lib/services/tokenRegistry";
 import PriceChart from "@components/common/PriceChart";
+import RecentTrades from "@components/common/RecentTrades";
 import { FaChartLine, FaTimes, FaCog } from "react-icons/fa";
 
 const SwapTool = () => {
@@ -698,6 +699,11 @@ const SwapTool = () => {
                 isConnected={isConnected}
               />
             </div>
+          </div>
+
+          {/* Recent Trades — below chart, spans full width */}
+          <div className="w-full order-3">
+            <RecentTrades />
           </div>
         </div>
       </div>
