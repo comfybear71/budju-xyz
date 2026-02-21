@@ -91,13 +91,14 @@ const BurnStatistics = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch metrics to get the real burned amount from supply reduction
-      const [metrics, events] = await Promise.all([
+      // Fetch burn events (transfers TO burn address) and price
+      const [events, metrics] = await Promise.all([
+        fetchBurnEvents(),
         fetchHeliusTokenMetrics(TOKEN_ADDRESS, SERVICE_BURN_ADDRESS),
-        fetchBurnEvents().catch(() => [] as BurnEvent[]),
       ]);
 
-      const burned = metrics.burned;
+      // Total burned = sum of all incoming transfers to the burn address
+      const burned = events.reduce((sum, e) => sum + e.amount, 0);
       const price = metrics.price;
       const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
         ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100

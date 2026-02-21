@@ -23,6 +23,7 @@ const INITIAL_MINT_SUPPLY = 1_000_000_000;
 // Token and wallet addresses
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
+const BURN_TOKEN_ACCOUNT = "9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const RAYDIUM_AUTHORITY_V4 = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
@@ -554,7 +555,7 @@ export async function fetchHistoricalPriceData(
   }
 }
 
-// Fetch burn events
+// Fetch burn events — uses the burn TOKEN ACCOUNT for reliable signature lookup
 export async function fetchBurnEvents(
   burnAddress: string = BURN_ADDRESS,
   tokenAddress: string = TOKEN_ADDRESS,
@@ -564,33 +565,12 @@ export async function fetchBurnEvents(
   if (cachedBurnEvents !== null) return cachedBurnEvents;
 
   try {
-    // Get the total burned from supply reduction
-    const [currentSupply, price] = await Promise.all([
-      fetchTokenSupply(tokenAddress),
-      fetchTokenPrice(tokenAddress),
-    ]);
-    const totalBurned = currentSupply > 0 ? INITIAL_MINT_SUPPLY - currentSupply : 0;
-
-    // Try to find actual burn transaction signatures
-    const signatures = await fetchRecentSignatures(burnAddress, 20);
+    // Use the burn token account (9NNv...) for signatures — this is the actual
+    // SPL token account that receives BUDJU, so all token transfers show up here.
+    const signatures = await fetchRecentSignatures(BURN_TOKEN_ACCOUNT, 20);
     let burnEvents: BurnEvent[] = [];
     if (signatures.length > 0) {
       burnEvents = await processBurnTransactions(signatures, burnAddress, tokenAddress);
-    }
-
-    // If no individual burn transactions found, show the total as an aggregated entry
-    if (burnEvents.length === 0 && totalBurned > 0) {
-      burnEvents = [{
-        date: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
-        amount: totalBurned,
-        txHash: "N/A (Aggregated from supply reduction)",
-        value: totalBurned * price,
-        timestamp: Date.now(),
-      }];
     }
 
     setCachedData(cacheKey, burnEvents, 10 * 60 * 1000);
@@ -642,7 +622,7 @@ async function processBurnTransactions(
     if (signatures.length === 0) return [];
     const signatureStrings = signatures.map((sig) => sig.signature);
 
-    // Fetch transactions individually using the standard getTransaction RPC method
+    // Fetch transactions via the RPC proxy
     const txRequests = signatureStrings.map((sig, i) => ({
       jsonrpc: "2.0",
       id: `tx-${i}`,
@@ -670,37 +650,33 @@ async function processBurnTransactions(
       const sig = signatures[i];
       if (!tx) continue;
 
-      let isBurnTransaction = false;
       let burnAmount = 0;
 
       if (tx.meta && tx.meta.postTokenBalances && tx.meta.preTokenBalances) {
-        const preBalanceMap = new Map();
+        // Build a map of pre-balances keyed by accountIndex
+        const preBalanceMap = new Map<number, number>();
         for (const pre of tx.meta.preTokenBalances) {
           if (pre.mint === tokenAddress) {
             preBalanceMap.set(
               pre.accountIndex,
-              pre.uiTokenAmount.uiAmount || 0,
+              pre.uiTokenAmount?.uiAmount || 0,
             );
           }
         }
+        // Check post-balances: use post.owner (reliable) to match the burn address
         for (const post of tx.meta.postTokenBalances) {
-          if (
-            post.mint === tokenAddress &&
-            tx.transaction.message.accountKeys[post.accountIndex] ===
-              burnAddress
-          ) {
+          if (post.mint === tokenAddress && post.owner === burnAddress) {
             const preBalance = preBalanceMap.get(post.accountIndex) || 0;
-            const postBalance = post.uiTokenAmount.uiAmount || 0;
+            const postBalance = post.uiTokenAmount?.uiAmount || 0;
             const diff = postBalance - preBalance;
             if (diff > 0) {
-              isBurnTransaction = true;
               burnAmount += diff;
             }
           }
         }
       }
 
-      if (isBurnTransaction && burnAmount > 0) {
+      if (burnAmount > 0) {
         const timestamp = sig.blockTime * 1000;
         const date = new Date(timestamp).toLocaleDateString("en-US", {
           month: "short",
