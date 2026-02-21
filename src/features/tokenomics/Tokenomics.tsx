@@ -1,18 +1,15 @@
 // src/features/tokenomics/Tokenomics.tsx
 import { useEffect } from "react";
-import { motion } from "framer-motion"; // Updated from "motion/react"
+import { motion } from "framer-motion";
 import { APP_NAME } from "@constants/config";
 import TokenStats from "@components/common/TokenStats";
-import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import DexScreener from "./components/DexScreener";
-import PriceChart from "./components/PriceChart";
-import TokenAddresses from "./components/TokenAddresses";
 import TokenHistory from "./components/TokenHistory";
 import TokenSupply from "./components/TokenSupply";
-import { useTheme } from "@/context/ThemeContext"; // Added for theme support
+import { useTheme } from "@/context/ThemeContext";
 
 const Tokenomics = () => {
-  const { isDarkMode } = useTheme(); // Added theme hook
+  const { isDarkMode } = useTheme();
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -36,9 +33,7 @@ const Tokenomics = () => {
   return (
     <main>
       {/* Hero Section */}
-      <section
-        className={`pt-24 pb-16 ${isDarkMode ? "bg-gradient-to-b " : "bg-gradient-to-b "}`}
-      >
+      <section className="pt-24 pb-16">
         <div className="budju-container">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -46,14 +41,20 @@ const Tokenomics = () => {
             transition={{ duration: 0.6 }}
             className="text-center max-w-3xl mx-auto"
           >
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
-              <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-                Token
+            <h1
+              className={`text-4xl md:text-5xl lg:text-6xl font-bold font-display mb-6 ${
+                isDarkMode ? "text-white" : "text-gray-900"
+              }`}
+            >
+              Token
+              <span className="bg-gradient-to-r from-cyan-400 to-budju-blue bg-clip-text text-transparent">
+                omics
               </span>
-              <span className="text-budju-blue">omics</span>
             </h1>
             <p
-              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-budju-white"}`}
+              className={`text-lg ${
+                isDarkMode ? "text-gray-400" : "text-gray-500"
+              }`}
             >
               Two budju's fell down a hole. One said, "It's dark in here isn't
               it?" The other replied, "I don't know; I can't see."
@@ -62,20 +63,11 @@ const Tokenomics = () => {
         </div>
       </section>
 
-      {/* Scrolling Banner */}
-      <BudjuParadeBanner />
-
       {/* Live Token Stats */}
       <TokenStats />
 
       {/* Token Supply Information */}
       <TokenSupply />
-
-      {/* Price Chart */}
-      <PriceChart />
-
-      {/* Token Addresses */}
-      <TokenAddresses />
 
       {/* DexScreener Integration */}
       <DexScreener />
