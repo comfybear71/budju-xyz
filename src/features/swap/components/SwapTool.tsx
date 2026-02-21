@@ -21,7 +21,7 @@ const SwapTool = () => {
   // Trading state
   const [fromAmount, setFromAmount] = useState("");
   const [toAmount, setToAmount] = useState("");
-  const [fromToken, setFromToken] = useState("SOL");
+  const [fromToken, setFromToken] = useState("USDC");
   const [toToken, setToToken] = useState("BUDJU");
   const [timeframe, setTimeframe] = useState("1D");
 
