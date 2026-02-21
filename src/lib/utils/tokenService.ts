@@ -239,9 +239,12 @@ async function fetchGeckoTerminalPrice(tokenAddress: string): Promise<number> {
 // Fetch total supply via a single lightweight getTokenSupply RPC call
 async function fetchTokenSupply(tokenAddress: string): Promise<number> {
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const response = await fetch(HELIUS_RPC_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: "supply-query",
@@ -249,28 +252,51 @@ async function fetchTokenSupply(tokenAddress: string): Promise<number> {
         params: [tokenAddress],
       }),
     });
+    clearTimeout(timeoutId);
     const data = await response.json();
-    return Number(data.result?.value?.uiAmount || 0);
+    const supply = Number(data.result?.value?.uiAmount || 0);
+    console.log(`[TokenService] Total supply: ${supply.toLocaleString()}`);
+    return supply;
   } catch (error) {
     console.error("Error fetching token supply:", error);
     return 0;
   }
 }
 
-// Fetch token balance for any wallet address
+// Fetch token balance for any wallet address using raw JSON-RPC fetch
 async function fetchTokenBalance(walletAddress: string, tokenAddress: string): Promise<number> {
   try {
-    const walletPublicKey = new PublicKey(walletAddress);
-    const tokenPublicKey = new PublicKey(tokenAddress);
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      walletPublicKey,
-      { mint: tokenPublicKey },
-    );
-    return tokenAccounts.value.reduce(
-      (sum, account) =>
-        sum + (account.account.data.parsed.info.tokenAmount.uiAmount || 0),
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `balance-${walletAddress.slice(0, 8)}`,
+        method: "getTokenAccountsByOwner",
+        params: [
+          walletAddress,
+          { mint: tokenAddress },
+          { encoding: "jsonParsed" },
+        ],
+      }),
+    });
+    clearTimeout(timeoutId);
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[TokenService] RPC error for ${walletAddress.slice(0, 8)}:`, data.error);
+      return 0;
+    }
+    const accounts = data.result?.value || [];
+    const balance = accounts.reduce(
+      (sum: number, account: any) =>
+        sum + (account.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0),
       0,
     );
+    console.log(`[TokenService] Balance for ${walletAddress.slice(0, 8)}...: ${balance.toLocaleString()}`);
+    return balance;
   } catch (error) {
     console.error(`Error fetching token balance for ${walletAddress}:`, error);
     return 0;
@@ -401,6 +427,17 @@ export async function fetchHeliusTokenMetrics(
     const volume24h = dex.volume24h > 0
       ? dex.volume24h
       : jupToken?.volume24h || 0;
+
+    console.log("[TokenService] Metrics:", {
+      totalSupply,
+      burned,
+      raydiumVault: `${raydiumSol} (SOL pool) + ${raydiumUsdc} (USDC pool) = ${raydiumVault}`,
+      bankOfBudju,
+      communityVault,
+      developerVault,
+      circulatingSupply,
+      price,
+    });
 
     return {
       price,
@@ -581,22 +618,8 @@ async function fetchBurnBalance(
   burnAddress: string,
   tokenAddress: string,
 ): Promise<number> {
-  try {
-    const burnPublicKey = new PublicKey(burnAddress);
-    const tokenPublicKey = new PublicKey(tokenAddress);
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      burnPublicKey,
-      { mint: tokenPublicKey },
-    );
-    return tokenAccounts.value.reduce(
-      (sum, account) =>
-        sum + (account.account.data.parsed.info.tokenAmount.uiAmount || 0),
-      0,
-    );
-  } catch (error) {
-    console.error("Error fetching burn balance:", error);
-    return 0;
-  }
+  // Reuse the same raw JSON-RPC fetch approach
+  return fetchTokenBalance(burnAddress, tokenAddress);
 }
 
 async function processBurnTransactions(
