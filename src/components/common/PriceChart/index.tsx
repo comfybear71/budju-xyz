@@ -195,55 +195,53 @@ const PriceChart: React.FC<PriceChartProps> = ({
       },
     });
 
-    // Add candlestick series using addCandlestickSeries (available in 3.8.0)
-    // const candlestickSeries = chart.addCandlestickSeries({
-    //   upColor: colors.upColor,
-    //   downColor: colors.downColor,
-    //   borderUpColor: colors.borderUpColor,
-    //   borderDownColor: colors.borderDownColor,
-    //   wickUpColor: colors.wickUpColor,
-    //   wickDownColor: colors.wickDownColor,
-    // });
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: colors.upColor,
+      downColor: colors.downColor,
+      borderUpColor: colors.borderUpColor,
+      borderDownColor: colors.borderDownColor,
+      wickUpColor: colors.wickUpColor,
+      wickDownColor: colors.wickDownColor,
+    });
 
-    // // Add histogram series for volume using addHistogramSeries (available in 3.8.0)
-    // const volumeSeries = chart.addHistogramSeries({
-    //   color: "#26a69a",
-    //   priceFormat: { type: "volume" },
-    //   priceScaleId: "",
-    //   scaleMargins: {
-    //     top: 0.7, // Adjusted to give more space for candlesticks
-    //     bottom: 0,
-    //   },
-    // });
+    const volumeSeries = chart.addHistogramSeries({
+      color: "#26a69a",
+      priceFormat: { type: "volume" },
+      priceScaleId: "",
+      scaleMargins: {
+        top: 0.7,
+        bottom: 0,
+      },
+    });
 
-    // const formattedData = chartData.map((item) => ({
-    //   time: (typeof item.time === "string"
-    //     ? Math.floor(new Date(item.time).getTime() / 1000)
-    //     : item.time) as Time,
-    //   open: item.open,
-    //   high: item.high,
-    //   low: item.low,
-    //   close: item.close,
-    // }));
+    const formattedData = chartData.map((item) => ({
+      time: (typeof item.time === "string"
+        ? Math.floor(new Date(item.time).getTime() / 1000)
+        : item.time) as Time,
+      open: item.open,
+      high: item.high,
+      low: item.low,
+      close: item.close,
+    }));
 
-    // const volumeData = chartData
-    //   .filter((item) => item.volume !== undefined)
-    //   .map((item) => ({
-    //     time: (typeof item.time === "string"
-    //       ? Math.floor(new Date(item.time).getTime() / 1000)
-    //       : item.time) as Time,
-    //     value: item.volume || 0,
-    //     color: item.close >= item.open ? colors.upColor : colors.downColor,
-    //   }));
+    const volumeData = chartData
+      .filter((item) => item.volume !== undefined)
+      .map((item) => ({
+        time: (typeof item.time === "string"
+          ? Math.floor(new Date(item.time).getTime() / 1000)
+          : item.time) as Time,
+        value: item.volume || 0,
+        color: item.close >= item.open ? colors.upColor : colors.downColor,
+      }));
 
-    // candlestickSeries.setData(formattedData);
-    // volumeSeries.setData(showVolume ? volumeData : []);
+    candlestickSeries.setData(formattedData);
+    volumeSeries.setData(showVolume ? volumeData : []);
 
     chart.timeScale().fitContent();
 
     chartRef.current = chart;
-    // candleSeriesRef.current = candlestickSeries;
-    // volumeSeriesRef.current = volumeSeries;
+    candleSeriesRef.current = candlestickSeries;
+    volumeSeriesRef.current = volumeSeries;
 
     const handleResize = () => {
       if (

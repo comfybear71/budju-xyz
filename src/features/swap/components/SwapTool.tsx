@@ -288,29 +288,8 @@ const SwapTool = () => {
     <section ref={sectionRef} id="swap-tool">
       <div className="budju-container px-4 sm:px-6">
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* Chart (Visible on Tablet and Larger Screens) */}
-          <div
-            className={`hidden sm:block sm:w-full lg:w-2/3 rounded-lg p-4 h-[400px] sm:h-[450px] lg:h-[500px] shadow-lg mb-6 lg:mb-0 ${
-              isDarkMode
-                ? "bg-gray-900/80 backdrop-blur-sm"
-                : "bg-white/20 backdrop-blur-sm border border-white/30"
-            }`}
-          >
-            <div className="relative w-full h-full">
-              <PriceChart
-                data={chartData}
-                baseToken={fromToken}
-                quoteToken={toToken}
-                timeframe={timeframe}
-                onTimeframeChange={handleTimeframeChange}
-                loading={chartLoading}
-                isConnected={isConnected}
-              />
-            </div>
-          </div>
-
-          {/* Trading Form */}
-          <div className="w-full sm:w-full lg:w-1/3 max-w-md mx-auto lg:mx-0">
+          {/* Trading Form — shows first on mobile, second on desktop */}
+          <div className="w-full lg:w-1/3 max-w-md mx-auto lg:mx-0 order-1 lg:order-2">
             <motion.div
               initial={{ opacity: 0, x: -30 }}
               animate={{ opacity: 1, x: 0 }}
@@ -698,6 +677,27 @@ const SwapTool = () => {
                 </div>
               </div>
             </motion.div>
+          </div>
+
+          {/* Chart — shows second on mobile, first on desktop */}
+          <div
+            className={`w-full lg:w-2/3 rounded-lg p-4 h-[350px] sm:h-[450px] lg:h-[500px] shadow-lg order-2 lg:order-1 ${
+              isDarkMode
+                ? "bg-gray-900/80 backdrop-blur-sm"
+                : "bg-white/20 backdrop-blur-sm border border-white/30"
+            }`}
+          >
+            <div className="relative w-full h-full">
+              <PriceChart
+                data={chartData}
+                baseToken={fromToken}
+                quoteToken={toToken}
+                timeframe={timeframe}
+                onTimeframeChange={handleTimeframeChange}
+                loading={chartLoading}
+                isConnected={isConnected}
+              />
+            </div>
           </div>
         </div>
       </div>

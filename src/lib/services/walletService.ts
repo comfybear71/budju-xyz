@@ -61,7 +61,7 @@ const walletService = {
       return balance / 1e9; // Convert lamports to SOL
     } catch (error) {
       console.error("Error fetching SOL balance:", error);
-      throw new Error("Failed to fetch SOL balance");
+      return 0;
     }
   },
 
@@ -87,11 +87,16 @@ const walletService = {
       );
       return Number(tokenAccount.amount) / 10 ** decimals;
     } catch (error) {
-      if ((error as any).message.includes("TokenAccountNotFound")) {
+      const errMsg = (error as any)?.message || String(error);
+      if (
+        errMsg.includes("TokenAccountNotFound") ||
+        errMsg.includes("could not find account")
+      ) {
         return 0; // No token account exists
       }
+      // Return 0 on RPC errors instead of throwing — prevents infinite spinner
       console.error(`Error fetching token balance for ${tokenAddress}:`, error);
-      throw new Error(`Failed to fetch balance for token ${tokenAddress}`);
+      return 0;
     }
   },
 
@@ -126,7 +131,7 @@ const walletService = {
       };
     } catch (error) {
       console.error("Error fetching wallet balances:", error);
-      throw error;
+      return { sol: 0, tokens: [] };
     }
   },
 
