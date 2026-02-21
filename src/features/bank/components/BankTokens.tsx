@@ -72,7 +72,7 @@ const BankTokens = () => {
   };
 
   return (
-    <section ref={sectionRef} className="py-16 md:py-24 px-4">
+    <section ref={sectionRef} className="pt-8 pb-16 md:pt-12 md:pb-24 px-4">
       <div className="max-w-7xl mx-auto">
         {/* Section Header */}
         <motion.div

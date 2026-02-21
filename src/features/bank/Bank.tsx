@@ -77,7 +77,7 @@ const Bank = () => {
   return (
     <main className="flex flex-col">
       {/* ── Hero ── */}
-      <section className="pt-28 pb-16 md:pt-36 md:pb-24 px-4">
+      <section className="pt-28 pb-8 md:pt-36 md:pb-12 px-4">
         <div className="max-w-7xl mx-auto text-center">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
