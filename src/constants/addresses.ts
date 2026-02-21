@@ -41,8 +41,9 @@ export const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_
 // Wallet config
 export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
 
-// Pool addresses
-export const POOL_SOL_BUDJU = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+// Pool addresses (Raydium AMM — main liquidity)
+export const POOL_SOL_BUDJU = "6PMhvxG7a3wceKBpGJgMVivBG1NUfSz9nA7CaQsJxMEZ";
+export const POOL_SOL_BUDJU_CLMM = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
 export const POOL_USDC_BUDJU = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";
 
 //Referral link

@@ -1,93 +1,109 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTheme } from "@/context/ThemeContext";
-import { POOL_SOL_BUDJU } from "@constants/addresses";
+import { TOKEN_ADDRESS, DEXSCREENER_LINK } from "@constants/addresses";
+import { FaExternalLinkAlt } from "react-icons/fa";
 
-interface Trade {
-  timestamp: string;
-  type: "buy" | "sell";
+interface PairData {
   priceUsd: string;
-  amountBase: string;
-  amountQuote: string;
-  txHash: string;
-  maker: string;
+  priceNative: string;
+  priceChange: { h1: number; h6: number; h24: number };
+  volume: { h1: number; h6: number; h24: number };
+  txns: {
+    h1: { buys: number; sells: number };
+    h6: { buys: number; sells: number };
+    h24: { buys: number; sells: number };
+  };
+  liquidity: { usd: number; base: number; quote: number };
+  fdv: number;
+  pairCreatedAt: number;
 }
 
-interface RecentTradesProps {
-  poolAddress?: string;
-}
+const formatSmallPrice = (price: string): string => {
+  const num = parseFloat(price);
+  if (num >= 0.01) return `$${num.toFixed(4)}`;
+  if (num <= 0) return "$0.00";
 
-const RecentTrades: React.FC<RecentTradesProps> = ({
-  poolAddress = POOL_SOL_BUDJU,
-}) => {
+  const str = num.toFixed(12);
+  const [, decimal] = str.split(".");
+  let leadingZeros = 0;
+  for (const ch of decimal) {
+    if (ch === "0") leadingZeros++;
+    else break;
+  }
+
+  const subscripts = "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089";
+  const sub = String(leadingZeros)
+    .split("")
+    .map((d) => subscripts[parseInt(d)])
+    .join("");
+  const sig = decimal.slice(leadingZeros, leadingZeros + 4);
+  return `$0.0${sub}${sig}`;
+};
+
+const formatVolume = (vol: number): string => {
+  if (vol >= 1_000_000) return `$${(vol / 1_000_000).toFixed(1)}M`;
+  if (vol >= 1_000) return `$${(vol / 1_000).toFixed(1)}K`;
+  return `$${vol.toFixed(2)}`;
+};
+
+const RecentTrades: React.FC = () => {
   const { isDarkMode } = useTheme();
-  const [trades, setTrades] = useState<Trade[]>([]);
+  const [data, setData] = useState<PairData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchTrades = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     try {
       const response = await fetch(
-        `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolAddress}/trades`,
+        `https://api.dexscreener.com/latest/dex/tokens/${TOKEN_ADDRESS}`,
         { headers: { accept: "application/json" } },
       );
 
       if (!response.ok) throw new Error(`API error: ${response.status}`);
 
       const json = await response.json();
-      const rawTrades = json?.data;
+      const pair = json?.pairs?.[0];
 
-      if (!Array.isArray(rawTrades)) return;
-
-      const parsed: Trade[] = rawTrades.slice(0, 20).map((t: any) => {
-        const attrs = t.attributes;
-        return {
-          timestamp: attrs.block_timestamp,
-          type: attrs.kind === "buy" ? "buy" : "sell",
-          priceUsd: attrs.price_to_in_usd || attrs.price_from_in_usd || "0",
-          amountBase: attrs.from_token_amount || "0",
-          amountQuote: attrs.to_token_amount || "0",
-          txHash: attrs.tx_hash || "",
-          maker: attrs.tx_from_address || "",
-        };
-      });
-
-      setTrades(parsed);
+      if (pair) {
+        setData({
+          priceUsd: pair.priceUsd || "0",
+          priceNative: pair.priceNative || "0",
+          priceChange: pair.priceChange || { h1: 0, h6: 0, h24: 0 },
+          volume: pair.volume || { h1: 0, h6: 0, h24: 0 },
+          txns: pair.txns || {
+            h1: { buys: 0, sells: 0 },
+            h6: { buys: 0, sells: 0 },
+            h24: { buys: 0, sells: 0 },
+          },
+          liquidity: pair.liquidity || { usd: 0, base: 0, quote: 0 },
+          fdv: pair.fdv || 0,
+          pairCreatedAt: pair.pairCreatedAt || 0,
+        });
+      }
     } catch (error) {
-      console.error("Error fetching trades:", error);
+      console.error("Error fetching market data:", error);
     } finally {
       setLoading(false);
     }
-  }, [poolAddress]);
+  }, []);
 
   useEffect(() => {
-    fetchTrades();
-    const interval = setInterval(fetchTrades, 30000);
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, [fetchTrades]);
+  }, [fetchData]);
 
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSec = Math.floor(diffMs / 1000);
+  const labelClass = `text-[10px] font-bold uppercase tracking-wider ${
+    isDarkMode ? "text-gray-500" : "text-white/50"
+  }`;
+  const valueClass = `text-sm font-mono font-bold ${
+    isDarkMode ? "text-white" : "text-white"
+  }`;
+  const cardBg = isDarkMode
+    ? "bg-white/[0.03] border border-white/[0.06]"
+    : "bg-white/10 border border-white/20";
 
-    if (diffSec < 60) return `${diffSec}s ago`;
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
-    return `${Math.floor(diffSec / 86400)}d ago`;
-  };
-
-  const formatNumber = (val: string, decimals = 2) => {
-    const num = parseFloat(val);
-    if (isNaN(num)) return "0";
-    if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-    if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
-    return num.toFixed(decimals);
-  };
-
-  const shortenAddr = (addr: string) => {
-    if (!addr || addr.length < 8) return addr;
-    return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
-  };
+  const changeColor = (val: number) =>
+    val > 0 ? "text-emerald-400" : val < 0 ? "text-red-400" : isDarkMode ? "text-gray-400" : "text-white/60";
 
   return (
     <div
@@ -97,120 +113,119 @@ const RecentTrades: React.FC<RecentTradesProps> = ({
           : "bg-white/20 backdrop-blur-sm border border-white/30"
       }`}
     >
+      {/* Header */}
       <div className="px-4 py-3 flex items-center justify-between">
-        <h3
-          className={`text-xs font-bold uppercase tracking-widest ${
-            isDarkMode ? "text-gray-400" : "text-white/80"
-          }`}
-        >
-          Recent Trades
-        </h3>
-        <button
-          onClick={() => {
-            setLoading(true);
-            fetchTrades();
-          }}
-          className={`text-[10px] px-2 py-1 rounded transition-colors cursor-pointer ${
+        <h3 className={labelClass}>Market Activity</h3>
+        <a
+          href={DEXSCREENER_LINK}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded transition-colors ${
             isDarkMode
-              ? "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+              ? "text-cyan-400/60 hover:text-cyan-400 hover:bg-white/5"
               : "text-white/60 hover:text-white hover:bg-white/10"
           }`}
         >
-          Refresh
-        </button>
+          DexScreener <FaExternalLinkAlt className="w-2.5 h-2.5" />
+        </a>
       </div>
 
-      {/* Table header */}
-      <div
-        className={`grid grid-cols-5 gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-wider ${
-          isDarkMode
-            ? "text-gray-500 border-t border-white/[0.06]"
-            : "text-white/50 border-t border-white/20"
-        }`}
-      >
-        <span>Time</span>
-        <span>Type</span>
-        <span className="text-right">Price</span>
-        <span className="text-right">Amount</span>
-        <span className="text-right">Maker</span>
-      </div>
+      {loading || !data ? (
+        <div
+          className={`px-4 py-8 text-center text-xs ${
+            isDarkMode ? "text-gray-500" : "text-white/50"
+          }`}
+        >
+          Loading market data...
+        </div>
+      ) : (
+        <div className="px-4 pb-4 space-y-3">
+          {/* Price + FDV row */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>Price</div>
+              <div className={valueClass}>{formatSmallPrice(data.priceUsd)}</div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>FDV</div>
+              <div className={valueClass}>{formatVolume(data.fdv)}</div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>Liquidity</div>
+              <div className={valueClass}>{formatVolume(data.liquidity.usd)}</div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>24h Volume</div>
+              <div className={valueClass}>{formatVolume(data.volume.h24)}</div>
+            </div>
+          </div>
 
-      {/* Trade rows */}
-      <div className="max-h-[280px] sm:max-h-[320px] overflow-y-auto">
-        {loading ? (
-          <div
-            className={`px-4 py-8 text-center text-xs ${
-              isDarkMode ? "text-gray-500" : "text-white/50"
-            }`}
-          >
-            Loading trades...
+          {/* Price changes */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>1h Change</div>
+              <div className={`text-sm font-mono font-bold ${changeColor(data.priceChange.h1)}`}>
+                {data.priceChange.h1 > 0 ? "+" : ""}
+                {data.priceChange.h1?.toFixed(2) || "0.00"}%
+              </div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>6h Change</div>
+              <div className={`text-sm font-mono font-bold ${changeColor(data.priceChange.h6)}`}>
+                {data.priceChange.h6 > 0 ? "+" : ""}
+                {data.priceChange.h6?.toFixed(2) || "0.00"}%
+              </div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>24h Change</div>
+              <div className={`text-sm font-mono font-bold ${changeColor(data.priceChange.h24)}`}>
+                {data.priceChange.h24 > 0 ? "+" : ""}
+                {data.priceChange.h24?.toFixed(2) || "0.00"}%
+              </div>
+            </div>
           </div>
-        ) : trades.length === 0 ? (
-          <div
-            className={`px-4 py-8 text-center text-xs ${
-              isDarkMode ? "text-gray-500" : "text-white/50"
-            }`}
-          >
-            No recent trades found
+
+          {/* Transactions */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>1h Txns</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-emerald-400">
+                  {data.txns.h1.buys}B
+                </span>
+                <span className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-white/30"}`}>/</span>
+                <span className="text-xs font-mono text-red-400">
+                  {data.txns.h1.sells}S
+                </span>
+              </div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>6h Txns</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-emerald-400">
+                  {data.txns.h6.buys}B
+                </span>
+                <span className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-white/30"}`}>/</span>
+                <span className="text-xs font-mono text-red-400">
+                  {data.txns.h6.sells}S
+                </span>
+              </div>
+            </div>
+            <div className={`rounded-lg px-3 py-2.5 ${cardBg}`}>
+              <div className={labelClass}>24h Txns</div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-emerald-400">
+                  {data.txns.h24.buys}B
+                </span>
+                <span className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-white/30"}`}>/</span>
+                <span className="text-xs font-mono text-red-400">
+                  {data.txns.h24.sells}S
+                </span>
+              </div>
+            </div>
           </div>
-        ) : (
-          trades.map((trade, i) => (
-            <a
-              key={`${trade.txHash}-${i}`}
-              href={`https://solscan.io/tx/${trade.txHash}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`grid grid-cols-5 gap-2 px-4 py-2 text-xs transition-colors ${
-                isDarkMode ? "hover:bg-white/[0.03]" : "hover:bg-white/10"
-              } ${
-                isDarkMode
-                  ? i % 2 === 0
-                    ? "bg-transparent"
-                    : "bg-white/[0.01]"
-                  : i % 2 === 0
-                    ? "bg-transparent"
-                    : "bg-white/5"
-              }`}
-            >
-              <span
-                className={
-                  isDarkMode ? "text-gray-400" : "text-white/70"
-                }
-              >
-                {formatTime(trade.timestamp)}
-              </span>
-              <span
-                className={`font-bold ${
-                  trade.type === "buy" ? "text-emerald-400" : "text-red-400"
-                }`}
-              >
-                {trade.type === "buy" ? "BUY" : "SELL"}
-              </span>
-              <span
-                className={`text-right font-mono ${
-                  isDarkMode ? "text-gray-300" : "text-white/90"
-                }`}
-              >
-                ${formatNumber(trade.priceUsd, 6)}
-              </span>
-              <span
-                className={`text-right font-mono ${
-                  isDarkMode ? "text-gray-300" : "text-white/90"
-                }`}
-              >
-                {formatNumber(trade.amountBase)}
-              </span>
-              <span
-                className={`text-right font-mono ${
-                  isDarkMode ? "text-gray-500" : "text-white/50"
-                }`}
-              >
-                {shortenAddr(trade.maker)}
-              </span>
-            </a>
-          ))
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

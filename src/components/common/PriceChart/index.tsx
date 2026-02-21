@@ -66,9 +66,37 @@ const chartColors = {
   },
 };
 
+/**
+ * Format very small USD prices like $0.000009138 as $0.0₅9138
+ * Uses subscript notation for leading zeros after decimal
+ */
+const formatSmallPrice = (price: number): string => {
+  if (price >= 0.01) return price.toFixed(4);
+  if (price <= 0) return "0.0000";
+
+  const str = price.toFixed(12);
+  const [, decimal] = str.split(".");
+  let leadingZeros = 0;
+  for (const ch of decimal) {
+    if (ch === "0") leadingZeros++;
+    else break;
+  }
+
+  const significantDigits = decimal.slice(leadingZeros, leadingZeros + 4);
+  return `0.0${subscriptDigit(leadingZeros)}${significantDigits}`;
+};
+
+const subscriptDigit = (n: number): string => {
+  const subscripts = "₀₁₂₃₄₅₆₇₈₉";
+  return String(n)
+    .split("")
+    .map((d) => subscripts[parseInt(d)])
+    .join("");
+};
+
 const generateDefaultData = (): CandlestickItem[] => {
   const data: CandlestickItem[] = [];
-  const basePrice = 664199; // BUDJU per SOL
+  const basePrice = 0.000009; // BUDJU price in USD
   const now = new Date();
 
   for (let i = 30; i >= 0; i--) {
@@ -116,27 +144,11 @@ const PriceChart: React.FC<PriceChartProps> = ({
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const [showVolume, setShowVolume] = useState(false);
 
-  // Adjust data for SOL/BUDJU pair (inverting if necessary)
+  // Use raw data directly (already in USD from GeckoTerminal)
   const chartData = useMemo(() => {
     if (!rawData || rawData.length === 0) return generateDefaultData();
-
-    if (baseToken === "SOL" && quoteToken === "BUDJU") {
-      const firstClose = rawData[0]?.close || 0;
-      if (firstClose > 0 && firstClose < 1) {
-        return rawData.map((item) => ({
-          time: (typeof item.time === "string"
-            ? Math.floor(new Date(item.time).getTime() / 1000)
-            : item.time) as Time,
-          open: 1 / item.open || 0,
-          high: 1 / item.high || 0,
-          low: 1 / item.low || 0,
-          close: 1 / item.close || 0,
-          volume: item.volume,
-        }));
-      }
-    }
     return rawData;
-  }, [rawData, baseToken, quoteToken]);
+  }, [rawData]);
 
   useEffect(() => {
     if (
@@ -364,7 +376,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
           {chartData.length > 0 && (
             <div className="text-white">
               <span className="text-2xl md:text-3xl font-bold">
-                {chartData[chartData.length - 1].close.toFixed(4)}
+                ${formatSmallPrice(chartData[chartData.length - 1].close)}
               </span>
               <span
                 className={`ml-2 ${

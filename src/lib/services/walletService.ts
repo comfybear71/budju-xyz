@@ -8,9 +8,8 @@ const MAINNET_RPC_ENDPOINTS: string[] = [
   ...(HELIUS_API_KEY
     ? [`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`]
     : []),
-  // Public free RPCs that support CORS
+  // Public Solana RPC (supports CORS)
   "https://api.mainnet-beta.solana.com",
-  "https://rpc.ankr.com/solana",
 ];
 
 const DEVNET_RPC_ENDPOINTS: string[] = [
@@ -96,6 +95,7 @@ const walletService = {
   // Get SOL balance via raw JSON-RPC
   async getSolBalance(walletAddress: string): Promise<number> {
     try {
+      console.log("[BUDJU] getSolBalance for:", walletAddress);
       const result = await solanaRpc(
         "getBalance",
         [walletAddress, { commitment: "confirmed" }],
@@ -103,11 +103,14 @@ const walletService = {
       );
 
       if (result && typeof result.value === "number") {
-        return result.value / 1e9;
+        const sol = result.value / 1e9;
+        console.log("[BUDJU] SOL balance:", sol);
+        return sol;
       }
+      console.warn("[BUDJU] getBalance returned unexpected result:", result);
       return 0;
     } catch (error) {
-      console.error("Error fetching SOL balance:", error);
+      console.error("[BUDJU] Error fetching SOL balance:", error);
       return 0;
     }
   },
@@ -123,6 +126,7 @@ const walletService = {
     const balances = new Map<string, { amount: number; decimals: number }>();
 
     try {
+      console.log("[BUDJU] getTokenAccountsByOwner for:", walletAddress);
       const result = await solanaRpc(
         "getTokenAccountsByOwner",
         [
@@ -134,6 +138,7 @@ const walletService = {
       );
 
       if (result && Array.isArray(result.value)) {
+        console.log("[BUDJU] Token accounts found:", result.value.length);
         for (const account of result.value) {
           const info = account?.account?.data?.parsed?.info;
           if (info) {
@@ -141,11 +146,14 @@ const walletService = {
             const decimals: number = info.tokenAmount?.decimals || 0;
             const uiAmount: number = info.tokenAmount?.uiAmount || 0;
             balances.set(mint, { amount: uiAmount, decimals });
+            console.log(`[BUDJU] Token ${mint}: ${uiAmount} (${decimals} decimals)`);
           }
         }
+      } else {
+        console.warn("[BUDJU] getTokenAccountsByOwner returned:", result);
       }
     } catch (error) {
-      console.error("Error fetching token accounts:", error);
+      console.error("[BUDJU] Error fetching token accounts:", error);
     }
 
     return balances;
