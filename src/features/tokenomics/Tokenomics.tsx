@@ -2,7 +2,7 @@
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { APP_NAME } from "@constants/config";
-import TokenStats from "@components/common/TokenStats";
+
 import DexScreener from "./components/DexScreener";
 import TokenHistory from "./components/TokenHistory";
 import TokenSupply from "./components/TokenSupply";
@@ -62,9 +62,6 @@ const Tokenomics = () => {
           </motion.div>
         </div>
       </section>
-
-      {/* Live Token Stats */}
-      <TokenStats />
 
       {/* Token Supply Information */}
       <TokenSupply />
