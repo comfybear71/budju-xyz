@@ -131,7 +131,7 @@ const Footer = () => {
               <li><Link to={ROUTES.NFT} className={linkClass}>NFT Collection</Link></li>
               <li>
                 <a
-                  href="https://shop.budjucoin.com"
+                  href="https://shop-of-budjus.myspreadshop.com.au"
                   target="_blank"
                   rel="noopener noreferrer"
                   className={linkClass}

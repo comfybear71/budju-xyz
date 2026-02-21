@@ -37,7 +37,7 @@ const allNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.TOKENOMICS], path: ROUTES.TOKENOMICS, icon: FaChartBar },
   { name: ROUTE_NAMES[ROUTES.NFT], path: ROUTES.NFT, icon: FaBahai },
   { name: ROUTE_NAMES[ROUTES.BURN], path: ROUTES.BURN, icon: FaFire },
-  { name: ROUTE_NAMES[ROUTES.SHOP], path: "https://shop.budjucoin.com", icon: FaShoppingCart },
+  { name: ROUTE_NAMES[ROUTES.SHOP], path: "https://shop-of-budjus.myspreadshop.com.au", icon: FaShoppingCart },
   { name: ROUTE_NAMES[ROUTES.HOW_TO_BUY], path: ROUTES.HOW_TO_BUY, icon: FaQuestion },
 ];
 

@@ -23,7 +23,7 @@ export const SOLSCAN_LINK =
 export const DEXSCREENER_LINK =
   "https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez";
 export const SHOP_URL =
-  import.meta.env.VITE_SHOP_URL || "https://shop.budjucoin.com";
+  import.meta.env.VITE_SHOP_URL || "https://shop-of-budjus.myspreadshop.com.au";
 export const BURN_URL = 
   "https://solscan.io/account/9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
 
