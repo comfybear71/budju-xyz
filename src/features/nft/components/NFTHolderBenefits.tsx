@@ -11,7 +11,6 @@ import {
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 
-// Benefit interface
 interface Benefit {
   icon: React.ElementType;
   title: string;
@@ -19,46 +18,102 @@ interface Benefit {
   color: string;
 }
 
-// Benefits array
 const benefits: Benefit[] = [
   {
     icon: FaCoins,
     title: "Token Airdrops",
     description:
       "Exclusive BUDJU token airdrops for NFT holders based on rarity level",
-    color: "bg-yellow-500",
+    color: "text-yellow-400",
   },
   {
     icon: FaUserFriends,
     title: "VIP Community Access",
     description: "Access to private community channels and priority support",
-    color: "bg-purple-500",
+    color: "text-purple-400",
   },
   {
     icon: FaGift,
     title: "Merchandise Giveaways",
     description: "Regular giveaways of limited edition BUDJU merchandise",
-    color: "bg-green-500",
+    color: "text-green-400",
   },
   {
     icon: FaLock,
     title: "Early Access",
     description:
       "First access to new features, products, and future collections",
-    color: "bg-blue-500",
+    color: "text-blue-400",
   },
   {
     icon: FaShoppingBag,
     title: "Shop Discounts",
     description: "Exclusive discounts in the BUDJU merchandise shop",
-    color: "bg-red-500",
+    color: "text-red-400",
   },
   {
     icon: FaChartLine,
     title: "Staking Rewards",
     description:
       "Higher APY when staking your BUDJU tokens in the Bank of BUDJU",
-    color: "bg-budju-pink",
+    color: "text-budju-pink",
+  },
+];
+
+const rarityTiers = [
+  {
+    name: "Golden",
+    pct: "1 of 1",
+    color: "text-yellow-300",
+    bg: "bg-yellow-400/10",
+    border: "border-yellow-400/25",
+    dot: "bg-gradient-to-r from-yellow-300 to-amber-500",
+    desc: "All benefits at maximum level — 10x airdrops, exclusive 1-of-1 merch box, lifetime VIP event access, and permanent crown status",
+  },
+  {
+    name: "Legendary",
+    pct: "2 NFTs",
+    color: "text-amber-400",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/20",
+    dot: "bg-amber-500",
+    desc: "All benefits at max level — 5x token airdrops, exclusive merchandise, and VIP events access",
+  },
+  {
+    name: "Epic",
+    pct: "4 NFTs",
+    color: "text-purple-400",
+    bg: "bg-purple-500/10",
+    border: "border-purple-500/20",
+    dot: "bg-purple-500",
+    desc: "Enhanced benefits — 3x token airdrops, special merchandise access, and increased staking rewards",
+  },
+  {
+    name: "Rare",
+    pct: "5 NFTs",
+    color: "text-blue-400",
+    bg: "bg-blue-500/10",
+    border: "border-blue-500/20",
+    dot: "bg-blue-500",
+    desc: "Improved benefits — 2x token airdrops, merchandise discounts, and community voting rights",
+  },
+  {
+    name: "Uncommon",
+    pct: "8 NFTs",
+    color: "text-green-400",
+    bg: "bg-green-500/10",
+    border: "border-green-500/20",
+    dot: "bg-green-500",
+    desc: "Standard benefits plus small bonus airdrops and early access to new features",
+  },
+  {
+    name: "Common",
+    pct: "10 NFTs",
+    color: "text-gray-400",
+    bg: "bg-gray-500/10",
+    border: "border-gray-500/20",
+    dot: "bg-gray-500",
+    desc: "Base level benefits including airdrops, community access, and merchandise giveaways",
   },
 ];
 
@@ -71,18 +126,14 @@ const NFTHolderBenefits = () => {
     if (sectionRef.current && cardsRef.current) {
       const cards = cardsRef.current.querySelectorAll(".benefit-card");
 
-      // Animate cards on scroll
       gsap.fromTo(
         cards,
-        {
-          opacity: 0,
-          y: 30,
-        },
+        { opacity: 0, y: 20 },
         {
           opacity: 1,
           y: 0,
-          stagger: 0.1,
-          duration: 0.6,
+          stagger: 0.08,
+          duration: 0.5,
           ease: "power2.out",
           scrollTrigger: {
             trigger: cardsRef.current,
@@ -90,205 +141,115 @@ const NFTHolderBenefits = () => {
           },
         },
       );
-
-      // Add hover effects
-      cards.forEach((card) => {
-        card.addEventListener("mouseenter", () => {
-          gsap.to(card, {
-            y: -10,
-            boxShadow: "0 15px 30px rgba(0, 0, 0, 0.3)",
-            duration: 0.3,
-          });
-        });
-
-        card.addEventListener("mouseleave", () => {
-          gsap.to(card, {
-            y: 0,
-            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
-            duration: 0.5,
-            ease: "elastic.out(1, 0.5)",
-          });
-        });
-      });
     }
   }, []);
 
   return (
-    <section ref={sectionRef} className="py-20">
-      <div className="budju-container">
+    <section ref={sectionRef} className="py-16 px-4">
+      <div className="max-w-5xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              HOLDER
-            </span>{" "}
-            <span className="text-budju-pink">BENEFITS</span>
+          <h2
+            className={`text-2xl md:text-3xl font-bold font-display mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+          >
+            Holder{" "}
+            <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+              Benefits
+            </span>
           </h2>
           <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+            className={`text-sm max-w-lg mx-auto ${isDarkMode ? "text-gray-500" : "text-gray-500"}`}
           >
-            Owning a BUDJU NFT comes with exclusive benefits and rewards. The
-            rarer your NFT, the greater your benefits!
+            Owning a BUDJU NFT unlocks exclusive perks. The rarer your NFT, the
+            greater the rewards.
           </p>
         </motion.div>
 
         {/* Benefits Grid */}
         <div
           ref={cardsRef}
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl mx-auto"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-12"
         >
-          {benefits.map((benefit, index) => (
+          {benefits.map((benefit, i) => (
             <div
-              key={index}
-              className={`benefit-card ${isDarkMode ? "budju-card" : "bg-white/20 border border-white/30 rounded-xl shadow-lg"} overflow-hidden hover:border-gray-600 transition-all duration-300`}
+              key={i}
+              className={`benefit-card p-4 rounded-xl border transition-all duration-300 hover:scale-[1.02] ${
+                isDarkMode
+                  ? "bg-[#0c0c20]/60 border-white/[0.06] hover:border-white/[0.12]"
+                  : "bg-white/60 border-gray-200/40 hover:border-gray-300/60"
+              } backdrop-blur-sm`}
             >
-              <div className="p-6">
-                {/* Icon with colored background */}
-                <div
-                  className={`w-16 h-16 rounded-full ${benefit.color} flex items-center justify-center mb-4`}
-                >
-                  <benefit.icon size={28} className="text-white" />
-                </div>
-
-                {/* Benefit Title */}
-                <h3
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"} mb-3`}
-                >
-                  {benefit.title}
-                </h3>
-
-                {/* Benefit Description */}
-                <p className={isDarkMode ? "text-gray-400" : "text-white/80"}>
-                  {benefit.description}
-                </p>
-              </div>
+              <benefit.icon className={`${benefit.color} mb-3`} size={22} />
+              <h3
+                className={`text-sm font-bold mb-1 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+              >
+                {benefit.title}
+              </h3>
+              <p
+                className={`text-xs ${isDarkMode ? "text-gray-500" : "text-gray-500"}`}
+              >
+                {benefit.description}
+              </p>
             </div>
           ))}
         </div>
 
         {/* Rarity Tiers */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-          className="mt-16 max-w-4xl mx-auto"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
         >
-          <h3 className="text-2xl font-bold text-center mb-8">
-            <span className="text-budju-blue">RARITY</span>{" "}
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              TIERS
+          <h3
+            className={`text-lg font-bold font-display text-center mb-6 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+          >
+            Rarity{" "}
+            <span className="bg-gradient-to-r from-amber-400 to-budju-blue bg-clip-text text-transparent">
+              Tiers
             </span>
           </h3>
 
-          <div className="space-y-4">
-            <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4">
-              <div className="flex items-center mb-2">
-                <div className="w-4 h-4 bg-yellow-500 rounded-full mr-3"></div>
-                <h4
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
-                >
-                  Legendary (1%)
-                </h4>
-              </div>
-              <p
-                className={
-                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
-                }
+          <div className="space-y-2">
+            {rarityTiers.map((tier) => (
+              <div
+                key={tier.name}
+                className={`p-3 rounded-lg border ${tier.bg} ${tier.border}`}
               >
-                All benefits at maximum level, including 5x token airdrops,
-                exclusive merchandise, and VIP events access
-              </p>
-            </div>
-
-            <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
-              <div className="flex items-center mb-2">
-                <div className="w-4 h-4 bg-purple-500 rounded-full mr-3"></div>
-                <h4
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
+                <div className="flex items-center gap-2 mb-1">
+                  <div
+                    className={`w-3 h-3 rounded-full ${tier.dot} flex-shrink-0`}
+                  />
+                  <h4
+                    className={`text-sm font-bold ${tier.color}`}
+                  >
+                    {tier.name}
+                  </h4>
+                  <span
+                    className={`text-[10px] font-mono ml-auto ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
+                  >
+                    {tier.pct}
+                  </span>
+                </div>
+                <p
+                  className={`text-xs pl-5 ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
                 >
-                  Epic (4%)
-                </h4>
+                  {tier.desc}
+                </p>
               </div>
-              <p
-                className={
-                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
-                }
-              >
-                Enhanced benefits with 3x token airdrops, special merchandise
-                access, and increased staking rewards
-              </p>
-            </div>
-
-            <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-              <div className="flex items-center mb-2">
-                <div className="w-4 h-4 bg-blue-500 rounded-full mr-3"></div>
-                <h4
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
-                >
-                  Rare (10%)
-                </h4>
-              </div>
-              <p
-                className={
-                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
-                }
-              >
-                Improved benefits with 2x token airdrops, merchandise discounts,
-                and community voting rights
-              </p>
-            </div>
-
-            <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
-              <div className="flex items-center mb-2">
-                <div className="w-4 h-4 bg-green-500 rounded-full mr-3"></div>
-                <h4
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
-                >
-                  Uncommon (25%)
-                </h4>
-              </div>
-              <p
-                className={
-                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
-                }
-              >
-                Standard benefits plus small bonus airdrops and early access to
-                new features
-              </p>
-            </div>
-
-            <div className="bg-gray-500/20 border border-gray-500/30 rounded-lg p-4">
-              <div className="flex items-center mb-2">
-                <div className="w-4 h-4 bg-gray-500 rounded-full mr-3"></div>
-                <h4
-                  className={`text-xl font-bold ${isDarkMode ? "text-white" : "text-budju-white"}`}
-                >
-                  Common (60%)
-                </h4>
-              </div>
-              <p
-                className={
-                  isDarkMode ? "text-gray-300 pl-7" : "text-white pl-7"
-                }
-              >
-                Base level benefits including airdrops, community access, and
-                merchandise giveaways
-              </p>
-            </div>
+            ))}
           </div>
         </motion.div>
 
-        <div
-          className={`text-center mt-10 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
+        <p
+          className={`text-center mt-6 text-[11px] ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
         >
-          Benefits are subject to change and may be expanded as the BUDJU
-          ecosystem grows. All NFT holders, regardless of rarity, will receive
-          the core benefits listed above.
-        </div>
+          Benefits may expand as the BUDJU ecosystem grows. All holders receive
+          core benefits regardless of rarity.
+        </p>
       </div>
     </section>
   );
