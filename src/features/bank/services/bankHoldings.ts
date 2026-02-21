@@ -106,19 +106,19 @@ const KNOWN_TOKENS: Record<
   JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN: {
     name: "Jupiter",
     symbol: "JUP",
-    logo: "/images/tokens/jup.png",
+    logo: "/images/tokens/jup.svg",
     color: "bg-emerald-500",
   },
   "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh": {
     name: "Wrapped BTC",
     symbol: "wBTC",
-    logo: "/images/tokens/btc.png",
+    logo: "/images/tokens/btc.svg",
     color: "bg-orange-500",
   },
   "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": {
     name: "Raydium",
     symbol: "RAY",
-    logo: "/images/tokens/ray.png",
+    logo: "/images/tokens/ray.svg",
     color: "bg-purple-500",
   },
 };
@@ -130,19 +130,24 @@ const SOL_METADATA = {
   color: "bg-violet-500",
 };
 
-// ── Price fetch ─────────────────────────────────────────
+// ── Price fetch (Jupiter v3 — matches tokenService.ts) ──
+const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
+
 async function fetchTokenPrice(mintAddress: string): Promise<number> {
   const cacheKey = `price_${mintAddress}`;
   const cached = getCached<number>(cacheKey);
   if (cached !== null) return cached;
 
   try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
     const res = await retryFetch(
-      `https://api.jup.ag/price/v2?ids=${mintAddress}`,
-      { headers: { Accept: "application/json" } },
+      `https://api.jup.ag/price/v3?ids=${mintAddress}`,
+      { headers },
     );
     const data = await res.json();
-    const price = Number(data.data?.[mintAddress]?.price ?? 0);
+    const price = Number(data.data?.[mintAddress]?.usdPrice ?? 0);
     if (!isNaN(price) && price > 0) {
       setCache(cacheKey, price, 5 * 60 * 1000);
       return price;
@@ -182,7 +187,7 @@ async function fetchTokenMetadata(
         name: md.name,
         symbol: md.symbol || "???",
         logo:
-          data.result?.content?.links?.image || "/images/tokens/default.png",
+          data.result?.content?.links?.image || "/images/tokens/default.svg",
         color: "bg-gray-500",
       };
       setCache(cacheKey, meta, 60 * 60 * 1000);
@@ -195,7 +200,7 @@ async function fetchTokenMetadata(
   return {
     name: "Unknown Token",
     symbol: "???",
-    logo: "/images/tokens/default.png",
+    logo: "/images/tokens/default.svg",
     color: "bg-gray-500",
   };
 }

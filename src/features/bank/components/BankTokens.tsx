@@ -191,7 +191,7 @@ const BankTokens = () => {
                     alt={token.name}
                     className="w-10 h-10 rounded-full"
                     onError={(e) => {
-                      e.currentTarget.src = "/images/tokens/default.png";
+                      e.currentTarget.src = "/images/tokens/default.svg";
                     }}
                   />
                   <div className="flex-1 min-w-0">
