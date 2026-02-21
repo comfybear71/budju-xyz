@@ -252,7 +252,10 @@ const WalletConnect = ({
     }
 
     if (isMobile && !inAppBrowser) {
-      const targetUrl = window.location.href;
+      // Use the pending route so Phantom/Solflare opens the correct page
+      const targetUrl = pendingNavRef.current
+        ? `${window.location.origin}${pendingNavRef.current}`
+        : window.location.href;
       const refUrl = window.location.origin;
       let deepLink = "";
       if (walletName === "phantom") {
@@ -262,6 +265,7 @@ const WalletConnect = ({
       } else if (walletName === "jupiter") {
         deepLink = `https://jup.ag/wallet`;
       }
+      pendingNavRef.current = null;
       window.location.href = deepLink;
       setIsMenuOpen(false);
     } else {
