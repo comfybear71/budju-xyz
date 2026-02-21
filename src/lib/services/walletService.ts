@@ -1,18 +1,23 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { getAccount, getAssociatedTokenAddress } from "@solana/spl-token";
-import { TOKEN_ADDRESS } from "@constants/addresses";
+import { TOKEN_ADDRESS, RPC_ENDPOINT } from "@constants/addresses";
 
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const DEVNET_RPC_ENDPOINT = "https://api.devnet.solana.com"; // Example Devnet RPC
+const HELIUS_RPC_ENDPOINT = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : "";
+const DEVNET_RPC_ENDPOINT = "https://api.devnet.solana.com";
+
+// Use Helius if key is available, otherwise fall back to public RPC
+const mainnetEndpoint = HELIUS_RPC_ENDPOINT || RPC_ENDPOINT;
 
 // Network configurations
-const networks = {
-  mainnet: new Connection(HELIUS_RPC_ENDPOINT, "confirmed"),
+const networks: Record<string, Connection> = {
+  mainnet: new Connection(mainnetEndpoint, "confirmed"),
   devnet: new Connection(DEVNET_RPC_ENDPOINT, "confirmed"),
 };
 
-export type Network = keyof typeof networks;
+export type Network = "mainnet" | "devnet";
 
 export interface TokenBalance {
   symbol: string;
@@ -30,6 +35,63 @@ export interface WalletData {
   address: string;
   name: string;
   balance: WalletBalance;
+}
+
+/**
+ * Fetch all token balances using Helius DAS API (getAssetsByOwner).
+ * Returns a map of mint address -> raw amount, or null if unavailable.
+ */
+async function fetchBalancesViaHelius(
+  walletAddress: string,
+): Promise<Map<string, { amount: number; decimals: number }> | null> {
+  if (!HELIUS_API_KEY) return null;
+
+  try {
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "budju-balances",
+        method: "getAssetsByOwner",
+        params: {
+          ownerAddress: walletAddress,
+          displayOptions: { showFungible: true },
+        },
+      }),
+    });
+
+    if (!response.ok) return null;
+
+    const json = await response.json();
+    const items = json?.result?.items;
+    if (!Array.isArray(items)) return null;
+
+    const balances = new Map<string, { amount: number; decimals: number }>();
+
+    for (const item of items) {
+      if (
+        item.interface === "FungibleToken" ||
+        item.interface === "FungibleAsset"
+      ) {
+        const mint = item.id;
+        const tokenInfo = item.token_info;
+        if (mint && tokenInfo) {
+          const decimals = tokenInfo.decimals || 0;
+          const rawBalance = Number(tokenInfo.balance || 0);
+          balances.set(mint, {
+            amount: rawBalance / 10 ** decimals,
+            decimals,
+          });
+        }
+      }
+    }
+
+    return balances;
+  } catch (error) {
+    console.error("Helius DAS API error:", error);
+    return null;
+  }
 }
 
 const walletService = {
@@ -65,7 +127,7 @@ const walletService = {
     }
   },
 
-  // Get token balance
+  // Get token balance via standard SPL method
   async getTokenBalance(
     walletAddress: string,
     tokenAddress: string,
@@ -94,7 +156,6 @@ const walletService = {
       ) {
         return 0; // No token account exists
       }
-      // Return 0 on RPC errors instead of throwing — prevents infinite spinner
       console.error(`Error fetching token balance for ${tokenAddress}:`, error);
       return 0;
     }
@@ -108,6 +169,27 @@ const walletService = {
     ],
   ): Promise<WalletBalance> {
     try {
+      // Try Helius DAS API first — single request for all token balances
+      const heliusBalances = await fetchBalancesViaHelius(walletAddress);
+
+      if (heliusBalances) {
+        // Get SOL balance from the standard RPC (DAS doesn't return native SOL)
+        const solBalance = await this.getSolBalance(walletAddress);
+
+        const tokens: TokenBalance[] = customTokens.map((token) => {
+          const found = heliusBalances.get(token.address);
+          return {
+            symbol: token.symbol,
+            address: token.address,
+            amount: found ? found.amount : 0,
+            decimals: token.decimals,
+          };
+        });
+
+        return { sol: solBalance, tokens };
+      }
+
+      // Fallback: fetch individually via standard SPL token methods
       const solBalancePromise = this.getSolBalance(walletAddress);
       const tokenBalancePromises = customTokens.map((token) =>
         this.getTokenBalance(walletAddress, token.address, token.decimals).then(
