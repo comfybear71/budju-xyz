@@ -19,9 +19,11 @@ if (!HELIUS_API_KEY) {
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
-const RAYDIUM_VAULT_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
+const RAYDIUM_SOL_BUDJU_POOL = "6PMhvxG7a3wceKBpGJgMVivBG1NUfSz9nA7CaQsJxMEZ";
+const RAYDIUM_USDC_BUDJU_POOL = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
 const COMMUNITY_VAULT_ADDRESS = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+const DEVELOPER_VAULT_ADDRESS = "6H4S8ZnSuE7NXpm6V77ZvrB7Zk6kSZLucVWFusuZsTCA";
 
 // Create Solana connection
 const connection = new Connection(HELIUS_RPC_ENDPOINT, {
@@ -56,6 +58,7 @@ interface TokenMetrics {
   raydiumVault: number;
   bankOfBudju: number;
   communityVault: number;
+  developerVault: number;
   circulatingSupply: number;
 }
 
@@ -341,7 +344,7 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumResult, bankResult, communityResult] =
+    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumSolResult, raydiumUsdcResult, bankResult, communityResult, devResult] =
       await Promise.allSettled([
         fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
         fetchTokenSupply(tokenAddress),             // total supply (single lightweight RPC call)
@@ -350,9 +353,11 @@ export async function fetchHeliusTokenMetrics(
         fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v3
         fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
         fetchJupiterTokenData(tokenAddress),        // enriched data via Jupiter Tokens v2
-        fetchTokenBalance(RAYDIUM_VAULT_ADDRESS, tokenAddress),   // Raydium vault balance
-        fetchTokenBalance(BANK_OF_BUDJU_ADDRESS, tokenAddress),   // Bank of BUDJU balance
-        fetchTokenBalance(COMMUNITY_VAULT_ADDRESS, tokenAddress), // Pool of BUDJU balance
+        fetchTokenBalance(RAYDIUM_SOL_BUDJU_POOL, tokenAddress),    // Raydium SOL/BUDJU pool
+        fetchTokenBalance(RAYDIUM_USDC_BUDJU_POOL, tokenAddress),   // Raydium USDC/BUDJU pool
+        fetchTokenBalance(BANK_OF_BUDJU_ADDRESS, tokenAddress),     // Bank of BUDJU balance
+        fetchTokenBalance(COMMUNITY_VAULT_ADDRESS, tokenAddress),   // Pool of BUDJU balance
+        fetchTokenBalance(DEVELOPER_VAULT_ADDRESS, tokenAddress),   // Developer vault (never sold)
       ]);
 
     const dex = dexResult.status === "fulfilled"
@@ -364,9 +369,12 @@ export async function fetchHeliusTokenMetrics(
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
     const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
     const jupToken = jupTokenResult.status === "fulfilled" ? jupTokenResult.value : null;
-    const raydiumVault = raydiumResult.status === "fulfilled" ? raydiumResult.value : 0;
+    const raydiumSol = raydiumSolResult.status === "fulfilled" ? raydiumSolResult.value : 0;
+    const raydiumUsdc = raydiumUsdcResult.status === "fulfilled" ? raydiumUsdcResult.value : 0;
+    const raydiumVault = raydiumSol + raydiumUsdc;
     const bankOfBudju = bankResult.status === "fulfilled" ? bankResult.value : 0;
     const communityVault = communityResult.status === "fulfilled" ? communityResult.value : 0;
+    const developerVault = devResult.status === "fulfilled" ? devResult.value : 0;
 
     // Use first available price: DexScreener → Jupiter Price → Jupiter Tokens → GeckoTerminal
     const price = dex.price > 0
@@ -376,7 +384,7 @@ export async function fetchHeliusTokenMetrics(
         : jupToken?.price && jupToken.price > 0
           ? jupToken.price
           : geckoPrice;
-    const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
+    const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju - communityVault - developerVault;
     // Use DexScreener market cap if available, then Jupiter Tokens, else compute from price × supply
     const marketCap = dex.marketCap > 0
       ? dex.marketCap
@@ -402,6 +410,7 @@ export async function fetchHeliusTokenMetrics(
       raydiumVault,
       bankOfBudju,
       communityVault,
+      developerVault,
       circulatingSupply,
     };
   } catch (error) {
@@ -416,6 +425,7 @@ export async function fetchHeliusTokenMetrics(
       raydiumVault: 0,
       bankOfBudju: 0,
       communityVault: 0,
+      developerVault: 0,
       circulatingSupply: 0,
     };
   }

@@ -23,6 +23,7 @@ const TokenSupply = () => {
   const [raydiumVault, setRaydiumVault] = useState<number>(0);
   const [bankOfBudju, setBankOfBudju] = useState<number>(0);
   const [communityVault, setCommunityVault] = useState<number>(0);
+  const [developerVault, setDeveloperVault] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
   const fetchTokenSupplyData = async () => {
@@ -38,7 +39,8 @@ const TokenSupply = () => {
       const raydium = metrics.raydiumVault;
       const bank = metrics.bankOfBudju;
       const community = metrics.communityVault;
-      const circulating = total - burned - raydium - bank - community;
+      const dev = metrics.developerVault;
+      const circulating = total - burned - raydium - bank - community - dev;
 
       const realAllocation: TokenAllocation[] = [
         {
@@ -54,7 +56,7 @@ const TokenSupply = () => {
           value: burned,
         },
         {
-          name: "Raydium Vault",
+          name: "Raydium Liquidity",
           percentage: (raydium / total) * 100,
           color: "#10b981",
           value: raydium,
@@ -71,6 +73,12 @@ const TokenSupply = () => {
           color: "#ec4899",
           value: community,
         },
+        {
+          name: "Developer Vault",
+          percentage: (dev / total) * 100,
+          color: "#8b5cf6",
+          value: dev,
+        },
       ].filter((item) => item.value > 0);
 
       setTokenAllocation(realAllocation);
@@ -79,6 +87,7 @@ const TokenSupply = () => {
       setRaydiumVault(raydium);
       setBankOfBudju(bank);
       setCommunityVault(community);
+      setDeveloperVault(dev);
     } catch (error) {
       console.error("Error fetching token supply data:", error);
       setTokenAllocation([
@@ -118,6 +127,7 @@ const TokenSupply = () => {
       setRaydiumVault(89_400_000);
       setBankOfBudju(600_000);
       setCommunityVault(600_000);
+      setDeveloperVault(0);
     } finally {
       setLoading(false);
     }
@@ -130,7 +140,7 @@ const TokenSupply = () => {
   }, []);
 
   const remainingSupply =
-    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
+    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault - developerVault;
 
   const summaryRows = [
     {
@@ -146,7 +156,7 @@ const TokenSupply = () => {
       bold: false,
     },
     {
-      label: "Raydium Vault",
+      label: "Raydium Liquidity",
       value: raydiumVault,
       colorClass: "text-emerald-400",
       bold: false,
@@ -161,6 +171,12 @@ const TokenSupply = () => {
       label: "Pool of BUDJU",
       value: communityVault,
       colorClass: "text-pink-400",
+      bold: false,
+    },
+    {
+      label: "Developer Vault",
+      value: developerVault,
+      colorClass: "text-violet-400",
       bold: false,
     },
     {
