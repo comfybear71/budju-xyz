@@ -162,6 +162,11 @@ const Bank = () => {
         </div>
       </section>
 
+      {/* ── Holdings ── */}
+      <BankTokens />
+
+      <div className="budju-section-divider" />
+
       {/* ── How It Works ── */}
       <section className="py-12 md:py-16 px-4">
         <div className="max-w-7xl mx-auto">
@@ -229,11 +234,6 @@ const Bank = () => {
           </div>
         </div>
       </section>
-
-      <div className="budju-section-divider" />
-
-      {/* ── Holdings ── */}
-      <BankTokens />
 
       <div className="budju-section-divider" />
 

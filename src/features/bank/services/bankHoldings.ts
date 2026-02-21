@@ -130,31 +130,89 @@ const SOL_METADATA = {
   color: "bg-violet-500",
 };
 
-// ── Price fetch (Jupiter v3 — matches tokenService.ts) ──
+// ── Price fetch (DexScreener → Jupiter v3 → GeckoTerminal) ──
+// Same fallback chain as tokenService.ts — uses plain fetch, no retryFetch
 const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
+
+async function fetchDexScreenerPrice(mintAddress: string): Promise<number> {
+  try {
+    const res = await fetch(
+      `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`,
+    );
+    if (!res.ok) return 0;
+    const data = await res.json();
+    if (data.pairs && data.pairs.length > 0) {
+      const pair = [...data.pairs].sort(
+        (a: any, b: any) =>
+          (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0),
+      )[0];
+      return parseFloat(pair.priceUsd || "0");
+    }
+  } catch {
+    // silent
+  }
+  return 0;
+}
+
+async function fetchJupiterPrice(mintAddress: string): Promise<number> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
+    const res = await fetch(
+      `https://api.jup.ag/price/v3?ids=${mintAddress}`,
+      { headers },
+    );
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const price = data?.data?.[mintAddress]?.usdPrice;
+    return price ? Number(price) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function fetchGeckoPrice(mintAddress: string): Promise<number> {
+  try {
+    const res = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${mintAddress}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!res.ok) return 0;
+    const data = await res.json();
+    const price = data?.data?.attributes?.price_usd;
+    return price ? Number(price) : 0;
+  } catch {
+    return 0;
+  }
+}
 
 async function fetchTokenPrice(mintAddress: string): Promise<number> {
   const cacheKey = `price_${mintAddress}`;
   const cached = getCached<number>(cacheKey);
   if (cached !== null) return cached;
 
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
-
-    const res = await retryFetch(
-      `https://api.jup.ag/price/v3?ids=${mintAddress}`,
-      { headers },
-    );
-    const data = await res.json();
-    const price = Number(data.data?.[mintAddress]?.usdPrice ?? 0);
-    if (!isNaN(price) && price > 0) {
-      setCache(cacheKey, price, 5 * 60 * 1000);
-      return price;
-    }
-  } catch (err) {
-    console.warn(`Price fetch failed for ${mintAddress}:`, err);
+  // Try DexScreener first (free, no key, most reliable)
+  let price = await fetchDexScreenerPrice(mintAddress);
+  if (price > 0) {
+    setCache(cacheKey, price, 5 * 60 * 1000);
+    return price;
   }
+
+  // Fallback to Jupiter v3
+  price = await fetchJupiterPrice(mintAddress);
+  if (price > 0) {
+    setCache(cacheKey, price, 5 * 60 * 1000);
+    return price;
+  }
+
+  // Fallback to GeckoTerminal
+  price = await fetchGeckoPrice(mintAddress);
+  if (price > 0) {
+    setCache(cacheKey, price, 5 * 60 * 1000);
+    return price;
+  }
+
   return 0;
 }
 
