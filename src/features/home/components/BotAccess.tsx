@@ -83,6 +83,13 @@ const BotAccess = () => {
             </h2>
           </div>
           <p
+            className={`text-xs uppercase tracking-[0.15em] font-bold mb-3 ${
+              isDarkMode ? "text-cyan-400/50" : "text-cyan-600/50"
+            }`}
+          >
+            Formerly known as FLUB &mdash; battle-tested &amp; proven
+          </p>
+          <p
             className={`text-base max-w-2xl mx-auto mb-2 ${
               isDarkMode ? "text-gray-500" : "text-gray-500"
             }`}
