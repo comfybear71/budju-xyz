@@ -347,60 +347,76 @@ const BankTokens = () => {
   );
 
   return (
-    <section
-      ref={sectionRef}
-      className={`py-10 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"} text-white`}
-    >
-      <div className="max-w-5xl mx-auto px-4">
+    <section ref={sectionRef} className="py-16 md:py-24 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-8"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl font-bold mb-2 text-white">BANK HOLDINGS</h2>
-          <p
-            className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+          <h2
+            className={`text-2xl md:text-3xl font-bold font-display mb-2 ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
           >
-            Current assets held in the Bank of BUDJU
+            Treasury{" "}
+            <span className="bg-gradient-to-r from-amber-400 to-budju-blue bg-clip-text text-transparent">
+              Holdings
+            </span>
+          </h2>
+          <p
+            className={`text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
+            }`}
+          >
+            Live on-chain balances — fully verifiable on Solscan
           </p>
         </motion.div>
 
+        {/* Total Value */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2 }}
-          className="text-center mb-8"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="text-center mb-10"
         >
-          <div
-            className={
-              isDarkMode
-                ? "text-gray-400 text-sm mb-1"
-                : "text-white text-sm mb-1"
-            }
+          <p
+            className={`text-[10px] uppercase tracking-[0.2em] font-bold mb-1 ${
+              isDarkMode ? "text-amber-400/60" : "text-amber-600/60"
+            }`}
           >
             Total Bank Assets
-          </div>
-          <div className="text-4xl font-bold text-white">
-            {loading
-              ? "Loading..."
-              : `$${totalBankValue.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}`}
+          </p>
+          <div
+            className={`text-4xl md:text-5xl font-black font-display ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
+          >
+            {loading ? (
+              <span
+                className={`text-2xl ${
+                  isDarkMode ? "text-gray-500" : "text-gray-400"
+                }`}
+              >
+                Loading...
+              </span>
+            ) : (
+              `$${totalBankValue.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}`
+            )}
           </div>
         </motion.div>
 
-        {loading && (
-          <div
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
-          >
-            Loading bank holdings...
-          </div>
-        )}
+        {/* Error state */}
         {error && (
-          <div className="text-center text-red-500">
-            {error}{" "}
+          <div className="text-center mb-8">
+            <p className="text-red-400 text-sm mb-2">{error}</p>
             <button
               onClick={() => {
                 setError(null);
@@ -415,126 +431,141 @@ const BankTokens = () => {
                   })
                   .finally(() => setLoading(false));
               }}
-              className="text-blue-400 underline"
+              className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors ${
+                isDarkMode
+                  ? "bg-white/10 text-white hover:bg-white/20"
+                  : "bg-gray-100 text-gray-900 hover:bg-gray-200"
+              }`}
             >
               Retry
             </button>
           </div>
         )}
 
+        {/* Loading state */}
+        {loading && (
+          <div
+            className={`text-center text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-400"
+            }`}
+          >
+            Fetching holdings from the Solana blockchain...
+          </div>
+        )}
+
+        {/* Token Cards */}
         {!loading && !error && tokenHoldings.length > 0 && (
-          <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {tokenHoldings.map((token) => (
-              <div
+          <div
+            ref={cardsRef}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+          >
+            {tokenHoldings.map((token, index) => (
+              <motion.div
                 key={token.symbol + token.name}
-                className={`token-card ${isDarkMode ? "bg-[#1a1a1a]" : "bg-white/20 border border-white/30"} rounded-lg shadow-md overflow-hidden`}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.4, delay: index * 0.08 }}
+                className={`token-card rounded-xl border p-5 ${
+                  isDarkMode
+                    ? "bg-[#0c0c20]/60 border-white/[0.06] hover:border-white/[0.12]"
+                    : "bg-white/60 border-gray-200/40 hover:border-gray-300/60"
+                } backdrop-blur-sm transition-all duration-300`}
               >
-                <div className={`h-2 ${token.color}`}></div>
-                <div className="p-4">
-                  <div className="flex items-center mb-4">
-                    <img
-                      src={token.logo}
-                      alt={token.name}
-                      className="w-8 h-8 mr-3 rounded-full"
-                      onError={(e) => {
-                        e.currentTarget.src = "/images/tokens/default.png";
-                      }}
-                    />
-                    <div>
-                      <div className="text-white font-bold text-lg">
-                        {token.name}
-                      </div>
-                      <div
-                        className={
-                          isDarkMode
-                            ? "text-gray-400 text-sm"
-                            : "text-white/80 text-sm"
-                        }
-                      >
-                        {token.symbol}
-                      </div>
+                <div className="flex items-center gap-3 mb-4">
+                  <img
+                    src={token.logo}
+                    alt={token.name}
+                    className="w-10 h-10 rounded-full"
+                    onError={(e) => {
+                      e.currentTarget.src = "/images/tokens/default.png";
+                    }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div
+                      className={`font-bold text-sm truncate ${
+                        isDarkMode ? "text-white" : "text-gray-900"
+                      }`}
+                    >
+                      {token.name}
+                    </div>
+                    <div
+                      className={`text-xs ${
+                        isDarkMode ? "text-gray-500" : "text-gray-500"
+                      }`}
+                    >
+                      {token.symbol}
                     </div>
                   </div>
-                  <div className="mb-2">
+                  <div className="text-right">
                     <div
-                      className={
-                        isDarkMode
-                          ? "text-gray-400 text-xs"
-                          : "text-white/80 text-xs"
-                      }
+                      className={`text-sm font-bold ${
+                        isDarkMode ? "text-amber-400" : "text-amber-600"
+                      }`}
                     >
-                      Amount
-                    </div>
-                    <div className="text-white text-base font-mono">
-                      {token.amount.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                  </div>
-                  <div className="mb-2">
-                    <div
-                      className={
-                        isDarkMode
-                          ? "text-gray-400 text-xs"
-                          : "text-white/80 text-xs"
-                      }
-                    >
-                      Value
-                    </div>
-                    <div className="text-blue-400 text-base font-bold">
                       $
                       {token.value.toLocaleString(undefined, {
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2,
                       })}
                     </div>
-                  </div>
-                  <div>
                     <div
-                      className={
-                        isDarkMode
-                          ? "text-gray-400 text-xs"
-                          : "text-white/80 text-xs"
-                      }
+                      className={`text-xs ${
+                        isDarkMode ? "text-gray-500" : "text-gray-500"
+                      }`}
                     >
-                      % of Bank
+                      {totalBankValue > 0
+                        ? `${((token.value / totalBankValue) * 100).toFixed(1)}%`
+                        : "—"}
                     </div>
-                    <div className="text-white text-base">
-                      {((token.value / totalBankValue) * 100).toFixed(1)}%
-                    </div>
-                  </div>
-                  <div
-                    className={`mt-2 h-2 ${isDarkMode ? "bg-gray-700" : "bg-white/30"} rounded-full overflow-hidden`}
-                  >
-                    <div
-                      className={`h-full ${token.color}`}
-                      style={{
-                        width: `${(token.value / totalBankValue) * 100}%`,
-                      }}
-                    ></div>
                   </div>
                 </div>
-              </div>
+                <div
+                  className={`flex items-center justify-between text-xs mb-2 ${
+                    isDarkMode ? "text-gray-500" : "text-gray-500"
+                  }`}
+                >
+                  <span>Amount</span>
+                  <span
+                    className={`font-mono ${
+                      isDarkMode ? "text-gray-300" : "text-gray-700"
+                    }`}
+                  >
+                    {token.amount.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 4,
+                    })}
+                  </span>
+                </div>
+                <div
+                  className={`h-1.5 rounded-full overflow-hidden ${
+                    isDarkMode ? "bg-white/[0.06]" : "bg-gray-200/60"
+                  }`}
+                >
+                  <div
+                    className="h-full bg-gradient-to-r from-amber-400 to-budju-pink rounded-full transition-all duration-700"
+                    style={{
+                      width:
+                        totalBankValue > 0
+                          ? `${(token.value / totalBankValue) * 100}%`
+                          : "0%",
+                    }}
+                  />
+                </div>
+              </motion.div>
             ))}
           </div>
         )}
 
         {!loading && !error && tokenHoldings.length === 0 && (
           <div
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+            className={`text-center text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-400"
+            }`}
           >
-            No bank holdings found.
+            No holdings found for this address.
           </div>
         )}
-
-        <div
-          className={`text-center mt-8 ${isDarkMode ? "text-gray-400" : "text-white/80"} text-sm max-w-2xl mx-auto`}
-        >
-          All Bank of BUDJU holdings are verifiable on the Solana blockchain and
-          regularly updated. Assets are used for token buybacks, burns, and
-          ecosystem development.
-        </div>
       </div>
     </section>
   );

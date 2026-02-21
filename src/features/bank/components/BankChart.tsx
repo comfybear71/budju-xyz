@@ -331,56 +331,73 @@ const BankChart = () => {
   };
 
   return (
-    <section
-      className={`py-20 ${
-        isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"
-      }`}
-    >
-      <div className="max-w-5xl mx-auto px-4">
+    <section className="py-16 md:py-24 px-4">
+      <div className="max-w-7xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-8"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-2">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              CURRENT
-            </span>{" "}
-            <span className="text-budju-pink">TOKEN VALUES</span>
+          <h2
+            className={`text-2xl md:text-3xl font-bold font-display mb-2 ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
+          >
+            Token{" "}
+            <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+              Value Breakdown
+            </span>
           </h2>
           <p
-            className={`text-sm ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+            className={`text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
+            }`}
           >
-            Current value of tokens in Bank of BUDJU
+            USD value of each asset held in the treasury
           </p>
         </motion.div>
+
         {loading && (
           <div
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+            className={`text-center text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-400"
+            }`}
           >
-            Loading...
+            Loading chart data...
           </div>
         )}
         {error && (
-          <div
-            className={`text-center ${isDarkMode ? "text-red-400" : "text-red-400"}`}
-          >
-            {error}
-          </div>
+          <div className="text-center text-sm text-red-400">{error}</div>
         )}
         {!loading && !error && tokenHoldings.length > 0 && (
-          <div className="flex justify-center">
-            <div style={{ width: "100%", maxWidth: "800px" }}>
-              <Bar data={barData} options={options} />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5, delay: 0.1 }}
+          >
+            <div
+              className={`rounded-2xl border p-6 md:p-8 ${
+                isDarkMode
+                  ? "bg-[#0c0c20]/60 border-white/[0.06]"
+                  : "bg-white/60 border-gray-200/40"
+              } backdrop-blur-sm`}
+            >
+              <div className="max-w-3xl mx-auto">
+                <Bar data={barData} options={options} />
+              </div>
             </div>
-          </div>
+          </motion.div>
         )}
         {!loading && !error && tokenHoldings.length === 0 && (
           <div
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+            className={`text-center text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-400"
+            }`}
           >
-            No holdings found.
+            No holdings to chart.
           </div>
         )}
       </div>

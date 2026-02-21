@@ -88,228 +88,238 @@ const BankTransactions = () => {
       : transactions.filter((tx) => tx.type === filter);
 
   return (
-    <section
-      ref={sectionRef}
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b " : "bg-gradient-to-b "}`}
-    >
-      <div className="budju-container">
+    <section ref={sectionRef} className="py-16 md:py-24 px-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              RECENT
-            </span>{" "}
-            <span className="text-budju-blue">TRANSACTIONS</span>
+          <h2
+            className={`text-2xl md:text-3xl font-bold font-display mb-2 ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
+          >
+            Full{" "}
+            <span className="bg-gradient-to-r from-cyan-400 to-budju-blue bg-clip-text text-transparent">
+              Transparency
+            </span>
           </h2>
           <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+            className={`text-sm max-w-lg mx-auto ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
+            }`}
           >
-            Track the latest activity in the Bank of BUDJU
+            Every deposit, withdrawal, and burn is recorded on-chain. Click any
+            transaction to verify it on Solscan.
           </p>
         </motion.div>
 
-        <div className="flex flex-wrap justify-center gap-3 mb-8">
-          <button
-            onClick={() => setFilter("all")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "all"
-                ? "bg-budju-blue text-white"
-                : isDarkMode
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  : "bg-white/30 text-white hover:bg-white/40"
-            }`}
-          >
-            All Transactions
-          </button>
-          <button
-            onClick={() => setFilter("deposit")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "deposit"
-                ? "bg-green-600 text-white"
-                : isDarkMode
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  : "bg-white/30 text-white hover:bg-white/40"
-            }`}
-          >
-            Deposits
-          </button>
-          <button
-            onClick={() => setFilter("withdrawal")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "withdrawal"
-                ? "bg-yellow-600 text-white"
-                : isDarkMode
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  : "bg-white/30 text-white hover:bg-white/40"
-            }`}
-          >
-            Withdrawals
-          </button>
-          <button
-            onClick={() => setFilter("burn")}
-            className={`px-4 py-2 rounded-lg transition-colors ${
-              filter === "burn"
-                ? "bg-red-600 text-white"
-                : isDarkMode
-                  ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                  : "bg-white/30 text-white hover:bg-white/40"
-            }`}
-          >
-            Burns
-          </button>
+        {/* Filter Pills */}
+        <div className="flex flex-wrap justify-center gap-2 mb-8">
+          {(
+            [
+              { key: "all", label: "All", active: "bg-gradient-to-r from-cyan-500 to-budju-blue text-white" },
+              { key: "deposit", label: "Deposits", active: "bg-emerald-500 text-white" },
+              { key: "withdrawal", label: "Withdrawals", active: "bg-amber-500 text-white" },
+              { key: "burn", label: "Burns", active: "bg-red-500 text-white" },
+            ] as const
+          ).map((btn) => (
+            <button
+              key={btn.key}
+              onClick={() => setFilter(btn.key)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ${
+                filter === btn.key
+                  ? btn.active
+                  : isDarkMode
+                    ? "bg-white/[0.05] text-gray-400 hover:bg-white/[0.1] border border-white/[0.06]"
+                    : "bg-gray-100 text-gray-500 hover:bg-gray-200 border border-gray-200"
+              }`}
+            >
+              {btn.label}
+            </button>
+          ))}
         </div>
 
-        <div
-          className={`max-w-5xl mx-auto overflow-x-auto ${isDarkMode ? "bg-gray-800 border border-gray-700 rounded-xl p-0" : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-0"}`}
+        {/* Transaction Table */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <table ref={tableRef} className="w-full border-collapse">
-            <thead>
-              <tr className={isDarkMode ? "bg-gray-900" : "bg-white/30"}>
-                <th className="py-3 px-4 text-left text-budju-blue font-medium">
-                  Type
-                </th>
-                <th className="py-3 px-4 text-left text-budju-blue font-medium">
-                  Token
-                </th>
-                <th className="py-3 px-4 text-right text-budju-blue font-medium">
-                  Amount
-                </th>
-                <th className="py-3 px-4 text-left text-budju-blue font-medium hidden md:table-cell">
-                  From/To
-                </th>
-                <th className="py-3 px-4 text-left text-budju-blue font-medium">
-                  Date
-                </th>
-                <th className="py-3 px-4 text-center text-budju-blue font-medium">
-                  Details
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className={`py-8 text-center ${isDarkMode ? "text-gray-300" : "text-white/80"}`}
+          <div
+            className={`rounded-2xl border overflow-hidden ${
+              isDarkMode
+                ? "bg-[#0c0c20]/60 border-white/[0.06]"
+                : "bg-white/60 border-gray-200/40"
+            } backdrop-blur-sm overflow-x-auto`}
+          >
+            <table ref={tableRef} className="w-full border-collapse">
+              <thead>
+                <tr
+                  className={
+                    isDarkMode
+                      ? "bg-white/[0.03] border-b border-white/[0.06]"
+                      : "bg-gray-50/50 border-b border-gray-200/40"
+                  }
+                >
+                  <th
+                    className={`py-3 px-4 text-left text-[10px] uppercase tracking-[0.15em] font-bold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
                   >
-                    Loading transactions...
-                  </td>
-                </tr>
-              ) : error ? (
-                <tr>
-                  <td colSpan={6} className="py-8 text-center text-red-400">
-                    Error: {error}
-                  </td>
-                </tr>
-              ) : filteredTransactions.length > 0 ? (
-                filteredTransactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className={`${
-                      isDarkMode
-                        ? "border-b border-gray-700 last:border-b-0 hover:bg-gray-700/50"
-                        : "border-b border-white/30 last:border-b-0 hover:bg-white/40"
-                    } transition-colors`}
+                    Type
+                  </th>
+                  <th
+                    className={`py-3 px-4 text-left text-[10px] uppercase tracking-[0.15em] font-bold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
                   >
+                    Token
+                  </th>
+                  <th
+                    className={`py-3 px-4 text-right text-[10px] uppercase tracking-[0.15em] font-bold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    Amount
+                  </th>
+                  <th
+                    className={`py-3 px-4 text-left text-[10px] uppercase tracking-[0.15em] font-bold hidden md:table-cell ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    From / To
+                  </th>
+                  <th
+                    className={`py-3 px-4 text-left text-[10px] uppercase tracking-[0.15em] font-bold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    Date
+                  </th>
+                  <th
+                    className={`py-3 px-4 text-center text-[10px] uppercase tracking-[0.15em] font-bold ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    Verify
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
                     <td
-                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
+                      colSpan={6}
+                      className={`py-12 text-center text-sm ${
+                        isDarkMode ? "text-gray-500" : "text-gray-400"
+                      }`}
                     >
-                      <div className="flex items-center">
-                        <span className="mr-2">
-                          {getTransactionIcon(tx.type)}
-                        </span>
-                        {getTransactionText(tx.type)}
-                      </div>
-                    </td>
-                    <td
-                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
-                    >
-                      {tx.token}
-                    </td>
-                    <td
-                      className={`py-3 px-4 text-right whitespace-nowrap font-medium ${isDarkMode ? "text-white" : "text-white"}`}
-                    >
-                      {tx.amount.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 hidden md:table-cell">
-                      {tx.type === "deposit" ? (
-                        <div className="text-sm">
-                          <div
-                            className={
-                              isDarkMode ? "text-gray-300" : "text-white/80"
-                            }
-                          >
-                            From:
-                          </div>
-                          <div
-                            className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}
-                          >
-                            {tx.from}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm">
-                          <div
-                            className={
-                              isDarkMode ? "text-gray-300" : "text-white/80"
-                            }
-                          >
-                            To:
-                          </div>
-                          <div
-                            className={`font-mono truncate max-w-[120px] ${isDarkMode ? "text-white" : "text-white"}`}
-                          >
-                            {tx.to}
-                          </div>
-                        </div>
-                      )}
-                    </td>
-                    <td
-                      className={`py-3 px-4 whitespace-nowrap ${isDarkMode ? "text-white" : "text-white"}`}
-                    >
-                      {new Date(tx.date).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <a
-                        href={`https://solscan.io/tx/${tx.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`inline-block p-2 ${
-                          isDarkMode
-                            ? "bg-gray-700 hover:bg-gray-600"
-                            : "bg-white/30 hover:bg-white/40"
-                        } rounded-lg transition-colors`}
-                        title="View transaction on Solscan"
-                      >
-                        <FaExternalLinkAlt className="text-budju-blue" />
-                      </a>
+                      Loading transactions...
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className={`py-8 text-center ${isDarkMode ? "text-gray-300" : "text-white/80"}`}
-                  >
-                    No transactions found matching the selected filter.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                ) : error ? (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-12 text-center text-sm text-red-400"
+                    >
+                      {error}
+                    </td>
+                  </tr>
+                ) : filteredTransactions.length > 0 ? (
+                  filteredTransactions.map((tx) => (
+                    <tr
+                      key={tx.id}
+                      className={`${
+                        isDarkMode
+                          ? "border-b border-white/[0.04] last:border-b-0 hover:bg-white/[0.03]"
+                          : "border-b border-gray-100 last:border-b-0 hover:bg-gray-50/50"
+                      } transition-colors`}
+                    >
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {getTransactionIcon(tx.type)}
+                          {getTransactionText(tx.type)}
+                        </div>
+                      </td>
+                      <td
+                        className={`py-3 px-4 whitespace-nowrap text-sm font-medium ${
+                          isDarkMode ? "text-gray-300" : "text-gray-700"
+                        }`}
+                      >
+                        {tx.token}
+                      </td>
+                      <td
+                        className={`py-3 px-4 text-right whitespace-nowrap text-sm font-mono font-bold ${
+                          isDarkMode ? "text-white" : "text-gray-900"
+                        }`}
+                      >
+                        {tx.amount.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 hidden md:table-cell">
+                        <div
+                          className={`font-mono text-xs truncate max-w-[140px] ${
+                            isDarkMode ? "text-gray-500" : "text-gray-400"
+                          }`}
+                        >
+                          {tx.type === "deposit" ? tx.from : tx.to}
+                        </div>
+                      </td>
+                      <td
+                        className={`py-3 px-4 whitespace-nowrap text-xs ${
+                          isDarkMode ? "text-gray-500" : "text-gray-500"
+                        }`}
+                      >
+                        {new Date(tx.date).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <a
+                          href={`https://solscan.io/tx/${tx.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+                            isDarkMode
+                              ? "text-cyan-400/60 hover:text-cyan-400 hover:bg-white/[0.06]"
+                              : "text-cyan-600/60 hover:text-cyan-600 hover:bg-gray-100"
+                          }`}
+                          title="Verify on Solscan"
+                        >
+                          <FaExternalLinkAlt className="w-3 h-3" />
+                        </a>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className={`py-12 text-center text-sm ${
+                        isDarkMode ? "text-gray-500" : "text-gray-400"
+                      }`}
+                    >
+                      No transactions found for this filter.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
 
-        <div
-          className={`text-center mt-6 ${isDarkMode ? "text-gray-300" : "text-white/80"} text-sm`}
+        <p
+          className={`text-center mt-6 text-xs ${
+            isDarkMode ? "text-gray-600" : "text-gray-400"
+          }`}
         >
-          All transactions are recorded on the Solana blockchain and can be
-          verified by clicking the details link.
-        </div>
+          Every transaction is permanently recorded on the Solana blockchain.
+          Click the verify icon to confirm any entry on Solscan.
+        </p>
       </div>
     </section>
   );
