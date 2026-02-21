@@ -208,15 +208,15 @@ const Balance = () => {
                     >
                       Your BUDJU Balance
                     </p>
-                    <div className="flex items-center justify-center gap-3 mb-1">
+                    <div className="flex items-center justify-center gap-2 mb-1">
                       <p
-                        className={`text-4xl md:text-5xl font-black font-mono ${
+                        className={`text-2xl sm:text-3xl md:text-4xl font-black font-mono ${
                           isDarkMode ? "text-white" : "text-gray-900"
                         }`}
                       >
                         {loadingBalances
                           ? "..."
-                          : budjuBalance.toLocaleString()}
+                          : Math.floor(budjuBalance).toLocaleString()}
                       </p>
                       <button
                         onClick={refreshBalances}
