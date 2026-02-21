@@ -33,53 +33,52 @@ const TokenSupply = () => {
         BURN_ADDRESS,
       );
 
-      const totalSupply = metrics.totalSupply;
+      const total = metrics.totalSupply;
       const burned = metrics.burned;
-      const raydiumVault = metrics.raydiumVault;
-      const bankOfBudju = metrics.bankOfBudju;
-      const communityVault = metrics.communityVault;
-      const circulatingSupply =
-        totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
+      const raydium = metrics.raydiumVault;
+      const bank = metrics.bankOfBudju;
+      const community = metrics.communityVault;
+      const circulating = total - burned - raydium - bank - community;
 
       const realAllocation: TokenAllocation[] = [
         {
           name: "Circ. Supply",
-          percentage: (circulatingSupply / totalSupply) * 100,
+          percentage: (circulating / total) * 100,
           color: "#06b6d4",
-          value: circulatingSupply,
+          value: circulating,
         },
         {
           name: "Burned Tokens",
-          percentage: (burned / totalSupply) * 100,
+          percentage: (burned / total) * 100,
           color: "#ef4444",
           value: burned,
         },
         {
           name: "Raydium Vault",
-          percentage: (raydiumVault / totalSupply) * 100,
+          percentage: (raydium / total) * 100,
           color: "#10b981",
-          value: raydiumVault,
+          value: raydium,
         },
         {
           name: "Bank of BUDJU",
-          percentage: (bankOfBudju / totalSupply) * 100,
+          percentage: (bank / total) * 100,
           color: "#f59e0b",
-          value: bankOfBudju,
+          value: bank,
         },
         {
           name: "Pool of BUDJU",
-          percentage: (communityVault / totalSupply) * 100,
+          percentage: (community / total) * 100,
           color: "#ec4899",
-          value: communityVault,
+          value: community,
         },
       ].filter((item) => item.value > 0);
 
       setTokenAllocation(realAllocation);
-      setTotalSupply(totalSupply);
+      setTotalSupply(total);
       setBurnedTokens(burned);
-      setRaydiumVault(raydiumVault);
-      setBankOfBudju(bankOfBudju);
-      setCommunityVault(communityVault);
+      setRaydiumVault(raydium);
+      setBankOfBudju(bank);
+      setCommunityVault(community);
     } catch (error) {
       console.error("Error fetching token supply data:", error);
       setTokenAllocation([
@@ -132,84 +131,6 @@ const TokenSupply = () => {
 
   const remainingSupply =
     totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault;
-
-  // Build the donut chart as an SVG with stroke-dasharray arcs
-  const renderDonutChart = () => {
-    if (tokenAllocation.length === 0) return null;
-
-    const size = 200;
-    const strokeWidth = 32;
-    const radius = (size - strokeWidth) / 2;
-    const circumference = 2 * Math.PI * radius;
-    let cumulativeOffset = 0;
-
-    return (
-      <svg
-        viewBox={`0 0 ${size} ${size}`}
-        className="w-full h-full max-w-[280px] mx-auto"
-      >
-        {/* Background ring */}
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={isDarkMode ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)"}
-          strokeWidth={strokeWidth}
-        />
-        {/* Segments */}
-        {tokenAllocation.map((segment, index) => {
-          const segmentLength = (segment.percentage / 100) * circumference;
-          const offset = cumulativeOffset;
-          cumulativeOffset += segmentLength;
-
-          return (
-            <motion.circle
-              key={segment.name}
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={segment.color}
-              strokeWidth={strokeWidth}
-              strokeDasharray={`${segmentLength} ${circumference - segmentLength}`}
-              strokeDashoffset={-offset}
-              strokeLinecap="butt"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
-              style={{
-                transform: "rotate(-90deg)",
-                transformOrigin: "center",
-              }}
-            />
-          );
-        })}
-        {/* Center text */}
-        <text
-          x={size / 2}
-          y={size / 2 - 6}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill={isDarkMode ? "white" : "#111827"}
-          fontSize="18"
-          fontWeight="bold"
-        >
-          1B
-        </text>
-        <text
-          x={size / 2}
-          y={size / 2 + 14}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill={isDarkMode ? "rgba(148,163,184,0.6)" : "rgba(100,116,139,0.6)"}
-          fontSize="10"
-        >
-          BUDJU
-        </text>
-      </svg>
-    );
-  };
 
   const summaryRows = [
     {
@@ -280,169 +201,133 @@ const TokenSupply = () => {
           </p>
         </motion.div>
 
-        {loading && (
-          <div
-            className={`text-center text-sm mb-6 ${
-              isDarkMode ? "text-gray-500" : "text-gray-400"
+        {/* Single Distribution Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className={`max-w-2xl mx-auto rounded-xl border p-5 md:p-6 ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm`}
+        >
+          <h3
+            className={`text-sm font-semibold mb-5 flex items-center gap-2 ${
+              isDarkMode ? "text-gray-300" : "text-gray-700"
             }`}
           >
-            Loading supply data...
-          </div>
-        )}
+            <FaChartPie
+              className={`w-3 h-3 ${
+                isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
+              }`}
+            />
+            Distribution
+          </h3>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl mx-auto">
-          {/* Donut Chart */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className={`rounded-xl border p-6 flex flex-col items-center justify-center ${
-              isDarkMode
-                ? "bg-[#0c0c20]/60 border-white/[0.06]"
-                : "bg-white/60 border-gray-200/40"
-            } backdrop-blur-sm`}
-          >
-            <div className="w-full max-w-[280px] aspect-square">
-              {renderDonutChart()}
-            </div>
-
-            {/* Legend */}
-            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-6">
-              {tokenAllocation.map((item) => (
-                <div key={item.name} className="flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: item.color }}
-                  />
-                  <span
-                    className={`text-[11px] ${
-                      isDarkMode ? "text-gray-400" : "text-gray-500"
-                    }`}
-                  >
-                    {item.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Distribution Details */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5, delay: 0.15 }}
-            className={`rounded-xl border p-5 ${
-              isDarkMode
-                ? "bg-[#0c0c20]/60 border-white/[0.06]"
-                : "bg-white/60 border-gray-200/40"
-            } backdrop-blur-sm`}
-          >
-            <h3
-              className={`text-sm font-semibold mb-4 flex items-center gap-2 ${
-                isDarkMode ? "text-gray-300" : "text-gray-700"
+          {loading ? (
+            <div
+              className={`text-center text-sm py-8 ${
+                isDarkMode ? "text-gray-500" : "text-gray-400"
               }`}
             >
-              <FaChartPie
-                className={`w-3 h-3 ${
-                  isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
-                }`}
-              />
-              Distribution
-            </h3>
-
-            {/* Allocation bars */}
-            <div className="space-y-3">
-              {tokenAllocation.map((item, index) => (
-                <motion.div
-                  key={item.name}
-                  initial={{ opacity: 0, x: 10 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.3, delay: index * 0.06 }}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
+              Loading supply data...
+            </div>
+          ) : (
+            <>
+              {/* Allocation bars */}
+              <div className="space-y-3">
+                {tokenAllocation.map((item, index) => (
+                  <motion.div
+                    key={item.name}
+                    initial={{ opacity: 0, x: 10 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ duration: 0.3, delay: index * 0.06 }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: item.color }}
+                        />
+                        <span
+                          className={`text-xs ${
+                            isDarkMode ? "text-gray-400" : "text-gray-500"
+                          }`}
+                        >
+                          {item.name}
+                        </span>
+                      </div>
                       <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: item.color }}
-                      />
-                      <span
-                        className={`text-xs ${
-                          isDarkMode ? "text-gray-400" : "text-gray-500"
+                        className={`text-xs font-mono font-semibold ${
+                          isDarkMode ? "text-gray-300" : "text-gray-700"
                         }`}
                       >
-                        {item.name}
+                        {item.percentage.toFixed(2)}%
                       </span>
                     </div>
-                    <span
-                      className={`text-xs font-mono font-semibold ${
-                        isDarkMode ? "text-gray-300" : "text-gray-700"
+                    <div
+                      className={`h-1.5 rounded-full overflow-hidden ${
+                        isDarkMode ? "bg-white/[0.04]" : "bg-gray-100"
                       }`}
                     >
-                      {item.percentage.toFixed(2)}%
+                      <motion.div
+                        className="h-full rounded-full"
+                        style={{ backgroundColor: item.color }}
+                        initial={{ width: 0 }}
+                        whileInView={{
+                          width: `${Math.max(item.percentage, 0.5)}%`,
+                        }}
+                        viewport={{ once: true }}
+                        transition={{
+                          duration: 0.8,
+                          delay: index * 0.1,
+                          ease: "easeOut",
+                        }}
+                      />
+                    </div>
+                    <p
+                      className={`text-[10px] mt-0.5 ${
+                        isDarkMode ? "text-gray-600" : "text-gray-400"
+                      }`}
+                    >
+                      {item.value.toLocaleString()} BUDJU
+                    </p>
+                  </motion.div>
+                ))}
+              </div>
+
+              {/* Summary */}
+              <div
+                className={`mt-5 pt-4 border-t space-y-2 ${
+                  isDarkMode ? "border-white/[0.06]" : "border-gray-200/40"
+                }`}
+              >
+                {summaryRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className="flex justify-between items-center"
+                  >
+                    <span
+                      className={`text-xs ${
+                        isDarkMode ? "text-gray-500" : "text-gray-400"
+                      }`}
+                    >
+                      {row.label}
+                    </span>
+                    <span
+                      className={`text-xs font-mono ${row.bold ? "font-bold" : "font-medium"} ${row.colorClass}`}
+                    >
+                      {row.value.toLocaleString()}
                     </span>
                   </div>
-                  <div
-                    className={`h-1.5 rounded-full overflow-hidden ${
-                      isDarkMode ? "bg-white/[0.04]" : "bg-gray-100"
-                    }`}
-                  >
-                    <motion.div
-                      className="h-full rounded-full"
-                      style={{ backgroundColor: item.color }}
-                      initial={{ width: 0 }}
-                      whileInView={{
-                        width: `${Math.max(item.percentage, 0.5)}%`,
-                      }}
-                      viewport={{ once: true }}
-                      transition={{
-                        duration: 0.8,
-                        delay: index * 0.1,
-                        ease: "easeOut",
-                      }}
-                    />
-                  </div>
-                  <p
-                    className={`text-[10px] mt-0.5 ${
-                      isDarkMode ? "text-gray-600" : "text-gray-400"
-                    }`}
-                  >
-                    {item.value.toLocaleString()} BUDJU
-                  </p>
-                </motion.div>
-              ))}
-            </div>
-
-            {/* Summary */}
-            <div
-              className={`mt-5 pt-4 border-t space-y-2 ${
-                isDarkMode ? "border-white/[0.06]" : "border-gray-200/40"
-              }`}
-            >
-              {summaryRows.map((row) => (
-                <div
-                  key={row.label}
-                  className="flex justify-between items-center"
-                >
-                  <span
-                    className={`text-xs ${
-                      isDarkMode ? "text-gray-500" : "text-gray-400"
-                    }`}
-                  >
-                    {row.label}
-                  </span>
-                  <span
-                    className={`text-xs font-mono ${row.bold ? "font-bold" : "font-medium"} ${row.colorClass}`}
-                  >
-                    {row.value.toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
+                ))}
+              </div>
+            </>
+          )}
+        </motion.div>
 
         <p
           className={`text-center text-[10px] mt-6 ${
