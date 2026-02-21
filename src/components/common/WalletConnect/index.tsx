@@ -15,6 +15,8 @@ import {
   FaRobot,
   FaSwimmingPool,
   FaLock,
+  FaCoins,
+  FaArrowRight,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
@@ -28,6 +30,7 @@ import walletService, {
 import { useTheme } from "@/context/ThemeContext";
 
 const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const BUDJU_REQUIRED = 10_000_000;
 
 interface WalletConnectProps {
   fullWidth?: boolean;
@@ -37,7 +40,10 @@ interface WalletConnectProps {
 type ConnectStep = "action" | "wallet";
 type SelectedAction = "swap" | "bot" | "pool" | null;
 
-const walletConfig: Record<WalletName, { name: string; logo: string; tagline: string; downloadUrl: string }> = {
+const walletConfig: Record<
+  WalletName,
+  { name: string; logo: string; tagline: string; downloadUrl: string }
+> = {
   jupiter: {
     name: "Jupiter",
     logo: "/images/wallets/jupiter.png",
@@ -95,6 +101,8 @@ const WalletConnect = ({
   // Multi-step wizard state
   const [connectStep, setConnectStep] = useState<ConnectStep>("action");
   const [selectedAction, setSelectedAction] = useState<SelectedAction>(null);
+  // Store the pending navigation so it survives menu close
+  const pendingNavRef = useRef<string | null>(null);
 
   interface ExtendedWindow extends Window {
     phantom?: any;
@@ -189,7 +197,7 @@ const WalletConnect = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Reset wizard when menu closes
+  // Reset wizard when menu closes — but DON'T clear pending nav
   useEffect(() => {
     if (!isMenuOpen) {
       setConnectStep("action");
@@ -198,8 +206,19 @@ const WalletConnect = ({
     }
   }, [isMenuOpen]);
 
+  // Helper: navigate and close menu (navigate FIRST, then close)
+  const goTo = (route: string) => {
+    navigate(route);
+    // Small delay to let navigation start before closing dropdown
+    setTimeout(() => setIsMenuOpen(false), 50);
+  };
+
   const handleSelectAction = (action: SelectedAction) => {
     setSelectedAction(action);
+    // Store route for after wallet connection
+    if (action === "swap") pendingNavRef.current = ROUTES.SWAP;
+    else if (action === "bot") pendingNavRef.current = ROUTES.BANK;
+    else if (action === "pool") pendingNavRef.current = ROUTES.POOL;
     setConnectStep("wallet");
     setConnectionError(null);
   };
@@ -212,8 +231,11 @@ const WalletConnect = ({
       if (inAppBrowser === walletName) {
         try {
           await connect(walletName);
-          // Navigate to selected action after connection
-          navigateToAction();
+          // Navigate using the ref (survives state resets)
+          if (pendingNavRef.current) {
+            goTo(pendingNavRef.current);
+            pendingNavRef.current = null;
+          }
         } catch (error) {
           setConnectionError(
             error instanceof Error
@@ -238,7 +260,6 @@ const WalletConnect = ({
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       } else if (walletName === "jupiter") {
-        // Jupiter mobile — open in Jupiter app browser
         deepLink = `https://jup.ag/wallet`;
       }
       window.location.href = deepLink;
@@ -262,8 +283,11 @@ const WalletConnect = ({
 
       try {
         await connect(walletName);
-        // Navigate to selected action after successful connection
-        navigateToAction();
+        // Navigate using the ref
+        if (pendingNavRef.current) {
+          goTo(pendingNavRef.current);
+          pendingNavRef.current = null;
+        }
       } catch (error) {
         setConnectionError(
           error instanceof Error
@@ -271,17 +295,6 @@ const WalletConnect = ({
             : "Failed to connect. Please try again.",
         );
       }
-    }
-  };
-
-  const navigateToAction = () => {
-    setIsMenuOpen(false);
-    if (selectedAction === "swap") {
-      navigate(ROUTES.SWAP);
-    } else if (selectedAction === "bot") {
-      navigate(ROUTES.BANK);
-    } else if (selectedAction === "pool") {
-      navigate(ROUTES.POOL);
     }
   };
 
@@ -374,23 +387,26 @@ const WalletConnect = ({
 
   const getWalletsToDisplay = (): WalletName[] => {
     if (inAppBrowser) return [inAppBrowser];
-    // Always show all three primary wallets
-    const wallets: WalletName[] = ["jupiter", "phantom", "solflare"];
-    return wallets;
+    return ["jupiter", "phantom", "solflare"];
   };
+
+  // Derived: BUDJU balance
+  const budjuBalance =
+    balances.tokens.find((t) => t.symbol === "BUDJU")?.amount ?? 0;
+  const hasBudjuAccess = budjuBalance >= BUDJU_REQUIRED;
 
   // Panel styles
   const panelBg = isDarkMode
     ? "bg-[#0c0c20]/95 border-white/[0.08]"
     : "bg-white/95 border-gray-200/60";
-  const dividerColor = isDarkMode ? "border-white/[0.06]" : "border-gray-200/40";
+  const dividerColor = isDarkMode
+    ? "border-white/[0.06]"
+    : "border-gray-200/40";
   const subtextColor = isDarkMode ? "text-gray-500" : "text-gray-400";
   const textColor = isDarkMode ? "text-white" : "text-gray-900";
   const hoverBg = isDarkMode ? "hover:bg-white/[0.04]" : "hover:bg-gray-50";
 
-  // Step indicator
   const stepNumber = connectStep === "action" ? 1 : 2;
-  const totalSteps = 2;
 
   return (
     <div
@@ -456,9 +472,9 @@ const WalletConnect = ({
           >
             {!connection.connected ? (
               <>
-                {/* ========== NOT CONNECTED — WIZARD FLOW ========== */}
+                {/* ========== NOT CONNECTED — WIZARD ========== */}
 
-                {/* Header with step indicator */}
+                {/* Header with step indicator + back */}
                 <div className={`px-4 py-3 border-b ${dividerColor}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -484,7 +500,6 @@ const WalletConnect = ({
                           : "Choose Your Wallet"}
                       </h3>
                     </div>
-                    {/* Step dots */}
                     <div className="flex items-center gap-1.5">
                       {[1, 2].map((s) => (
                         <div
@@ -529,22 +544,20 @@ const WalletConnect = ({
                       animate={{ opacity: 1, x: 0 }}
                       exit={{ opacity: 0, x: 10 }}
                       transition={{ duration: 0.15 }}
-                      className="p-3 space-y-1.5"
+                      className="p-3 space-y-2"
                     >
                       {/* Swap */}
                       <button
                         onClick={() => handleSelectAction("swap")}
-                        className={`flex items-center w-full gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 cursor-pointer group border ${
+                        className={`flex items-center w-full gap-3.5 px-4 py-4 rounded-xl transition-all duration-200 cursor-pointer group border ${
                           isDarkMode
                             ? "bg-gradient-to-r from-cyan-500/[0.06] to-blue-500/[0.03] border-cyan-500/[0.1] hover:border-cyan-500/30 hover:from-cyan-500/[0.12] hover:to-blue-500/[0.06]"
                             : "bg-gradient-to-r from-cyan-50/80 to-blue-50/50 border-cyan-200/30 hover:border-cyan-300/60"
                         }`}
                       >
                         <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center ${
-                            isDarkMode
-                              ? "bg-cyan-500/10"
-                              : "bg-cyan-100/80"
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            isDarkMode ? "bg-cyan-500/10" : "bg-cyan-100/80"
                           }`}
                         >
                           <FaExchangeAlt
@@ -553,36 +566,38 @@ const WalletConnect = ({
                             }`}
                           />
                         </div>
-                        <div className="text-left flex-1">
+                        <div className="text-left flex-1 min-w-0">
                           <span
                             className={`text-sm font-bold block ${textColor}`}
                           >
                             Swap
                           </span>
-                          <span className={`text-[10px] ${subtextColor}`}>
+                          <span
+                            className={`text-[11px] leading-tight ${subtextColor}`}
+                          >
                             Buy BUDJU with SOL or USDC
                           </span>
                         </div>
-                        <span
-                          className={`text-xs font-mono transition-opacity opacity-0 group-hover:opacity-100 ${
-                            isDarkMode ? "text-cyan-400/50" : "text-cyan-600/50"
+                        <FaArrowRight
+                          className={`w-3 h-3 flex-shrink-0 transition-transform group-hover:translate-x-0.5 ${
+                            isDarkMode
+                              ? "text-cyan-400/30 group-hover:text-cyan-400/60"
+                              : "text-cyan-600/30 group-hover:text-cyan-600/60"
                           }`}
-                        >
-                          &rarr;
-                        </span>
+                        />
                       </button>
 
                       {/* Bot */}
                       <button
                         onClick={() => handleSelectAction("bot")}
-                        className={`flex items-center w-full gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 cursor-pointer group border ${
+                        className={`flex items-center w-full gap-3.5 px-4 py-4 rounded-xl transition-all duration-200 cursor-pointer group border ${
                           isDarkMode
                             ? "bg-gradient-to-r from-emerald-500/[0.06] to-cyan-500/[0.03] border-emerald-500/[0.1] hover:border-emerald-500/30 hover:from-emerald-500/[0.12] hover:to-cyan-500/[0.06]"
                             : "bg-gradient-to-r from-emerald-50/80 to-cyan-50/50 border-emerald-200/30 hover:border-emerald-300/60"
                         }`}
                       >
                         <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                             isDarkMode
                               ? "bg-emerald-500/10"
                               : "bg-emerald-100/80"
@@ -596,66 +611,38 @@ const WalletConnect = ({
                             }`}
                           />
                         </div>
-                        <div className="text-left flex-1">
+                        <div className="text-left flex-1 min-w-0">
                           <span
                             className={`text-sm font-bold block ${textColor}`}
                           >
                             Trading Bot
                           </span>
-                          <span className={`text-[10px] ${subtextColor}`}>
-                            Automated DCA trading
+                          <span
+                            className={`text-[11px] leading-tight ${subtextColor}`}
+                          >
+                            Automated DCA strategy
                           </span>
                         </div>
-                        <span
-                          className={`text-xs font-mono transition-opacity opacity-0 group-hover:opacity-100 ${
+                        <FaArrowRight
+                          className={`w-3 h-3 flex-shrink-0 transition-transform group-hover:translate-x-0.5 ${
                             isDarkMode
-                              ? "text-emerald-400/50"
-                              : "text-emerald-600/50"
-                          }`}
-                        >
-                          &rarr;
-                        </span>
-                      </button>
-
-                      {/* Bot 10M warning */}
-                      <div
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
-                          isDarkMode
-                            ? "bg-amber-500/[0.06] border border-amber-500/10"
-                            : "bg-amber-50/80 border border-amber-200/30"
-                        }`}
-                      >
-                        <FaLock
-                          className={`w-2.5 h-2.5 flex-shrink-0 ${
-                            isDarkMode
-                              ? "text-amber-400/60"
-                              : "text-amber-600/60"
+                              ? "text-emerald-400/30 group-hover:text-emerald-400/60"
+                              : "text-emerald-600/30 group-hover:text-emerald-600/60"
                           }`}
                         />
-                        <span
-                          className={`text-[10px] leading-tight ${
-                            isDarkMode
-                              ? "text-amber-400/70"
-                              : "text-amber-600/70"
-                          }`}
-                        >
-                          Bot requires{" "}
-                          <span className="font-bold">10,000,000 BUDJU</span> in
-                          your wallet
-                        </span>
-                      </div>
+                      </button>
 
                       {/* Pool */}
                       <button
                         onClick={() => handleSelectAction("pool")}
-                        className={`flex items-center w-full gap-3 px-4 py-3.5 rounded-xl transition-all duration-200 cursor-pointer group border ${
+                        className={`flex items-center w-full gap-3.5 px-4 py-4 rounded-xl transition-all duration-200 cursor-pointer group border ${
                           isDarkMode
                             ? "bg-gradient-to-r from-purple-500/[0.06] to-pink-500/[0.03] border-purple-500/[0.1] hover:border-purple-500/30 hover:from-purple-500/[0.12] hover:to-pink-500/[0.06]"
                             : "bg-gradient-to-r from-purple-50/80 to-pink-50/50 border-purple-200/30 hover:border-purple-300/60"
                         }`}
                       >
                         <div
-                          className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                          className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
                             isDarkMode
                               ? "bg-purple-500/10"
                               : "bg-purple-100/80"
@@ -669,26 +656,64 @@ const WalletConnect = ({
                             }`}
                           />
                         </div>
-                        <div className="text-left flex-1">
+                        <div className="text-left flex-1 min-w-0">
                           <span
                             className={`text-sm font-bold block ${textColor}`}
                           >
                             Liquidity Pools
                           </span>
-                          <span className={`text-[10px] ${subtextColor}`}>
+                          <span
+                            className={`text-[11px] leading-tight ${subtextColor}`}
+                          >
                             Provide liquidity & earn fees
                           </span>
                         </div>
-                        <span
-                          className={`text-xs font-mono transition-opacity opacity-0 group-hover:opacity-100 ${
+                        <FaArrowRight
+                          className={`w-3 h-3 flex-shrink-0 transition-transform group-hover:translate-x-0.5 ${
                             isDarkMode
-                              ? "text-purple-400/50"
-                              : "text-purple-600/50"
+                              ? "text-purple-400/30 group-hover:text-purple-400/60"
+                              : "text-purple-600/30 group-hover:text-purple-600/60"
                           }`}
-                        >
-                          &rarr;
-                        </span>
+                        />
                       </button>
+
+                      {/* 10M BUDJU requirement notice */}
+                      <div
+                        className={`flex items-start gap-2.5 px-4 py-3 rounded-xl ${
+                          isDarkMode
+                            ? "bg-amber-500/[0.06] border border-amber-500/10"
+                            : "bg-amber-50/80 border border-amber-200/30"
+                        }`}
+                      >
+                        <FaLock
+                          className={`w-3 h-3 mt-0.5 flex-shrink-0 ${
+                            isDarkMode
+                              ? "text-amber-400/60"
+                              : "text-amber-600/60"
+                          }`}
+                        />
+                        <div>
+                          <span
+                            className={`text-[11px] leading-tight block ${
+                              isDarkMode
+                                ? "text-amber-400/80"
+                                : "text-amber-700/70"
+                            }`}
+                          >
+                            Trading Bot requires{" "}
+                            <span className="font-bold">10M BUDJU</span>.
+                          </span>
+                          <span
+                            className={`text-[10px] ${
+                              isDarkMode
+                                ? "text-amber-400/50"
+                                : "text-amber-600/50"
+                            }`}
+                          >
+                            Don't have enough? Use Swap to buy BUDJU first.
+                          </span>
+                        </div>
+                      </div>
                     </motion.div>
                   )}
 
@@ -702,14 +727,12 @@ const WalletConnect = ({
                       transition={{ duration: 0.15 }}
                     >
                       {/* Selected action banner */}
-                      <div className={`px-4 py-2 border-b ${dividerColor}`}>
+                      <div className={`px-4 py-2.5 border-b ${dividerColor}`}>
                         <div className="flex items-center gap-2">
                           {selectedAction === "swap" && (
                             <FaExchangeAlt
                               className={`w-3 h-3 ${
-                                isDarkMode
-                                  ? "text-cyan-400"
-                                  : "text-cyan-600"
+                                isDarkMode ? "text-cyan-400" : "text-cyan-600"
                               }`}
                             />
                           )}
@@ -732,7 +755,7 @@ const WalletConnect = ({
                             />
                           )}
                           <span
-                            className={`text-[10px] font-semibold ${
+                            className={`text-[11px] font-semibold ${
                               isDarkMode ? "text-gray-400" : "text-gray-500"
                             }`}
                           >
@@ -747,7 +770,7 @@ const WalletConnect = ({
                       </div>
 
                       {/* Wallet list */}
-                      <div className="p-2 space-y-0.5">
+                      <div className="p-2.5 space-y-1">
                         {getWalletsToDisplay().map((wallet) => {
                           const config = walletConfig[wallet];
                           const isDetected =
@@ -758,14 +781,15 @@ const WalletConnect = ({
                             <div key={wallet}>
                               <button
                                 onClick={() => handleConnect(wallet)}
-                                className={`flex items-center w-full gap-3 px-3 py-3 rounded-lg transition-all duration-200 cursor-pointer ${hoverBg} group`}
+                                className={`flex items-center w-full gap-3 px-3 py-3.5 rounded-xl transition-all duration-200 cursor-pointer ${hoverBg} group`}
                               >
                                 <img
                                   src={config.logo}
                                   alt={config.name}
-                                  className="w-9 h-9 rounded-xl"
+                                  className="w-10 h-10 rounded-xl"
                                   onError={(e) => {
-                                    (e.target as HTMLImageElement).style.display = "none";
+                                    (e.target as HTMLImageElement).style.display =
+                                      "none";
                                   }}
                                 />
                                 <div className="text-left flex-1">
@@ -792,21 +816,19 @@ const WalletConnect = ({
                                       Detected
                                     </span>
                                   )}
-                                  <span
-                                    className={`text-xs font-mono transition-opacity opacity-0 group-hover:opacity-100 ${
+                                  <FaArrowRight
+                                    className={`w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity ${
                                       isDarkMode
                                         ? "text-cyan-400/50"
                                         : "text-cyan-600/50"
                                     }`}
-                                  >
-                                    &rarr;
-                                  </span>
+                                  />
                                 </div>
                               </button>
                               {!isDetected && !isMobile && (
                                 <button
                                   onClick={() => handleGetWallet(wallet)}
-                                  className={`ml-12 mb-1 text-[10px] cursor-pointer transition-colors ${
+                                  className={`ml-13 mb-1 text-[10px] cursor-pointer transition-colors ${
                                     isDarkMode
                                       ? "text-cyan-400/50 hover:text-cyan-400"
                                       : "text-cyan-600/50 hover:text-cyan-600"
@@ -867,13 +889,13 @@ const WalletConnect = ({
 
                 {/* Wallet Info */}
                 <div className={`px-4 py-3 border-b ${dividerColor}`}>
-                  <div className="flex items-center gap-2.5 mb-2">
+                  <div className="flex items-center gap-2.5 mb-2.5">
                     <img
                       src={
                         walletConfig[connection.wallet?.name || "other"].logo
                       }
                       alt="Wallet"
-                      className="w-6 h-6 rounded-md"
+                      className="w-7 h-7 rounded-lg"
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = "none";
                       }}
@@ -927,27 +949,120 @@ const WalletConnect = ({
                   </div>
                 </div>
 
-                {/* Quick Actions — Deep Links */}
-                <div className={`px-3 py-2.5 border-b ${dividerColor}`}>
+                {/* BUDJU Balance Check + Bot Access */}
+                <div className={`px-4 py-3 border-b ${dividerColor}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-widest ${subtextColor}`}
+                    >
+                      Bot Access
+                    </span>
+                    {hasBudjuAccess ? (
+                      <span
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                          isDarkMode
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : "bg-emerald-50 text-emerald-600"
+                        }`}
+                      >
+                        UNLOCKED
+                      </span>
+                    ) : (
+                      <span
+                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                          isDarkMode
+                            ? "bg-amber-500/10 text-amber-400"
+                            : "bg-amber-50 text-amber-600"
+                        }`}
+                      >
+                        LOCKED
+                      </span>
+                    )}
+                  </div>
+
+                  <div
+                    className={`flex items-center justify-between rounded-lg px-3 py-2.5 mb-2.5 ${
+                      isDarkMode
+                        ? "bg-white/[0.03] border border-white/[0.06]"
+                        : "bg-gray-50 border border-gray-200/40"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <FaCoins
+                        className={`w-3.5 h-3.5 ${
+                          hasBudjuAccess
+                            ? isDarkMode
+                              ? "text-emerald-400"
+                              : "text-emerald-600"
+                            : isDarkMode
+                              ? "text-amber-400"
+                              : "text-amber-600"
+                        }`}
+                      />
+                      <div>
+                        <span
+                          className={`text-xs font-bold block ${textColor}`}
+                        >
+                          {loadingBalances
+                            ? "..."
+                            : budjuBalance.toLocaleString()}{" "}
+                          BUDJU
+                        </span>
+                        <span className={`text-[9px] ${subtextColor}`}>
+                          {loadingBalances
+                            ? "Checking..."
+                            : hasBudjuAccess
+                              ? "Requirement met"
+                              : `Need ${(BUDJU_REQUIRED - budjuBalance).toLocaleString()} more`}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleRefresh}
+                      className={`p-1.5 rounded-md transition-all cursor-pointer ${hoverBg}`}
+                      disabled={loadingBalances}
+                    >
+                      <FaSyncAlt
+                        className={`w-2.5 h-2.5 ${
+                          isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
+                        } ${loadingBalances ? "animate-spin" : ""}`}
+                      />
+                    </button>
+                  </div>
+
+                  {!hasBudjuAccess && !loadingBalances && (
+                    <button
+                      onClick={() => goTo(ROUTES.SWAP)}
+                      className={`flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        isDarkMode
+                          ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/15 text-cyan-300 hover:from-cyan-500/30 hover:to-blue-500/25 border border-cyan-500/20"
+                          : "bg-gradient-to-r from-cyan-50 to-blue-50 text-cyan-700 hover:from-cyan-100 hover:to-blue-100 border border-cyan-200/40"
+                      }`}
+                    >
+                      <FaExchangeAlt className="w-3 h-3" />
+                      Buy BUDJU Now
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick Actions */}
+                <div className={`px-3 py-3 border-b ${dividerColor}`}>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-widest px-1 mb-2 block ${subtextColor}`}
+                    className={`text-[10px] font-bold uppercase tracking-widest px-1 mb-2.5 block ${subtextColor}`}
                   >
                     Quick Actions
                   </span>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-3 gap-2">
                     <button
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate(ROUTES.SWAP);
-                      }}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      onClick={() => goTo(ROUTES.SWAP)}
+                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-cyan-500/[0.08] to-transparent border-cyan-500/[0.1] hover:border-cyan-500/30"
                           : "bg-gradient-to-b from-cyan-50 to-transparent border-cyan-200/30 hover:border-cyan-300/60"
                       }`}
                     >
                       <FaExchangeAlt
-                        className={`w-3.5 h-3.5 ${
+                        className={`w-4 h-4 ${
                           isDarkMode
                             ? "text-cyan-400 group-hover:text-cyan-300"
                             : "text-cyan-600 group-hover:text-cyan-500"
@@ -956,18 +1071,15 @@ const WalletConnect = ({
                       <span className={textColor}>Swap</span>
                     </button>
                     <button
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate(ROUTES.BANK);
-                      }}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      onClick={() => goTo(ROUTES.BANK)}
+                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/[0.1] hover:border-emerald-500/30"
                           : "bg-gradient-to-b from-emerald-50 to-transparent border-emerald-200/30 hover:border-emerald-300/60"
                       }`}
                     >
                       <FaRobot
-                        className={`w-3.5 h-3.5 ${
+                        className={`w-4 h-4 ${
                           isDarkMode
                             ? "text-emerald-400 group-hover:text-emerald-300"
                             : "text-emerald-600 group-hover:text-emerald-500"
@@ -976,18 +1088,15 @@ const WalletConnect = ({
                       <span className={textColor}>Bot</span>
                     </button>
                     <button
-                      onClick={() => {
-                        setIsMenuOpen(false);
-                        navigate(ROUTES.POOL);
-                      }}
-                      className={`flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      onClick={() => goTo(ROUTES.POOL)}
+                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-purple-500/[0.08] to-transparent border-purple-500/[0.1] hover:border-purple-500/30"
                           : "bg-gradient-to-b from-purple-50 to-transparent border-purple-200/30 hover:border-purple-300/60"
                       }`}
                     >
                       <FaSwimmingPool
-                        className={`w-3.5 h-3.5 ${
+                        className={`w-4 h-4 ${
                           isDarkMode
                             ? "text-purple-400 group-hover:text-purple-300"
                             : "text-purple-600 group-hover:text-purple-500"
@@ -1006,24 +1115,13 @@ const WalletConnect = ({
                     >
                       Balances
                     </span>
-                    <button
-                      onClick={handleRefresh}
-                      className={`p-1 rounded-md transition-all duration-200 cursor-pointer ${hoverBg}`}
-                      disabled={loadingBalances}
-                    >
-                      <FaSyncAlt
-                        className={`w-2.5 h-2.5 ${
-                          isDarkMode ? "text-cyan-400/60" : "text-cyan-600/60"
-                        } ${loadingBalances ? "animate-spin" : ""}`}
-                      />
-                    </button>
                   </div>
                   {loadingBalances ? (
                     <div className={`text-xs ${subtextColor}`}>Loading...</div>
                   ) : balanceError ? (
                     <div className="text-xs text-red-400">{balanceError}</div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       <div className="flex justify-between items-center">
                         <div className="flex items-center gap-2">
                           <img
@@ -1082,7 +1180,7 @@ const WalletConnect = ({
                 </div>
 
                 {/* Disconnect */}
-                <div className="p-2">
+                <div className="p-2.5">
                   <button
                     onClick={handleDisconnect}
                     className={`flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer ${
