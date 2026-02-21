@@ -16,6 +16,7 @@ const Burn = lazy(() => import("@features/burn/Burn"));
 const Pool = lazy(() => import("@features/pool/Pool"));
 const Swap = lazy(() => import("@features/swap/Swap")); // Added SwapTool
 const Balance = lazy(() => import("@features/balance/Balance"));
+const Trade = lazy(() => import("@features/trade/Trade"));
 const NotFound = lazy(() => import("@features/not-found/NotFound"));
 
 // Loading fallback component
@@ -70,6 +71,7 @@ const App = () => {
                 <Route path="/swap" element={<Swap />} />{" "}
                 {/* Added Swap route */}
                 <Route path="/balance" element={<Balance />} />
+                <Route path="/trade" element={<Trade />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
