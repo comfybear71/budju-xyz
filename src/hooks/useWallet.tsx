@@ -138,7 +138,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
                 signTransaction: async (
                   tx: Transaction | VersionedTransaction,
                 ) => {
-                  const provider = window.solana || window.solflare || window.jupiter || window.jupiter;
+                  const provider = window.solana || window.solflare || window.jupiter;
                   if (!provider) throw new Error("No wallet provider found");
 
                   // Check if the wallet has the signTransaction method
