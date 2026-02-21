@@ -7,7 +7,7 @@ import {
   fetchHeliusTokenMetrics,
   TOKEN_ADDRESS,
 } from "@/lib/utils/tokenService";
-import { FaRobot, FaLock } from "react-icons/fa";
+import { FaRobot, FaLock, FaWallet } from "react-icons/fa";
 
 interface LiveMetrics {
   price: number;
@@ -146,7 +146,7 @@ const Hero = () => {
                   to unlock the bot
                 </p>
                 <p
-                  className={`text-xs leading-relaxed ${
+                  className={`text-xs leading-relaxed mb-2 ${
                     isDarkMode ? "text-gray-500" : "text-gray-500"
                   }`}
                 >
@@ -154,6 +154,17 @@ const Hero = () => {
                   in your wallet, deposit funds, and the bot trades on your
                   behalf using DCA — very low risk.
                 </p>
+                <Link
+                  to={ROUTES.BALANCE}
+                  className={`inline-flex items-center gap-1.5 text-[11px] font-semibold transition-colors duration-200 ${
+                    isDarkMode
+                      ? "text-cyan-400/70 hover:text-cyan-400"
+                      : "text-cyan-600/70 hover:text-cyan-600"
+                  }`}
+                >
+                  <FaWallet className="w-2.5 h-2.5" />
+                  Check Balance
+                </Link>
               </div>
             </div>
           </div>

@@ -9,6 +9,7 @@ export const ROUTES = {
   NFT: "/nft",
   HOW_TO_BUY: "/how-to-buy", // Added back
   BURN: "/burn",             // New Burn page
+  BALANCE: "/balance",       // Check BUDJU balance
 };
 
 // Route names for navbar

@@ -8,6 +8,7 @@ import {
   FaBrain,
   FaWallet,
   FaPlay,
+  FaSearchDollar,
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import { ROUTES } from "@/constants/routes";
@@ -235,6 +236,19 @@ const BotAccess = () => {
                   }`}
                 >
                   How to Buy
+                </Link>
+              </div>
+              <div className="flex justify-center mt-3">
+                <Link
+                  to={ROUTES.BALANCE}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold transition-colors duration-200 ${
+                    isDarkMode
+                      ? "text-cyan-400/60 hover:text-cyan-400"
+                      : "text-cyan-600/60 hover:text-cyan-600"
+                  }`}
+                >
+                  <FaSearchDollar className="w-3 h-3" />
+                  Check Your Balance
                 </Link>
               </div>
             </div>
