@@ -43,9 +43,10 @@ const features = [
   },
 ];
 
-// Video URL: checks env var first, then falls back to local file in /public/videos/
+// Video URL: checks env var first, then falls back to Vercel Blob
 const BOT_VIDEO_URL =
-  import.meta.env.VITE_BOT_VIDEO_URL || "/videos/bot-demo.mp4";
+  import.meta.env.VITE_BOT_VIDEO_URL ||
+  "https://efxrfrxecvegqgub.public.blob.vercel-storage.com/125d289f782c4097b96b6f21de40c7ad.mov";
 
 const BotAccess = () => {
   const { isDarkMode } = useTheme();
