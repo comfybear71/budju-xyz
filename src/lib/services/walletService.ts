@@ -1,22 +1,18 @@
 import { TOKEN_ADDRESS } from "@constants/addresses";
 
-// Multiple RPC endpoints for fallback — try each until one works
-const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
+// ==========================================
+// RPC Proxy — route all Solana calls through the server-side proxy
+// so the Helius API key stays server-side (never in the browser).
+// Matches the proven FLUB pattern: browser → /api/rpc → Helius/public RPC.
+// ==========================================
 
-const MAINNET_RPC_ENDPOINTS: string[] = [
-  // Helius (if key available)
-  ...(HELIUS_API_KEY
-    ? [`https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`]
-    : []),
-  // Public Solana RPC (supports CORS)
-  "https://api.mainnet-beta.solana.com",
-];
-
-const DEVNET_RPC_ENDPOINTS: string[] = [
-  "https://api.devnet.solana.com",
-];
+const RPC_PROXY = "/api/rpc";
+const FALLBACK_RPC = "https://api.mainnet-beta.solana.com";
 
 const SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+// USDC mint address
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export type Network = "mainnet" | "devnet";
 
@@ -39,18 +35,18 @@ export interface WalletData {
 }
 
 /**
- * Make a JSON-RPC call to Solana, trying multiple endpoints until one succeeds.
+ * Make a JSON-RPC call to Solana via the server-side proxy.
+ * Falls back to public RPC if the proxy is unreachable.
  */
 async function solanaRpc(
   method: string,
   params: unknown[],
-  network: Network = "mainnet",
 ): Promise<any> {
-  const endpoints =
-    network === "mainnet" ? MAINNET_RPC_ENDPOINTS : DEVNET_RPC_ENDPOINTS;
+  const endpoints = [RPC_PROXY, FALLBACK_RPC];
 
   for (const endpoint of endpoints) {
     try {
+      console.log(`[BUDJU] RPC ${method} → ${endpoint}`);
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -63,26 +59,77 @@ async function solanaRpc(
       });
 
       if (!response.ok) {
-        console.warn(`RPC ${endpoint} returned ${response.status}, trying next...`);
+        console.warn(`[BUDJU] RPC ${endpoint} returned ${response.status}, trying next…`);
         continue;
       }
 
       const json = await response.json();
 
       if (json.error) {
-        console.warn(`RPC ${endpoint} error: ${json.error.message}, trying next...`);
+        console.warn(`[BUDJU] RPC ${endpoint} error: ${json.error.message}, trying next…`);
         continue;
       }
 
+      console.log(`[BUDJU] RPC ${method} success via ${endpoint}`);
       return json.result;
     } catch (error) {
-      console.warn(`RPC ${endpoint} failed:`, error);
+      console.warn(`[BUDJU] RPC ${endpoint} failed:`, error);
       continue;
     }
   }
 
-  console.error(`All RPC endpoints failed for ${method}`);
+  console.error(`[BUDJU] All RPC endpoints failed for ${method}`);
   return null;
+}
+
+/**
+ * Get SOL balance for a wallet address.
+ */
+async function getSolBalance(walletAddress: string): Promise<number> {
+  try {
+    const result = await solanaRpc("getBalance", [
+      walletAddress,
+      { commitment: "confirmed" },
+    ]);
+
+    if (result && typeof result.value === "number") {
+      const sol = result.value / 1e9;
+      console.log(`[BUDJU] SOL balance: ${sol}`);
+      return sol;
+    }
+    return 0;
+  } catch (error) {
+    console.error("[BUDJU] Error fetching SOL balance:", error);
+    return 0;
+  }
+}
+
+/**
+ * Get a single SPL token balance by mint address.
+ * Matches the FLUB pattern: getTokenAccountsByOwner with { mint }.
+ */
+async function getTokenBalance(
+  walletAddress: string,
+  mintAddress: string,
+): Promise<number> {
+  try {
+    const result = await solanaRpc("getTokenAccountsByOwner", [
+      walletAddress,
+      { mint: mintAddress },
+      { encoding: "jsonParsed", commitment: "confirmed" },
+    ]);
+
+    if (result && Array.isArray(result.value) && result.value.length > 0) {
+      const info = result.value[0]?.account?.data?.parsed?.info;
+      const uiAmount = info?.tokenAmount?.uiAmount || 0;
+      console.log(`[BUDJU] Token ${mintAddress}: ${uiAmount}`);
+      return uiAmount;
+    }
+    return 0;
+  } catch (error) {
+    console.error(`[BUDJU] Error fetching token ${mintAddress}:`, error);
+    return 0;
+  }
 }
 
 const walletService = {
@@ -92,74 +139,7 @@ const walletService = {
     this.currentNetwork = network;
   },
 
-  // Get SOL balance via raw JSON-RPC
-  async getSolBalance(walletAddress: string): Promise<number> {
-    try {
-      console.log("[BUDJU] getSolBalance for:", walletAddress);
-      const result = await solanaRpc(
-        "getBalance",
-        [walletAddress, { commitment: "confirmed" }],
-        this.currentNetwork,
-      );
-
-      if (result && typeof result.value === "number") {
-        const sol = result.value / 1e9;
-        console.log("[BUDJU] SOL balance:", sol);
-        return sol;
-      }
-      console.warn("[BUDJU] getBalance returned unexpected result:", result);
-      return 0;
-    } catch (error) {
-      console.error("[BUDJU] Error fetching SOL balance:", error);
-      return 0;
-    }
-  },
-
-  /**
-   * Fetch ALL SPL token balances in a single RPC call.
-   * Uses getTokenAccountsByOwner with jsonParsed encoding.
-   * Returns a map of mint address -> { amount, decimals }.
-   */
-  async getAllTokenBalances(
-    walletAddress: string,
-  ): Promise<Map<string, { amount: number; decimals: number }>> {
-    const balances = new Map<string, { amount: number; decimals: number }>();
-
-    try {
-      console.log("[BUDJU] getTokenAccountsByOwner for:", walletAddress);
-      const result = await solanaRpc(
-        "getTokenAccountsByOwner",
-        [
-          walletAddress,
-          { programId: SPL_TOKEN_PROGRAM_ID },
-          { encoding: "jsonParsed", commitment: "confirmed" },
-        ],
-        this.currentNetwork,
-      );
-
-      if (result && Array.isArray(result.value)) {
-        console.log("[BUDJU] Token accounts found:", result.value.length);
-        for (const account of result.value) {
-          const info = account?.account?.data?.parsed?.info;
-          if (info) {
-            const mint: string = info.mint;
-            const decimals: number = info.tokenAmount?.decimals || 0;
-            const uiAmount: number = info.tokenAmount?.uiAmount || 0;
-            balances.set(mint, { amount: uiAmount, decimals });
-            console.log(`[BUDJU] Token ${mint}: ${uiAmount} (${decimals} decimals)`);
-          }
-        }
-      } else {
-        console.warn("[BUDJU] getTokenAccountsByOwner returned:", result);
-      }
-    } catch (error) {
-      console.error("[BUDJU] Error fetching token accounts:", error);
-    }
-
-    return balances;
-  },
-
-  // Fetch all balances for a wallet
+  // Fetch all balances for a wallet — SOL + each token individually by mint
   async fetchWalletBalances(
     walletAddress: string,
     customTokens: { symbol: string; address: string; decimals: number }[] = [
@@ -167,25 +147,31 @@ const walletService = {
     ],
   ): Promise<WalletBalance> {
     try {
-      // 2 RPC calls in parallel: SOL balance + all token accounts
-      const [solBalance, tokenMap] = await Promise.all([
-        this.getSolBalance(walletAddress),
-        this.getAllTokenBalances(walletAddress),
+      console.log("[BUDJU] fetchWalletBalances for:", walletAddress);
+
+      // Ensure USDC is always included
+      const hasUsdc = customTokens.some((t) => t.address === USDC_MINT);
+      const tokens = hasUsdc
+        ? customTokens
+        : [...customTokens, { symbol: "USDC", address: USDC_MINT, decimals: 6 }];
+
+      // Fetch SOL + each token in parallel (just like FLUB does)
+      const [solBalance, ...tokenBalances] = await Promise.all([
+        getSolBalance(walletAddress),
+        ...tokens.map((t) => getTokenBalance(walletAddress, t.address)),
       ]);
 
-      const tokens: TokenBalance[] = customTokens.map((token) => {
-        const found = tokenMap.get(token.address);
-        return {
-          symbol: token.symbol,
-          address: token.address,
-          amount: found ? found.amount : 0,
-          decimals: token.decimals,
-        };
-      });
+      const result: TokenBalance[] = tokens.map((t, i) => ({
+        symbol: t.symbol,
+        address: t.address,
+        amount: tokenBalances[i],
+        decimals: t.decimals,
+      }));
 
-      return { sol: solBalance, tokens };
+      console.log("[BUDJU] Final balances:", { sol: solBalance, tokens: result });
+      return { sol: solBalance, tokens: result };
     } catch (error) {
-      console.error("Error fetching wallet balances:", error);
+      console.error("[BUDJU] Error fetching wallet balances:", error);
       return { sol: 0, tokens: [] };
     }
   },

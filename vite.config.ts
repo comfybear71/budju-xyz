@@ -120,6 +120,16 @@ export default defineConfig(({ mode }) => {
       ],
       host: "0.0.0.0", // Bind to all interfaces for network access
       port: 5173,
+      proxy: {
+        // Proxy /api/rpc to Solana RPC during local development
+        "/api/rpc": {
+          target: env.HELIUS_API_KEY
+            ? `https://mainnet.helius-rpc.com/?api-key=${env.HELIUS_API_KEY}`
+            : "https://api.mainnet-beta.solana.com",
+          changeOrigin: true,
+          rewrite: () => "",
+        },
+      },
     },
   };
 });

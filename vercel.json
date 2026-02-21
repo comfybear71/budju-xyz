@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/src/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/api/:path*", "destination": "/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "build": {
