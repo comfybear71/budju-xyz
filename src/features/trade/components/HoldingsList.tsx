@@ -2,24 +2,23 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSortAmountDown,
-  FaChevronUp,
-  FaChevronDown,
-  FaChartLine,
+  FaArrowUp,
+  FaArrowDown,
 } from "react-icons/fa";
-import { useTheme } from "@/context/ThemeContext";
+import { ASSET_CONFIG } from "../services/tradeApi";
 import type { PortfolioAsset } from "../services/tradeApi";
 
-type SortType = "value" | "change" | "name" | "balance";
+type SortKey = "value" | "change" | "name" | "balance";
 
-interface Props {
+interface HoldingsListProps {
   assets: PortfolioAsset[];
   prices: Record<string, number>;
-  onSelectAsset?: (code: string) => void;
-  selectedAsset?: string;
-  isAdmin?: boolean;
-  userAllocation?: number;
+  onSelectAsset: (code: string) => void;
+  selectedAsset: string;
+  isAdmin: boolean;
+  userAllocation: number;
   viewMode: "mine" | "pool";
-  onToggleView?: (view: "mine" | "pool") => void;
+  onToggleView?: (mode: "mine" | "pool") => void;
 }
 
 const HoldingsList = ({
@@ -28,131 +27,125 @@ const HoldingsList = ({
   onSelectAsset,
   selectedAsset,
   isAdmin,
-  userAllocation = 0,
+  userAllocation,
   viewMode,
-  onToggleView,
-}: Props) => {
-  const { isDarkMode } = useTheme();
-  const [sortType, setSortType] = useState<SortType>("value");
-  const [showSort, setShowSort] = useState(false);
+}: HoldingsListProps) => {
+  const [sortKey, setSortKey] = useState<SortKey>("value");
+  const [sortAsc, setSortAsc] = useState(false);
+  const [showSortMenu, setShowSortMenu] = useState(false);
 
-  const sortedAssets = useMemo(() => {
-    const items = [...assets].map((a) => ({
-      ...a,
-      priceUsd: prices[a.code] || a.priceUsd || 0,
-      displayValue:
-        viewMode === "mine" && userAllocation > 0
-          ? a.usdValue * (userAllocation / 100)
-          : a.usdValue,
-    }));
+  const totalValue = assets.reduce((s, a) => s + a.usdValue, 0);
 
-    switch (sortType) {
-      case "value":
-        return items.sort((a, b) => b.displayValue - a.displayValue);
-      case "change":
-        return items.sort(
-          (a, b) => Math.abs(b.change24h) - Math.abs(a.change24h),
-        );
-      case "name":
-        return items.sort((a, b) => a.code.localeCompare(b.code));
-      case "balance":
-        return items.sort((a, b) => b.balance - a.balance);
-      default:
-        return items;
+  const sorted = useMemo(() => {
+    const arr = [...assets];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case "value":
+          cmp = a.usdValue - b.usdValue;
+          break;
+        case "change":
+          cmp = a.change24h - b.change24h;
+          break;
+        case "name":
+          cmp = a.code.localeCompare(b.code);
+          break;
+        case "balance":
+          cmp = a.balance - b.balance;
+          break;
+      }
+      return sortAsc ? cmp : -cmp;
+    });
+    return arr;
+  }, [assets, sortKey, sortAsc]);
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortKey(key);
+      setSortAsc(false);
     }
-  }, [assets, prices, sortType, viewMode, userAllocation]);
+    setShowSortMenu(false);
+  };
 
-  const totalValue = sortedAssets.reduce((s, a) => s + a.displayValue, 0);
+  const formatBalance = (n: number) => {
+    if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    if (n >= 1) return n.toFixed(2);
+    if (n >= 0.001) return n.toFixed(4);
+    return n.toFixed(8);
+  };
+
+  const formatUsd = (n: number) => {
+    const display = viewMode === "mine" && !isAdmin ? n * (userAllocation / 100) : n;
+    if (display >= 1000) return `$${display.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    if (display >= 1) return `$${display.toFixed(2)}`;
+    return `$${display.toFixed(4)}`;
+  };
+
+  if (assets.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-sm text-slate-500">No holdings data available</p>
+        <p className="text-xs text-slate-600 mt-1">
+          Check your PIN and try refreshing
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <h3
-            className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-          >
-            Holdings
-          </h3>
-          {/* View toggle for users */}
-          {!isAdmin && onToggleView && (
-            <div
-              className={`flex rounded-lg border overflow-hidden text-[10px] ${isDarkMode ? "border-white/[0.08]" : "border-gray-200"}`}
-            >
-              <button
-                onClick={() => onToggleView("mine")}
-                className={`px-2 py-1 font-bold transition-colors ${
-                  viewMode === "mine"
-                    ? "bg-budju-pink/20 text-budju-pink"
-                    : isDarkMode
-                      ? "text-gray-500"
-                      : "text-gray-400"
-                }`}
-              >
-                Mine
-              </button>
-              <button
-                onClick={() => onToggleView("pool")}
-                className={`px-2 py-1 font-bold transition-colors ${
-                  viewMode === "pool"
-                    ? "bg-budju-blue/20 text-budju-blue"
-                    : isDarkMode
-                      ? "text-gray-500"
-                      : "text-gray-400"
-                }`}
-              >
-                Pool
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Sort */}
+        <h3 className="text-sm font-bold text-slate-300">
+          Holdings
+          <span className="text-slate-600 font-normal ml-1.5">
+            ({assets.length})
+          </span>
+        </h3>
         <div className="relative">
           <button
-            onClick={() => setShowSort(!showSort)}
-            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors ${isDarkMode ? "text-gray-500 hover:text-white hover:bg-white/10" : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"}`}
+            onClick={() => setShowSortMenu(!showSortMenu)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-slate-500 hover:text-slate-300 hover:bg-slate-800/40 transition-colors"
           >
             <FaSortAmountDown size={10} />
-            {sortType === "value"
-              ? "Value"
-              : sortType === "change"
-                ? "24h %"
-                : sortType === "name"
-                  ? "Name"
-                  : "Balance"}
+            {sortKey.charAt(0).toUpperCase() + sortKey.slice(1)}
           </button>
+
+          {/* Sort dropdown */}
           <AnimatePresence>
-            {showSort && (
+            {showSortMenu && (
               <motion.div
-                initial={{ opacity: 0, y: -5 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -5 }}
-                className={`absolute right-0 top-full mt-1 z-20 rounded-lg border shadow-lg ${isDarkMode ? "bg-[#0c0c20] border-white/[0.08]" : "bg-white border-gray-200"}`}
+                initial={{ opacity: 0, y: -5, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -5, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 top-full mt-1 w-36 rounded-xl bg-slate-800 border border-slate-700/50 shadow-xl overflow-hidden z-20"
               >
                 {(
                   [
                     ["value", "Value"],
-                    ["change", "24h %"],
+                    ["change", "Change %"],
                     ["name", "Name"],
                     ["balance", "Balance"],
-                  ] as const
+                  ] as [SortKey, string][]
                 ).map(([key, label]) => (
                   <button
                     key={key}
-                    onClick={() => {
-                      setSortType(key);
-                      setShowSort(false);
-                    }}
-                    className={`block w-full text-left px-4 py-2 text-xs transition-colors ${
-                      sortType === key
-                        ? "text-budju-pink font-bold"
-                        : isDarkMode
-                          ? "text-gray-400 hover:text-white hover:bg-white/5"
-                          : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                    onClick={() => handleSort(key)}
+                    className={`w-full text-left px-4 py-2.5 text-xs font-medium transition-colors ${
+                      sortKey === key
+                        ? "bg-blue-500/10 text-blue-400"
+                        : "text-slate-400 hover:bg-slate-700/50 hover:text-white"
                     }`}
                   >
                     {label}
+                    {sortKey === key && (
+                      <span className="ml-1 opacity-50">
+                        {sortAsc ? "↑" : "↓"}
+                      </span>
+                    )}
                   </button>
                 ))}
               </motion.div>
@@ -161,102 +154,97 @@ const HoldingsList = ({
         </div>
       </div>
 
-      {/* Asset list */}
+      {/* Holdings Cards */}
       <div className="space-y-2">
-        {sortedAssets.length === 0 && (
-          <div
-            className={`text-center py-8 text-sm ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-          >
-            No crypto holdings yet
-          </div>
-        )}
-        {sortedAssets.map((asset) => {
+        {sorted.map((asset, index) => {
+          const cfg = ASSET_CONFIG[asset.code];
           const isSelected = selectedAsset === asset.code;
-          const isUp = asset.change24h >= 0;
+          const allocation =
+            totalValue > 0 ? (asset.usdValue / totalValue) * 100 : 0;
+          const changeColor =
+            asset.change24h > 0
+              ? "text-green-400"
+              : asset.change24h < 0
+                ? "text-red-400"
+                : "text-slate-500";
 
           return (
             <motion.div
               key={asset.code}
-              layout
-              onClick={() => onSelectAsset?.(asset.code)}
-              className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, delay: index * 0.03 }}
+              onClick={() => onSelectAsset(asset.code)}
+              className={`relative rounded-xl p-3.5 cursor-pointer transition-all duration-200 border ${
                 isSelected
-                  ? isDarkMode
-                    ? "bg-budju-blue/10 border-budju-blue/30"
-                    : "bg-blue-50 border-blue-200"
-                  : isDarkMode
-                    ? "bg-[#0c0c20]/40 border-white/[0.04] hover:border-white/[0.1]"
-                    : "bg-white/40 border-gray-200/30 hover:border-gray-300/50"
+                  ? "bg-blue-500/[0.08] border-blue-500/20"
+                  : "bg-slate-800/30 border-transparent hover:bg-slate-800/50 hover:border-slate-700/30"
               }`}
             >
-              {/* Color dot */}
-              <div
-                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
-                style={{ backgroundColor: asset.color }}
-              >
-                {asset.code.slice(0, 2)}
-              </div>
+              <div className="flex items-center gap-3">
+                {/* Coin icon */}
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
+                  style={{
+                    backgroundColor: `${cfg?.color || "#64748b"}15`,
+                    color: cfg?.color || "#64748b",
+                  }}
+                >
+                  {cfg?.icon || asset.code.charAt(0)}
+                </div>
 
-              {/* Name & balance */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1">
-                  <span
-                    className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                  >
-                    {asset.code}
-                  </span>
-                  <span
-                    className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                  >
-                    {asset.name}
-                  </span>
-                </div>
-                <div
-                  className={`text-xs font-mono ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                >
-                  {asset.balance.toLocaleString(undefined, {
-                    maximumFractionDigits: 6,
-                  })}
-                </div>
-              </div>
+                {/* Coin info */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-bold text-white">
+                        {asset.code}
+                      </span>
+                      <span className="text-[11px] text-slate-500 ml-1.5">
+                        {asset.name}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-white font-mono">
+                        {formatUsd(asset.usdValue)}
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Price & change */}
-              <div className="text-right flex-shrink-0">
-                <div
-                  className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                >
-                  $
-                  {asset.displayValue.toLocaleString(undefined, {
-                    maximumFractionDigits: 0,
-                  })}
-                </div>
-                <div
-                  className={`flex items-center justify-end gap-0.5 text-xs font-mono ${isUp ? "text-green-400" : "text-red-400"}`}
-                >
-                  {isUp ? (
-                    <FaChevronUp size={8} />
-                  ) : (
-                    <FaChevronDown size={8} />
-                  )}
-                  {Math.abs(asset.change24h).toFixed(1)}%
-                </div>
-              </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      {formatBalance(
+                        viewMode === "mine" && !isAdmin
+                          ? asset.balance * (userAllocation / 100)
+                          : asset.balance,
+                      )}
+                    </span>
+                    <div className={`flex items-center gap-1 ${changeColor}`}>
+                      {asset.change24h > 0 ? (
+                        <FaArrowUp size={8} />
+                      ) : asset.change24h < 0 ? (
+                        <FaArrowDown size={8} />
+                      ) : null}
+                      <span className="text-[11px] font-bold font-mono">
+                        {asset.change24h > 0 ? "+" : ""}
+                        {asset.change24h.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
 
-              {/* Allocation bar */}
-              <div className="w-12 flex-shrink-0">
-                <div
-                  className={`h-1 rounded-full overflow-hidden ${isDarkMode ? "bg-white/[0.06]" : "bg-gray-200/60"}`}
-                >
-                  <div
-                    className="h-full rounded-full"
-                    style={{
-                      width:
-                        totalValue > 0
-                          ? `${Math.min((asset.displayValue / totalValue) * 100, 100)}%`
-                          : "0%",
-                      backgroundColor: asset.color,
-                    }}
-                  />
+                  {/* Allocation bar */}
+                  <div className="mt-2 h-1 rounded-full bg-slate-800/60 overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(allocation, 100)}%` }}
+                      transition={{ duration: 0.5, delay: index * 0.05 }}
+                      className="h-full rounded-full"
+                      style={{
+                        backgroundColor: cfg?.color || "#64748b",
+                        opacity: 0.6,
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
             </motion.div>

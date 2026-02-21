@@ -3,14 +3,23 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   FaTrophy,
   FaHistory,
-  FaChartPie,
-  FaWallet,
+  FaHome,
   FaSync,
-  FaCircle,
+  FaLock,
   FaSignInAlt,
+  FaRobot,
+  FaUsers,
+  FaMoneyBillWave,
+  FaChartLine,
+  FaExchangeAlt,
+  FaPercentage,
+  FaWallet,
+  FaArrowUp,
+  FaArrowDown,
+  FaEye,
+  FaEyeSlash,
 } from "react-icons/fa";
 import { APP_NAME } from "@constants/config";
-import { useTheme } from "@/context/ThemeContext";
 import { useWallet } from "@hooks/useWallet";
 import WalletConnect from "@components/common/WalletConnect";
 import PortfolioChart from "./components/PortfolioChart";
@@ -21,10 +30,17 @@ import TransactionHistory from "./components/TransactionHistory";
 import {
   fetchPortfolio,
   fetchPrices,
+  fetchChanges,
+  fetchCashBalances,
   fetchUserPosition,
+  fetchTraderState,
+  verifyPin,
+  hasPin,
+  clearPin,
   clearCache,
   type PortfolioAsset,
   type UserPosition,
+  type TraderState,
 } from "./services/tradeApi";
 
 // Admin wallets — matches FLUB config
@@ -34,58 +50,104 @@ const ADMIN_WALLETS = [
 ];
 
 const Trade = () => {
-  const { isDarkMode } = useTheme();
   const { connection } = useWallet();
   const walletAddress = connection.wallet?.address || "";
   const isConnected = connection.connected && !!walletAddress;
   const isAdmin = isConnected && ADMIN_WALLETS.includes(walletAddress);
 
-  // State
+  // PIN state
+  const [pinInput, setPinInput] = useState("");
+  const [pinVerified, setPinVerified] = useState(hasPin());
+  const [pinError, setPinError] = useState("");
+  const [pinLoading, setPinLoading] = useState(false);
+  const [showPinEntry, setShowPinEntry] = useState(false);
+
+  // Data state
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
+  const [usdcBalance, setUsdcBalance] = useState(0);
+  const [audBalance, setAudBalance] = useState(0);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
+  const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [apiStatus, setApiStatus] = useState<"connected" | "connecting" | "error">("connecting");
-  const [selectedAsset, setSelectedAsset] = useState<string>("");
+  const [apiStatus, setApiStatus] = useState<
+    "connected" | "connecting" | "error"
+  >("connecting");
+
+  // UI state
+  const [selectedAsset, setSelectedAsset] = useState("");
   const [showTradePanel, setShowTradePanel] = useState(false);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showTransactions, setShowTransactions] = useState(false);
   const [holdingsView, setHoldingsView] = useState<"mine" | "pool">("pool");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
+    "home",
+  );
 
   // Computed
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0);
-  const usdcBalance = 0; // USDC balance comes from portfolio data
-  const userValue = userPosition
-    ? userPosition.currentValue
-    : totalPoolValue * ((userPosition?.allocation || 0) / 100);
+  const userValue = userPosition ? userPosition.currentValue : 0;
 
-  // Load data
+  // ── Load data ──────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
       setApiStatus("connecting");
-      const [portfolioData, priceData] = await Promise.all([
-        fetchPortfolio(),
+
+      // Fetch prices (always works — CoinGecko)
+      const [priceData, changeData] = await Promise.all([
         fetchPrices(),
+        fetchChanges(),
       ]);
-
-      // Merge prices into assets
-      const merged = portfolioData.map((a) => ({
-        ...a,
-        priceUsd: priceData[a.code] || a.priceUsd,
-        usdValue:
-          priceData[a.code] && a.balance > 0
-            ? a.balance * priceData[a.code]
-            : a.usdValue,
-      }));
-
-      setAssets(merged);
       setPrices(priceData);
-      setApiStatus("connected");
 
-      if (isConnected && !isAdmin) {
-        const pos = await fetchUserPosition(walletAddress);
-        setUserPosition(pos);
+      // Fetch portfolio (needs PIN auth)
+      if (pinVerified) {
+        try {
+          const [portfolioData, cashData] = await Promise.all([
+            fetchPortfolio(),
+            fetchCashBalances(),
+          ]);
+
+          // Merge prices + changes into assets
+          const merged = portfolioData.map((a) => ({
+            ...a,
+            priceUsd: priceData[a.code] || a.priceUsd,
+            change24h: changeData[a.code] || a.change24h,
+            usdValue:
+              priceData[a.code] && a.balance > 0
+                ? a.balance * priceData[a.code]
+                : a.usdValue,
+          }));
+
+          setAssets(merged);
+          setUsdcBalance(cashData.usdc);
+          setAudBalance(cashData.aud);
+          setApiStatus("connected");
+        } catch (err: any) {
+          if (err?.message === "AUTH_REQUIRED") {
+            clearPin();
+            setPinVerified(false);
+            setShowPinEntry(true);
+            setApiStatus("error");
+          } else {
+            setApiStatus("error");
+          }
+        }
+
+        // Fetch admin state from MongoDB
+        if (isAdmin) {
+          const state = await fetchTraderState(walletAddress);
+          setTraderState(state);
+        }
+
+        // Fetch user position
+        if (isConnected && !isAdmin) {
+          const pos = await fetchUserPosition(walletAddress);
+          setUserPosition(pos);
+        }
+      } else {
+        setApiStatus("error");
       }
     } catch (err) {
       console.error("Failed to load trade data:", err);
@@ -93,7 +155,7 @@ const Trade = () => {
     } finally {
       setLoading(false);
     }
-  }, [isConnected, isAdmin, walletAddress]);
+  }, [isConnected, isAdmin, walletAddress, pinVerified]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -103,20 +165,48 @@ const Trade = () => {
 
   // Auto-refresh prices every 30s
   useEffect(() => {
+    if (!pinVerified) return;
     const interval = setInterval(() => {
-      fetchPrices().then((p) => {
+      Promise.all([fetchPrices(), fetchChanges()]).then(([p, c]) => {
         setPrices(p);
         setAssets((prev) =>
           prev.map((a) => ({
             ...a,
             priceUsd: p[a.code] || a.priceUsd,
-            usdValue: p[a.code] && a.balance > 0 ? a.balance * p[a.code] : a.usdValue,
+            change24h: c[a.code] || a.change24h,
+            usdValue:
+              p[a.code] && a.balance > 0
+                ? a.balance * p[a.code]
+                : a.usdValue,
           })),
         );
       });
     }, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [pinVerified]);
+
+  // Check if PIN already stored on mount
+  useEffect(() => {
+    if (!pinVerified && !hasPin()) {
+      setShowPinEntry(true);
+    }
+  }, [pinVerified]);
+
+  const handlePinSubmit = async () => {
+    if (!pinInput.trim()) return;
+    setPinLoading(true);
+    setPinError("");
+    const ok = await verifyPin(pinInput.trim());
+    if (ok) {
+      setPinVerified(true);
+      setShowPinEntry(false);
+      setPinInput("");
+      setRefreshKey((k) => k + 1);
+    } else {
+      setPinError("Invalid PIN. Please try again.");
+    }
+    setPinLoading(false);
+  };
 
   const handleRefresh = () => {
     clearCache();
@@ -128,339 +218,509 @@ const Trade = () => {
     if (isAdmin) setShowTradePanel(true);
   };
 
+  const handleNavClick = (nav: "leaders" | "home" | "activity") => {
+    if (nav === "leaders") {
+      setShowLeaderboard(true);
+      setShowTransactions(false);
+    } else if (nav === "activity") {
+      setShowTransactions(true);
+      setShowLeaderboard(false);
+    } else {
+      setShowLeaderboard(false);
+      setShowTransactions(false);
+    }
+    setActiveNav(nav);
+  };
+
+  const formatUsd = (n: number) =>
+    n >= 1000
+      ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+      : `$${n.toFixed(2)}`;
+
   return (
     <main className="min-h-screen">
-      <div className="max-w-6xl mx-auto px-4 pt-24 pb-24">
-        {/* ── Header ──────────────────────────────────── */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1
-              className={`text-2xl md:text-3xl font-bold font-display ${isDarkMode ? "text-white" : "text-gray-900"}`}
-            >
-              Trading{" "}
-              <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
-                Board
-              </span>
-            </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <FaCircle
-                size={6}
-                className={
-                  apiStatus === "connected"
-                    ? "text-green-400"
-                    : apiStatus === "connecting"
-                      ? "text-yellow-400 animate-pulse"
-                      : "text-red-400"
-                }
-              />
+      {/* ─── App Container (mobile-first, centered) ─── */}
+      <div className="max-w-2xl mx-auto min-h-screen flex flex-col px-4 pt-20 pb-4">
+        {/* ─── Header ─────────────────────────────── */}
+        <div className="flex items-center justify-between py-3">
+          <div className="flex items-center gap-2.5">
+            {/* API Status Dot */}
+            <div className="relative flex items-center">
               <span
-                className={`text-[10px] uppercase tracking-wider ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-              >
-                {apiStatus === "connected"
-                  ? "Live"
-                  : apiStatus === "connecting"
-                    ? "Connecting..."
-                    : "Offline"}
-              </span>
-              {isAdmin && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-400 font-bold">
-                  ADMIN
-                </span>
+                className={`w-2 h-2 rounded-full ${
+                  apiStatus === "connected"
+                    ? "bg-green-400"
+                    : apiStatus === "connecting"
+                      ? "bg-yellow-400 animate-pulse"
+                      : "bg-red-400"
+                }`}
+              />
+              {apiStatus === "connected" && (
+                <span className="absolute w-2 h-2 rounded-full bg-green-400 animate-ping opacity-50" />
               )}
             </div>
+            <span className="text-xs font-medium text-slate-400">
+              {apiStatus === "connected"
+                ? "Connected"
+                : apiStatus === "connecting"
+                  ? "Connecting..."
+                  : "Disconnected"}
+            </span>
+            <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-mono font-bold">
+              v2.0
+            </span>
+            {isAdmin && (
+              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
+                ADMIN
+              </span>
+            )}
           </div>
-
           <div className="flex items-center gap-2">
             <button
               onClick={handleRefresh}
-              className={`p-2 rounded-lg transition-colors ${isDarkMode ? "text-gray-500 hover:text-white hover:bg-white/10" : "text-gray-400 hover:text-gray-700 hover:bg-gray-100"}`}
-              title="Refresh data"
+              className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
+              title="Refresh"
             >
               <FaSync size={12} />
             </button>
-            <WalletConnect />
+            <WalletConnect size="sm" />
           </div>
         </div>
 
-        {/* ── Not connected state ─────────────────────── */}
-        {!isConnected && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`text-center py-16 rounded-2xl border ${isDarkMode ? "bg-[#0c0c20]/40 border-white/[0.06]" : "bg-white/40 border-gray-200/40"}`}
-          >
-            <FaWallet
-              className={`mx-auto mb-4 ${isDarkMode ? "text-gray-600" : "text-gray-300"}`}
-              size={32}
-            />
-            <h2
-              className={`text-lg font-bold mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+        {/* ─── Main Content ───────────────────────── */}
+        <div className="flex-1 pb-20">
+          {/* PIN Entry */}
+          {showPinEntry && !pinVerified && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center justify-center py-16"
             >
-              Connect Your Wallet
-            </h2>
-            <p
-              className={`text-sm mb-6 max-w-sm mx-auto ${isDarkMode ? "text-gray-500" : "text-gray-500"}`}
-            >
-              Connect your Phantom or Solflare wallet to view the BUDJU trading
-              pool, your holdings, and the leaderboard.
-            </p>
-            <WalletConnect />
+              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-6">
+                <FaLock className="w-6 h-6 text-blue-400" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2 font-display">
+                BUDJU Trading Bot
+              </h2>
+              <p className="text-sm text-slate-500 mb-8 text-center max-w-xs">
+                Enter your PIN to connect to the trading board. All data is
+                stored securely in the FLUB backend.
+              </p>
 
-            {/* Still show portfolio chart for visitors */}
-            {assets.length > 0 && (
-              <div className="mt-8 max-w-md mx-auto">
+              <div className="w-full max-w-xs space-y-3">
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
+                    placeholder="Enter PIN"
+                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700/50 rounded-xl text-white text-center text-lg font-mono tracking-[0.5em] placeholder:tracking-normal placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
+                    autoFocus
+                  />
+                </div>
+                {pinError && (
+                  <p className="text-xs text-red-400 text-center">{pinError}</p>
+                )}
+                <button
+                  onClick={handlePinSubmit}
+                  disabled={pinLoading || !pinInput.trim()}
+                  className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {pinLoading ? (
+                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  ) : (
+                    <>
+                      <FaSignInAlt size={12} />
+                      Unlock Trading Board
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Loading */}
+          {pinVerified && loading && (
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mb-4" />
+              <span className="text-sm text-slate-500">
+                Loading trading data...
+              </span>
+            </div>
+          )}
+
+          {/* Main Dashboard */}
+          {pinVerified && !loading && (
+            <div className="space-y-4">
+              {/* ─── Portfolio Chart ─────────────── */}
+              <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <PortfolioChart
                   assets={assets}
-                  totalValue={totalPoolValue}
+                  totalValue={
+                    holdingsView === "mine" && !isAdmin
+                      ? userValue
+                      : totalPoolValue
+                  }
                   usdcBalance={usdcBalance}
-                  label="Pool Overview"
-                  subtitle="Connect wallet for full access"
+                  label={
+                    holdingsView === "mine" && !isAdmin
+                      ? "My Portfolio"
+                      : isAdmin
+                        ? "Pool Total"
+                        : "Pool Overview"
+                  }
+                  subtitle={
+                    holdingsView === "mine" && !isAdmin && userPosition
+                      ? `${userPosition.allocation.toFixed(1)}% of pool`
+                      : `${assets.length} assets`
+                  }
                 />
-              </div>
-            )}
-          </motion.div>
-        )}
 
-        {/* ── Connected state ─────────────────────────── */}
-        {isConnected && (
-          <>
-            {/* Quick actions */}
-            <div className="flex gap-2 mb-6">
-              <button
-                onClick={() => setShowLeaderboard(true)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isDarkMode ? "bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-white hover:bg-white/[0.08]" : "bg-white/60 border border-gray-200/40 text-gray-500 hover:text-gray-700"}`}
-              >
-                <FaTrophy size={10} className="text-yellow-400" /> Leaderboard
-              </button>
-              <button
-                onClick={() => setShowTransactions(true)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${isDarkMode ? "bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-white hover:bg-white/[0.08]" : "bg-white/60 border border-gray-200/40 text-gray-500 hover:text-gray-700"}`}
-              >
-                <FaHistory size={10} /> Transactions
-              </button>
-              {!isAdmin && userPosition && (
-                <div
-                  className={`ml-auto flex items-center gap-2 px-4 py-2 rounded-xl text-xs ${isDarkMode ? "bg-white/[0.04] border border-white/[0.06]" : "bg-white/60 border border-gray-200/40"}`}
-                >
-                  <span
-                    className={isDarkMode ? "text-gray-500" : "text-gray-400"}
-                  >
-                    Your share:
-                  </span>
-                  <span
-                    className={`font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                  >
-                    {userPosition.allocation.toFixed(1)}%
-                  </span>
-                  <span
-                    className={`font-bold ${userPosition.pnlPercent >= 0 ? "text-green-400" : "text-red-400"}`}
-                  >
-                    ({userPosition.pnlPercent >= 0 ? "+" : ""}
-                    {userPosition.pnlPercent.toFixed(1)}% P&L)
-                  </span>
+                {/* Mine/Pool toggle for users */}
+                {isConnected && !isAdmin && (
+                  <div className="flex justify-center gap-2 mt-4">
+                    <button
+                      onClick={() => setHoldingsView("pool")}
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                        holdingsView === "pool"
+                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      Pool
+                    </button>
+                    <button
+                      onClick={() => setHoldingsView("mine")}
+                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                        holdingsView === "mine"
+                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                          : "text-slate-500 hover:text-slate-300"
+                      }`}
+                    >
+                      Mine
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ─── Admin Stats Panel ──────────── */}
+              {isAdmin && (
+                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <FaRobot className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400/70">
+                      Admin Dashboard
+                    </span>
+                  </div>
+
+                  {/* Cash Balances */}
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <div className="rounded-xl bg-slate-800/40 p-3">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                        USDC
+                      </div>
+                      <div className="text-sm font-bold text-green-400 font-mono">
+                        ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                    <div className="rounded-xl bg-slate-800/40 p-3">
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
+                        AUD
+                      </div>
+                      <div className="text-sm font-bold text-blue-400 font-mono">
+                        ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Admin Stats Grid */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      {
+                        label: "Users",
+                        value: traderState?.userCount ?? "—",
+                        icon: FaUsers,
+                        color: "text-blue-400",
+                      },
+                      {
+                        label: "Deposited",
+                        value: traderState?.totalDeposits
+                          ? formatUsd(traderState.totalDeposits)
+                          : "—",
+                        icon: FaMoneyBillWave,
+                        color: "text-green-400",
+                      },
+                      {
+                        label: "NAV",
+                        value: traderState?.nav
+                          ? traderState.nav.toFixed(4)
+                          : "—",
+                        icon: FaChartLine,
+                        color: "text-cyan-400",
+                      },
+                      {
+                        label: "Trades",
+                        value: traderState?.tradeCount ?? "—",
+                        icon: FaExchangeAlt,
+                        color: "text-purple-400",
+                      },
+                      {
+                        label: "Pool Value",
+                        value: totalPoolValue > 0 ? formatUsd(totalPoolValue) : "—",
+                        icon: FaWallet,
+                        color: "text-emerald-400",
+                      },
+                      {
+                        label: "P&L",
+                        value: traderState?.pnlPercent
+                          ? `${traderState.pnlPercent >= 0 ? "+" : ""}${traderState.pnlPercent.toFixed(1)}%`
+                          : "—",
+                        icon: FaPercentage,
+                        color:
+                          (traderState?.pnlPercent || 0) >= 0
+                            ? "text-green-400"
+                            : "text-red-400",
+                      },
+                    ].map((stat) => (
+                      <div
+                        key={stat.label}
+                        className="rounded-xl bg-slate-800/40 p-2.5 text-center"
+                      >
+                        <stat.icon
+                          className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`}
+                        />
+                        <div className="text-[10px] text-slate-500 mb-0.5">
+                          {stat.label}
+                        </div>
+                        <div
+                          className={`text-xs font-bold font-mono ${stat.color}`}
+                        >
+                          {stat.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Quick trade buttons */}
+                  <div className="flex gap-2 mt-3">
+                    {["Instant", "Trigger", "Auto"].map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          if (assets.length > 0) {
+                            setSelectedAsset(assets[0].code);
+                            setShowTradePanel(true);
+                          }
+                        }}
+                        className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-slate-800/60 border border-slate-700/40 text-slate-400 hover:text-white hover:border-blue-500/30 transition-all"
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
 
-            {/* Loading */}
-            {loading && (
-              <div
-                className={`text-center py-16 text-sm ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-              >
-                <div className="w-8 h-8 mx-auto mb-3 rounded-full border-2 border-budju-pink border-t-transparent animate-spin" />
-                Loading trading data...
-              </div>
-            )}
-
-            {/* Main layout */}
-            {!loading && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Left: Chart + User info */}
-                <div className="lg:col-span-1 space-y-4">
-                  <PortfolioChart
-                    assets={assets}
-                    totalValue={
-                      holdingsView === "mine" && !isAdmin
-                        ? userValue
-                        : totalPoolValue
-                    }
-                    usdcBalance={usdcBalance}
-                    label={
-                      holdingsView === "mine" && !isAdmin
-                        ? "My Portfolio"
-                        : isAdmin
-                          ? "Pool Total"
-                          : "Pool Overview"
-                    }
-                    subtitle={
-                      holdingsView === "mine" && !isAdmin && userPosition
-                        ? `${userPosition.allocation.toFixed(1)}% of pool`
-                        : undefined
-                    }
-                  />
-
-                  {/* User stats card */}
-                  {!isAdmin && userPosition && (
-                    <div
-                      className={`rounded-xl border p-4 ${isDarkMode ? "bg-[#0c0c20]/60 border-white/[0.06]" : "bg-white/60 border-gray-200/40"} backdrop-blur-sm`}
-                    >
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <div
-                            className={`text-[10px] uppercase tracking-wider ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            Value
-                          </div>
-                          <div
-                            className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
-                            $
-                            {userPosition.currentValue.toLocaleString(
-                              undefined,
-                              { maximumFractionDigits: 2 },
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <div
-                            className={`text-[10px] uppercase tracking-wider ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            P&L
-                          </div>
-                          <div
-                            className={`text-sm font-bold ${userPosition.pnl >= 0 ? "text-green-400" : "text-red-400"}`}
-                          >
-                            {userPosition.pnl >= 0 ? "+" : ""}$
-                            {userPosition.pnl.toFixed(2)} (
-                            {userPosition.pnlPercent.toFixed(1)}%)
-                          </div>
-                        </div>
-                        <div>
-                          <div
-                            className={`text-[10px] uppercase tracking-wider ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            Deposited
-                          </div>
-                          <div
-                            className={`text-sm font-bold font-mono ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
-                          >
-                            $
-                            {userPosition.totalDeposited.toLocaleString(
-                              undefined,
-                              { maximumFractionDigits: 2 },
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <div
-                            className={`text-[10px] uppercase tracking-wider ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            Pool Share
-                          </div>
-                          <div
-                            className={`text-sm font-bold font-mono ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
-                          >
-                            {userPosition.allocation.toFixed(2)}%
-                          </div>
-                        </div>
+              {/* ─── User Stats Panel ──────────── */}
+              {isConnected && !isAdmin && userPosition && (
+                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <FaWallet className="w-3 h-3 text-blue-400" />
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
+                      Your Position
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                        Value
+                      </div>
+                      <div className="text-base font-bold text-white font-mono">
+                        {formatUsd(userPosition.currentValue)}
                       </div>
                     </div>
-                  )}
-
-                  {/* Admin stats */}
-                  {isAdmin && (
-                    <div
-                      className={`rounded-xl border p-4 ${isDarkMode ? "bg-[#0c0c20]/60 border-white/[0.06]" : "bg-white/60 border-gray-200/40"} backdrop-blur-sm`}
-                    >
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                        P&L
+                      </div>
                       <div
-                        className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${isDarkMode ? "text-amber-400/60" : "text-amber-600/60"}`}
+                        className={`text-base font-bold font-mono flex items-center gap-1 ${
+                          userPosition.pnl >= 0
+                            ? "text-green-400"
+                            : "text-red-400"
+                        }`}
                       >
-                        Admin Panel
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <div
-                            className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            Pool Value
-                          </div>
-                          <div
-                            className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
-                            $
-                            {totalPoolValue.toLocaleString(undefined, {
-                              maximumFractionDigits: 0,
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <div
-                            className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            Assets
-                          </div>
-                          <div
-                            className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
-                            {assets.length}
-                          </div>
-                        </div>
+                        {userPosition.pnl >= 0 ? (
+                          <FaArrowUp size={10} />
+                        ) : (
+                          <FaArrowDown size={10} />
+                        )}
+                        {formatUsd(Math.abs(userPosition.pnl))} (
+                        {userPosition.pnlPercent.toFixed(1)}%)
                       </div>
                     </div>
-                  )}
-                </div>
-
-                {/* Right: Holdings + Trade */}
-                <div className="lg:col-span-2 space-y-4">
-                  {/* Trade panel (admin only, when open) */}
-                  <AnimatePresence>
-                    {showTradePanel && isAdmin && selectedAsset && (
-                      <div className="relative">
-                        <TradePanel
-                          assets={assets}
-                          prices={prices}
-                          selectedAsset={selectedAsset}
-                          usdcBalance={usdcBalance}
-                          onSelectAsset={setSelectedAsset}
-                          isAdmin={isAdmin}
-                          onClose={() => setShowTradePanel(false)}
-                        />
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                        Deposited
                       </div>
-                    )}
-                  </AnimatePresence>
+                      <div className="text-sm font-bold text-slate-300 font-mono">
+                        {formatUsd(userPosition.totalDeposited)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
+                        Pool Share
+                      </div>
+                      <div className="text-sm font-bold text-slate-300 font-mono">
+                        {userPosition.allocation.toFixed(2)}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                  {/* Holdings */}
-                  <div
-                    className={`rounded-xl border p-4 ${isDarkMode ? "bg-[#0c0c20]/60 border-white/[0.06]" : "bg-white/60 border-gray-200/40"} backdrop-blur-sm`}
+              {/* ─── Not Connected Banner ──────── */}
+              {!isConnected && pinVerified && (
+                <div className="rounded-2xl border border-slate-700/30 bg-[#0f172a]/60 p-5 text-center">
+                  <FaWallet className="mx-auto mb-3 text-slate-600" size={24} />
+                  <p className="text-sm font-medium text-slate-400 mb-1">
+                    Connect your wallet
+                  </p>
+                  <p className="text-xs text-slate-600 mb-4">
+                    See your personal position, the leaderboard, and more
+                  </p>
+                  <WalletConnect />
+                </div>
+              )}
+
+              {/* ─── Trade Panel (Admin, slide-in) ─── */}
+              <AnimatePresence>
+                {showTradePanel && isAdmin && selectedAsset && (
+                  <motion.div
+                    initial={{ opacity: 0, x: "100%" }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: "100%" }}
+                    transition={{
+                      type: "tween",
+                      duration: 0.3,
+                      ease: [0.4, 0, 0.2, 1],
+                    }}
                   >
-                    <HoldingsList
+                    <TradePanel
                       assets={assets}
                       prices={prices}
-                      onSelectAsset={handleSelectAsset}
                       selectedAsset={selectedAsset}
+                      usdcBalance={usdcBalance}
+                      onSelectAsset={setSelectedAsset}
                       isAdmin={isAdmin}
-                      userAllocation={userPosition?.allocation || 0}
-                      viewMode={isAdmin ? "pool" : holdingsView}
-                      onToggleView={
-                        isAdmin ? undefined : setHoldingsView
+                      onClose={() => setShowTradePanel(false)}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ─── Holdings ──────────────────── */}
+              <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                <HoldingsList
+                  assets={assets}
+                  prices={prices}
+                  onSelectAsset={handleSelectAsset}
+                  selectedAsset={selectedAsset}
+                  isAdmin={isAdmin}
+                  userAllocation={userPosition?.allocation || 0}
+                  viewMode={isAdmin ? "pool" : holdingsView}
+                  onToggleView={isAdmin ? undefined : setHoldingsView}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ─── Bottom Navigation Bar ──────────────── */}
+        <div className="fixed bottom-0 left-0 right-0 z-40">
+          <div className="max-w-2xl mx-auto">
+            <div className="mx-3 mb-3 rounded-2xl border border-white/[0.06] bg-[#0f172a]/90 backdrop-blur-xl shadow-lg shadow-black/40">
+              <div className="flex items-center justify-around py-2 px-4">
+                {/* Leaders */}
+                <button
+                  onClick={() => handleNavClick("leaders")}
+                  className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
+                    activeNav === "leaders"
+                      ? "text-yellow-400"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  <FaTrophy
+                    size={16}
+                    className={
+                      activeNav === "leaders" ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" : ""
+                    }
+                  />
+                  <span className="text-[10px] font-semibold">Leaders</span>
+                </button>
+
+                {/* Home (center, raised) */}
+                <button
+                  onClick={() => handleNavClick("home")}
+                  className="relative -mt-5"
+                >
+                  <div
+                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                      activeNav === "home"
+                        ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+                        : "bg-slate-800 border border-slate-700/50 hover:border-blue-500/30"
+                    }`}
+                  >
+                    <FaHome
+                      size={18}
+                      className={
+                        activeNav === "home" ? "text-white" : "text-slate-400"
                       }
                     />
                   </div>
-                </div>
+                  {activeNav === "home" && (
+                    <span className="absolute -bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400" />
+                  )}
+                </button>
+
+                {/* Activity */}
+                <button
+                  onClick={() => handleNavClick("activity")}
+                  className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
+                    activeNav === "activity"
+                      ? "text-blue-400"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  <FaHistory
+                    size={16}
+                    className={
+                      activeNav === "activity" ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]" : ""
+                    }
+                  />
+                  <span className="text-[10px] font-semibold">Activity</span>
+                </button>
               </div>
-            )}
-          </>
-        )}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Overlays */}
+      {/* ─── Full-page Overlays ──────────────────── */}
       <Leaderboard
         isOpen={showLeaderboard}
-        onClose={() => setShowLeaderboard(false)}
+        onClose={() => {
+          setShowLeaderboard(false);
+          setActiveNav("home");
+        }}
       />
       <TransactionHistory
         isOpen={showTransactions}
-        onClose={() => setShowTransactions(false)}
+        onClose={() => {
+          setShowTransactions(false);
+          setActiveNav("home");
+        }}
         walletAddress={isAdmin ? undefined : walletAddress}
       />
     </main>

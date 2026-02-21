@@ -7,14 +7,20 @@ import {
   FaShoppingCart,
   FaExchangeAlt,
   FaExternalLinkAlt,
+  FaHistory,
 } from "react-icons/fa";
-import { useTheme } from "@/context/ThemeContext";
 import {
   fetchTransactions,
   type TradeTransaction,
 } from "../services/tradeApi";
 
-type FilterType = "all" | "deposit" | "withdrawal" | "buy" | "sell" | "external";
+type FilterType =
+  | "all"
+  | "deposit"
+  | "withdrawal"
+  | "buy"
+  | "sell"
+  | "external";
 
 const FILTER_TABS: { key: FilterType; label: string }[] = [
   { key: "all", label: "All" },
@@ -24,14 +30,20 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
   { key: "sell", label: "Sells" },
 ];
 
-const TYPE_ICONS: Record<string, { icon: typeof FaArrowDown; color: string }> =
-  {
-    deposit: { icon: FaArrowDown, color: "text-green-400" },
-    withdrawal: { icon: FaArrowUp, color: "text-red-400" },
-    buy: { icon: FaShoppingCart, color: "text-blue-400" },
-    sell: { icon: FaExchangeAlt, color: "text-amber-400" },
-    external: { icon: FaExternalLinkAlt, color: "text-purple-400" },
-  };
+const TYPE_ICONS: Record<
+  string,
+  { icon: typeof FaArrowDown; color: string; bg: string }
+> = {
+  deposit: { icon: FaArrowDown, color: "text-green-400", bg: "bg-green-500/10" },
+  withdrawal: { icon: FaArrowUp, color: "text-red-400", bg: "bg-red-500/10" },
+  buy: { icon: FaShoppingCart, color: "text-blue-400", bg: "bg-blue-500/10" },
+  sell: { icon: FaExchangeAlt, color: "text-amber-400", bg: "bg-amber-500/10" },
+  external: {
+    icon: FaExternalLinkAlt,
+    color: "text-purple-400",
+    bg: "bg-purple-500/10",
+  },
+};
 
 interface Props {
   isOpen: boolean;
@@ -40,7 +52,6 @@ interface Props {
 }
 
 const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
-  const { isDarkMode } = useTheme();
   const [transactions, setTransactions] = useState<TradeTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>("all");
@@ -80,110 +91,92 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={onClose}
+          initial={{ y: "100%" }}
+          animate={{ y: 0 }}
+          exit={{ y: "100%" }}
+          transition={{
+            type: "tween",
+            duration: 0.35,
+            ease: [0.4, 0, 0.2, 1],
+          }}
+          className="fixed inset-0 z-50 bg-[#0f172a] overflow-hidden flex flex-col"
         >
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-
-          <motion.div
-            initial={{ y: 30, scale: 0.95 }}
-            animate={{ y: 0, scale: 1 }}
-            exit={{ y: 30, scale: 0.95 }}
-            onClick={(e) => e.stopPropagation()}
-            className={`relative w-full max-w-lg max-h-[80vh] overflow-hidden rounded-2xl border ${
-              isDarkMode
-                ? "bg-[#0a0a1a] border-white/[0.08]"
-                : "bg-white border-gray-200"
-            }`}
-          >
-            {/* Header */}
-            <div
-              className={`flex items-center justify-between p-4 border-b ${isDarkMode ? "border-white/[0.06]" : "border-gray-100"}`}
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-2.5">
+              <FaHistory className="text-blue-400" size={14} />
+              <h2 className="text-base font-bold text-white">Activity</h2>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors"
             >
-              <h2
-                className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-              >
-                Transactions
-              </h2>
+              <FaTimes size={16} />
+            </button>
+          </div>
+
+          {/* Filter tabs */}
+          <div className="flex gap-1.5 px-4 py-3 border-b border-white/[0.06] overflow-x-auto no-scrollbar">
+            {FILTER_TABS.map((tab) => (
               <button
-                onClick={onClose}
-                className={`p-1.5 rounded-full ${isDarkMode ? "hover:bg-white/10 text-gray-400" : "hover:bg-gray-100 text-gray-500"}`}
+                key={tab.key}
+                onClick={() => setFilter(tab.key)}
+                className={`flex-shrink-0 px-4 py-1.5 rounded-full text-[11px] font-bold transition-all ${
+                  filter === tab.key
+                    ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                    : "text-slate-500 hover:text-slate-300 border border-transparent"
+                }`}
               >
-                <FaTimes size={14} />
+                {tab.label}
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Filter tabs */}
-            <div
-              className={`flex gap-1 p-3 border-b overflow-x-auto ${isDarkMode ? "border-white/[0.06]" : "border-gray-100"}`}
-            >
-              {FILTER_TABS.map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setFilter(tab.key)}
-                  className={`flex-shrink-0 px-3 py-1 rounded-full text-[10px] font-bold transition-colors ${
-                    filter === tab.key
-                      ? "bg-budju-pink/20 text-budju-pink"
-                      : isDarkMode
-                        ? "text-gray-500 hover:text-gray-300"
-                        : "text-gray-400 hover:text-gray-600"
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Transaction list */}
-            <div className="overflow-y-auto max-h-[60vh] p-3 space-y-1.5">
-              {loading ? (
-                <div
-                  className={`text-center py-10 text-sm ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                >
+          {/* Transaction list */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 max-w-2xl mx-auto w-full">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="w-8 h-8 rounded-full border-2 border-blue-400 border-t-transparent animate-spin mb-3" />
+                <span className="text-sm text-slate-500">
                   Loading transactions...
-                </div>
-              ) : filtered.length === 0 ? (
-                <div
-                  className={`text-center py-10 text-sm ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                >
-                  No transactions found
-                </div>
-              ) : (
-                filtered.map((tx) => {
+                </span>
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-20">
+                <FaHistory className="mx-auto mb-3 text-slate-700" size={28} />
+                <p className="text-sm text-slate-500">No transactions found</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {filtered.map((tx, i) => {
                   const cfg = TYPE_ICONS[tx.type] || TYPE_ICONS.external;
 
                   return (
-                    <div
-                      key={tx.id}
-                      className={`flex items-center gap-3 p-2.5 rounded-lg ${isDarkMode ? "hover:bg-white/[0.03]" : "hover:bg-gray-50"} transition-colors`}
+                    <motion.div
+                      key={tx.id || i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2, delay: i * 0.02 }}
+                      className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-800/30 transition-colors"
                     >
                       <div
-                        className={`w-7 h-7 rounded-full flex items-center justify-center ${isDarkMode ? "bg-white/[0.06]" : "bg-gray-100"}`}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bg}`}
                       >
                         <cfg.icon className={cfg.color} size={12} />
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span
-                            className={`text-xs font-bold capitalize ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
+                          <span className="text-xs font-bold text-white capitalize">
                             {tx.type}
                           </span>
                           {tx.asset && (
-                            <span
-                              className={`text-[10px] ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                            >
+                            <span className="text-[10px] text-slate-500 font-mono">
                               {tx.asset}
                             </span>
                           )}
                         </div>
-                        <div
-                          className={`text-[10px] ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                        >
+                        <div className="text-[10px] text-slate-600">
                           {formatDate(tx.timestamp)}
                         </div>
                       </div>
@@ -195,9 +188,7 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
                               ? "text-green-400"
                               : tx.type === "withdrawal" || tx.type === "buy"
                                 ? "text-red-400"
-                                : isDarkMode
-                                  ? "text-white"
-                                  : "text-gray-900"
+                                : "text-white"
                           }`}
                         >
                           {tx.type === "deposit" || tx.type === "sell"
@@ -209,12 +200,12 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
                           })}
                         </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
-                })
-              )}
-            </div>
-          </motion.div>
+                })}
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

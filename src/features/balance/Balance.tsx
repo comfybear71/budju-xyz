@@ -386,7 +386,7 @@ const Balance = () => {
 
                     {hasBudjuAccess && (
                       <Link
-                        to={ROUTES.BANK}
+                        to={ROUTES.TRADE}
                         className="hero-btn-primary flex items-center justify-center gap-2.5 w-full px-4 py-3.5 rounded-xl text-sm font-bold"
                       >
                         <FaRobot className="w-3.5 h-3.5" />

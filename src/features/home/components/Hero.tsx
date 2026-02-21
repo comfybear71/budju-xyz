@@ -172,7 +172,7 @@ const Hero = () => {
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 mb-10">
             <Link
-              to={ROUTES.SWAP}
+              to={ROUTES.TRADE}
               className="hero-btn-primary text-center text-base font-bold px-10 py-4 rounded-xl flex items-center justify-center gap-2"
             >
               <FaRobot className="w-4 h-4" />

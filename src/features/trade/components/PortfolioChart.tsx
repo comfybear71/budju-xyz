@@ -1,7 +1,6 @@
 import { useRef, useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import { Chart, DoughnutController, ArcElement, Tooltip } from "chart.js";
-import { useTheme } from "@/context/ThemeContext";
 import type { PortfolioAsset } from "../services/tradeApi";
 
 Chart.register(DoughnutController, ArcElement, Tooltip);
@@ -21,7 +20,6 @@ const PortfolioChart = ({
   label,
   subtitle,
 }: Props) => {
-  const { isDarkMode } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
 
@@ -39,14 +37,17 @@ const PortfolioChart = ({
 
     if (chartRef.current) chartRef.current.destroy();
 
+    // If no data, show empty chart
+    const hasData = chartData.values.length > 0;
+
     chartRef.current = new Chart(canvasRef.current, {
       type: "doughnut",
       data: {
-        labels: chartData.labels,
+        labels: hasData ? chartData.labels : ["No data"],
         datasets: [
           {
-            data: chartData.values,
-            backgroundColor: chartData.colors,
+            data: hasData ? chartData.values : [1],
+            backgroundColor: hasData ? chartData.colors : ["#1e293b"],
             borderWidth: 0,
             hoverBorderWidth: 2,
             hoverBorderColor: "#fff",
@@ -56,13 +57,17 @@ const PortfolioChart = ({
       options: {
         responsive: true,
         maintainAspectRatio: true,
-        cutout: "72%",
+        cutout: "70%",
         plugins: {
           tooltip: {
+            enabled: hasData,
             callbacks: {
               label: (ctx) => {
                 const val = ctx.parsed;
-                const pct = totalValue > 0 ? ((val / totalValue) * 100).toFixed(1) : "0";
+                const pct =
+                  totalValue > 0
+                    ? ((val / totalValue) * 100).toFixed(1)
+                    : "0";
                 return ` ${ctx.label}: $${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${pct}%)`;
               },
             },
@@ -82,59 +87,23 @@ const PortfolioChart = ({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       transition={{ duration: 0.5 }}
-      className={`rounded-xl border p-5 ${
-        isDarkMode
-          ? "bg-[#0c0c20]/60 border-white/[0.06]"
-          : "bg-white/60 border-gray-200/40"
-      } backdrop-blur-sm`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3
-            className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-          >
-            {label}
-          </h3>
-          {subtitle && (
-            <p
-              className={`text-xs ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-            >
-              {subtitle}
-            </p>
-          )}
-        </div>
-        <div className="text-right">
-          <div
-            className={`text-xs ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-          >
-            USDC
-          </div>
-          <div
-            className={`text-sm font-bold font-mono ${isDarkMode ? "text-green-400" : "text-green-600"}`}
-          >
-            ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-          </div>
-        </div>
-      </div>
-
       {/* Chart */}
-      <div className="relative mx-auto" style={{ maxWidth: 220 }}>
+      <div className="relative mx-auto" style={{ maxWidth: 180 }}>
         <canvas ref={canvasRef} />
         {/* Center text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div
-            className={`text-lg font-bold font-display ${isDarkMode ? "text-white" : "text-gray-900"}`}
-          >
+          <div className="text-xl font-bold font-display text-white">
             ${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
           </div>
-          <div
-            className={`text-[10px] ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-          >
-            {chartData.labels.length} assets
-          </div>
+          <div className="text-[10px] text-slate-500">{label}</div>
         </div>
       </div>
+
+      {/* Subtitle */}
+      {subtitle && (
+        <p className="text-center text-xs text-slate-500 mt-2">{subtitle}</p>
+      )}
     </motion.div>
   );
 };

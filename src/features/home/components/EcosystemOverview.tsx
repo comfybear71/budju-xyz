@@ -34,7 +34,7 @@ const ecosystemCards: EcosystemCard[] = [
     accent: "text-cyan-400",
     accentBorder: "border-cyan-500/20 hover:border-cyan-500/40",
     accentGlow: "rgba(6,182,212,0.06)",
-    link: ROUTES.SWAP,
+    link: ROUTES.TRADE,
     badge: "CORE",
   },
   {

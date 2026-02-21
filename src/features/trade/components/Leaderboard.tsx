@@ -1,7 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTrophy, FaTimes, FaChevronUp, FaChevronDown } from "react-icons/fa";
-import { useTheme } from "@/context/ThemeContext";
+import {
+  FaTrophy,
+  FaTimes,
+  FaChevronUp,
+  FaChevronDown,
+} from "react-icons/fa";
 import { fetchLeaderboard, type LeaderboardEntry } from "../services/tradeApi";
 
 interface Props {
@@ -10,13 +14,27 @@ interface Props {
 }
 
 const PODIUM_STYLES = [
-  { emoji: "🥇", bg: "from-yellow-400/20 to-amber-500/20", border: "border-yellow-400/30" },
-  { emoji: "🥈", bg: "from-gray-300/20 to-gray-400/20", border: "border-gray-400/30" },
-  { emoji: "🥉", bg: "from-orange-400/20 to-orange-500/20", border: "border-orange-400/30" },
+  {
+    bg: "from-yellow-500/20 via-amber-500/10 to-yellow-500/5",
+    border: "border-yellow-500/30",
+    glow: "shadow-[0_0_20px_rgba(234,179,8,0.15)]",
+    medal: "text-yellow-400",
+  },
+  {
+    bg: "from-gray-300/15 via-gray-400/8 to-gray-300/3",
+    border: "border-gray-400/25",
+    glow: "",
+    medal: "text-gray-300",
+  },
+  {
+    bg: "from-orange-500/15 via-orange-400/8 to-orange-500/3",
+    border: "border-orange-500/25",
+    glow: "",
+    medal: "text-orange-400",
+  },
 ];
 
 const Leaderboard = ({ isOpen, onClose }: Props) => {
-  const { isDarkMode } = useTheme();
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,128 +51,112 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          onClick={onClose}
+          initial={{ y: "100%" }}
+          animate={{ y: 0 }}
+          exit={{ y: "100%" }}
+          transition={{ type: "tween", duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          className="fixed inset-0 z-50 bg-[#0f172a] overflow-y-auto"
         >
-          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-
-          <motion.div
-            initial={{ y: 30, scale: 0.95 }}
-            animate={{ y: 0, scale: 1 }}
-            exit={{ y: 30, scale: 0.95 }}
-            onClick={(e) => e.stopPropagation()}
-            className={`relative w-full max-w-md max-h-[80vh] overflow-y-auto rounded-2xl border ${
-              isDarkMode ? "bg-[#0a0a1a] border-white/[0.08]" : "bg-white border-gray-200"
-            }`}
-          >
-            {/* Header */}
-            <div
-              className={`sticky top-0 z-10 flex items-center justify-between p-4 border-b backdrop-blur-sm ${isDarkMode ? "bg-[#0a0a1a]/90 border-white/[0.06]" : "bg-white/90 border-gray-100"}`}
-            >
-              <div className="flex items-center gap-2">
-                <FaTrophy className="text-yellow-400" size={16} />
-                <h2
-                  className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                >
-                  Leaderboard
-                </h2>
-              </div>
-              <button
-                onClick={onClose}
-                className={`p-1.5 rounded-full ${isDarkMode ? "hover:bg-white/10 text-gray-400" : "hover:bg-gray-100 text-gray-500"}`}
-              >
-                <FaTimes size={14} />
-              </button>
+          {/* Header */}
+          <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 bg-[#0f172a]/95 backdrop-blur-sm border-b border-white/[0.06]">
+            <div className="flex items-center gap-2.5">
+              <FaTrophy className="text-yellow-400" size={16} />
+              <h2 className="text-base font-bold text-white">Leaderboard</h2>
             </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors"
+            >
+              <FaTimes size={16} />
+            </button>
+          </div>
 
-            <div className="p-4">
-              {loading ? (
-                <div
-                  className={`text-center py-10 text-sm ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                >
+          <div className="px-4 py-5 max-w-2xl mx-auto">
+            {loading ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <div className="w-8 h-8 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin mb-3" />
+                <span className="text-sm text-slate-500">
                   Loading rankings...
-                </div>
-              ) : entries.length === 0 ? (
-                <div
-                  className={`text-center py-10 text-sm ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                >
-                  No users yet — be the first!
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {entries.map((entry, i) => {
-                    const podium = i < 3 ? PODIUM_STYLES[i] : null;
-                    const isUp = entry.pnlPercent >= 0;
+                </span>
+              </div>
+            ) : entries.length === 0 ? (
+              <div className="text-center py-20">
+                <FaTrophy className="mx-auto mb-3 text-slate-700" size={32} />
+                <p className="text-sm text-slate-500">No users yet</p>
+                <p className="text-xs text-slate-600 mt-1">
+                  Be the first to join the trading pool
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {entries.map((entry, i) => {
+                  const podium = i < 3 ? PODIUM_STYLES[i] : null;
+                  const isUp = entry.pnlPercent >= 0;
 
-                    return (
-                      <div
-                        key={entry.wallet}
-                        className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                          podium
-                            ? `bg-gradient-to-r ${podium.bg} ${podium.border}`
-                            : isDarkMode
-                              ? "bg-[#0c0c20]/40 border-white/[0.04]"
-                              : "bg-white/40 border-gray-200/30"
-                        }`}
-                      >
-                        {/* Rank */}
-                        <div className="w-8 text-center flex-shrink-0">
-                          {podium ? (
-                            <span className="text-lg">{podium.emoji}</span>
-                          ) : (
-                            <span
-                              className={`text-sm font-bold ${isDarkMode ? "text-gray-500" : "text-gray-400"}`}
-                            >
-                              #{entry.rank}
-                            </span>
-                          )}
+                  return (
+                    <motion.div
+                      key={entry.wallet}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, delay: i * 0.05 }}
+                      className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all ${
+                        podium
+                          ? `bg-gradient-to-r ${podium.bg} ${podium.border} ${podium.glow}`
+                          : "bg-slate-800/30 border-slate-700/20"
+                      }`}
+                    >
+                      {/* Rank */}
+                      <div className="w-8 text-center flex-shrink-0">
+                        {podium ? (
+                          <FaTrophy
+                            className={podium.medal}
+                            size={i === 0 ? 20 : 16}
+                          />
+                        ) : (
+                          <span className="text-sm font-bold text-slate-500">
+                            #{entry.rank}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* User */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-bold text-white truncate">
+                          {entry.displayName}
                         </div>
-
-                        {/* User */}
-                        <div className="flex-1 min-w-0">
-                          <div
-                            className={`text-xs font-bold truncate ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
-                            {entry.displayName}
-                          </div>
-                          <div
-                            className={`text-[10px] font-mono ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
-                          >
-                            {entry.wallet.slice(0, 4)}...{entry.wallet.slice(-4)}
-                          </div>
-                        </div>
-
-                        {/* Value & P&L */}
-                        <div className="text-right flex-shrink-0">
-                          <div
-                            className={`text-xs font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
-                          >
-                            $
-                            {entry.value.toLocaleString(undefined, {
-                              maximumFractionDigits: 0,
-                            })}
-                          </div>
-                          <div
-                            className={`flex items-center justify-end gap-0.5 text-[10px] font-mono ${isUp ? "text-green-400" : "text-red-400"}`}
-                          >
-                            {isUp ? (
-                              <FaChevronUp size={7} />
-                            ) : (
-                              <FaChevronDown size={7} />
-                            )}
-                            {Math.abs(entry.pnlPercent).toFixed(1)}%
-                          </div>
+                        <div className="text-[10px] font-mono text-slate-600">
+                          {entry.wallet.slice(0, 6)}...{entry.wallet.slice(-4)}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </motion.div>
+
+                      {/* Value & P&L */}
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-sm font-bold text-white font-mono">
+                          $
+                          {entry.value.toLocaleString(undefined, {
+                            maximumFractionDigits: 0,
+                          })}
+                        </div>
+                        <div
+                          className={`flex items-center justify-end gap-0.5 text-[11px] font-mono font-bold ${
+                            isUp ? "text-green-400" : "text-red-400"
+                          }`}
+                        >
+                          {isUp ? (
+                            <FaChevronUp size={7} />
+                          ) : (
+                            <FaChevronDown size={7} />
+                          )}
+                          {isUp ? "+" : ""}
+                          {entry.pnlPercent.toFixed(1)}%
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

@@ -217,7 +217,7 @@ const WalletConnect = ({
     setSelectedAction(action);
     // Store route for after wallet connection
     if (action === "swap") pendingNavRef.current = ROUTES.SWAP;
-    else if (action === "bot") pendingNavRef.current = ROUTES.BANK;
+    else if (action === "bot") pendingNavRef.current = ROUTES.TRADE;
     else if (action === "pool") pendingNavRef.current = ROUTES.POOL;
     setConnectStep("wallet");
     setConnectionError(null);
