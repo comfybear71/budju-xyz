@@ -692,7 +692,7 @@ const WalletConnect = ({
                               : "text-amber-600/60"
                           }`}
                         />
-                        <div>
+                        <div className="flex-1">
                           <span
                             className={`text-[11px] leading-tight block ${
                               isDarkMode
@@ -704,7 +704,7 @@ const WalletConnect = ({
                             <span className="font-bold">10M BUDJU</span>.
                           </span>
                           <span
-                            className={`text-[10px] ${
+                            className={`text-[10px] block mb-2 ${
                               isDarkMode
                                 ? "text-amber-400/50"
                                 : "text-amber-600/50"
@@ -712,6 +712,17 @@ const WalletConnect = ({
                           >
                             Don't have enough? Use Swap to buy BUDJU first.
                           </span>
+                          <button
+                            onClick={() => goTo(ROUTES.BALANCE)}
+                            className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md transition-all duration-200 cursor-pointer ${
+                              isDarkMode
+                                ? "bg-cyan-500/10 text-cyan-400/80 hover:bg-cyan-500/20 hover:text-cyan-400 border border-cyan-500/15"
+                                : "bg-cyan-50 text-cyan-600/80 hover:bg-cyan-100 hover:text-cyan-700 border border-cyan-200/40"
+                            }`}
+                          >
+                            <FaCoins className="w-2.5 h-2.5" />
+                            Check BUDJU Balance
+                          </button>
                         </div>
                       </div>
                     </motion.div>
