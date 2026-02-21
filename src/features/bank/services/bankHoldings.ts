@@ -1,13 +1,18 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import {
+  HELIUS_API_KEY,
+  HELIUS_RPC,
+  BANK_ADDRESS,
+} from "@constants/addresses";
 
 // ── Config ──────────────────────────────────────────────
-const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
+// Use Helius RPC if key is available, otherwise use the /api/rpc proxy
+// (the proxy keeps the Helius key server-side and avoids 403 from the
+// public api.mainnet-beta.solana.com endpoint)
 const RPC_ENDPOINT = HELIUS_API_KEY
-  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-  : "https://api.mainnet-beta.solana.com";
-
-const BANK_ADDRESS = "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
+  ? HELIUS_RPC
+  : `${window.location.origin}/api/rpc`;
 
 const connection = new Connection(RPC_ENDPOINT, {
   commitment: "confirmed",
@@ -158,25 +163,23 @@ async function fetchTokenMetadata(
   const cached = getCached<(typeof KNOWN_TOKENS)[string]>(cacheKey);
   if (cached) return cached;
 
-  if (HELIUS_API_KEY) {
-    try {
-      const res = await retryFetch(
-        `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: "meta",
-            method: "getAsset",
-            params: { id: mintAddress },
-          }),
-        },
-      );
-      const data = await res.json();
-      const md = data.result?.content?.metadata || {};
+  // Try DAS API via Helius (direct) or the RPC proxy
+  try {
+    const res = await retryFetch(RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "meta",
+        method: "getAsset",
+        params: { id: mintAddress },
+      }),
+    });
+    const data = await res.json();
+    const md = data.result?.content?.metadata || {};
+    if (md.name) {
       const meta = {
-        name: md.name || "Unknown Token",
+        name: md.name,
         symbol: md.symbol || "???",
         logo:
           data.result?.content?.links?.image || "/images/tokens/default.png",
@@ -184,9 +187,9 @@ async function fetchTokenMetadata(
       };
       setCache(cacheKey, meta, 60 * 60 * 1000);
       return meta;
-    } catch {
-      // fall through to default
     }
+  } catch {
+    // fall through to default
   }
 
   return {
