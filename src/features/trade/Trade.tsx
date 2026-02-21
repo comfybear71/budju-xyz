@@ -17,7 +17,6 @@ import {
 } from "react-icons/fa";
 import { APP_NAME } from "@constants/config";
 import { useWallet } from "@hooks/useWallet";
-import WalletConnect from "@components/common/WalletConnect";
 import PortfolioChart from "./components/PortfolioChart";
 import HoldingsList from "./components/HoldingsList";
 import TradePanel from "./components/TradePanel";
@@ -30,15 +29,13 @@ import {
   fetchCashBalances,
   fetchAdminStats,
   fetchUserPosition,
-  fetchTraderState,
   clearCache,
   type PortfolioAsset,
   type AdminStats,
   type UserPosition,
-  type TraderState,
 } from "./services/tradeApi";
 
-// Admin wallets — matches FLUB config
+// Admin wallets
 const ADMIN_WALLETS = [
   "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc",
   "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po",
@@ -57,7 +54,6 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
-  const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<
     "connected" | "connecting" | "error"
@@ -83,22 +79,20 @@ const Trade = () => {
     try {
       setApiStatus("connecting");
 
-      // Public data: portfolio, prices, cash balances, pool stats from MongoDB
-      const [portfolioData, priceData, changeData, cashData, statsData] =
+      // Fetch portfolio from Swyftx + CoinGecko prices
+      const [portfolioData, priceData, changeData, cashData] =
         await Promise.all([
           fetchPortfolio(),
           fetchPrices(),
           fetchChanges(),
           fetchCashBalances(),
-          fetchAdminStats(),
         ]);
 
       setPrices(priceData);
       setUsdcBalance(cashData.usdc);
       setAudBalance(cashData.aud);
-      setPoolStats(statsData);
 
-      // Merge prices + changes into assets
+      // Merge CoinGecko USD prices into portfolio assets
       const merged = portfolioData.map((a) => ({
         ...a,
         priceUsd: priceData[a.code] || a.priceUsd,
@@ -111,19 +105,22 @@ const Trade = () => {
 
       setAssets(merged);
 
-      // Admin-specific: trader state from MongoDB
-      if (isAdmin) {
-        const state = await fetchTraderState(walletAddress);
-        setTraderState(state);
+      // Calculate pool value for MongoDB queries
+      const poolVal = merged.reduce((s, a) => s + a.usdValue, 0);
+
+      // Fetch admin stats from MongoDB (needs poolValue for NAV calc)
+      if (isAdmin && poolVal > 0) {
+        const stats = await fetchAdminStats(poolVal, walletAddress);
+        setPoolStats(stats);
       }
 
-      // Connected user: personal position
-      if (isConnected && !isAdmin) {
-        const pos = await fetchUserPosition(walletAddress);
+      // Fetch user position if connected
+      if (isConnected && !isAdmin && poolVal > 0) {
+        const pos = await fetchUserPosition(walletAddress, poolVal);
         setUserPosition(pos);
       }
 
-      setApiStatus("connected");
+      setApiStatus(merged.length > 0 ? "connected" : "connected");
     } catch (err) {
       console.error("Failed to load trade data:", err);
       setApiStatus("error");
@@ -190,12 +187,10 @@ const Trade = () => {
 
   return (
     <main className="min-h-screen">
-      {/* ─── App Container (mobile-first, centered) ─── */}
       <div className="max-w-2xl mx-auto min-h-screen flex flex-col px-4 pt-20 pb-4">
         {/* ─── Header ─────────────────────────────── */}
         <div className="flex items-center justify-between py-3">
           <div className="flex items-center gap-2.5">
-            {/* API Status Dot */}
             <div className="relative flex items-center">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -217,30 +212,23 @@ const Trade = () => {
                   ? "Connecting..."
                   : "Disconnected"}
             </span>
-            <span className="text-[10px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-mono font-bold">
-              v2.0
-            </span>
             {isAdmin && (
               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
                 ADMIN
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
-              title="Refresh"
-            >
-              <FaSync size={12} />
-            </button>
-            <WalletConnect size="sm" />
-          </div>
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-colors"
+            title="Refresh"
+          >
+            <FaSync size={12} />
+          </button>
         </div>
 
         {/* ─── Main Content ───────────────────────── */}
         <div className="flex-1 pb-20">
-          {/* Loading */}
           {loading && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mb-4" />
@@ -250,7 +238,6 @@ const Trade = () => {
             </div>
           )}
 
-          {/* Main Dashboard */}
           {!loading && (
             <div className="space-y-4">
               {/* ─── Portfolio Chart (public) ────── */}
@@ -266,16 +253,19 @@ const Trade = () => {
                   label={
                     holdingsView === "mine" && isConnected && !isAdmin
                       ? "My Portfolio"
-                      : "Pool Overview"
+                      : "Pool Total"
                   }
-                  subtitle={
-                    holdingsView === "mine" && isConnected && !isAdmin && userPosition
-                      ? `${userPosition.allocation.toFixed(1)}% of pool`
-                      : `${assets.length} assets`
-                  }
+                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets`}
                 />
 
-                {/* Mine/Pool toggle — only for connected non-admin users */}
+                {/* Connect wallet to join */}
+                {!isConnected && (
+                  <p className="text-center text-xs text-slate-500 mt-3">
+                    Connect wallet to join
+                  </p>
+                )}
+
+                {/* Mine/Pool toggle for connected users */}
                 {isConnected && !isAdmin && (
                   <div className="flex justify-center gap-2 mt-4">
                     <button
@@ -300,88 +290,6 @@ const Trade = () => {
                     </button>
                   </div>
                 )}
-              </div>
-
-              {/* ─── Pool Stats (public — visible to everyone) ── */}
-              <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <FaChartLine className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
-                    Pool Stats
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    {
-                      label: "Users",
-                      value: poolStats?.userCount ?? "—",
-                      icon: FaUsers,
-                      color: "text-blue-400",
-                    },
-                    {
-                      label: "Pool Value",
-                      value:
-                        poolStats?.poolValue
-                          ? formatUsd(poolStats.poolValue)
-                          : totalPoolValue > 0
-                            ? formatUsd(totalPoolValue)
-                            : "—",
-                      icon: FaWallet,
-                      color: "text-emerald-400",
-                    },
-                    {
-                      label: "NAV",
-                      value: poolStats?.nav
-                        ? poolStats.nav.toFixed(4)
-                        : "—",
-                      icon: FaChartLine,
-                      color: "text-cyan-400",
-                    },
-                    {
-                      label: "Deposited",
-                      value: poolStats?.totalDeposits
-                        ? formatUsd(poolStats.totalDeposits)
-                        : "—",
-                      icon: FaMoneyBillWave,
-                      color: "text-green-400",
-                    },
-                    {
-                      label: "Trades",
-                      value: poolStats?.tradeCount ?? "—",
-                      icon: FaExchangeAlt,
-                      color: "text-purple-400",
-                    },
-                    {
-                      label: "P&L",
-                      value: poolStats?.pnlPercent
-                        ? `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`
-                        : "—",
-                      icon: FaPercentage,
-                      color:
-                        (poolStats?.pnlPercent || 0) >= 0
-                          ? "text-green-400"
-                          : "text-red-400",
-                    },
-                  ].map((stat) => (
-                    <div
-                      key={stat.label}
-                      className="rounded-xl bg-slate-800/40 p-2.5 text-center"
-                    >
-                      <stat.icon
-                        className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`}
-                      />
-                      <div className="text-[10px] text-slate-500 mb-0.5">
-                        {stat.label}
-                      </div>
-                      <div
-                        className={`text-xs font-bold font-mono ${stat.color}`}
-                      >
-                        {stat.value}
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
 
               {/* ─── Admin Controls (admin-only) ── */}
@@ -414,6 +322,26 @@ const Trade = () => {
                     </div>
                   </div>
 
+                  {/* Admin Stats Grid */}
+                  {poolStats && (
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      {[
+                        { label: "Users", value: poolStats.userCount, icon: FaUsers, color: "text-blue-400" },
+                        { label: "Deposited", value: formatUsd(poolStats.totalUserDeposited), icon: FaMoneyBillWave, color: "text-green-400" },
+                        { label: "NAV", value: poolStats.nav.toFixed(4), icon: FaChartLine, color: "text-cyan-400" },
+                        { label: "Trades", value: poolStats.tradeCount, icon: FaExchangeAlt, color: "text-purple-400" },
+                        { label: "Pool Value", value: formatUsd(totalPoolValue), icon: FaWallet, color: "text-emerald-400" },
+                        { label: "P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: FaPercentage, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
+                      ].map((stat) => (
+                        <div key={stat.label} className="rounded-xl bg-slate-800/40 p-2.5 text-center">
+                          <stat.icon className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`} />
+                          <div className="text-[10px] text-slate-500 mb-0.5">{stat.label}</div>
+                          <div className={`text-xs font-bold font-mono ${stat.color}`}>{stat.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Quick trade buttons */}
                   <div className="flex gap-2">
                     {["Instant", "Trigger", "Auto"].map((mode) => (
@@ -434,7 +362,7 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── User Position (connected users only) ── */}
+              {/* ─── User Position (connected users) ── */}
               {isConnected && !isAdmin && userPosition && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -445,48 +373,23 @@ const Trade = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
-                        Value
-                      </div>
-                      <div className="text-base font-bold text-white font-mono">
-                        {formatUsd(userPosition.currentValue)}
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
+                      <div className="text-base font-bold text-white font-mono">{formatUsd(userPosition.currentValue)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">P&L</div>
+                      <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        {(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
+                        {formatUsd(Math.abs(userPosition.currentValue - userPosition.totalDeposited))}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
-                        P&L
-                      </div>
-                      <div
-                        className={`text-base font-bold font-mono flex items-center gap-1 ${
-                          userPosition.pnl >= 0
-                            ? "text-green-400"
-                            : "text-red-400"
-                        }`}
-                      >
-                        {userPosition.pnl >= 0 ? (
-                          <FaArrowUp size={10} />
-                        ) : (
-                          <FaArrowDown size={10} />
-                        )}
-                        {formatUsd(Math.abs(userPosition.pnl))} (
-                        {userPosition.pnlPercent.toFixed(1)}%)
-                      </div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
+                      <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
-                        Deposited
-                      </div>
-                      <div className="text-sm font-bold text-slate-300 font-mono">
-                        {formatUsd(userPosition.totalDeposited)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">
-                        Pool Share
-                      </div>
-                      <div className="text-sm font-bold text-slate-300 font-mono">
-                        {userPosition.allocation.toFixed(2)}%
-                      </div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
+                      <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
                     </div>
                   </div>
                 </div>
@@ -499,11 +402,7 @@ const Trade = () => {
                     initial={{ opacity: 0, x: "100%" }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: "100%" }}
-                    transition={{
-                      type: "tween",
-                      duration: 0.3,
-                      ease: [0.4, 0, 0.2, 1],
-                    }}
+                    transition={{ type: "tween", duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
                   >
                     <TradePanel
                       assets={assets}
@@ -540,67 +439,33 @@ const Trade = () => {
           <div className="max-w-2xl mx-auto">
             <div className="mx-3 mb-3 rounded-2xl border border-white/[0.06] bg-[#0f172a]/90 backdrop-blur-xl shadow-lg shadow-black/40">
               <div className="flex items-center justify-around py-2 px-4">
-                {/* Leaders */}
                 <button
                   onClick={() => handleNavClick("leaders")}
                   className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
-                    activeNav === "leaders"
-                      ? "text-yellow-400"
-                      : "text-slate-500 hover:text-slate-300"
+                    activeNav === "leaders" ? "text-yellow-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaTrophy
-                    size={16}
-                    className={
-                      activeNav === "leaders"
-                        ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]"
-                        : ""
-                    }
-                  />
+                  <FaTrophy size={16} className={activeNav === "leaders" ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" : ""} />
                   <span className="text-[10px] font-semibold">Leaders</span>
                 </button>
 
-                {/* Home (center, raised) */}
-                <button
-                  onClick={() => handleNavClick("home")}
-                  className="relative -mt-5"
-                >
-                  <div
-                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
-                      activeNav === "home"
-                        ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.4)]"
-                        : "bg-slate-800 border border-slate-700/50 hover:border-blue-500/30"
-                    }`}
-                  >
-                    <FaHome
-                      size={18}
-                      className={
-                        activeNav === "home" ? "text-white" : "text-slate-400"
-                      }
-                    />
+                <button onClick={() => handleNavClick("home")} className="relative -mt-5">
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                    activeNav === "home"
+                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+                      : "bg-slate-800 border border-slate-700/50 hover:border-blue-500/30"
+                  }`}>
+                    <FaHome size={18} className={activeNav === "home" ? "text-white" : "text-slate-400"} />
                   </div>
-                  {activeNav === "home" && (
-                    <span className="absolute -bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-400" />
-                  )}
                 </button>
 
-                {/* Activity */}
                 <button
                   onClick={() => handleNavClick("activity")}
                   className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
-                    activeNav === "activity"
-                      ? "text-blue-400"
-                      : "text-slate-500 hover:text-slate-300"
+                    activeNav === "activity" ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaHistory
-                    size={16}
-                    className={
-                      activeNav === "activity"
-                        ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]"
-                        : ""
-                    }
-                  />
+                  <FaHistory size={16} className={activeNav === "activity" ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]" : ""} />
                   <span className="text-[10px] font-semibold">Activity</span>
                 </button>
               </div>
@@ -609,21 +474,16 @@ const Trade = () => {
         </div>
       </div>
 
-      {/* ─── Full-page Overlays (public — no wallet needed) ── */}
+      {/* ─── Full-page Overlays ──────────────────── */}
       <Leaderboard
         isOpen={showLeaderboard}
-        onClose={() => {
-          setShowLeaderboard(false);
-          setActiveNav("home");
-        }}
+        onClose={() => { setShowLeaderboard(false); setActiveNav("home"); }}
+        poolValue={totalPoolValue}
       />
       <TransactionHistory
         isOpen={showTransactions}
-        onClose={() => {
-          setShowTransactions(false);
-          setActiveNav("home");
-        }}
-        walletAddress={undefined}
+        onClose={() => { setShowTransactions(false); setActiveNav("home"); }}
+        walletAddress={isConnected ? walletAddress : ADMIN_WALLETS[0]}
       />
     </main>
   );

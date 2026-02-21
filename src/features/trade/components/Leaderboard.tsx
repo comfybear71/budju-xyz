@@ -3,49 +3,51 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   FaTrophy,
   FaTimes,
-  FaChevronUp,
-  FaChevronDown,
 } from "react-icons/fa";
 import { fetchLeaderboard, type LeaderboardEntry } from "../services/tradeApi";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  poolValue: number;
 }
 
-const PODIUM_STYLES = [
-  {
-    bg: "from-yellow-500/20 via-amber-500/10 to-yellow-500/5",
-    border: "border-yellow-500/30",
-    glow: "shadow-[0_0_20px_rgba(234,179,8,0.15)]",
-    medal: "text-yellow-400",
-  },
-  {
-    bg: "from-gray-300/15 via-gray-400/8 to-gray-300/3",
-    border: "border-gray-400/25",
-    glow: "",
-    medal: "text-gray-300",
-  },
-  {
-    bg: "from-orange-500/15 via-orange-400/8 to-orange-500/3",
-    border: "border-orange-500/25",
-    glow: "",
-    medal: "text-orange-400",
-  },
-];
-
-const Leaderboard = ({ isOpen, onClose }: Props) => {
+const Leaderboard = ({ isOpen, onClose, poolValue }: Props) => {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || poolValue <= 0) return;
     setLoading(true);
-    fetchLeaderboard()
+    fetchLeaderboard(poolValue)
       .then(setEntries)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [isOpen]);
+  }, [isOpen, poolValue]);
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "";
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    } catch {
+      return "";
+    }
+  };
+
+  // Top 3 for podium
+  const podium = entries.slice(0, 3);
+  const rest = entries.slice(3);
+
+  // Podium order: [2nd, 1st, 3rd]
+  const podiumOrder = podium.length >= 3
+    ? [podium[1], podium[0], podium[2]]
+    : podium.length === 2
+      ? [podium[1], podium[0]]
+      : podium;
+
+  const medalEmojis = ["🥈", "🥇", "🥉"];
+  const podiumHeights = ["h-24", "h-32", "h-20"];
 
   return (
     <AnimatePresence>
@@ -75,86 +77,96 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-8 h-8 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin mb-3" />
-                <span className="text-sm text-slate-500">
-                  Loading rankings...
-                </span>
+                <span className="text-sm text-slate-500">Loading rankings...</span>
               </div>
             ) : entries.length === 0 ? (
               <div className="text-center py-20">
                 <FaTrophy className="mx-auto mb-3 text-slate-700" size={32} />
                 <p className="text-sm text-slate-500">No users yet</p>
-                <p className="text-xs text-slate-600 mt-1">
-                  Be the first to join the trading pool
-                </p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {entries.map((entry, i) => {
-                  const podium = i < 3 ? PODIUM_STYLES[i] : null;
-                  const isUp = entry.pnlPercent >= 0;
+              <>
+                {/* Podium */}
+                <div className="flex items-end justify-center gap-3 mb-6 pt-4">
+                  {podiumOrder.map((entry, i) => {
+                    const realIndex = podium.length >= 3 ? [1, 0, 2][i] : i;
+                    const isFirst = realIndex === 0;
 
-                  return (
+                    return (
+                      <motion.div
+                        key={entry.walletAddress}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.1 }}
+                        className={`flex-1 max-w-[140px] rounded-xl p-3 text-center border transition-all ${
+                          isFirst
+                            ? "bg-gradient-to-b from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]"
+                            : "bg-slate-800/40 border-slate-700/30"
+                        }`}
+                      >
+                        <div className="text-2xl mb-1">{medalEmojis[realIndex]}</div>
+                        <div className="text-xs font-mono text-slate-400 mb-1">
+                          {entry.walletShort}
+                        </div>
+                        <div className="text-base font-bold text-white font-mono">
+                          ${entry.currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">
+                          {entry.allocation.toFixed(1)}% of pool
+                        </div>
+                        {entry.joinedDate && (
+                          <div className="text-[10px] text-slate-600 mt-0.5">
+                            Joined {formatDate(entry.joinedDate)}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
+                </div>
+
+                {/* Summary */}
+                <div className="flex justify-between items-center px-2 mb-3">
+                  <span className="text-xs text-blue-400 font-semibold">
+                    {entries.length} Holders
+                  </span>
+                  <span className="text-xs text-slate-400">
+                    Combined: ${entries.reduce((s, e) => s + e.currentValue, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                </div>
+
+                {/* Rest of leaderboard */}
+                <div className="space-y-1.5">
+                  {rest.map((entry, i) => (
                     <motion.div
-                      key={entry.wallet}
-                      initial={{ opacity: 0, x: -20 }}
+                      key={entry.walletAddress}
+                      initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3, delay: i * 0.05 }}
-                      className={`flex items-center gap-3 p-3.5 rounded-xl border transition-all ${
-                        podium
-                          ? `bg-gradient-to-r ${podium.bg} ${podium.border} ${podium.glow}`
-                          : "bg-slate-800/30 border-slate-700/20"
-                      }`}
+                      transition={{ delay: 0.3 + i * 0.05 }}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20"
                     >
-                      {/* Rank */}
-                      <div className="w-8 text-center flex-shrink-0">
-                        {podium ? (
-                          <FaTrophy
-                            className={podium.medal}
-                            size={i === 0 ? 20 : 16}
-                          />
-                        ) : (
-                          <span className="text-sm font-bold text-slate-500">
-                            #{entry.rank}
-                          </span>
+                      <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold text-slate-400">{entry.rank}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-mono text-slate-400">{entry.walletShort}</div>
+                        {entry.joinedDate && (
+                          <div className="text-[10px] text-slate-600">
+                            Joined {formatDate(entry.joinedDate)}
+                          </div>
                         )}
                       </div>
-
-                      {/* User */}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-bold text-white truncate">
-                          {entry.displayName}
-                        </div>
-                        <div className="text-[10px] font-mono text-slate-600">
-                          {entry.wallet.slice(0, 6)}...{entry.wallet.slice(-4)}
-                        </div>
-                      </div>
-
-                      {/* Value & P&L */}
                       <div className="text-right flex-shrink-0">
                         <div className="text-sm font-bold text-white font-mono">
-                          $
-                          {entry.value.toLocaleString(undefined, {
-                            maximumFractionDigits: 0,
-                          })}
+                          ${entry.currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        <div
-                          className={`flex items-center justify-end gap-0.5 text-[11px] font-mono font-bold ${
-                            isUp ? "text-green-400" : "text-red-400"
-                          }`}
-                        >
-                          {isUp ? (
-                            <FaChevronUp size={7} />
-                          ) : (
-                            <FaChevronDown size={7} />
-                          )}
-                          {isUp ? "+" : ""}
-                          {entry.pnlPercent.toFixed(1)}%
+                        <div className="text-[10px] text-slate-500">
+                          {entry.allocation.toFixed(1)}%
                         </div>
                       </div>
                     </motion.div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         </motion.div>

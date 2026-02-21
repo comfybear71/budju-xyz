@@ -1,16 +1,10 @@
 // ============================================================
-// FLUB Trading API Service
-// Connects to the existing FLUB Vercel backend (MongoDB + Swyftx)
-//
-// Auth flow:
-// 1. POST /api/proxy { endpoint: "auth/refresh/" }
-//    → Server uses its SWYFTX_API_KEY → returns { accessToken }
-// 2. POST /api/proxy { endpoint: "accounts/balance/", authToken }
-//    → Server forwards with Bearer token → returns balances
-// 3. PIN (2971) only needed for placing trades via /orders/
+// Trading API Service
+// Connects to BUDJU's own Vercel backend:
+//   /api/proxy   → Swyftx exchange (portfolio, auth, orders)
+//   /api/*       → MongoDB (leaderboard, transactions, etc.)
+//   CoinGecko    → Real-time USD prices
 // ============================================================
-
-const API_BASE = "https://flub.vercel.app/api";
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -26,148 +20,85 @@ export interface PortfolioAsset {
   icon: string;
 }
 
-export interface PendingOrder {
-  id: string;
-  asset: string;
-  type: string;
-  triggerPrice: number;
-  amount: number;
-  quantity: number;
-  createdAt: string;
-  source: "local" | "swyftx";
-}
-
 export interface LeaderboardEntry {
   rank: number;
-  wallet: string;
-  displayName: string;
-  value: number;
-  pnlPercent: number;
-  deposits: number;
+  walletAddress: string;
+  walletShort: string;
+  currentValue: number;
+  allocation: number;
+  joinedDate: string | null;
+  lastDeposit: string | null;
+  totalDeposited: number;
 }
 
 export interface TradeTransaction {
-  id: string;
-  type: "deposit" | "withdrawal" | "buy" | "sell" | "external";
-  asset: string;
+  type: "deposit" | "withdrawal" | "buy" | "sell";
+  coin?: string;
   amount: number;
-  price: number;
-  total: number;
-  timestamp: string;
+  price?: number;
+  currency?: string;
   wallet?: string;
+  walletShort?: string;
+  timestamp: string | null;
+  txHash?: string;
+  swyftxId?: string;
 }
 
 export interface AdminStats {
   userCount: number;
-  totalDeposits: number;
+  totalUserDeposited: number;
   totalUserValue: number;
-  nav: number;
-  tradeCount: number;
-  pnlPercent: number;
   poolValue: number;
+  nav: number;
+  totalShares: number;
+  tradeCount: number;
+  depositCount: number;
+  pnlPercent: number;
 }
 
 export interface UserPosition {
   shares: number;
-  allocation: number;
+  nav: number;
   currentValue: number;
-  totalDeposited: number;
-  pnl: number;
-  pnlPercent: number;
-}
-
-export interface AutoTier {
-  id: number;
-  deviation: number;
   allocation: number;
-  coins: string[];
-  active: boolean;
+  totalDeposited: number;
 }
 
-export interface TraderState {
-  portfolio?: PortfolioAsset[];
-  pendingOrders: PendingOrder[];
-  autoTiers: AutoTier[];
-  autoCooldowns: Record<string, number>;
-  autoTradeLog: Array<{
-    coin: string;
-    side: string;
-    qty: number;
-    price: number;
-    timestamp: string;
-  }>;
-  poolValue?: number;
-  usdcBalance?: number;
-  audBalance?: number;
-  userCount?: number;
-  totalDeposits?: number;
-  nav?: number;
-  tradeCount?: number;
-  pnlPercent?: number;
-}
-
-// ── Asset config (matches FLUB CONFIG.ASSETS) ──────────────
+// ── Asset config ───────────────────────────────────────────
 
 export const ASSET_CONFIG: Record<
   string,
   { color: string; icon: string; name: string; coingeckoId: string }
 > = {
-  BTC: { color: "#f7931a", icon: "₿", name: "Bitcoin", coingeckoId: "bitcoin" },
-  ETH: { color: "#627eea", icon: "Ξ", name: "Ethereum", coingeckoId: "ethereum" },
-  SOL: { color: "#9945ff", icon: "◎", name: "Solana", coingeckoId: "solana" },
-  XRP: { color: "#23292f", icon: "✕", name: "Ripple", coingeckoId: "ripple" },
-  DOGE: { color: "#c3a634", icon: "Ð", name: "Dogecoin", coingeckoId: "dogecoin" },
-  ADA: { color: "#0033ad", icon: "₳", name: "Cardano", coingeckoId: "cardano" },
+  BTC: { color: "#f97316", icon: "₿", name: "Bitcoin", coingeckoId: "bitcoin" },
+  ETH: { color: "#6366f1", icon: "E", name: "Ethereum", coingeckoId: "ethereum" },
+  SOL: { color: "#a855f7", icon: "S", name: "Solana", coingeckoId: "solana" },
+  XRP: { color: "#06b6d4", icon: "X", name: "XRP", coingeckoId: "ripple" },
+  DOGE: { color: "#eab308", icon: "Ð", name: "Dogecoin", coingeckoId: "dogecoin" },
+  ADA: { color: "#3b82f6", icon: "A", name: "Cardano", coingeckoId: "cardano" },
+  SUI: { color: "#4ade80", icon: "S", name: "Sui", coingeckoId: "sui" },
+  XAUT: { color: "#f59e0b", icon: "Au", name: "Tether Gold", coingeckoId: "tether-gold" },
   AVAX: { color: "#e84142", icon: "A", name: "Avalanche", coingeckoId: "avalanche-2" },
   DOT: { color: "#e6007a", icon: "●", name: "Polkadot", coingeckoId: "polkadot" },
   LINK: { color: "#2a5ada", icon: "⬡", name: "Chainlink", coingeckoId: "chainlink" },
-  MATIC: { color: "#8247e5", icon: "M", name: "Polygon", coingeckoId: "matic-network" },
-  SUI: { color: "#4da2ff", icon: "S", name: "Sui", coingeckoId: "sui" },
+  POL: { color: "#8b5cf6", icon: "P", name: "Polygon", coingeckoId: "polygon-ecosystem-token" },
   HBAR: { color: "#00eab7", icon: "ℏ", name: "Hedera", coingeckoId: "hedera-hashgraph" },
   UNI: { color: "#ff007a", icon: "U", name: "Uniswap", coingeckoId: "uniswap" },
   NEAR: { color: "#00c08b", icon: "N", name: "NEAR", coingeckoId: "near" },
+  NEO: { color: "#22c55e", icon: "N", name: "NEO", coingeckoId: "neo" },
+  TRX: { color: "#ef4444", icon: "T", name: "TRON", coingeckoId: "tron" },
+  BCH: { color: "#8b5cf6", icon: "B", name: "Bitcoin Cash", coingeckoId: "bitcoin-cash" },
+  BNB: { color: "#eab308", icon: "B", name: "Binance Coin", coingeckoId: "binancecoin" },
+  ENA: { color: "#6b7280", icon: "E", name: "Ethena", coingeckoId: "ethena" },
+  NEXO: { color: "#1a56db", icon: "N", name: "Nexo", coingeckoId: "nexo" },
+  HYPE: { color: "#00e5a0", icon: "H", name: "Hyperliquid", coingeckoId: "hyperliquid" },
   RENDER: { color: "#ff4f00", icon: "R", name: "Render", coingeckoId: "render-token" },
   FET: { color: "#1b0930", icon: "F", name: "Fetch.ai", coingeckoId: "fetch-ai" },
   TAO: { color: "#000000", icon: "τ", name: "Bittensor", coingeckoId: "bittensor" },
   PEPE: { color: "#00b84d", icon: "🐸", name: "Pepe", coingeckoId: "pepe" },
+  USDC: { color: "#22c55e", icon: "$", name: "USD Coin", coingeckoId: "usd-coin" },
+  AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
-
-// ── Auth Token Management ──────────────────────────────────
-// The Swyftx auth token is obtained via the proxy's auth/refresh/ endpoint.
-// The server uses its stored SWYFTX_API_KEY — no PIN needed for reads.
-
-let _authToken: string | null = null;
-let _authTokenExpiry = 0;
-
-/** Get a valid Swyftx auth token, refreshing if needed */
-async function getAuthToken(): Promise<string> {
-  // Return cached token if still valid (tokens last ~30 min, refresh at 25)
-  if (_authToken && Date.now() < _authTokenExpiry) {
-    return _authToken;
-  }
-
-  const res = await fetchWithRetry(`${API_BASE}/proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: "auth/refresh/" }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(`Auth failed (${res.status}): ${errText}`);
-  }
-
-  const data = await res.json();
-  _authToken = data.accessToken || data.access_token || data.token || null;
-
-  if (!_authToken) {
-    throw new Error("No access token returned from auth/refresh/");
-  }
-
-  // Cache for 25 minutes
-  _authTokenExpiry = Date.now() + 25 * 60 * 1000;
-  return _authToken;
-}
 
 // ── PIN Management (for placing trades only) ───────────────
 
@@ -191,6 +122,30 @@ export function clearPin() {
 
 export function hasPin(): boolean {
   return !!getPin();
+}
+
+// ── JWT token management ───────────────────────────────────
+
+let _jwtToken: string | null = null;
+let _jwtExpiry = 0;
+const TOKEN_TTL_MS = 50 * 60 * 1000;
+
+async function ensureToken(): Promise<string> {
+  if (_jwtToken && Date.now() < _jwtExpiry) return _jwtToken;
+
+  const res = await fetchWithRetry("/api/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: "/auth/refresh/", method: "POST" }),
+  });
+
+  if (!res.ok) throw new Error(`Auth failed: HTTP ${res.status}`);
+  const data = await res.json();
+  if (!data.accessToken) throw new Error("No access token in response");
+
+  _jwtToken = data.accessToken;
+  _jwtExpiry = Date.now() + TOKEN_TTL_MS;
+  return _jwtToken;
 }
 
 // ── API helpers ────────────────────────────────────────────
@@ -219,7 +174,6 @@ async function fetchWithRetry(
   throw new Error("fetchWithRetry exhausted");
 }
 
-// Simple in-memory cache
 const cache: Record<string, { data: unknown; expiry: number }> = {};
 
 function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
@@ -231,72 +185,52 @@ function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T>
   });
 }
 
-/** POST to the FLUB proxy with auth token (reads — no PIN needed) */
-async function proxyPost(endpoint: string, extraBody?: Record<string, unknown>): Promise<any> {
-  const authToken = await getAuthToken();
-
-  const res = await fetchWithRetry(`${API_BASE}/proxy`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint, authToken, ...extraBody }),
-  });
-
-  if (res.status === 401) {
-    // Token may have expired — force refresh and retry once
-    _authToken = null;
-    _authTokenExpiry = 0;
-    const newToken = await getAuthToken();
-    const retry = await fetchWithRetry(`${API_BASE}/proxy`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint, authToken: newToken, ...extraBody }),
-    });
-    if (!retry.ok) throw new Error(`Proxy error: ${retry.status}`);
-    return retry.json();
-  }
-
-  if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
-  return res.json();
-}
+const AUD_TO_USD = 0.70;
 
 // ── Public API ─────────────────────────────────────────────
 
-/** Fetch portfolio from Swyftx via proxy (no PIN needed) */
+/** Fetch portfolio from Swyftx via /api/proxy */
 export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   return cached("portfolio", 30_000, async () => {
     try {
-      const data = await proxyPost("accounts/balance/");
-      const balances = Array.isArray(data) ? data : data?.balance || data?.data || [];
+      const res = await fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/portfolio/" }),
+      });
 
-      const assets: PortfolioAsset[] = balances
-        .filter((b: any) => {
-          const bal = Number(b.availableBalance || b.balance) || 0;
-          const code = b.code || b.assetCode || "";
-          return bal > 0 && code !== "AUD" && code !== "USDC";
+      if (!res.ok) throw new Error(`Portfolio: ${res.status}`);
+      const data = await res.json();
+      const rawAssets = data.assets || data || [];
+
+      return rawAssets
+        .filter((a: any) => {
+          const bal = Number(a.balance) || 0;
+          const code = a.code || "";
+          return bal > 0 && code !== "USD";
         })
-        .map((b: any) => {
-          const code = b.code || b.assetCode || "";
-          const balance = Number(b.availableBalance || b.balance) || 0;
+        .map((a: any) => {
+          const code = a.code || "";
+          const balance = Number(a.balance) || 0;
+          const audValue = Number(a.aud_value) || 0;
           const cfg = ASSET_CONFIG[code] || {
             color: "#64748b",
             icon: code.charAt(0),
-            name: b.name || code,
+            name: a.name || code,
             coingeckoId: "",
           };
           return {
             code,
             name: cfg.name,
             balance,
-            audValue: Number(b.audValue) || 0,
-            usdValue: Number(b.usdValue) || 0,
-            change24h: Number(b.change24h) || 0,
-            priceUsd: 0,
+            audValue,
+            usdValue: audValue * AUD_TO_USD,
+            change24h: Number(a.change_24h) || 0,
+            priceUsd: balance > 0 ? (audValue * AUD_TO_USD) / balance : 0,
             color: cfg.color,
             icon: cfg.icon,
           };
         });
-
-      return assets;
     } catch (err) {
       console.error("fetchPortfolio error:", err);
       return [];
@@ -304,31 +238,7 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   });
 }
 
-/** Fetch USDC and AUD balances from Swyftx */
-export async function fetchCashBalances(): Promise<{
-  usdc: number;
-  aud: number;
-}> {
-  return cached("cash", 30_000, async () => {
-    try {
-      const data = await proxyPost("accounts/balance/");
-      const balances = Array.isArray(data) ? data : data?.balance || data?.data || [];
-      let usdc = 0;
-      let aud = 0;
-      for (const b of balances) {
-        const code = b.code || b.assetCode || "";
-        const bal = Number(b.availableBalance || b.balance) || 0;
-        if (code === "USDC") usdc = bal;
-        if (code === "AUD") aud = bal;
-      }
-      return { usdc, aud };
-    } catch {
-      return { usdc: 0, aud: 0 };
-    }
-  });
-}
-
-/** Fetch live prices from CoinGecko */
+/** Fetch live USD prices from CoinGecko */
 export async function fetchPrices(): Promise<Record<string, number>> {
   return cached("prices", 30_000, async () => {
     const ids = Object.values(ASSET_CONFIG)
@@ -370,60 +280,39 @@ export async function fetchChanges(): Promise<Record<string, number>> {
   });
 }
 
-/** Fetch trader state from MongoDB (admin) */
-export async function fetchTraderState(
-  wallet: string,
-): Promise<TraderState | null> {
-  return cached("state", 15_000, async () => {
+/** Get USDC and AUD balances from portfolio */
+export async function fetchCashBalances(): Promise<{ usdc: number; aud: number }> {
+  return cached("cash", 30_000, async () => {
     try {
-      const res = await fetchWithRetry(
-        `${API_BASE}/state?wallet=${wallet}`,
-      );
-      if (!res.ok) return null;
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) return null;
+      const res = await fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/portfolio/" }),
+      });
+      if (!res.ok) return { usdc: 0, aud: 0 };
       const data = await res.json();
-      return {
-        pendingOrders: data.pendingOrders || [],
-        autoTiers: data.autoTiers || [],
-        autoCooldowns: data.autoCooldowns || {},
-        autoTradeLog: data.autoTradeLog || [],
-        poolValue: data.poolValue,
-        usdcBalance: data.usdcBalance,
-        audBalance: data.audBalance,
-        userCount: data.userCount,
-        totalDeposits: data.totalDeposits,
-        nav: data.nav,
-        tradeCount: data.tradeCount,
-        pnlPercent: data.pnlPercent,
-      };
+      const assets = data.assets || [];
+      let usdc = 0;
+      let aud = 0;
+      for (const a of assets) {
+        if (a.code === "USDC") usdc = Number(a.aud_value) * AUD_TO_USD || 0;
+        if (a.code === "AUD") aud = Number(a.aud_value) || 0;
+      }
+      return { usdc, aud };
     } catch {
-      return null;
+      return { usdc: 0, aud: 0 };
     }
   });
 }
 
 /** Fetch leaderboard from MongoDB */
-export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
-  return cached("leaderboard", 60_000, async () => {
+export async function fetchLeaderboard(poolValue: number): Promise<LeaderboardEntry[]> {
+  return cached("leaderboard", 30_000, async () => {
     try {
-      const res = await fetchWithRetry(
-        `${API_BASE}/database?action=get_leaderboard`,
-      );
+      const res = await fetchWithRetry(`/api/leaderboard?poolValue=${poolValue}`);
       if (!res.ok) return [];
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) return [];
       const data = await res.json();
-      return (data.leaderboard || data || []).map(
-        (entry: any, i: number) => ({
-          rank: i + 1,
-          wallet: entry.wallet || "",
-          displayName: entry.displayName || `User ${i + 1}`,
-          value: Number(entry.currentValue) || 0,
-          pnlPercent: Number(entry.pnlPercent) || 0,
-          deposits: Number(entry.totalDeposited) || 0,
-        }),
-      );
+      return data.leaderboard || [];
     } catch {
       return [];
     }
@@ -432,28 +321,14 @@ export async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
 
 /** Fetch transactions from MongoDB */
 export async function fetchTransactions(
-  wallet?: string,
+  wallet: string,
 ): Promise<TradeTransaction[]> {
-  const url = wallet
-    ? `${API_BASE}/database?action=get_all_transactions&wallet=${wallet}`
-    : `${API_BASE}/database?action=get_all_transactions`;
-  return cached(`txns_${wallet || "all"}`, 30_000, async () => {
+  return cached(`txns_${wallet}`, 30_000, async () => {
     try {
-      const res = await fetchWithRetry(url);
+      const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
       if (!res.ok) return [];
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) return [];
       const data = await res.json();
-      return (data.transactions || data || []).map((t: any) => ({
-        id: t._id || t.id || "",
-        type: t.type || "external",
-        asset: t.asset || t.coin || "",
-        amount: Number(t.amount) || 0,
-        price: Number(t.price) || 0,
-        total: Number(t.total) || Number(t.amount) * Number(t.price) || 0,
-        timestamp: t.timestamp || t.createdAt || "",
-        wallet: t.wallet,
-      }));
+      return data.transactions || [];
     } catch {
       return [];
     }
@@ -461,25 +336,17 @@ export async function fetchTransactions(
 }
 
 /** Fetch admin stats from MongoDB */
-export async function fetchAdminStats(): Promise<AdminStats | null> {
-  return cached("admin_stats", 60_000, async () => {
+export async function fetchAdminStats(
+  poolValue: number,
+  adminWallet: string,
+): Promise<AdminStats | null> {
+  return cached("admin_stats", 30_000, async () => {
     try {
       const res = await fetchWithRetry(
-        `${API_BASE}/database?action=get_admin_stats`,
+        `/api/admin/stats?wallet=${adminWallet}&poolValue=${poolValue}`,
       );
       if (!res.ok) return null;
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) return null;
-      const data = await res.json();
-      return {
-        userCount: data.userCount || 0,
-        totalDeposits: data.totalDeposits || 0,
-        totalUserValue: data.totalUserValue || 0,
-        nav: data.nav || 1,
-        tradeCount: data.tradeCount || 0,
-        pnlPercent: data.pnlPercent || 0,
-        poolValue: data.poolValue || 0,
-      };
+      return await res.json();
     } catch {
       return null;
     }
@@ -489,31 +356,37 @@ export async function fetchAdminStats(): Promise<AdminStats | null> {
 /** Fetch user position from MongoDB */
 export async function fetchUserPosition(
   wallet: string,
+  poolValue: number,
 ): Promise<UserPosition | null> {
   return cached(`position_${wallet}`, 30_000, async () => {
     try {
       const res = await fetchWithRetry(
-        `${API_BASE}/database?action=get_user_position&wallet=${wallet}`,
+        `/api/user/position?wallet=${wallet}&poolValue=${poolValue}`,
       );
       if (!res.ok) return null;
-      const ct = res.headers.get("content-type") || "";
-      if (!ct.includes("json")) return null;
-      const data = await res.json();
-      return {
-        shares: Number(data.shares) || 0,
-        allocation: Number(data.allocation) || 0,
-        currentValue: Number(data.currentValue) || 0,
-        totalDeposited: Number(data.totalDeposited) || 0,
-        pnl: Number(data.pnl) || 0,
-        pnlPercent: Number(data.pnlPercent) || 0,
-      };
+      return await res.json();
     } catch {
       return null;
     }
   });
 }
 
-/** Place a trade via the Swyftx proxy (PIN required in body) */
+/** Register wallet with backend */
+export async function registerWallet(walletAddress: string): Promise<any> {
+  try {
+    const res = await fetchWithRetry("/api/user/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress }),
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Place a trade via Swyftx proxy (PIN required) */
 export async function placeTrade(order: {
   assetCode: string;
   side: "buy" | "sell";
@@ -525,8 +398,20 @@ export async function placeTrade(order: {
   if (!pin) return { success: false, error: "PIN required for trading" };
 
   try {
-    const data = await proxyPost("orders/", { pin, ...order });
-    return { success: !!data };
+    const token = await ensureToken();
+    const res = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: "/orders/",
+        method: "POST",
+        body: order,
+        authToken: token,
+        pin,
+      }),
+    });
+    const data = await res.json();
+    return { success: res.ok, error: res.ok ? undefined : data.error };
   } catch (err: any) {
     return { success: false, error: err.message || "Trade failed" };
   }
