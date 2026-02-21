@@ -7,13 +7,15 @@ import { useTheme } from "@/context/ThemeContext";
 
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+const RPC_ENDPOINT = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : "https://api.mainnet-beta.solana.com";
 
 // Bank of Budju address
 const BANK_OF_BUDJU_ADDRESS = "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
 
 // Create Solana connection
-const connection = new Connection(HELIUS_RPC_ENDPOINT, {
+const connection = new Connection(RPC_ENDPOINT, {
   commitment: "confirmed",
   confirmTransactionInitialTimeout: 60000,
 });
@@ -102,49 +104,93 @@ async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   }
 }
 
-// Fetch token metadata dynamically using Helius (for SPL tokens)
+// Well-known token metadata (fallback when Helius DAS API unavailable)
+const KNOWN_TOKENS: Record<string, { name: string; symbol: string; logo: string; color: string }> = {
+  "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump": {
+    name: "BUDJU",
+    symbol: "BUDJU",
+    logo: "/images/tokens/budju.png",
+    color: "bg-pink-500",
+  },
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
+    name: "USD Coin",
+    symbol: "USDC",
+    logo: "/images/tokens/usdc.png",
+    color: "bg-blue-500",
+  },
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": {
+    name: "Tether USD",
+    symbol: "USDT",
+    logo: "/images/tokens/usdt.png",
+    color: "bg-green-500",
+  },
+  "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": {
+    name: "Raydium",
+    symbol: "RAY",
+    logo: "/images/tokens/ray.png",
+    color: "bg-purple-500",
+  },
+  "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh": {
+    name: "Wrapped BTC (Portal)",
+    symbol: "wBTC",
+    logo: "/images/tokens/btc.png",
+    color: "bg-orange-500",
+  },
+};
+
+// Fetch token metadata — uses known tokens first, then Helius DAS API
 async function fetchTokenMetadata(tokenAddress: string): Promise<{
   name: string;
   symbol: string;
   logo: string;
   color: string;
 }> {
+  // Check known tokens first
+  if (KNOWN_TOKENS[tokenAddress]) {
+    return KNOWN_TOKENS[tokenAddress];
+  }
+
   const cacheKey = `metadata_${tokenAddress}`;
   const cachedMetadata = getCachedData(cacheKey);
   if (cachedMetadata !== null) {
     return cachedMetadata;
   }
 
-  try {
-    const response = await retryFetch(HELIUS_RPC_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: "token-metadata",
-        method: "getAsset",
-        params: { id: tokenAddress },
-      }),
-    });
-    const data = await response.json();
-    const tokenData = data.result?.content?.metadata || {};
-    const metadata = {
-      name: tokenData.name || "Unknown Token",
-      symbol: tokenData.symbol || "UNKNOWN",
-      logo: data.result?.content?.links?.image || "/images/tokens/default.png",
-      color: "bg-gray-500", // Default; can be customized
-    };
-    setCachedData(cacheKey, metadata, 60 * 60 * 1000); // Cache for 1 hour
-    return metadata;
-  } catch (error) {
-    console.error(`Error fetching metadata for token ${tokenAddress}:`, error);
-    return {
-      name: "Unknown Token",
-      symbol: "UNKNOWN",
-      logo: "/images/tokens/default.png",
-      color: "bg-gray-500",
-    };
+  // Only attempt Helius DAS API if we have an API key
+  if (HELIUS_API_KEY) {
+    try {
+      const heliusEndpoint = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+      const response = await retryFetch(heliusEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "token-metadata",
+          method: "getAsset",
+          params: { id: tokenAddress },
+        }),
+      });
+      const data = await response.json();
+      const tokenData = data.result?.content?.metadata || {};
+      const metadata = {
+        name: tokenData.name || "Unknown Token",
+        symbol: tokenData.symbol || "UNKNOWN",
+        logo: data.result?.content?.links?.image || "/images/tokens/default.png",
+        color: "bg-gray-500",
+      };
+      setCachedData(cacheKey, metadata, 60 * 60 * 1000);
+      return metadata;
+    } catch (error) {
+      console.error(`Error fetching metadata for token ${tokenAddress}:`, error);
+    }
   }
+
+  return {
+    name: "Unknown Token",
+    symbol: "UNKNOWN",
+    logo: "/images/tokens/default.png",
+    color: "bg-gray-500",
+  };
 }
 
 // Static metadata for SOL
@@ -336,11 +382,12 @@ const BankTokens = () => {
             Total Bank Assets
           </div>
           <div className="text-4xl font-bold text-white">
-            $
-            {totalBankValue.toLocaleString(undefined, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}
+            {loading
+              ? "Loading..."
+              : `$${totalBankValue.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}`}
           </div>
         </motion.div>
 
