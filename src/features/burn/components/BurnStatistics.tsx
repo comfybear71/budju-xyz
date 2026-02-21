@@ -1,16 +1,16 @@
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
-import { gsap } from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { motion, useInView } from "framer-motion";
 import { BURN_ADDRESS, BURN_ADDRESS_ACCOUNT } from "@constants/addresses";
 import { TOKEN_INFO } from "@constants/config";
 import CopyToClipboard from "@components/common/CopyToClipboard";
-import { animateCounter } from "@/lib/utils/animation";
-import { fetchBurnEvents } from "@lib/utils/tokenService";
+import {
+  fetchBurnEvents,
+  fetchHeliusTokenMetrics,
+  TOKEN_ADDRESS,
+  BURN_ADDRESS as SERVICE_BURN_ADDRESS,
+} from "@lib/utils/tokenService";
 import { useTheme } from "@/context/ThemeContext";
-import { FaExternalLinkAlt } from "react-icons/fa";
-
-gsap.registerPlugin(ScrollTrigger);
+import { FaExternalLinkAlt, FaFire, FaChartBar, FaDollarSign } from "react-icons/fa";
 
 interface BurnEvent {
   date: string;
@@ -19,17 +19,70 @@ interface BurnEvent {
   value: number;
 }
 
+// Animated counter that spins up when scrolled into view
+const AnimatedCounter = ({
+  value,
+  prefix = "",
+  suffix = "",
+  decimals = 0,
+  className,
+}: {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+  className?: string;
+}) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const isInView = useInView(ref, { once: true });
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    if (!isInView || value === 0) {
+      setDisplayValue(value);
+      return;
+    }
+
+    const duration = 1500;
+    const startTime = performance.now();
+    let animationFrame: number;
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(eased * value);
+
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(animate);
+      } else {
+        setDisplayValue(value);
+      }
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isInView, value]);
+
+  const formatted = decimals > 0
+    ? displayValue.toFixed(decimals)
+    : Math.floor(displayValue).toLocaleString();
+
+  return (
+    <span ref={ref} className={className}>
+      {prefix}{formatted}{suffix}
+    </span>
+  );
+};
+
 const BurnStatistics = () => {
   const { isDarkMode } = useTheme();
-  const sectionRef = useRef<HTMLDivElement>(null);
-  const statsRef = useRef<HTMLDivElement>(null);
-  const burnedCountRef = useRef<HTMLSpanElement>(null);
-  const percentageRef = useRef<HTMLSpanElement>(null);
-  const valueRef = useRef<HTMLSpanElement>(null);
-
   const SOLSCAN_BURN_LINK = `https://solscan.io/account/${BURN_ADDRESS_ACCOUNT}`;
 
   const [burnEvents, setBurnEvents] = useState<BurnEvent[]>([]);
+  const [totalBurned, setTotalBurned] = useState(0);
+  const [percentageBurned, setPercentageBurned] = useState(0);
+  const [totalValue, setTotalValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,25 +91,25 @@ const BurnStatistics = () => {
       setLoading(true);
       setError(null);
 
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Request timed out")), 15000);
-      });
+      // Fetch metrics to get the real burned amount from supply reduction
+      const [metrics, events] = await Promise.all([
+        fetchHeliusTokenMetrics(TOKEN_ADDRESS, SERVICE_BURN_ADDRESS),
+        fetchBurnEvents().catch(() => [] as BurnEvent[]),
+      ]);
 
-      const eventsPromise = fetchBurnEvents();
-      const events = (await Promise.race([
-        eventsPromise,
-        timeoutPromise,
-      ])) as BurnEvent[];
+      const burned = metrics.burned;
+      const price = metrics.price;
+      const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
+        ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100
+        : 0;
 
-      if (!events || events.length === 0) {
-        console.log("No burn events found.");
-        setBurnEvents([]);
-      } else {
-        setBurnEvents(events as BurnEvent[]);
-      }
+      setTotalBurned(burned);
+      setPercentageBurned(percentage);
+      setTotalValue(burned * price);
+      setBurnEvents(events);
     } catch (err) {
       console.error("Error fetching burn data:", err);
-      setError("Failed to fetch burn data. Please try again later.");
+      setError("Unable to load burn data. Please try again later.");
       setBurnEvents([]);
     } finally {
       setLoading(false);
@@ -64,395 +117,336 @@ const BurnStatistics = () => {
   };
 
   useEffect(() => {
-    console.log("Running fetchBurnData useEffect");
     fetchBurnData();
-    const interval = setInterval(() => {
-      console.log("Polling fetchBurnData");
-      fetchBurnData();
-    }, 300000);
-    return () => {
-      console.log("Cleaning up interval");
-      clearInterval(interval);
-    };
+    const interval = setInterval(fetchBurnData, 300000);
+    return () => clearInterval(interval);
   }, []);
 
-  const totalBurned = burnEvents.reduce((sum, event) => sum + event.amount, 0);
-  const totalValue = burnEvents.reduce((sum, event) => sum + event.value, 0);
-  const percentageBurned =
-    TOKEN_INFO.TOTAL_SUPPLY > 0
-      ? (totalBurned / TOKEN_INFO.TOTAL_SUPPLY) * 100
-      : 0;
-
-  useEffect(() => {
-    if (
-      !loading &&
-      !error &&
-      statsRef.current &&
-      burnedCountRef.current &&
-      percentageRef.current &&
-      valueRef.current
-    ) {
-      const tl = gsap.timeline({
-        scrollTrigger: {
-          trigger: statsRef.current,
-          start: "top 80%",
-        },
-      });
-
-      tl.add(() => {
-        animateCounter(burnedCountRef.current!, totalBurned, {
-          suffix: " BUDJU",
-        });
-        animateCounter(percentageRef.current!, percentageBurned, {
-          suffix: "%",
-          decimals: 2,
-        });
-        animateCounter(valueRef.current!, totalValue, {
-          prefix: "$",
-          decimals: 2,
-        });
-      });
-
-      const flames = document.querySelectorAll(".burn-flame");
-      flames.forEach((flame) => {
-        gsap.to(flame, {
-          scale: 1.2,
-          opacity: 0.8,
-          duration: 0.8,
-          repeat: -1,
-          yoyo: true,
-          ease: "sine.inOut",
-        });
-      });
-    }
-  }, [loading, error, totalBurned, percentageBurned, totalValue]);
+  const statCards = [
+    {
+      label: "Total Burned",
+      icon: FaFire,
+      iconColor: "text-red-400",
+      bgColor: isDarkMode ? "bg-red-500/10" : "bg-red-50",
+      value: totalBurned,
+      suffix: " BUDJU",
+      decimals: 0,
+    },
+    {
+      label: "Percentage of Supply",
+      icon: FaChartBar,
+      iconColor: isDarkMode ? "text-cyan-400" : "text-cyan-600",
+      bgColor: isDarkMode ? "bg-cyan-500/10" : "bg-cyan-50",
+      value: percentageBurned,
+      suffix: "%",
+      decimals: 6,
+    },
+    {
+      label: "Total Value Burned",
+      icon: FaDollarSign,
+      iconColor: "text-emerald-400",
+      bgColor: isDarkMode ? "bg-emerald-500/10" : "bg-emerald-50",
+      value: totalValue,
+      prefix: "$",
+      decimals: 2,
+    },
+  ];
 
   return (
-    <section
-      ref={sectionRef}
-      className={`py-20 ${isDarkMode ? "bg-gradient-to-b" : "bg-gradient-to-b"}`}
-    >
-      {/* Add CSS for pulsing animation */}
-      <style>
-        {`
-          .loading-pulse {
-            animation: pulse 1.5s infinite ease-in-out;
-          }
-          @keyframes pulse {
-            0% {
-              transform: scale(1);
-              opacity: 0.8;
-            }
-            50% {
-              transform: scale(1.1);
-              opacity: 1;
-            }
-            100% {
-              transform: scale(1);
-              opacity: 0.8;
-            }
-          }
-        `}
-      </style>
-
-      <div className="budju-container">
+    <section className="py-8 md:py-16">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              BURN
-            </span>{" "}
-            <span className="text-budju-pink">STATISTICS</span>
+          <h2
+            className={`text-2xl md:text-3xl font-display font-bold mb-2 ${
+              isDarkMode ? "text-white" : "text-gray-900"
+            }`}
+          >
+            Burn{" "}
+            <span className="bg-gradient-to-r from-red-400 to-orange-500 bg-clip-text text-transparent">
+              Statistics
+            </span>
           </h2>
           <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+            className={`text-sm ${
+              isDarkMode ? "text-gray-500" : "text-gray-500"
+            }`}
           >
-            BUDJU implements a deflationary tokenomics model through strategic
-            token burns
+            BUDJU implements a deflationary model through strategic token burns
           </p>
         </motion.div>
 
-        {loading ? (
-          <div
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mb-6`}
-          >
-            Loading burn data...
-          </div>
-        ) : error ? (
-          <div className="text-center text-red-400 mb-6">{error}</div>
-        ) : null}
-
-        <div
-          ref={statsRef}
-          className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto mb-12"
-        >
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
-            className={
-              isDarkMode
-                ? "budju-card p-6 text-center"
-                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
-            }
-          >
-            <div className="relative w-16 h-16 mx-auto mb-4">
-              <div
-                className={`absolute inset-0 bg-red-500/30 rounded-full blur-md burn-flame ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              ></div>
-              <div
-                className={`relative bg-red-500/20 w-16 h-16 rounded-full flex items-center justify-center ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              >
-                <span className="text-3xl">🔥</span>
-              </div>
-            </div>
-            <h3
-              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
-            >
-              Total Burned
-            </h3>
-            <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
-            >
-              <span ref={burnedCountRef}>
-                {loading
-                  ? "Loading..."
-                  : totalBurned.toLocaleString() + " BUDJU"}
-              </span>
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-            className={
-              isDarkMode
-                ? "budju-card p-6 text-center"
-                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
-            }
-          >
-            <div className="relative w-16 h-16 mx-auto mb-4">
-              <div
-                className={`absolute inset-0 bg-budju-blue/30 rounded-full blur-md ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              ></div>
-              <div
-                className={`relative bg-budju-blue/20 w-16 h-16 rounded-full flex items-center justify-center ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              >
-                <span className="text-3xl">📊</span>
-              </div>
-            </div>
-            <h3
-              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
-            >
-              Percentage of Supply
-            </h3>
-            <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
-            >
-              <span ref={percentageRef}>
-                {loading ? "Loading..." : `${percentageBurned.toFixed(2)}%`}
-              </span>
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 }}
-            className={
-              isDarkMode
-                ? "budju-card p-6 text-center"
-                : "bg-white/20 border border-white/30 rounded-xl shadow-lg p-6 text-center"
-            }
-          >
-            <div className="relative w-16 h-16 mx-auto mb-4">
-              <div
-                className={`absolute inset-0 bg-green-500/30 rounded-full blur-md ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              ></div>
-              <div
-                className={`relative bg-green-500/20 w-16 h-16 rounded-full flex items-center justify-center ${
-                  loading ? "loading-pulse" : ""
-                }`}
-              >
-                <span className="text-3xl">💰</span>
-              </div>
-            </div>
-            <h3
-              className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} mb-2`}
-            >
-              Total Value Burned
-            </h3>
-            <p
-              className={`text-2xl font-bold ${isDarkMode ? "text-white" : "text-white"}`}
-            >
-              <span ref={valueRef}>
-                {loading ? "Loading..." : `$${totalValue.toFixed(2)}`}
-              </span>
-            </p>
-          </motion.div>
-        </div>
-
-        {(!loading || error) && (
-          <>
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto mb-8">
+          {statCards.map((card, index) => (
             <motion.div
+              key={card.label}
               initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              className={`max-w-4xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border p-6 mb-12`}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.4, delay: index * 0.1 }}
+              className={`rounded-xl border p-5 text-center ${
+                isDarkMode
+                  ? "bg-[#0c0c20]/60 border-white/[0.06]"
+                  : "bg-white/60 border-gray-200/40"
+              } backdrop-blur-sm`}
             >
-              <h3 className="text-xl font-semibold mb-4 text-center">
-                <span className="text-budju-pink">BURNED TOKEN</span>{" "}
-                <span
-                  className={isDarkMode ? "text-white" : "text-budju-white"}
-                >
-                  ADDRESS
-                </span>
-              </h3>
               <div
-                className={`flex items-center ${isDarkMode ? "bg-gray-800/80" : "bg-white/30"} p-3 rounded-lg`}
+                className={`w-10 h-10 rounded-lg ${card.bgColor} flex items-center justify-center mx-auto mb-3`}
               >
-                <code
-                  className={`text-sm ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
-                >
-                  {BURN_ADDRESS}
-                </code>
-                <CopyToClipboard text={BURN_ADDRESS} />
-                <a
-                  href={SOLSCAN_BURN_LINK}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-pink hover:bg-gray-600" : "text-budju-pink-dark hover:bg-gray-700"}`}
-                  aria-label="View on Solscan"
-                >
-                  <FaExternalLinkAlt size={16} />
-                </a>
+                <card.icon className={`w-4 h-4 ${card.iconColor}`} />
               </div>
               <p
-                className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
+                className={`text-xs mb-1 ${
+                  isDarkMode ? "text-gray-500" : "text-gray-400"
+                }`}
               >
-                This is the official burn address for BUDJU tokens. Tokens sent
-                to this address are removed from circulation permanently.
+                {card.label}
               </p>
+              {loading ? (
+                <p
+                  className={`text-lg font-bold font-mono ${
+                    isDarkMode ? "text-gray-600" : "text-gray-300"
+                  }`}
+                >
+                  ...
+                </p>
+              ) : (
+                <AnimatedCounter
+                  value={card.value}
+                  prefix={card.prefix}
+                  suffix={card.suffix}
+                  decimals={card.decimals}
+                  className={`text-lg font-bold font-mono ${
+                    isDarkMode ? "text-white" : "text-gray-900"
+                  }`}
+                />
+              )}
             </motion.div>
+          ))}
+        </div>
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.5 }}
-              className="max-w-4xl mx-auto"
+        {/* Burn Address Card */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5 }}
+          className={`max-w-2xl mx-auto rounded-xl border p-5 md:p-6 mb-8 ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm`}
+        >
+          <h3
+            className={`text-sm font-semibold mb-4 flex items-center gap-2 ${
+              isDarkMode ? "text-gray-300" : "text-gray-700"
+            }`}
+          >
+            <FaFire
+              className={`w-3 h-3 ${
+                isDarkMode ? "text-red-400/60" : "text-red-500/60"
+              }`}
+            />
+            Burn Address
+          </h3>
+          <div
+            className={`flex items-center gap-2 p-3 rounded-lg ${
+              isDarkMode ? "bg-white/[0.03]" : "bg-gray-50"
+            }`}
+          >
+            <code
+              className={`text-xs font-mono truncate flex-1 ${
+                isDarkMode ? "text-gray-400" : "text-gray-600"
+              }`}
             >
-              <h3 className="text-xl font-semibold mb-6 text-center">
-                <span
-                  className={isDarkMode ? "text-white" : "text-budju-white"}
-                >
-                  Burn
-                </span>{" "}
-                <span className="text-budju-pink">History</span>
-              </h3>
+              {BURN_ADDRESS}
+            </code>
+            <CopyToClipboard text={BURN_ADDRESS} />
+            <a
+              href={SOLSCAN_BURN_LINK}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`p-1.5 rounded-md transition-colors ${
+                isDarkMode
+                  ? "text-gray-500 hover:text-gray-300 hover:bg-white/[0.05]"
+                  : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+              }`}
+              aria-label="View on Solscan"
+            >
+              <FaExternalLinkAlt size={12} />
+            </a>
+          </div>
+          <p
+            className={`text-[10px] mt-2 ${
+              isDarkMode ? "text-gray-600" : "text-gray-400"
+            }`}
+          >
+            Tokens sent to this address are removed from circulation permanently
+          </p>
+        </motion.div>
+
+        {/* Burn History */}
+        {!loading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+            className={`max-w-2xl mx-auto rounded-xl border p-5 md:p-6 ${
+              isDarkMode
+                ? "bg-[#0c0c20]/60 border-white/[0.06]"
+                : "bg-white/60 border-gray-200/40"
+            } backdrop-blur-sm`}
+          >
+            <h3
+              className={`text-sm font-semibold mb-4 flex items-center gap-2 ${
+                isDarkMode ? "text-gray-300" : "text-gray-700"
+              }`}
+            >
+              <FaChartBar
+                className={`w-3 h-3 ${
+                  isDarkMode ? "text-red-400/60" : "text-red-500/60"
+                }`}
+              />
+              Burn History
+            </h3>
+
+            {error ? (
+              <p
+                className={`text-center text-sm py-4 ${
+                  isDarkMode ? "text-gray-500" : "text-gray-400"
+                }`}
+              >
+                {error}
+              </p>
+            ) : burnEvents.length === 0 ? (
+              <p
+                className={`text-center text-sm py-4 ${
+                  isDarkMode ? "text-gray-500" : "text-gray-400"
+                }`}
+              >
+                No burn transaction events found yet.
+              </p>
+            ) : (
               <div className="overflow-x-auto">
-                <table
-                  className={`w-full border-collapse ${!isDarkMode && "bg-white/10 rounded-lg overflow-hidden"}`}
-                >
+                <table className="w-full">
                   <thead>
                     <tr
-                      className={isDarkMode ? "bg-gray-900/50" : "bg-white/20"}
+                      className={`border-b ${
+                        isDarkMode ? "border-white/[0.06]" : "border-gray-200/40"
+                      }`}
                     >
-                      <th className="py-3 px-4 text-left text-budju-blue font-medium">
+                      <th
+                        className={`py-2 px-2 text-left text-[10px] font-medium uppercase tracking-wider ${
+                          isDarkMode ? "text-gray-500" : "text-gray-400"
+                        }`}
+                      >
                         Date
                       </th>
-                      <th className="py-3 px-4 text-right text-budju-blue font-medium">
+                      <th
+                        className={`py-2 px-2 text-right text-[10px] font-medium uppercase tracking-wider ${
+                          isDarkMode ? "text-gray-500" : "text-gray-400"
+                        }`}
+                      >
                         Amount
                       </th>
-                      <th className="py-3 px-4 text-right text-budju-blue font-medium">
+                      <th
+                        className={`py-2 px-2 text-right text-[10px] font-medium uppercase tracking-wider ${
+                          isDarkMode ? "text-gray-500" : "text-gray-400"
+                        }`}
+                      >
                         Value
                       </th>
-                      <th className="py-3 px-4 text-left text-budju-blue font-medium">
-                        Transaction
+                      <th
+                        className={`py-2 px-2 text-left text-[10px] font-medium uppercase tracking-wider ${
+                          isDarkMode ? "text-gray-500" : "text-gray-400"
+                        }`}
+                      >
+                        Tx
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {burnEvents.length === 0 ? (
-                      <tr>
+                    {burnEvents.map((event, index) => (
+                      <tr
+                        key={index}
+                        className={`border-b last:border-b-0 ${
+                          isDarkMode
+                            ? "border-white/[0.04] hover:bg-white/[0.02]"
+                            : "border-gray-100 hover:bg-gray-50/50"
+                        } transition-colors`}
+                      >
                         <td
-                          colSpan={4}
-                          className={`py-3 px-4 text-center ${isDarkMode ? "text-gray-400" : "text-white/80"}`}
+                          className={`py-2.5 px-2 text-xs ${
+                            isDarkMode ? "text-gray-400" : "text-gray-600"
+                          }`}
                         >
-                          No burn events found.
+                          {event.date}
+                        </td>
+                        <td
+                          className={`py-2.5 px-2 text-right text-xs font-mono font-medium ${
+                            isDarkMode ? "text-gray-300" : "text-gray-700"
+                          }`}
+                        >
+                          {event.amount.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-2 text-right text-xs font-mono text-emerald-400">
+                          ${event.value.toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-2">
+                          {event.txHash.startsWith("N/A") ? (
+                            <span
+                              className={`text-xs ${
+                                isDarkMode ? "text-gray-600" : "text-gray-400"
+                              }`}
+                            >
+                              Aggregated
+                            </span>
+                          ) : (
+                            <a
+                              href={`https://solscan.io/tx/${event.txHash}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={`text-xs font-mono truncate block max-w-[100px] md:max-w-[140px] ${
+                                isDarkMode
+                                  ? "text-cyan-400/80 hover:text-cyan-300"
+                                  : "text-cyan-600 hover:text-cyan-700"
+                              }`}
+                            >
+                              {event.txHash.substring(0, 8)}...
+                            </a>
+                          )}
                         </td>
                       </tr>
-                    ) : (
-                      burnEvents.map((event, index) => (
-                        <tr
-                          key={index}
-                          className={`${isDarkMode ? "border-b border-gray-800 last:border-b-0 hover:bg-gray-800/30" : "border-b border-white/20 last:border-b-0 hover:bg-white/30"} transition-colors`}
-                        >
-                          <td
-                            className={
-                              isDarkMode
-                                ? "py-3 px-4 text-white"
-                                : "py-3 px-4 text-white"
-                            }
-                          >
-                            {event.date}
-                          </td>
-                          <td
-                            className={`py-3 px-4 text-right ${isDarkMode ? "text-white" : "text-white"} font-medium`}
-                          >
-                            {event.amount.toLocaleString()} BUDJU
-                          </td>
-                          <td className="py-3 px-4 text-right text-green-400">
-                            ${event.value.toFixed(2)}
-                          </td>
-                          <td className="py-3 px-4">
-                            {event.txHash.startsWith("N/A") ? (
-                              <span
-                                className={
-                                  isDarkMode ? "text-gray-400" : "text-white/80"
-                                }
-                              >
-                                {event.txHash}
-                              </span>
-                            ) : (
-                              <a
-                                href={`https://solscan.io/tx/${event.txHash}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-budju-blue hover:underline font-mono text-xs md:text-sm truncate block max-w-[150px] md:max-w-[200px]"
-                              >
-                                {event.txHash.substring(0, 10)}...
-                              </a>
-                            )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
+                    ))}
                   </tbody>
                 </table>
               </div>
-              <p
-                className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
-              >
-                All burn transactions are verifiable on the Solana blockchain
-              </p>
-            </motion.div>
-          </>
+            )}
+            <p
+              className={`text-center text-[10px] mt-3 ${
+                isDarkMode ? "text-gray-600" : "text-gray-400"
+              }`}
+            >
+              All burn transactions are verifiable on the Solana blockchain
+            </p>
+          </motion.div>
         )}
+
+        <p
+          className={`text-center text-[10px] mt-6 ${
+            isDarkMode ? "text-gray-600" : "text-gray-400"
+          }`}
+        >
+          * Burn data is calculated from on-chain supply reduction and updated in real-time
+        </p>
       </div>
     </section>
   );

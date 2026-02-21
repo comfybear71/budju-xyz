@@ -564,26 +564,40 @@ export async function fetchBurnEvents(
   if (cachedBurnEvents !== null) return cachedBurnEvents;
 
   try {
-    const burnBalance = await fetchBurnBalance(burnAddress, tokenAddress);
+    // Get the total burned from supply reduction
+    const [currentSupply, price] = await Promise.all([
+      fetchTokenSupply(tokenAddress),
+      fetchTokenPrice(tokenAddress),
+    ]);
+    const totalBurned = currentSupply > 0 ? INITIAL_MINT_SUPPLY - currentSupply : 0;
+
+    // Try to find actual burn transaction signatures
     const signatures = await fetchRecentSignatures(burnAddress, 20);
-    const burnEvents =
-      signatures.length === 0
-        ? await createFallbackBurnEvent(burnBalance, tokenAddress)
-        : await processBurnTransactions(signatures, burnAddress, tokenAddress);
+    let burnEvents: BurnEvent[] = [];
+    if (signatures.length > 0) {
+      burnEvents = await processBurnTransactions(signatures, burnAddress, tokenAddress);
+    }
+
+    // If no individual burn transactions found, show the total as an aggregated entry
+    if (burnEvents.length === 0 && totalBurned > 0) {
+      burnEvents = [{
+        date: new Date().toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        amount: totalBurned,
+        txHash: "N/A (Aggregated from supply reduction)",
+        value: totalBurned * price,
+        timestamp: Date.now(),
+      }];
+    }
 
     setCachedData(cacheKey, burnEvents, 10 * 60 * 1000);
-    return burnEvents.length > 0
-      ? burnEvents
-      : await createFallbackBurnEvent(burnBalance, tokenAddress);
+    return burnEvents;
   } catch (error) {
     console.error("Error fetching burn events:", error);
-    const burnBalance = await fetchBurnBalance(burnAddress, tokenAddress);
-    const fallbackEvents = await createFallbackBurnEvent(
-      burnBalance,
-      tokenAddress,
-    );
-    setCachedData(cacheKey, fallbackEvents, 10 * 60 * 1000);
-    return fallbackEvents;
+    return [];
   }
 }
 
