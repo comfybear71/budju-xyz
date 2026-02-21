@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { motion, useInView } from "framer-motion";
 import { FaChartPie } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import {
@@ -7,6 +7,55 @@ import {
   TOKEN_ADDRESS,
   BURN_ADDRESS,
 } from "@/lib/utils/tokenService";
+
+// Animated counter component that spins up numbers when in view
+const AnimatedNumber = ({
+  value,
+  className,
+  suffix = "",
+}: {
+  value: number;
+  className?: string;
+  suffix?: string;
+}) => {
+  const ref = useRef<HTMLSpanElement>(null);
+  const isInView = useInView(ref, { once: true });
+  const [displayValue, setDisplayValue] = useState(0);
+
+  useEffect(() => {
+    if (!isInView || value === 0) {
+      setDisplayValue(value);
+      return;
+    }
+
+    const duration = 1500;
+    const startTime = performance.now();
+    let animationFrame: number;
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplayValue(Math.floor(eased * value));
+
+      if (progress < 1) {
+        animationFrame = requestAnimationFrame(animate);
+      } else {
+        setDisplayValue(value);
+      }
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isInView, value]);
+
+  return (
+    <span ref={ref} className={className}>
+      {displayValue.toLocaleString()}{suffix}
+    </span>
+  );
+};
 
 interface TokenAllocation {
   name: string;
@@ -309,7 +358,7 @@ const TokenSupply = () => {
                         isDarkMode ? "text-gray-600" : "text-gray-400"
                       }`}
                     >
-                      {item.value.toLocaleString()} BUDJU
+                      <AnimatedNumber value={item.value} suffix=" BUDJU" />
                     </p>
                   </motion.div>
                 ))}
@@ -333,11 +382,10 @@ const TokenSupply = () => {
                     >
                       {row.label}
                     </span>
-                    <span
+                    <AnimatedNumber
+                      value={row.value}
                       className={`text-xs font-mono ${row.bold ? "font-bold" : "font-medium"} ${row.colorClass}`}
-                    >
-                      {row.value.toLocaleString()}
-                    </span>
+                    />
                   </div>
                 ))}
               </div>
