@@ -28,10 +28,12 @@ import {
   fetchPrices,
   fetchChanges,
   fetchCashBalances,
+  fetchAdminStats,
   fetchUserPosition,
   fetchTraderState,
   clearCache,
   type PortfolioAsset,
+  type AdminStats,
   type UserPosition,
   type TraderState,
 } from "./services/tradeApi";
@@ -53,6 +55,7 @@ const Trade = () => {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [usdcBalance, setUsdcBalance] = useState(0);
   const [audBalance, setAudBalance] = useState(0);
+  const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,23 +78,25 @@ const Trade = () => {
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0);
   const userValue = userPosition ? userPosition.currentValue : 0;
 
-  // ── Load data (no PIN needed — auth token is automatic) ──
+  // ── Load data (all public — no wallet needed) ──
   const loadData = useCallback(async () => {
     try {
       setApiStatus("connecting");
 
-      // Fetch portfolio from Swyftx via proxy (auto-auth) + prices from CoinGecko
-      const [portfolioData, priceData, changeData, cashData] =
+      // Public data: portfolio, prices, cash balances, pool stats from MongoDB
+      const [portfolioData, priceData, changeData, cashData, statsData] =
         await Promise.all([
           fetchPortfolio(),
           fetchPrices(),
           fetchChanges(),
           fetchCashBalances(),
+          fetchAdminStats(),
         ]);
 
       setPrices(priceData);
       setUsdcBalance(cashData.usdc);
       setAudBalance(cashData.aud);
+      setPoolStats(statsData);
 
       // Merge prices + changes into assets
       const merged = portfolioData.map((a) => ({
@@ -105,15 +110,14 @@ const Trade = () => {
       }));
 
       setAssets(merged);
-      setApiStatus(merged.length > 0 ? "connected" : "connected");
 
-      // Fetch admin state from MongoDB
+      // Admin-specific: trader state from MongoDB
       if (isAdmin) {
         const state = await fetchTraderState(walletAddress);
         setTraderState(state);
       }
 
-      // Fetch user position
+      // Connected user: personal position
       if (isConnected && !isAdmin) {
         const pos = await fetchUserPosition(walletAddress);
         setUserPosition(pos);
@@ -249,31 +253,29 @@ const Trade = () => {
           {/* Main Dashboard */}
           {!loading && (
             <div className="space-y-4">
-              {/* ─── Portfolio Chart ─────────────── */}
+              {/* ─── Portfolio Chart (public) ────── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <PortfolioChart
                   assets={assets}
                   totalValue={
-                    holdingsView === "mine" && !isAdmin
+                    holdingsView === "mine" && isConnected && !isAdmin
                       ? userValue
                       : totalPoolValue
                   }
                   usdcBalance={usdcBalance}
                   label={
-                    holdingsView === "mine" && !isAdmin
+                    holdingsView === "mine" && isConnected && !isAdmin
                       ? "My Portfolio"
-                      : isAdmin
-                        ? "Pool Total"
-                        : "Pool Overview"
+                      : "Pool Overview"
                   }
                   subtitle={
-                    holdingsView === "mine" && !isAdmin && userPosition
+                    holdingsView === "mine" && isConnected && !isAdmin && userPosition
                       ? `${userPosition.allocation.toFixed(1)}% of pool`
                       : `${assets.length} assets`
                   }
                 />
 
-                {/* Mine/Pool toggle for users */}
+                {/* Mine/Pool toggle — only for connected non-admin users */}
                 {isConnected && !isAdmin && (
                   <div className="flex justify-center gap-2 mt-4">
                     <button
@@ -300,13 +302,95 @@ const Trade = () => {
                 )}
               </div>
 
-              {/* ─── Admin Stats Panel ──────────── */}
+              {/* ─── Pool Stats (public — visible to everyone) ── */}
+              <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <FaChartLine className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
+                    Pool Stats
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      label: "Users",
+                      value: poolStats?.userCount ?? "—",
+                      icon: FaUsers,
+                      color: "text-blue-400",
+                    },
+                    {
+                      label: "Pool Value",
+                      value:
+                        poolStats?.poolValue
+                          ? formatUsd(poolStats.poolValue)
+                          : totalPoolValue > 0
+                            ? formatUsd(totalPoolValue)
+                            : "—",
+                      icon: FaWallet,
+                      color: "text-emerald-400",
+                    },
+                    {
+                      label: "NAV",
+                      value: poolStats?.nav
+                        ? poolStats.nav.toFixed(4)
+                        : "—",
+                      icon: FaChartLine,
+                      color: "text-cyan-400",
+                    },
+                    {
+                      label: "Deposited",
+                      value: poolStats?.totalDeposits
+                        ? formatUsd(poolStats.totalDeposits)
+                        : "—",
+                      icon: FaMoneyBillWave,
+                      color: "text-green-400",
+                    },
+                    {
+                      label: "Trades",
+                      value: poolStats?.tradeCount ?? "—",
+                      icon: FaExchangeAlt,
+                      color: "text-purple-400",
+                    },
+                    {
+                      label: "P&L",
+                      value: poolStats?.pnlPercent
+                        ? `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`
+                        : "—",
+                      icon: FaPercentage,
+                      color:
+                        (poolStats?.pnlPercent || 0) >= 0
+                          ? "text-green-400"
+                          : "text-red-400",
+                    },
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="rounded-xl bg-slate-800/40 p-2.5 text-center"
+                    >
+                      <stat.icon
+                        className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`}
+                      />
+                      <div className="text-[10px] text-slate-500 mb-0.5">
+                        {stat.label}
+                      </div>
+                      <div
+                        className={`text-xs font-bold font-mono ${stat.color}`}
+                      >
+                        {stat.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── Admin Controls (admin-only) ── */}
               {isAdmin && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <div className="flex items-center gap-2 mb-3">
                     <FaRobot className="w-3.5 h-3.5 text-amber-400" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400/70">
-                      Admin Dashboard
+                      Admin Controls
                     </span>
                   </div>
 
@@ -330,77 +414,8 @@ const Trade = () => {
                     </div>
                   </div>
 
-                  {/* Admin Stats Grid */}
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      {
-                        label: "Users",
-                        value: traderState?.userCount ?? "—",
-                        icon: FaUsers,
-                        color: "text-blue-400",
-                      },
-                      {
-                        label: "Deposited",
-                        value: traderState?.totalDeposits
-                          ? formatUsd(traderState.totalDeposits)
-                          : "—",
-                        icon: FaMoneyBillWave,
-                        color: "text-green-400",
-                      },
-                      {
-                        label: "NAV",
-                        value: traderState?.nav
-                          ? traderState.nav.toFixed(4)
-                          : "—",
-                        icon: FaChartLine,
-                        color: "text-cyan-400",
-                      },
-                      {
-                        label: "Trades",
-                        value: traderState?.tradeCount ?? "—",
-                        icon: FaExchangeAlt,
-                        color: "text-purple-400",
-                      },
-                      {
-                        label: "Pool Value",
-                        value:
-                          totalPoolValue > 0 ? formatUsd(totalPoolValue) : "—",
-                        icon: FaWallet,
-                        color: "text-emerald-400",
-                      },
-                      {
-                        label: "P&L",
-                        value: traderState?.pnlPercent
-                          ? `${traderState.pnlPercent >= 0 ? "+" : ""}${traderState.pnlPercent.toFixed(1)}%`
-                          : "—",
-                        icon: FaPercentage,
-                        color:
-                          (traderState?.pnlPercent || 0) >= 0
-                            ? "text-green-400"
-                            : "text-red-400",
-                      },
-                    ].map((stat) => (
-                      <div
-                        key={stat.label}
-                        className="rounded-xl bg-slate-800/40 p-2.5 text-center"
-                      >
-                        <stat.icon
-                          className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`}
-                        />
-                        <div className="text-[10px] text-slate-500 mb-0.5">
-                          {stat.label}
-                        </div>
-                        <div
-                          className={`text-xs font-bold font-mono ${stat.color}`}
-                        >
-                          {stat.value}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
                   {/* Quick trade buttons */}
-                  <div className="flex gap-2 mt-3">
+                  <div className="flex gap-2">
                     {["Instant", "Trigger", "Auto"].map((mode) => (
                       <button
                         key={mode}
@@ -419,7 +434,7 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── User Stats Panel ──────────── */}
+              {/* ─── User Position (connected users only) ── */}
               {isConnected && !isAdmin && userPosition && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <div className="flex items-center gap-2 mb-3">
@@ -477,23 +492,6 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── Not Connected Banner ──────── */}
-              {!isConnected && (
-                <div className="rounded-2xl border border-slate-700/30 bg-[#0f172a]/60 p-5 text-center">
-                  <FaWallet
-                    className="mx-auto mb-3 text-slate-600"
-                    size={24}
-                  />
-                  <p className="text-sm font-medium text-slate-400 mb-1">
-                    Connect your wallet
-                  </p>
-                  <p className="text-xs text-slate-600 mb-4">
-                    See your personal position, the leaderboard, and more
-                  </p>
-                  <WalletConnect />
-                </div>
-              )}
-
               {/* ─── Trade Panel (Admin, slide-in) ─── */}
               <AnimatePresence>
                 {showTradePanel && isAdmin && selectedAsset && (
@@ -520,7 +518,7 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── Holdings ──────────────────── */}
+              {/* ─── Holdings (public) ──────────── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={assets}
@@ -529,8 +527,8 @@ const Trade = () => {
                   selectedAsset={selectedAsset}
                   isAdmin={isAdmin}
                   userAllocation={userPosition?.allocation || 0}
-                  viewMode={isAdmin ? "pool" : holdingsView}
-                  onToggleView={isAdmin ? undefined : setHoldingsView}
+                  viewMode={isConnected && !isAdmin ? holdingsView : "pool"}
+                  onToggleView={isConnected && !isAdmin ? setHoldingsView : undefined}
                 />
               </div>
             </div>
@@ -611,7 +609,7 @@ const Trade = () => {
         </div>
       </div>
 
-      {/* ─── Full-page Overlays ──────────────────── */}
+      {/* ─── Full-page Overlays (public — no wallet needed) ── */}
       <Leaderboard
         isOpen={showLeaderboard}
         onClose={() => {
@@ -625,7 +623,7 @@ const Trade = () => {
           setShowTransactions(false);
           setActiveNav("home");
         }}
-        walletAddress={isAdmin ? undefined : walletAddress}
+        walletAddress={undefined}
       />
     </main>
   );
