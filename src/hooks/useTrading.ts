@@ -197,7 +197,7 @@ export const useTrading = (
       console.log("Signing transaction...");
 
       // For versioned transactions, we need to handle it differently based on wallet
-      const provider = window.solana || window.solflare;
+      const provider = window.solana || window.solflare || window.jupiter;
       if (!provider) throw new Error("No wallet provider found");
 
       try {

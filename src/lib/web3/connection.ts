@@ -7,7 +7,7 @@ import { WALLET_ADAPTER_NETWORK, RPC_ENDPOINT } from "@constants/addresses";
 import walletService from "@lib/services/walletService";
 
 // Wallet types
-export type WalletName = "phantom" | "solflare" | "other";
+export type WalletName = "phantom" | "solflare" | "jupiter" | "other";
 
 export interface WalletInfo {
   name: WalletName;
@@ -36,6 +36,7 @@ const initialState: ConnectionState = {
 interface SolanaWallet {
   isPhantom?: boolean;
   isSolflare?: boolean;
+  isJupiter?: boolean;
   isConnected?: boolean;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -46,6 +47,7 @@ declare global {
   interface Window {
     solana?: SolanaWallet;
     solflare?: SolanaWallet;
+    jupiter?: SolanaWallet;
   }
 }
 
@@ -59,6 +61,11 @@ export const checkWalletsAvailability = async (): Promise<WalletName[]> => {
 
   if (window.solflare?.isSolflare) {
     available.push("solflare");
+  }
+
+  // Jupiter wallet injects as window.jupiter or as a standard wallet
+  if (window.jupiter) {
+    available.push("jupiter");
   }
 
   if (window.solana && !window.solana.isPhantom && !window.solana.isSolflare) {
@@ -86,6 +93,12 @@ export const connectWallet = async (
         walletAdapter = window.solflare;
         if (!walletAdapter?.isSolflare) {
           throw new Error("Solflare wallet not detected");
+        }
+        break;
+      case "jupiter":
+        walletAdapter = window.jupiter;
+        if (!walletAdapter) {
+          throw new Error("Jupiter wallet not detected");
         }
         break;
       case "other":
@@ -130,7 +143,7 @@ export const connectWallet = async (
 // Disconnect from a wallet
 export const disconnectWallet = async (): Promise<ConnectionState> => {
   try {
-    const walletAdapter = window.solana || window.solflare;
+    const walletAdapter = window.solana || window.solflare || window.jupiter;
     if (walletAdapter && walletAdapter.disconnect) {
       await walletAdapter.disconnect();
     }
@@ -165,6 +178,12 @@ export const checkWalletConnection = async (): Promise<ConnectionState> => {
         case "solflare":
           walletAdapter = window.solflare;
           if (!walletAdapter?.isSolflare || !walletAdapter.isConnected) {
+            return initialState;
+          }
+          break;
+        case "jupiter":
+          walletAdapter = window.jupiter;
+          if (!walletAdapter || !walletAdapter.isConnected) {
             return initialState;
           }
           break;

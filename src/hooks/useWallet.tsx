@@ -138,7 +138,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
                 signTransaction: async (
                   tx: Transaction | VersionedTransaction,
                 ) => {
-                  const provider = window.solana || window.solflare;
+                  const provider = window.solana || window.solflare || window.jupiter || window.jupiter;
                   if (!provider) throw new Error("No wallet provider found");
 
                   // Check if the wallet has the signTransaction method
@@ -152,7 +152,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
                 sendTransaction: async (
                   tx: Transaction | VersionedTransaction,
                 ) => {
-                  const provider = window.solana || window.solflare;
+                  const provider = window.solana || window.solflare || window.jupiter;
                   if (!provider) throw new Error("No wallet provider found");
 
                   // Handle legacy transactions
@@ -193,7 +193,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
                   }
                 },
                 signAndSendTransaction: async (tx: VersionedTransaction) => {
-                  const provider = window.solana || window.solflare;
+                  const provider = window.solana || window.solflare || window.jupiter;
                   if (!provider) throw new Error("No wallet provider found");
 
                   // If wallet supports it directly
@@ -266,14 +266,14 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
               signTransaction: async (
                 tx: Transaction | VersionedTransaction,
               ) => {
-                const provider = window.solana || window.solflare;
+                const provider = window.solana || window.solflare || window.jupiter;
                 if (!provider) throw new Error("No wallet provider found");
                 return await provider.signTransaction(tx);
               },
               sendTransaction: async (
                 tx: Transaction | VersionedTransaction,
               ) => {
-                const provider = window.solana || window.solflare;
+                const provider = window.solana || window.solflare || window.jupiter;
                 if (!provider) throw new Error("No wallet provider found");
 
                 // Handle legacy transactions
@@ -305,7 +305,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
                 }
               },
               signAndSendTransaction: async (tx: VersionedTransaction) => {
-                const provider = window.solana || window.solflare;
+                const provider = window.solana || window.solflare || window.jupiter;
                 if (!provider) throw new Error("No wallet provider found");
 
                 // If wallet supports it directly
