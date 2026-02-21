@@ -102,7 +102,7 @@ const Bank = () => {
               </h1>
             </div>
             <p
-              className={`text-base md:text-lg max-w-2xl mx-auto mb-8 ${
+              className={`text-base md:text-lg max-w-2xl mx-auto ${
                 isDarkMode ? "text-gray-400" : "text-gray-600"
               }`}
             >
@@ -110,60 +110,69 @@ const Bank = () => {
               earned buys back BUDJU and burns it — reducing supply and growing
               value for every holder.
             </p>
-
-            {/* Bank Address Card */}
-            <div className="max-w-xl mx-auto">
-              <div
-                className={`rounded-2xl p-[1px] ${
-                  isDarkMode
-                    ? "bg-gradient-to-r from-amber-500/40 via-amber-400/20 to-amber-500/40"
-                    : "bg-gradient-to-r from-amber-500/30 via-amber-400/15 to-amber-500/30"
-                }`}
-              >
-                <div
-                  className={`rounded-2xl px-5 py-4 ${
-                    isDarkMode ? "bg-[#0a0a1f]/95" : "bg-white/90"
-                  } backdrop-blur-sm`}
-                >
-                  <p
-                    className={`text-[10px] uppercase tracking-[0.2em] font-bold mb-2 ${
-                      isDarkMode ? "text-amber-400/60" : "text-amber-600/60"
-                    }`}
-                  >
-                    Treasury Address
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <code
-                      className={`text-xs md:text-sm font-mono truncate flex-1 ${
-                        isDarkMode ? "text-gray-300" : "text-gray-700"
-                      }`}
-                    >
-                      {BANK_ADDRESS}
-                    </code>
-                    <CopyToClipboard text={BANK_ADDRESS} />
-                    <a
-                      href={`https://solscan.io/account/${BANK_ADDRESS}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`p-2 rounded-full transition-colors ${
-                        isDarkMode
-                          ? "text-amber-400 hover:bg-white/10"
-                          : "text-amber-600 hover:bg-gray-100"
-                      }`}
-                      aria-label="View on Solscan"
-                    >
-                      <FaExternalLinkAlt className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
           </motion.div>
         </div>
       </section>
 
       {/* ── Holdings ── */}
       <BankTokens />
+
+      {/* ── Treasury Address Card ── */}
+      <div className="px-4 pb-4">
+        <div className="max-w-xl mx-auto">
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.4 }}
+          >
+            <div
+              className={`rounded-2xl p-[1px] ${
+                isDarkMode
+                  ? "bg-gradient-to-r from-amber-500/40 via-amber-400/20 to-amber-500/40"
+                  : "bg-gradient-to-r from-amber-500/30 via-amber-400/15 to-amber-500/30"
+              }`}
+            >
+              <div
+                className={`rounded-2xl px-5 py-4 ${
+                  isDarkMode ? "bg-[#0a0a1f]/95" : "bg-white/90"
+                } backdrop-blur-sm`}
+              >
+                <p
+                  className={`text-[10px] uppercase tracking-[0.2em] font-bold mb-2 ${
+                    isDarkMode ? "text-amber-400/60" : "text-amber-600/60"
+                  }`}
+                >
+                  Treasury Address
+                </p>
+                <div className="flex items-center gap-2">
+                  <code
+                    className={`text-xs md:text-sm font-mono truncate flex-1 ${
+                      isDarkMode ? "text-gray-300" : "text-gray-700"
+                    }`}
+                  >
+                    {BANK_ADDRESS}
+                  </code>
+                  <CopyToClipboard text={BANK_ADDRESS} />
+                  <a
+                    href={`https://solscan.io/account/${BANK_ADDRESS}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`p-2 rounded-full transition-colors ${
+                      isDarkMode
+                        ? "text-amber-400 hover:bg-white/10"
+                        : "text-amber-600 hover:bg-gray-100"
+                    }`}
+                    aria-label="View on Solscan"
+                  >
+                    <FaExternalLinkAlt className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </div>
 
       <div className="budju-section-divider" />
 
