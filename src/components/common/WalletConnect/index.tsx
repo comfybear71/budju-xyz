@@ -452,7 +452,7 @@ const WalletConnect = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className={`absolute z-50 mt-2 w-80 rounded-xl overflow-hidden border shadow-2xl backdrop-blur-xl ${panelBg} right-0`}
+            className={`z-50 rounded-xl overflow-hidden border shadow-2xl backdrop-blur-xl ${panelBg} fixed top-14 left-3 right-3 sm:absolute sm:top-auto sm:left-auto sm:right-0 sm:mt-2 sm:w-80`}
           >
             {!connection.connected ? (
               <>
