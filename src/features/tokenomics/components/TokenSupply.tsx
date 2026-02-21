@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, useInView } from "framer-motion";
 import { FaChartPie } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
@@ -71,7 +71,6 @@ const TokenSupply = () => {
   const [burnedTokens, setBurnedTokens] = useState<number>(0);
   const [raydiumVault, setRaydiumVault] = useState<number>(0);
   const [bankOfBudju, setBankOfBudju] = useState<number>(0);
-  const [communityVault, setCommunityVault] = useState<number>(0);
   const [developerVault, setDeveloperVault] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -87,9 +86,8 @@ const TokenSupply = () => {
       const burned = metrics.burned;
       const raydium = metrics.raydiumVault;
       const bank = metrics.bankOfBudju;
-      const community = metrics.communityVault;
       const dev = metrics.developerVault;
-      const circulating = total - burned - raydium - bank - community - dev;
+      const circulating = total - burned - raydium - bank - dev;
 
       const realAllocation: TokenAllocation[] = [
         {
@@ -117,12 +115,6 @@ const TokenSupply = () => {
           value: bank,
         },
         {
-          name: "Pool of BUDJU",
-          percentage: (community / total) * 100,
-          color: "#ec4899",
-          value: community,
-        },
-        {
           name: "Developer Vault",
           percentage: (dev / total) * 100,
           color: "#8b5cf6",
@@ -135,47 +127,15 @@ const TokenSupply = () => {
       setBurnedTokens(burned);
       setRaydiumVault(raydium);
       setBankOfBudju(bank);
-      setCommunityVault(community);
       setDeveloperVault(dev);
     } catch (error) {
       console.error("Error fetching token supply data:", error);
-      setTokenAllocation([
-        {
-          name: "Circ. Supply",
-          percentage: 89.44,
-          color: "#06b6d4",
-          value: 894_400_000,
-        },
-        {
-          name: "Burned Tokens",
-          percentage: 1.56,
-          color: "#ef4444",
-          value: 15_600_000,
-        },
-        {
-          name: "Raydium Vault",
-          percentage: 8.94,
-          color: "#10b981",
-          value: 89_400_000,
-        },
-        {
-          name: "Bank of BUDJU",
-          percentage: 0.06,
-          color: "#f59e0b",
-          value: 600_000,
-        },
-        {
-          name: "Pool of BUDJU",
-          percentage: 0.06,
-          color: "#ec4899",
-          value: 600_000,
-        },
-      ]);
-      setTotalSupply(1_000_000_000);
-      setBurnedTokens(15_600_000);
-      setRaydiumVault(89_400_000);
-      setBankOfBudju(600_000);
-      setCommunityVault(600_000);
+      // No hardcoded fallback — show real data or nothing
+      setTokenAllocation([]);
+      setTotalSupply(0);
+      setBurnedTokens(0);
+      setRaydiumVault(0);
+      setBankOfBudju(0);
       setDeveloperVault(0);
     } finally {
       setLoading(false);
@@ -189,7 +149,7 @@ const TokenSupply = () => {
   }, []);
 
   const remainingSupply =
-    totalSupply - burnedTokens - raydiumVault - bankOfBudju - communityVault - developerVault;
+    totalSupply - burnedTokens - raydiumVault - bankOfBudju - developerVault;
 
   const summaryRows = [
     {
@@ -214,12 +174,6 @@ const TokenSupply = () => {
       label: "Bank of BUDJU",
       value: bankOfBudju,
       colorClass: "text-amber-400",
-      bold: false,
-    },
-    {
-      label: "Pool of BUDJU",
-      value: communityVault,
-      colorClass: "text-pink-400",
       bold: false,
     },
     {
@@ -298,6 +252,14 @@ const TokenSupply = () => {
               }`}
             >
               Loading supply data...
+            </div>
+          ) : tokenAllocation.length === 0 ? (
+            <div
+              className={`text-center text-sm py-8 ${
+                isDarkMode ? "text-gray-500" : "text-gray-400"
+              }`}
+            >
+              Unable to load supply data. Please try again later.
             </div>
           ) : (
             <>
