@@ -29,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     console.log("Proxy request:", method, endpoint);
 
-    // PORTFOLIO ENDPOINT — auth + balance in one call
+    // PORTFOLIO ENDPOINT — auth + balance + asset info in one call
     if (endpoint === "/portfolio/") {
       const authRes = await fetch(baseURL + "/auth/refresh/", {
         method: "POST",
@@ -45,25 +45,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(authRes.status).json({ error: "Auth failed" });
       }
 
-      const portfolioRes = await fetch(baseURL + "/user/balance/", {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${authData.accessToken}`,
-          "Content-Type": "application/json",
-          "User-Agent": "SwyftxTrader/1.0",
-        },
-      });
+      const authHeaders = {
+        Authorization: `Bearer ${authData.accessToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": "SwyftxTrader/1.0",
+      };
+
+      // Fetch balances and asset list in parallel
+      const [portfolioRes, assetsRes] = await Promise.all([
+        fetch(baseURL + "/user/balance/", {
+          method: "GET",
+          headers: authHeaders,
+        }),
+        fetch(baseURL + "/markets/assets/", {
+          method: "GET",
+          headers: authHeaders,
+        }),
+      ]);
 
       const portfolioData = await portfolioRes.json();
+      const assetsData = await assetsRes.json();
 
-      const assets = portfolioData.map((item: any) => ({
-        code: item.asset?.code || "UNKNOWN",
-        name: item.asset?.name || "Unknown",
-        balance: parseFloat(item.availableBalance || 0),
-        aud_value: parseFloat(item.audValue || 0),
-        change_24h: parseFloat(item.asset?.change24h || 0),
-        asset_id: item.asset?.id,
-      }));
+      // Build lookup: assetId → { code, name }
+      const assetMap: Record<number, { code: string; name: string }> = {};
+      if (Array.isArray(assetsData)) {
+        for (const a of assetsData) {
+          assetMap[a.id] = { code: a.code || "UNKNOWN", name: a.name || "Unknown" };
+        }
+      }
+
+      const assets = (Array.isArray(portfolioData) ? portfolioData : []).map((item: any) => {
+        const assetId = item.assetId ?? item.asset?.id;
+        const info = assetMap[assetId] || {};
+        return {
+          code: item.asset?.code || info.code || "UNKNOWN",
+          name: item.asset?.name || info.name || "Unknown",
+          balance: parseFloat(item.availableBalance || 0),
+          aud_value: parseFloat(item.audValue || 0),
+          change_24h: parseFloat(item.asset?.change24h || 0),
+          asset_id: assetId,
+        };
+      });
 
       return res.status(200).json({ assets });
     }
