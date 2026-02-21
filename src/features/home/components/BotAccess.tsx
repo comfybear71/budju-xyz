@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { motion } from "framer-motion";
 import {
@@ -6,6 +7,7 @@ import {
   FaShieldAlt,
   FaBrain,
   FaWallet,
+  FaPlay,
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import { ROUTES } from "@/constants/routes";
@@ -41,8 +43,11 @@ const features = [
   },
 ];
 
+const BOT_VIDEO_URL = import.meta.env.VITE_BOT_VIDEO_URL || "";
+
 const BotAccess = () => {
   const { isDarkMode } = useTheme();
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
   return (
     <section className="py-16 md:py-24 px-4">
@@ -265,6 +270,139 @@ const BotAccess = () => {
             </motion.div>
           ))}
         </div>
+
+        {/* Bot Video Showcase */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.5, delay: 0.25 }}
+          className="mt-12"
+        >
+          <div className="text-center mb-6">
+            <p
+              className={`text-[10px] uppercase tracking-[0.2em] font-bold ${
+                isDarkMode ? "text-cyan-400/70" : "text-cyan-600/70"
+              }`}
+            >
+              See It In Action
+            </p>
+            <h3
+              className={`text-xl md:text-2xl font-bold mt-2 ${
+                isDarkMode ? "text-white" : "text-gray-900"
+              }`}
+            >
+              Bot{" "}
+              <span className="bg-gradient-to-r from-cyan-400 to-budju-blue bg-clip-text text-transparent">
+                Dashboard
+              </span>{" "}
+              Preview
+            </h3>
+          </div>
+
+          <div
+            className={`relative rounded-2xl overflow-hidden border ${
+              isDarkMode
+                ? "bg-[#0c0c20]/80 border-white/[0.08]"
+                : "bg-white/60 border-gray-200/40"
+            } backdrop-blur-sm`}
+          >
+            {/* Gradient glow behind video */}
+            <div
+              className={`absolute -inset-1 rounded-2xl blur-xl opacity-30 ${
+                isDarkMode
+                  ? "bg-gradient-to-r from-cyan-500/20 via-budju-blue/20 to-budju-pink/20"
+                  : "bg-gradient-to-r from-cyan-500/10 via-budju-blue/10 to-budju-pink/10"
+              }`}
+            />
+
+            <div className="relative aspect-video w-full">
+              {BOT_VIDEO_URL ? (
+                <>
+                  {!isVideoPlaying ? (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center cursor-pointer group z-10"
+                      onClick={() => setIsVideoPlaying(true)}
+                    >
+                      {/* Thumbnail overlay */}
+                      <div
+                        className={`absolute inset-0 ${
+                          isDarkMode
+                            ? "bg-gradient-to-b from-[#0c0c20]/40 via-transparent to-[#0c0c20]/60"
+                            : "bg-gradient-to-b from-white/20 via-transparent to-white/40"
+                        }`}
+                      />
+                      {/* Play button */}
+                      <div
+                        className={`relative w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center transition-all duration-300 group-hover:scale-110 ${
+                          isDarkMode
+                            ? "bg-white/10 backdrop-blur-sm border border-white/20 group-hover:bg-white/20"
+                            : "bg-black/10 backdrop-blur-sm border border-black/10 group-hover:bg-black/20"
+                        }`}
+                      >
+                        <FaPlay
+                          className={`w-6 h-6 md:w-7 md:h-7 ml-1 ${
+                            isDarkMode ? "text-white" : "text-gray-900"
+                          }`}
+                        />
+                      </div>
+                      <p
+                        className={`absolute bottom-6 text-xs font-medium ${
+                          isDarkMode ? "text-gray-400" : "text-gray-500"
+                        }`}
+                      >
+                        Click to play
+                      </p>
+                    </div>
+                  ) : null}
+                  <video
+                    src={BOT_VIDEO_URL}
+                    className="w-full h-full object-cover"
+                    controls={isVideoPlaying}
+                    autoPlay={isVideoPlaying}
+                    playsInline
+                    onPlay={() => setIsVideoPlaying(true)}
+                    poster=""
+                  />
+                </>
+              ) : (
+                <div
+                  className={`w-full h-full flex flex-col items-center justify-center ${
+                    isDarkMode ? "bg-[#0c0c20]" : "bg-gray-50"
+                  }`}
+                >
+                  <div
+                    className={`w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center mb-4 ${
+                      isDarkMode
+                        ? "bg-white/5 border border-white/10"
+                        : "bg-gray-100 border border-gray-200"
+                    }`}
+                  >
+                    <FaPlay
+                      className={`w-6 h-6 md:w-7 md:h-7 ml-1 ${
+                        isDarkMode ? "text-cyan-400/40" : "text-cyan-600/40"
+                      }`}
+                    />
+                  </div>
+                  <p
+                    className={`text-sm font-medium ${
+                      isDarkMode ? "text-gray-500" : "text-gray-400"
+                    }`}
+                  >
+                    Bot Demo Video
+                  </p>
+                  <p
+                    className={`text-xs mt-1 ${
+                      isDarkMode ? "text-gray-600" : "text-gray-300"
+                    }`}
+                  >
+                    Coming Soon
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
       </div>
     </section>
   );

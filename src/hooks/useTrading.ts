@@ -89,10 +89,13 @@ export const useTrading = (
 
         const quote = await quoteResponse.json();
 
+        const inAmt = Number(quote.inAmount);
+        const outAmt = Number(quote.outAmount);
+
         setEstimate({
-          inAmount: quote.inAmount,
-          outAmount: quote.outAmount,
-          estimatedPrice: quote.outAmount / quote.inAmount,
+          inAmount: inAmt,
+          outAmount: outAmt,
+          estimatedPrice: inAmt > 0 ? outAmt / inAmt : 0,
           slippageBps: quote.slippageBps,
         });
       } catch (err) {
@@ -158,7 +161,8 @@ export const useTrading = (
       const swapRequestBody = {
         quoteResponse: quoteData,
         userPublicKey: connection.wallet.address,
-        wrapUnwrapSOL: true,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
       };
 
       console.log("Swap request body:", JSON.stringify(swapRequestBody));

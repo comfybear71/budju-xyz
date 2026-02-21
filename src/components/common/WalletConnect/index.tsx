@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   FaWallet,
@@ -9,10 +10,13 @@ import {
   FaSyncAlt,
   FaExclamationTriangle,
   FaCheck,
+  FaExchangeAlt,
+  FaRobot,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
 import { TOKEN_ADDRESS } from "@constants/addresses";
+import { ROUTES } from "@/constants/routes";
 import walletService, {
   WalletBalance,
   Network,
@@ -44,6 +48,7 @@ const WalletConnect = ({
   size = "md",
 }: WalletConnectProps) => {
   const { isDarkMode } = useTheme();
+  const navigate = useNavigate();
   const { connection, connecting, availableWallets, connect, disconnect } =
     useWallet();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -607,6 +612,57 @@ const WalletConnect = ({
                         />
                       </button>
                     </div>
+                  </div>
+                </div>
+
+                {/* Quick Actions — Deep Links */}
+                <div className={`px-3 py-2.5 border-b ${dividerColor}`}>
+                  <span
+                    className={`text-[10px] font-bold uppercase tracking-widest px-1 mb-2 block ${subtextColor}`}
+                  >
+                    Quick Actions
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        navigate(ROUTES.SWAP);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer group ${
+                        isDarkMode
+                          ? "bg-gradient-to-br from-cyan-500/[0.08] to-blue-500/[0.05] border border-cyan-500/[0.12] hover:border-cyan-500/30 hover:from-cyan-500/[0.14] hover:to-blue-500/[0.08]"
+                          : "bg-gradient-to-br from-cyan-50 to-blue-50 border border-cyan-200/40 hover:border-cyan-300/60"
+                      }`}
+                    >
+                      <FaExchangeAlt
+                        className={`w-3 h-3 ${
+                          isDarkMode
+                            ? "text-cyan-400 group-hover:text-cyan-300"
+                            : "text-cyan-600 group-hover:text-cyan-500"
+                        }`}
+                      />
+                      <span className={textColor}>Swap</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsMenuOpen(false);
+                        navigate(ROUTES.BANK);
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200 cursor-pointer group ${
+                        isDarkMode
+                          ? "bg-gradient-to-br from-emerald-500/[0.08] to-cyan-500/[0.05] border border-emerald-500/[0.12] hover:border-emerald-500/30 hover:from-emerald-500/[0.14] hover:to-cyan-500/[0.08]"
+                          : "bg-gradient-to-br from-emerald-50 to-cyan-50 border border-emerald-200/40 hover:border-emerald-300/60"
+                      }`}
+                    >
+                      <FaRobot
+                        className={`w-3 h-3 ${
+                          isDarkMode
+                            ? "text-emerald-400 group-hover:text-emerald-300"
+                            : "text-emerald-600 group-hover:text-emerald-500"
+                        }`}
+                      />
+                      <span className={textColor}>Bot</span>
+                    </button>
                   </div>
                 </div>
 
