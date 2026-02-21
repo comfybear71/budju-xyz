@@ -1,6 +1,13 @@
 // ============================================================
 // FLUB Trading API Service
 // Connects to the existing FLUB Vercel backend (MongoDB + Swyftx)
+//
+// Auth flow:
+// 1. POST /api/proxy { endpoint: "auth/refresh/" }
+//    → Server uses its SWYFTX_API_KEY → returns { accessToken }
+// 2. POST /api/proxy { endpoint: "accounts/balance/", authToken }
+//    → Server forwards with Bearer token → returns balances
+// 3. PIN (2971) only needed for placing trades via /orders/
 // ============================================================
 
 const API_BASE = "https://flub.vercel.app/api";
@@ -125,7 +132,44 @@ export const ASSET_CONFIG: Record<
   PEPE: { color: "#00b84d", icon: "🐸", name: "Pepe", coingeckoId: "pepe" },
 };
 
-// ── PIN Management ─────────────────────────────────────────
+// ── Auth Token Management ──────────────────────────────────
+// The Swyftx auth token is obtained via the proxy's auth/refresh/ endpoint.
+// The server uses its stored SWYFTX_API_KEY — no PIN needed for reads.
+
+let _authToken: string | null = null;
+let _authTokenExpiry = 0;
+
+/** Get a valid Swyftx auth token, refreshing if needed */
+async function getAuthToken(): Promise<string> {
+  // Return cached token if still valid (tokens last ~30 min, refresh at 25)
+  if (_authToken && Date.now() < _authTokenExpiry) {
+    return _authToken;
+  }
+
+  const res = await fetchWithRetry(`${API_BASE}/proxy`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: "auth/refresh/" }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Auth failed (${res.status}): ${errText}`);
+  }
+
+  const data = await res.json();
+  _authToken = data.accessToken || data.access_token || data.token || null;
+
+  if (!_authToken) {
+    throw new Error("No access token returned from auth/refresh/");
+  }
+
+  // Cache for 25 minutes
+  _authTokenExpiry = Date.now() + 25 * 60 * 1000;
+  return _authToken;
+}
+
+// ── PIN Management (for placing trades only) ───────────────
 
 let _pin: string | null = null;
 
@@ -159,7 +203,7 @@ async function fetchWithRetry(
   for (let i = 0; i <= retries; i++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
       if (!res.ok && res.status === 429 && i < retries) {
@@ -187,50 +231,37 @@ function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T>
   });
 }
 
-/** POST to the FLUB proxy with PIN authentication */
-async function proxyPost(endpoint: string): Promise<any> {
-  const pin = getPin();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (pin) headers["x-pin"] = pin;
+/** POST to the FLUB proxy with auth token (reads — no PIN needed) */
+async function proxyPost(endpoint: string, extraBody?: Record<string, unknown>): Promise<any> {
+  const authToken = await getAuthToken();
 
   const res = await fetchWithRetry(`${API_BASE}/proxy`, {
     method: "POST",
-    headers,
-    body: JSON.stringify({ endpoint }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint, authToken, ...extraBody }),
   });
 
-  if (res.status === 401 || res.status === 403) {
-    throw new Error("AUTH_REQUIRED");
+  if (res.status === 401) {
+    // Token may have expired — force refresh and retry once
+    _authToken = null;
+    _authTokenExpiry = 0;
+    const newToken = await getAuthToken();
+    const retry = await fetchWithRetry(`${API_BASE}/proxy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint, authToken: newToken, ...extraBody }),
+    });
+    if (!retry.ok) throw new Error(`Proxy error: ${retry.status}`);
+    return retry.json();
   }
 
+  if (!res.ok) throw new Error(`Proxy error: ${res.status}`);
   return res.json();
 }
 
 // ── Public API ─────────────────────────────────────────────
 
-/** Verify PIN against the FLUB backend */
-export async function verifyPin(pin: string): Promise<boolean> {
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "x-pin": pin,
-    };
-    const res = await fetchWithRetry(`${API_BASE}/proxy`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ endpoint: "accounts/balance/" }),
-    });
-    if (res.ok) {
-      setPin(pin);
-      return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
-/** Fetch portfolio from Swyftx via proxy */
+/** Fetch portfolio from Swyftx via proxy (no PIN needed) */
 export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   return cached("portfolio", 30_000, async () => {
     try {
@@ -266,8 +297,8 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
         });
 
       return assets;
-    } catch (err: any) {
-      if (err?.message === "AUTH_REQUIRED") throw err;
+    } catch (err) {
+      console.error("fetchPortfolio error:", err);
       return [];
     }
   });
@@ -345,14 +376,12 @@ export async function fetchTraderState(
 ): Promise<TraderState | null> {
   return cached("state", 15_000, async () => {
     try {
-      const pin = getPin();
-      const headers: Record<string, string> = {};
-      if (pin) headers["x-pin"] = pin;
       const res = await fetchWithRetry(
         `${API_BASE}/state?wallet=${wallet}`,
-        { headers },
       );
       if (!res.ok) return null;
+      const ct = res.headers.get("content-type") || "";
+      if (!ct.includes("json")) return null;
       const data = await res.json();
       return {
         pendingOrders: data.pendingOrders || [],
@@ -484,7 +513,7 @@ export async function fetchUserPosition(
   });
 }
 
-/** Place a trade via the Swyftx proxy */
+/** Place a trade via the Swyftx proxy (PIN required in body) */
 export async function placeTrade(order: {
   assetCode: string;
   side: "buy" | "sell";
@@ -492,9 +521,11 @@ export async function placeTrade(order: {
   orderType: "market" | "limit" | "stop";
   triggerPrice?: number;
 }): Promise<{ success: boolean; error?: string }> {
+  const pin = getPin();
+  if (!pin) return { success: false, error: "PIN required for trading" };
+
   try {
-    const data = await proxyPost("orders/");
-    // The proxy would forward to Swyftx orders endpoint
+    const data = await proxyPost("orders/", { pin, ...order });
     return { success: !!data };
   } catch (err: any) {
     return { success: false, error: err.message || "Trade failed" };

@@ -5,8 +5,6 @@ import {
   FaHistory,
   FaHome,
   FaSync,
-  FaLock,
-  FaSignInAlt,
   FaRobot,
   FaUsers,
   FaMoneyBillWave,
@@ -16,8 +14,6 @@ import {
   FaWallet,
   FaArrowUp,
   FaArrowDown,
-  FaEye,
-  FaEyeSlash,
 } from "react-icons/fa";
 import { APP_NAME } from "@constants/config";
 import { useWallet } from "@hooks/useWallet";
@@ -34,9 +30,6 @@ import {
   fetchCashBalances,
   fetchUserPosition,
   fetchTraderState,
-  verifyPin,
-  hasPin,
-  clearPin,
   clearCache,
   type PortfolioAsset,
   type UserPosition,
@@ -54,13 +47,6 @@ const Trade = () => {
   const walletAddress = connection.wallet?.address || "";
   const isConnected = connection.connected && !!walletAddress;
   const isAdmin = isConnected && ADMIN_WALLETS.includes(walletAddress);
-
-  // PIN state
-  const [pinInput, setPinInput] = useState("");
-  const [pinVerified, setPinVerified] = useState(hasPin());
-  const [pinError, setPinError] = useState("");
-  const [pinLoading, setPinLoading] = useState(false);
-  const [showPinEntry, setShowPinEntry] = useState(false);
 
   // Data state
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
@@ -89,73 +75,58 @@ const Trade = () => {
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0);
   const userValue = userPosition ? userPosition.currentValue : 0;
 
-  // ── Load data ──────────────────────────────────────────
+  // ── Load data (no PIN needed — auth token is automatic) ──
   const loadData = useCallback(async () => {
     try {
       setApiStatus("connecting");
 
-      // Fetch prices (always works — CoinGecko)
-      const [priceData, changeData] = await Promise.all([
-        fetchPrices(),
-        fetchChanges(),
-      ]);
+      // Fetch portfolio from Swyftx via proxy (auto-auth) + prices from CoinGecko
+      const [portfolioData, priceData, changeData, cashData] =
+        await Promise.all([
+          fetchPortfolio(),
+          fetchPrices(),
+          fetchChanges(),
+          fetchCashBalances(),
+        ]);
+
       setPrices(priceData);
+      setUsdcBalance(cashData.usdc);
+      setAudBalance(cashData.aud);
 
-      // Fetch portfolio (needs PIN auth)
-      if (pinVerified) {
-        try {
-          const [portfolioData, cashData] = await Promise.all([
-            fetchPortfolio(),
-            fetchCashBalances(),
-          ]);
+      // Merge prices + changes into assets
+      const merged = portfolioData.map((a) => ({
+        ...a,
+        priceUsd: priceData[a.code] || a.priceUsd,
+        change24h: changeData[a.code] || a.change24h,
+        usdValue:
+          priceData[a.code] && a.balance > 0
+            ? a.balance * priceData[a.code]
+            : a.usdValue,
+      }));
 
-          // Merge prices + changes into assets
-          const merged = portfolioData.map((a) => ({
-            ...a,
-            priceUsd: priceData[a.code] || a.priceUsd,
-            change24h: changeData[a.code] || a.change24h,
-            usdValue:
-              priceData[a.code] && a.balance > 0
-                ? a.balance * priceData[a.code]
-                : a.usdValue,
-          }));
+      setAssets(merged);
+      setApiStatus(merged.length > 0 ? "connected" : "connected");
 
-          setAssets(merged);
-          setUsdcBalance(cashData.usdc);
-          setAudBalance(cashData.aud);
-          setApiStatus("connected");
-        } catch (err: any) {
-          if (err?.message === "AUTH_REQUIRED") {
-            clearPin();
-            setPinVerified(false);
-            setShowPinEntry(true);
-            setApiStatus("error");
-          } else {
-            setApiStatus("error");
-          }
-        }
-
-        // Fetch admin state from MongoDB
-        if (isAdmin) {
-          const state = await fetchTraderState(walletAddress);
-          setTraderState(state);
-        }
-
-        // Fetch user position
-        if (isConnected && !isAdmin) {
-          const pos = await fetchUserPosition(walletAddress);
-          setUserPosition(pos);
-        }
-      } else {
-        setApiStatus("error");
+      // Fetch admin state from MongoDB
+      if (isAdmin) {
+        const state = await fetchTraderState(walletAddress);
+        setTraderState(state);
       }
+
+      // Fetch user position
+      if (isConnected && !isAdmin) {
+        const pos = await fetchUserPosition(walletAddress);
+        setUserPosition(pos);
+      }
+
+      setApiStatus("connected");
     } catch (err) {
       console.error("Failed to load trade data:", err);
       setApiStatus("error");
     } finally {
       setLoading(false);
     }
-  }, [isConnected, isAdmin, walletAddress, pinVerified]);
+  }, [isConnected, isAdmin, walletAddress]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -165,7 +136,6 @@ const Trade = () => {
 
   // Auto-refresh prices every 30s
   useEffect(() => {
-    if (!pinVerified) return;
     const interval = setInterval(() => {
       Promise.all([fetchPrices(), fetchChanges()]).then(([p, c]) => {
         setPrices(p);
@@ -183,30 +153,7 @@ const Trade = () => {
       });
     }, 30_000);
     return () => clearInterval(interval);
-  }, [pinVerified]);
-
-  // Check if PIN already stored on mount
-  useEffect(() => {
-    if (!pinVerified && !hasPin()) {
-      setShowPinEntry(true);
-    }
-  }, [pinVerified]);
-
-  const handlePinSubmit = async () => {
-    if (!pinInput.trim()) return;
-    setPinLoading(true);
-    setPinError("");
-    const ok = await verifyPin(pinInput.trim());
-    if (ok) {
-      setPinVerified(true);
-      setShowPinEntry(false);
-      setPinInput("");
-      setRefreshKey((k) => k + 1);
-    } else {
-      setPinError("Invalid PIN. Please try again.");
-    }
-    setPinLoading(false);
-  };
+  }, []);
 
   const handleRefresh = () => {
     clearCache();
@@ -289,59 +236,8 @@ const Trade = () => {
 
         {/* ─── Main Content ───────────────────────── */}
         <div className="flex-1 pb-20">
-          {/* PIN Entry */}
-          {showPinEntry && !pinVerified && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex flex-col items-center justify-center py-16"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-6">
-                <FaLock className="w-6 h-6 text-blue-400" />
-              </div>
-              <h2 className="text-xl font-bold text-white mb-2 font-display">
-                BUDJU Trading Bot
-              </h2>
-              <p className="text-sm text-slate-500 mb-8 text-center max-w-xs">
-                Enter your PIN to connect to the trading board. All data is
-                stored securely in the FLUB backend.
-              </p>
-
-              <div className="w-full max-w-xs space-y-3">
-                <div className="relative">
-                  <input
-                    type="password"
-                    value={pinInput}
-                    onChange={(e) => setPinInput(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handlePinSubmit()}
-                    placeholder="Enter PIN"
-                    className="w-full px-4 py-3 bg-slate-800/60 border border-slate-700/50 rounded-xl text-white text-center text-lg font-mono tracking-[0.5em] placeholder:tracking-normal placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20"
-                    autoFocus
-                  />
-                </div>
-                {pinError && (
-                  <p className="text-xs text-red-400 text-center">{pinError}</p>
-                )}
-                <button
-                  onClick={handlePinSubmit}
-                  disabled={pinLoading || !pinInput.trim()}
-                  className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {pinLoading ? (
-                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                  ) : (
-                    <>
-                      <FaSignInAlt size={12} />
-                      Unlock Trading Board
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          )}
-
           {/* Loading */}
-          {pinVerified && loading && (
+          {loading && (
             <div className="flex flex-col items-center justify-center py-20">
               <div className="w-10 h-10 rounded-full border-2 border-blue-500 border-t-transparent animate-spin mb-4" />
               <span className="text-sm text-slate-500">
@@ -351,7 +247,7 @@ const Trade = () => {
           )}
 
           {/* Main Dashboard */}
-          {pinVerified && !loading && (
+          {!loading && (
             <div className="space-y-4">
               {/* ─── Portfolio Chart ─────────────── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
@@ -467,7 +363,8 @@ const Trade = () => {
                       },
                       {
                         label: "Pool Value",
-                        value: totalPoolValue > 0 ? formatUsd(totalPoolValue) : "—",
+                        value:
+                          totalPoolValue > 0 ? formatUsd(totalPoolValue) : "—",
                         icon: FaWallet,
                         color: "text-emerald-400",
                       },
@@ -581,9 +478,12 @@ const Trade = () => {
               )}
 
               {/* ─── Not Connected Banner ──────── */}
-              {!isConnected && pinVerified && (
+              {!isConnected && (
                 <div className="rounded-2xl border border-slate-700/30 bg-[#0f172a]/60 p-5 text-center">
-                  <FaWallet className="mx-auto mb-3 text-slate-600" size={24} />
+                  <FaWallet
+                    className="mx-auto mb-3 text-slate-600"
+                    size={24}
+                  />
                   <p className="text-sm font-medium text-slate-400 mb-1">
                     Connect your wallet
                   </p>
@@ -654,7 +554,9 @@ const Trade = () => {
                   <FaTrophy
                     size={16}
                     className={
-                      activeNav === "leaders" ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" : ""
+                      activeNav === "leaders"
+                        ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]"
+                        : ""
                     }
                   />
                   <span className="text-[10px] font-semibold">Leaders</span>
@@ -696,7 +598,9 @@ const Trade = () => {
                   <FaHistory
                     size={16}
                     className={
-                      activeNav === "activity" ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]" : ""
+                      activeNav === "activity"
+                        ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]"
+                        : ""
                     }
                   />
                   <span className="text-[10px] font-semibold">Activity</span>
