@@ -13,7 +13,7 @@ export const BURN_ADDRESS_ACCOUNT =
   
 export const BANK_ADDRESS =
   import.meta.env.VITE_BANK_ADDRESS ||
-  "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+  "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
 
 // Platform links
 export const DEX_LINK =

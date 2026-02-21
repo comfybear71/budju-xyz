@@ -19,7 +19,7 @@ ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 // Constants
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
 const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+const BANK_OF_BUDJU_ADDRESS = "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
 
 // Solana connection
 const connection = new Connection(HELIUS_RPC_ENDPOINT, {

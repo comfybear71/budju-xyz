@@ -26,7 +26,7 @@ const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
 const BURN_TOKEN_ACCOUNT = "9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const RAYDIUM_AUTHORITY_V4 = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
-const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+const BANK_OF_BUDJU_ADDRESS = "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
 const DEVELOPER_VAULT_ADDRESS = "6H4S8ZnSuE7NXpm6V77ZvrB7Zk6kSZLucVWFusuZsTCA";
 
 // Create Solana connection (web3.js needs a full URL, so use the proxy's full URL or Helius)
