@@ -252,13 +252,13 @@ async function fetchTokenSupply(tokenAddress: string): Promise<number> {
   }
 }
 
-// Fetch burned amount via targeted account lookup (much lighter than full scan)
-async function fetchBurnAmount(burnAddress: string, tokenAddress: string): Promise<number> {
+// Fetch token balance for any wallet address
+async function fetchTokenBalance(walletAddress: string, tokenAddress: string): Promise<number> {
   try {
-    const burnPublicKey = new PublicKey(burnAddress);
+    const walletPublicKey = new PublicKey(walletAddress);
     const tokenPublicKey = new PublicKey(tokenAddress);
     const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      burnPublicKey,
+      walletPublicKey,
       { mint: tokenPublicKey },
     );
     return tokenAccounts.value.reduce(
@@ -267,10 +267,13 @@ async function fetchBurnAmount(burnAddress: string, tokenAddress: string): Promi
       0,
     );
   } catch (error) {
-    console.error("Error fetching burn amount:", error);
+    console.error(`Error fetching token balance for ${walletAddress}:`, error);
     return 0;
   }
 }
+
+// Alias for backward compatibility
+const fetchBurnAmount = fetchTokenBalance;
 
 // Fetch holder count using Helius DAS getTokenAccounts (requires API key)
 async function fetchHolderCount(tokenAddress: string): Promise<number> {
@@ -338,7 +341,7 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult, jupTokenResult] =
+    const [dexResult, supplyResult, burnedResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumResult, bankResult, communityResult] =
       await Promise.allSettled([
         fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
         fetchTokenSupply(tokenAddress),             // total supply (single lightweight RPC call)
@@ -347,6 +350,9 @@ export async function fetchHeliusTokenMetrics(
         fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v3
         fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
         fetchJupiterTokenData(tokenAddress),        // enriched data via Jupiter Tokens v2
+        fetchTokenBalance(RAYDIUM_VAULT_ADDRESS, tokenAddress),   // Raydium vault balance
+        fetchTokenBalance(BANK_OF_BUDJU_ADDRESS, tokenAddress),   // Bank of BUDJU balance
+        fetchTokenBalance(COMMUNITY_VAULT_ADDRESS, tokenAddress), // Pool of BUDJU balance
       ]);
 
     const dex = dexResult.status === "fulfilled"
@@ -358,6 +364,9 @@ export async function fetchHeliusTokenMetrics(
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
     const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
     const jupToken = jupTokenResult.status === "fulfilled" ? jupTokenResult.value : null;
+    const raydiumVault = raydiumResult.status === "fulfilled" ? raydiumResult.value : 0;
+    const bankOfBudju = bankResult.status === "fulfilled" ? bankResult.value : 0;
+    const communityVault = communityResult.status === "fulfilled" ? communityResult.value : 0;
 
     // Use first available price: DexScreener → Jupiter Price → Jupiter Tokens → GeckoTerminal
     const price = dex.price > 0
@@ -367,7 +376,7 @@ export async function fetchHeliusTokenMetrics(
         : jupToken?.price && jupToken.price > 0
           ? jupToken.price
           : geckoPrice;
-    const circulatingSupply = totalSupply - burned;
+    const circulatingSupply = totalSupply - burned - raydiumVault - bankOfBudju - communityVault;
     // Use DexScreener market cap if available, then Jupiter Tokens, else compute from price × supply
     const marketCap = dex.marketCap > 0
       ? dex.marketCap
@@ -390,9 +399,9 @@ export async function fetchHeliusTokenMetrics(
       volume24h,
       totalSupply,
       burned,
-      raydiumVault: 0,
-      bankOfBudju: 0,
-      communityVault: 0,
+      raydiumVault,
+      bankOfBudju,
+      communityVault,
       circulatingSupply,
     };
   } catch (error) {
