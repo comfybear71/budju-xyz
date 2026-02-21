@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { Bar } from "react-chartjs-2";
@@ -20,9 +20,6 @@ ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
 const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
-
-// Validate API key
-if (!HELIUS_API_KEY) throw new Error("Missing Helius API key");
 
 // Solana connection
 const connection = new Connection(HELIUS_RPC_ENDPOINT, {

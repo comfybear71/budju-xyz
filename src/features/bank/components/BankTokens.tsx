@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from "react";
-import { motion } from "framer-motion"; // Corrected import from your code
+import { motion } from "motion/react";
 import { gsap } from "gsap";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
@@ -8,11 +8,6 @@ import { useTheme } from "@/context/ThemeContext";
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
 const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-
-// Validate API keys
-if (!HELIUS_API_KEY) {
-  throw new Error("Missing API key for Helius");
-}
 
 // Bank of Budju address
 const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
