@@ -176,6 +176,19 @@ const Bank = () => {
 
       <div className="budju-section-divider" />
 
+      {/* ── Chart ── */}
+      <BankChart />
+
+      {/* ── Banner ── */}
+      <BudjuParadeBanner />
+
+      <div className="budju-section-divider" />
+
+      {/* ── Transactions ── */}
+      <BankTransactions />
+
+      <div className="budju-section-divider" />
+
       {/* ── How It Works ── */}
       <section className="py-12 md:py-16 px-4">
         <div className="max-w-7xl mx-auto">
@@ -243,19 +256,6 @@ const Bank = () => {
           </div>
         </div>
       </section>
-
-      <div className="budju-section-divider" />
-
-      {/* ── Chart ── */}
-      <BankChart />
-
-      {/* ── Banner ── */}
-      <BudjuParadeBanner />
-
-      <div className="budju-section-divider" />
-
-      {/* ── Transactions ── */}
-      <BankTransactions />
 
       {/* ── Bottom CTA ── */}
       <section className="py-16 md:py-20 px-4">
