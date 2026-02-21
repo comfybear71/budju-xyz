@@ -43,11 +43,14 @@ const features = [
   },
 ];
 
-const BOT_VIDEO_URL = import.meta.env.VITE_BOT_VIDEO_URL || "";
+// Video URL: checks env var first, then falls back to local file in /public/videos/
+const BOT_VIDEO_URL =
+  import.meta.env.VITE_BOT_VIDEO_URL || "/videos/bot-demo.mp4";
 
 const BotAccess = () => {
   const { isDarkMode } = useTheme();
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [videoAvailable, setVideoAvailable] = useState(!!BOT_VIDEO_URL);
 
   return (
     <section className="py-16 md:py-24 px-4">
@@ -317,7 +320,7 @@ const BotAccess = () => {
             />
 
             <div className="relative aspect-video w-full">
-              {BOT_VIDEO_URL ? (
+              {BOT_VIDEO_URL && videoAvailable ? (
                 <>
                   {!isVideoPlaying ? (
                     <div
@@ -362,6 +365,7 @@ const BotAccess = () => {
                     autoPlay={isVideoPlaying}
                     playsInline
                     onPlay={() => setIsVideoPlaying(true)}
+                    onError={() => setVideoAvailable(false)}
                     poster=""
                   />
                 </>
