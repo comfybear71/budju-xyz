@@ -1,312 +1,42 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
-import { Connection, PublicKey } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { useTheme } from "@/context/ThemeContext";
+import {
+  fetchBankHoldings,
+  type TokenHolding,
+} from "../services/bankHoldings";
 
-// Constants for API keys and endpoints
-const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const RPC_ENDPOINT = HELIUS_API_KEY
-  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
-  : "https://api.mainnet-beta.solana.com";
-
-// Bank of Budju address
-const BANK_OF_BUDJU_ADDRESS = "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po";
-
-// Create Solana connection
-const connection = new Connection(RPC_ENDPOINT, {
-  commitment: "confirmed",
-  confirmTransactionInitialTimeout: 60000,
-});
-
-// Simple in-memory cache
-const cache: Record<string, { data: any; expiry: number }> = {};
-
-function getCachedData(key: string): any | null {
-  const cached = cache[key];
-  if (cached && Date.now() < cached.expiry) {
-    return cached.data;
-  }
-  return null;
-}
-
-function setCachedData(key: string, data: any, ttl: number): void {
-  cache[key] = { data, expiry: Date.now() + ttl };
-}
-
-// Optimized retryFetch with exponential backoff
-async function retryFetch(
-  url: string,
-  options: RequestInit,
-  retries = 3,
-  delay = 1000,
-): Promise<Response> {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        if (response.status === 429 && attempt < retries) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, delay * Math.pow(2, attempt)),
-          );
-          continue;
-        }
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      return response;
-    } catch (error) {
-      if (attempt === retries) {
-        if (error instanceof Error) {
-          throw new Error(`Failed after ${retries} attempts: ${error.message}`);
-        } else {
-          throw new Error(`Failed after ${retries} attempts: ${String(error)}`);
-        }
-      }
-      await new Promise((resolve) =>
-        setTimeout(resolve, delay * Math.pow(2, attempt)),
-      );
-    }
-  }
-  throw new Error("Unexpected error in retryFetch");
-}
-
-// Fetch token price with caching
-async function fetchTokenPrice(tokenAddress: string): Promise<number> {
-  const cacheKey = `price_${tokenAddress}`;
-  const cachedPrice = getCachedData(cacheKey);
-  if (cachedPrice !== null) {
-    return cachedPrice;
-  }
-
-  try {
-    const response = await retryFetch(
-      `https://api.jup.ag/price/v2?ids=${tokenAddress}`,
-      { headers: { Accept: "application/json" } },
-    );
-    const data = await response.json();
-    const price = Number(data.data[tokenAddress]?.price || 0);
-    if (!isNaN(price) && price > 0) {
-      setCachedData(cacheKey, price, 5 * 60 * 1000); // Cache for 5 minutes
-      return price;
-    }
-    throw new Error("No valid price from Jupiter");
-  } catch (error) {
-    console.error("Error fetching token price:", error);
-    return 0;
-  }
-}
-
-// Well-known token metadata (fallback when Helius DAS API unavailable)
-const KNOWN_TOKENS: Record<string, { name: string; symbol: string; logo: string; color: string }> = {
-  "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump": {
-    name: "BUDJU",
-    symbol: "BUDJU",
-    logo: "/images/tokens/budju.png",
-    color: "bg-pink-500",
-  },
-  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": {
-    name: "USD Coin",
-    symbol: "USDC",
-    logo: "/images/tokens/usdc.png",
-    color: "bg-blue-500",
-  },
-  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": {
-    name: "Tether USD",
-    symbol: "USDT",
-    logo: "/images/tokens/usdt.png",
-    color: "bg-green-500",
-  },
-  "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": {
-    name: "Raydium",
-    symbol: "RAY",
-    logo: "/images/tokens/ray.png",
-    color: "bg-purple-500",
-  },
-  "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh": {
-    name: "Wrapped BTC (Portal)",
-    symbol: "wBTC",
-    logo: "/images/tokens/btc.png",
-    color: "bg-orange-500",
-  },
-};
-
-// Fetch token metadata — uses known tokens first, then Helius DAS API
-async function fetchTokenMetadata(tokenAddress: string): Promise<{
-  name: string;
-  symbol: string;
-  logo: string;
-  color: string;
-}> {
-  // Check known tokens first
-  if (KNOWN_TOKENS[tokenAddress]) {
-    return KNOWN_TOKENS[tokenAddress];
-  }
-
-  const cacheKey = `metadata_${tokenAddress}`;
-  const cachedMetadata = getCachedData(cacheKey);
-  if (cachedMetadata !== null) {
-    return cachedMetadata;
-  }
-
-  // Only attempt Helius DAS API if we have an API key
-  if (HELIUS_API_KEY) {
-    try {
-      const heliusEndpoint = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-      const response = await retryFetch(heliusEndpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "token-metadata",
-          method: "getAsset",
-          params: { id: tokenAddress },
-        }),
-      });
-      const data = await response.json();
-      const tokenData = data.result?.content?.metadata || {};
-      const metadata = {
-        name: tokenData.name || "Unknown Token",
-        symbol: tokenData.symbol || "UNKNOWN",
-        logo: data.result?.content?.links?.image || "/images/tokens/default.png",
-        color: "bg-gray-500",
-      };
-      setCachedData(cacheKey, metadata, 60 * 60 * 1000);
-      return metadata;
-    } catch (error) {
-      console.error(`Error fetching metadata for token ${tokenAddress}:`, error);
-    }
-  }
-
-  return {
-    name: "Unknown Token",
-    symbol: "UNKNOWN",
-    logo: "/images/tokens/default.png",
-    color: "bg-gray-500",
-  };
-}
-
-// Static metadata for SOL
-const SOL_METADATA = {
-  name: "Solana",
-  symbol: "SOL",
-  logo: "https://cryptologos.cc/logos/solana-sol-logo.png", // Public SOL logo
-  color: "bg-purple-500",
-};
-
-// TokenHolding interface
-interface TokenHolding {
-  name: string;
-  symbol: string;
-  logo: string;
-  amount: number;
-  value: number;
-  color: string;
-}
-
-// Fetch bank holdings including SOL
-async function fetchBankHoldings(): Promise<TokenHolding[]> {
-  const cacheKey = `bank_holdings_${BANK_OF_BUDJU_ADDRESS}`;
-  const cachedHoldings = getCachedData(cacheKey);
-  if (cachedHoldings !== null) {
-    return cachedHoldings;
-  }
-
-  try {
-    const bankPublicKey = new PublicKey(BANK_OF_BUDJU_ADDRESS);
-
-    // Fetch SOL balance
-    const solBalanceLamports = await connection.getBalance(bankPublicKey);
-    const solAmount = solBalanceLamports / 1e9; // Convert lamports to SOL
-    const solPrice = await fetchTokenPrice(
-      "So11111111111111111111111111111111111111112",
-    ); // SOL mint address
-    const solHolding: TokenHolding = {
-      ...SOL_METADATA,
-      amount: solAmount,
-      value: solAmount * solPrice,
-    };
-
-    // Fetch SPL token accounts
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      bankPublicKey,
-      { programId: TOKEN_PROGRAM_ID },
-    );
-
-    const holdings: TokenHolding[] = [solHolding]; // Start with SOL
-    const fetchPromises = tokenAccounts.value.map(async (account) => {
-      const parsedInfo = account.account.data.parsed.info;
-      const tokenAddress = parsedInfo.mint;
-      const amount = parsedInfo.tokenAmount.uiAmount || 0;
-
-      if (amount < 0.0001) return; // Skip negligible amounts
-
-      const [price, metadata] = await Promise.all([
-        fetchTokenPrice(tokenAddress),
-        fetchTokenMetadata(tokenAddress),
-      ]);
-
-      const value = amount * price;
-      if (value > 0) {
-        holdings.push({
-          name: metadata.name,
-          symbol: metadata.symbol,
-          logo: metadata.logo,
-          amount,
-          value,
-          color: metadata.color,
-        });
-      }
-    });
-
-    await Promise.all(fetchPromises);
-
-    const sortedHoldings = holdings.sort((a, b) => b.value - a.value);
-    setCachedData(cacheKey, sortedHoldings, 10 * 60 * 1000); // Cache for 10 minutes
-    return sortedHoldings;
-  } catch (error) {
-    console.error("Error fetching bank holdings:", error);
-    return [];
-  }
-}
-
-// BankTokens Component with Dark Mode Support
 const BankTokens = () => {
   const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
   const cardsRef = useRef<HTMLDivElement>(null);
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadBankHoldings = async () => {
+    const load = async () => {
       try {
         setLoading(true);
+        setError(null);
         const holdings = await fetchBankHoldings();
         setTokenHoldings(holdings);
       } catch (err) {
         console.error("Failed to load bank holdings:", err);
-        setError("Failed to load bank holdings. Please try again later.");
+        setError(
+          err instanceof Error ? err.message : "Failed to load holdings",
+        );
       } finally {
         setLoading(false);
       }
     };
-
-    loadBankHoldings();
+    load();
   }, []);
 
   useEffect(() => {
     if (sectionRef.current && cardsRef.current && tokenHoldings.length > 0) {
       const cards = cardsRef.current.querySelectorAll(".token-card");
-
       gsap.fromTo(
         cards,
         { opacity: 0, y: 20, scale: 0.95 },
@@ -319,25 +49,6 @@ const BankTokens = () => {
           ease: "power2.out",
         },
       );
-
-      cards.forEach((card) => {
-        card.addEventListener("mouseenter", () => {
-          gsap.to(card, {
-            y: -5,
-            boxShadow: "0 10px 25px rgba(0, 0, 0, 0.3)",
-            duration: 0.3,
-          });
-        });
-
-        card.addEventListener("mouseleave", () => {
-          gsap.to(card, {
-            y: 0,
-            boxShadow: "0 4px 8px rgba(0, 0, 0, 0.2)",
-            duration: 0.5,
-            ease: "elastic.out(1, 0.5)",
-          });
-        });
-      });
     }
   }, [tokenHoldings]);
 
@@ -345,6 +56,20 @@ const BankTokens = () => {
     (sum, token) => sum + token.value,
     0,
   );
+
+  const handleRetry = () => {
+    setError(null);
+    setLoading(true);
+    fetchBankHoldings()
+      .then(setTokenHoldings)
+      .catch((err) => {
+        console.error(err);
+        setError(
+          err instanceof Error ? err.message : "Failed to load holdings",
+        );
+      })
+      .finally(() => setLoading(false));
+  };
 
   return (
     <section ref={sectionRef} className="py-16 md:py-24 px-4">
@@ -418,19 +143,7 @@ const BankTokens = () => {
           <div className="text-center mb-8">
             <p className="text-red-400 text-sm mb-2">{error}</p>
             <button
-              onClick={() => {
-                setError(null);
-                setLoading(true);
-                fetchBankHoldings()
-                  .then(setTokenHoldings)
-                  .catch((err) => {
-                    console.error(err);
-                    setError(
-                      "Failed to load bank holdings. Please try again later.",
-                    );
-                  })
-                  .finally(() => setLoading(false));
-              }}
+              onClick={handleRetry}
               className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors ${
                 isDarkMode
                   ? "bg-white/10 text-white hover:bg-white/20"
