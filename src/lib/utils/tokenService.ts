@@ -9,10 +9,12 @@ import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
 const CRYPTOCOMPARE_API_KEY = import.meta.env.VITE_CRYPTOCOMPARE_API_KEY || "";
 const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
+const HELIUS_RPC_ENDPOINT = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : "https://api.mainnet-beta.solana.com";
 
 if (!HELIUS_API_KEY) {
-  console.warn("Missing HELIUS_API_KEY - holders count will not be available");
+  console.warn("Missing HELIUS_API_KEY - using public Solana RPC, holders count will not be available");
 }
 
 // Token and wallet addresses
