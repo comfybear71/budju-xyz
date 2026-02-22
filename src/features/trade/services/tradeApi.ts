@@ -498,10 +498,17 @@ export async function placeTrade(order: {
     });
 
     const data = await res.json();
+
+    // Validate: HTTP must be OK AND response must contain an orderId/order confirmation
+    // AND must not have error fields in the body (Swyftx can return 200 with errors)
+    const hasError = data.error || data.message?.toLowerCase().includes("error") || data.message?.toLowerCase().includes("fail");
+    const hasOrderId = !!(data.orderId || data.orderUuid || data.order_id);
+    const isSuccess = res.ok && !hasError && hasOrderId;
+
     return {
-      success: res.ok,
-      orderId: data.orderId,
-      error: res.ok ? undefined : (data.error || data.message || JSON.stringify(data)),
+      success: isSuccess,
+      orderId: data.orderId || data.orderUuid || data.order_id,
+      error: isSuccess ? undefined : (data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : JSON.stringify(data))),
     };
   } catch (err: any) {
     return { success: false, error: err.message || "Trade failed" };

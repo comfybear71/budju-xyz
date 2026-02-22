@@ -205,47 +205,15 @@ export class AutoTrader {
       amount: (Number(e.qty ?? e.quantity) || 0) * (Number(e.price) || 0),
     }));
 
-    // Load bot active state and attempt resume
+    // Load bot active state — but do NOT auto-resume monitoring.
+    // User must explicitly press Start to begin trading.
+    // This prevents phantom trades on app reload.
     if (state.autoBotActive || state._rawAutoActive) {
-      const autoActive = state._rawAutoActive || {};
-
-      // Restore tier active state
-      const savedTierActive = autoActive.tierActive || {};
-      for (let t = 1; t <= 3; t++) {
-        const key = String(t);
-        this.tierActive[t] = !!(savedTierActive[key] ?? savedTierActive[t]);
-      }
-
-      // Restore targets
-      const savedTargets = autoActive.targets || {};
+      // Keep tiers inactive — require explicit Start
+      this.tierActive = { 1: false, 2: false, 3: false };
       this.targets = {};
-      for (const [code, val] of Object.entries(savedTargets)) {
-        if (typeof val === "object" && val !== null && (val as any).buy && (val as any).sell) {
-          this.targets[code] = val as CoinTargets;
-        }
-      }
-
-      // Remove coins on cooldown from targets
-      for (const code of Object.keys(this.targets)) {
-        if (this._isOnCooldown(code)) {
-          delete this.targets[code];
-        }
-      }
-
-      // Device ownership check
-      const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
-      const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
-
-      if (otherDevice && freshHeartbeat) {
-        this._isOwner = false;
-        this._log("Auto-trading active on another device — viewing only", "info");
-      } else if (this.isActive) {
-        // Take ownership and resume
-        this._isOwner = true;
-        this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins`, "success");
-        this._saveActiveState();
-        this._ensureMonitoring();
-      }
+      this._isOwner = false;
+      this._log("Auto-trader loaded — press Start on a tier to begin", "info");
     }
 
     // Ensure default assignments if none exist
