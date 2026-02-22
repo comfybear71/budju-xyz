@@ -64,28 +64,11 @@ export interface UserPosition {
   totalDeposited: number;
 }
 
-export interface PendingOrder {
-  id: string;
-  asset: string;
-  type: string; // 'LIMIT_BUY' | 'LIMIT_SELL' | 'STOP_LIMIT_BUY' | 'STOP_LIMIT_SELL'
-  triggerPrice: number;
-  amount: number;
-  quantity: number;
-  createdAt: string;
-  source: "local" | "swyftx";
-}
-
-export interface AutoTier {
-  id: number;
-  deviation: number;
-  allocation: number;
-  coins: string[];
-  active: boolean;
-}
-
 export interface TraderState {
-  pendingOrders: PendingOrder[];
-  autoTiers: AutoTier[];
+  enrichedOrders: any[];
+  autoTierAssets: Record<string, { name?: string; deviation: number; allocation: number; active?: boolean; coins?: string[] }>;
+  autoTierAssignments: Record<string, string>;
+  autoBotActive: boolean;
   autoCooldowns: Record<string, number>;
   autoTradeLog: Array<{
     coin: string;
@@ -94,6 +77,7 @@ export interface TraderState {
     price: number;
     timestamp: string;
   }>;
+  currentAutoTier?: string;
 }
 
 // ── Asset config ───────────────────────────────────────────
@@ -470,18 +454,13 @@ export async function fetchTraderState(): Promise<TraderState | null> {
       if (!res.ok) return null;
       const data = await res.json();
       return {
-        pendingOrders: data.pendingOrders || [],
-        autoTiers: Array.isArray(data.autoTiers)
-          ? data.autoTiers
-          : Object.entries(data.autoTiers || {}).map(([key, val]: [string, any], i) => ({
-              id: i + 1,
-              deviation: val.deviation || 0,
-              allocation: val.allocation || 0,
-              coins: val.coins || [],
-              active: val.active !== false,
-            })),
+        enrichedOrders: data.enrichedOrders || data.pendingOrders || [],
+        autoTierAssets: data.autoTierAssets || data.autoTiers || {},
+        autoTierAssignments: data.autoTierAssignments || {},
+        autoBotActive: data.autoBotActive ?? false,
         autoCooldowns: data.autoCooldowns || {},
         autoTradeLog: data.autoTradeLog || [],
+        currentAutoTier: data.currentAutoTier,
       };
     } catch {
       return null;

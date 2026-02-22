@@ -12,6 +12,8 @@ import { useWallet } from "@hooks/useWallet";
 import PortfolioChart from "./components/PortfolioChart";
 import HoldingsList from "./components/HoldingsList";
 import TradePanel from "./components/TradePanel";
+import PendingOrdersView from "./components/PendingOrdersView";
+import AutoTraderView from "./components/AutoTraderView";
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -21,11 +23,13 @@ import {
   fetchCashBalances,
   fetchAdminStats,
   fetchUserPosition,
+  fetchTraderState,
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
   type UserPosition,
+  type TraderState,
 } from "./services/tradeApi";
 
 // Admin wallets
@@ -48,6 +52,7 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
+  const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<
     "connected" | "connecting" | "error"
@@ -60,6 +65,8 @@ const Trade = () => {
   const [showTransactions, setShowTransactions] = useState(false);
   const [holdingsView, setHoldingsView] = useState<"mine" | "pool">("pool");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showPendingOrders, setShowPendingOrders] = useState(false);
+  const [showAutoTrader, setShowAutoTrader] = useState(false);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -117,6 +124,10 @@ const Trade = () => {
         setPoolStats(stats);
       }
 
+      // Fetch trader state for insight cards (pending count, bot status)
+      const ts = await fetchTraderState();
+      setTraderState(ts);
+
       // Fetch user position if connected (non-admin)
       if (isConnected && !isAdmin && poolVal > 0) {
         const pos = await fetchUserPosition(walletAddress, poolVal);
@@ -166,7 +177,7 @@ const Trade = () => {
 
   const handleSelectAsset = (code: string) => {
     setSelectedAsset(code);
-    setShowTradePanel(true);
+    if (isAdmin) setShowTradePanel(true);
   };
 
   const handleNavClick = (nav: "leaders" | "home" | "activity") => {
@@ -261,9 +272,9 @@ const Trade = () => {
                   subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
                 />
 
-                {/* Tap coin to trade / Connect wallet to join */}
+                {/* Admin: tap coin to trade / User: connect to join */}
                 <p className="text-center text-xs text-slate-500 mt-3">
-                  {!isConnected ? "Connect wallet to join" : "Tap coin to trade"}
+                  {isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
                 </p>
 
                 {/* Mine/Pool toggle for connected users */}
@@ -295,42 +306,87 @@ const Trade = () => {
 
               {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                {/* Quick trade buttons — all 3 visible to everyone */}
-                <div className="flex gap-2 mb-3">
-                  <button
-                    onClick={() => {
-                      if (assets.length > 0) {
-                        setSelectedAsset(assets[0].code);
-                        setShowTradePanel(true);
-                      }
-                    }}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
-                  >
-                    ⚡ Instant
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (assets.length > 0) {
-                        setSelectedAsset(assets[0].code);
-                        setShowTradePanel(true);
-                      }
-                    }}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
-                  >
-                    ⚙ Trigger
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (assets.length > 0) {
-                        setSelectedAsset(assets[0].code);
-                        setShowTradePanel(true);
-                      }
-                    }}
-                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
-                  >
-                    ✨ Auto
-                  </button>
-                </div>
+                {/* Admin: 3 quick-nav buttons (Instant/Trigger/Auto) → TradePanel */}
+                {isAdmin && (
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => {
+                        if (assets.length > 0) {
+                          setSelectedAsset(assets[0].code);
+                          setShowTradePanel(true);
+                        }
+                      }}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
+                    >
+                      ⚡ Instant
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (assets.length > 0) {
+                          setSelectedAsset(assets[0].code);
+                          setShowTradePanel(true);
+                        }
+                      }}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
+                    >
+                      ⚙ Trigger
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (assets.length > 0) {
+                          setSelectedAsset(assets[0].code);
+                          setShowTradePanel(true);
+                        }
+                      }}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
+                    >
+                      ✨ Auto
+                    </button>
+                  </div>
+                )}
+
+                {/* Non-admin: 2 insight cards (Orders / Auto Trader) → read-only modals */}
+                {!isAdmin && (
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setShowPendingOrders(true)}
+                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300">Orders</div>
+                        <div className="text-[10px] font-bold text-purple-400">
+                          {traderState?.enrichedOrders?.length
+                            ? `${traderState.enrichedOrders.length} pending`
+                            : "None"}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setShowAutoTrader(true)}
+                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+                          <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
+                        <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
+                          {traderState?.autoBotActive ? "Active" : "Inactive"}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                )}
 
                 {/* Cash Balances - visible to all */}
                 <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
@@ -415,9 +471,9 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── Trade Panel (slide-in, read-only for non-admin) ─── */}
+              {/* ─── Trade Panel (admin only) ─── */}
               <AnimatePresence>
-                {showTradePanel && selectedAsset && (
+                {showTradePanel && isAdmin && selectedAsset && (
                   <motion.div
                     initial={{ opacity: 0, x: "100%" }}
                     animate={{ opacity: 1, x: 0 }}
@@ -523,6 +579,16 @@ const Trade = () => {
         isOpen={showTransactions}
         onClose={() => { setShowTransactions(false); setActiveNav("home"); }}
         walletAddress={isConnected ? walletAddress : ADMIN_WALLETS[0]}
+      />
+      <PendingOrdersView
+        isOpen={showPendingOrders}
+        onClose={() => setShowPendingOrders(false)}
+        prices={prices}
+      />
+      <AutoTraderView
+        isOpen={showAutoTrader}
+        onClose={() => setShowAutoTrader(false)}
+        prices={prices}
       />
     </main>
   );
