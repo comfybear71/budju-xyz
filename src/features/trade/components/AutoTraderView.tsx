@@ -13,6 +13,7 @@ interface Props {
 const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -20,7 +21,26 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
     fetchTraderState().then((data) => {
       setState(data);
       setLoading(false);
+      setCountdown(30);
     });
+  }, [isOpen]);
+
+  // Auto-refresh + countdown while open
+  useEffect(() => {
+    if (!isOpen) return;
+    const refreshInterval = setInterval(() => {
+      fetchTraderState().then((data) => {
+        if (data) setState(data);
+        setCountdown(30);
+      });
+    }, 30_000);
+    const countdownInterval = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : 0));
+    }, 1_000);
+    return () => {
+      clearInterval(refreshInterval);
+      clearInterval(countdownInterval);
+    };
   }, [isOpen]);
 
   // Build monitoring data from tier config + assignments
@@ -145,17 +165,22 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                 </div>
               ) : (
                 <>
-                  {/* Monitoring count banner */}
-                  {monitoringCount > 0 && (
-                    <div className="rounded-lg p-2 mb-3" style={{ background: "rgba(168,85,247,0.1)" }}>
-                      <span className="text-[10px] font-bold text-slate-300">
-                        Monitoring {monitoringCount} coins
-                      </span>
-                    </div>
-                  )}
+                  {/* Monitoring count banner with countdown */}
+                  <div className="rounded-lg p-2 mb-3 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
+                    <span className="text-[10px] font-bold text-slate-300">
+                      Monitoring {monitoringCount} coins
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {countdown}s
+                    </span>
+                  </div>
 
                   {/* Coin monitoring grouped by tier */}
-                  {Object.entries(grouped).map(([tierKey, coins]) => {
+                  {monitoringCount === 0 ? (
+                    <div className="text-[10px] text-slate-500 text-center py-4 mb-3">
+                      No coins configured for monitoring yet.
+                    </div>
+                  ) : Object.entries(grouped).map(([tierKey, coins]) => {
                     const tierCfg = (state?.autoTierAssets || {})[tierKey] || {};
                     const tierName = tierCfg.name || tierKey.replace("tier", "Tier ");
                     const dev = Number(tierCfg.deviation) || 0;

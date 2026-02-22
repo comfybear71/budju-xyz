@@ -42,6 +42,8 @@ const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
   const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierData>>>({});
   // Which tier has add-coin picker open
   const [addCoinTier, setAddCoinTier] = useState<string | null>(null);
+  // Countdown timer for next refresh
+  const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
     setLoading(true);
@@ -51,14 +53,21 @@ const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
     });
   }, []);
 
-  // Auto-refresh state every 30s
+  // Auto-refresh state every 30s with countdown
   useEffect(() => {
-    const interval = setInterval(() => {
+    const refreshInterval = setInterval(() => {
       fetchTraderState().then((data) => {
         if (data) setState(data);
+        setCountdown(30);
       });
     }, 30_000);
-    return () => clearInterval(interval);
+    const countdownInterval = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : 0));
+    }, 1_000);
+    return () => {
+      clearInterval(refreshInterval);
+      clearInterval(countdownInterval);
+    };
   }, []);
 
   const botActive = state?.autoBotActive ?? false;
@@ -414,16 +423,21 @@ const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
         )}
 
         {/* ── Monitoring header ── */}
-        {monitoringCount > 0 && (
-          <div className="rounded-lg p-2 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
-            <span className="text-[10px] font-bold text-slate-300">
-              Monitoring {monitoringCount} coins
-            </span>
-          </div>
-        )}
+        <div className="rounded-lg p-2 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
+          <span className="text-[10px] font-bold text-slate-300">
+            Monitoring {monitoringCount} coins
+          </span>
+          <span className="text-[10px] font-mono text-slate-500">
+            {countdown}s
+          </span>
+        </div>
 
         {/* ── Coin monitoring grouped by tier ── */}
-        {Object.entries(grouped).map(([tierKey, coins]) => {
+        {monitoringCount === 0 ? (
+          <div className="text-[10px] text-slate-500 text-center py-4">
+            No coins assigned to tiers yet. Add coins to tiers above to start monitoring.
+          </div>
+        ) : Object.entries(grouped).map(([tierKey, coins]) => {
           const tier = tiers.find((t) => t.key === tierKey);
           const tierName = tier?.name || tierKey.replace("tier", "Tier ");
 

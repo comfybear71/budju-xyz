@@ -457,7 +457,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         enrichedOrders: data.enrichedOrders || data.pendingOrders || [],
         autoTierAssets: data.autoTierAssets || data.autoTiers || {},
         autoTierAssignments: data.autoTierAssignments || {},
-        autoBotActive: data.autoBotActive ?? false,
+        autoBotActive: data.autoBotActive ?? data.autoActive ?? false,
         autoCooldowns: data.autoCooldowns || {},
         autoTradeLog: data.autoTradeLog || [],
         currentAutoTier: data.currentAutoTier,
