@@ -174,11 +174,13 @@ const HoldingsList = ({
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2, delay: index * 0.03 }}
-              onClick={() => onSelectAsset(asset.code)}
-              className={`relative rounded-xl p-3.5 cursor-pointer transition-all duration-200 border ${
-                isSelected
-                  ? "bg-blue-500/[0.08] border-blue-500/20"
-                  : "bg-slate-800/30 border-transparent hover:bg-slate-800/50 hover:border-slate-700/30"
+              onClick={isAdmin ? () => onSelectAsset(asset.code) : undefined}
+              className={`relative rounded-xl p-3.5 transition-all duration-200 border ${
+                isAdmin
+                  ? isSelected
+                    ? "bg-blue-500/[0.08] border-blue-500/20 cursor-pointer"
+                    : "bg-slate-800/30 border-transparent hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"
+                  : "bg-slate-800/30 border-transparent"
               }`}
             >
               <div className="flex items-center gap-3">
