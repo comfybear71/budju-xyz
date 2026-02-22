@@ -628,6 +628,44 @@ export function clearCache() {
   for (const key of Object.keys(cache)) delete cache[key];
 }
 
+/** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
+export async function recordDeposit(
+  walletAddress: string,
+  amountUsd: number,
+  totalPoolValue: number,
+  currency: string = "USDC",
+): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
+  try {
+    const txHash = `admin_deposit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const res = await fetchWithRetry("/api/deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        walletAddress,
+        amount: amountUsd,
+        txHash,
+        totalPoolValue,
+        currency,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Deposit recording failed" };
+    }
+
+    // Invalidate cached stats so next fetch reflects new shares
+    delete cache["admin_stats"];
+    delete cache[`position_${walletAddress}`];
+
+    alog.log(`Deposit recorded: $${amountUsd.toFixed(2)} ${currency} → ${data.shares?.toFixed(2)} shares at NAV $${data.nav?.toFixed(4)}`, "success");
+    return { success: true, shares: data.shares, nav: data.nav };
+  } catch (err: any) {
+    alog.log(`Deposit error: ${err.message}`, "error");
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 // ── Additional API functions (ported from FLUB) ───────────
 
 /** Record a trade to MongoDB */

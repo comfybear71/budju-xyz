@@ -16,6 +16,7 @@ import TriggerTradeView from "./components/TriggerTradeView";
 import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
+import RecordDepositView from "./components/RecordDepositView";
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -75,6 +76,7 @@ const Trade = () => {
   const [showAutoTrader, setShowAutoTrader] = useState(false);
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
+  const [showDeposit, setShowDeposit] = useState(false);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -294,8 +296,8 @@ const Trade = () => {
 
           {!loading && (
             <div className="space-y-4">
-              {/* ─── Portfolio Chart (hidden when Auto Trade or Trigger is open) ────── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && (
+              {/* ─── Portfolio Chart (hidden when Auto Trade, Trigger, or Deposit is open) ────── */}
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <PortfolioChart
                     assets={assets}
@@ -350,7 +352,7 @@ const Trade = () => {
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
                 {/* Admin: 3 quick-nav buttons (Instant/Trigger/Auto) → TradePanel */}
                 {isAdmin && (
-                  <div className={showAutoAdmin || showTriggerView ? "flex gap-2" : "flex gap-2 mb-3"}>
+                  <div className={showAutoAdmin || showTriggerView || showDeposit ? "flex gap-2" : "flex gap-2 mb-3"}>
                     <button
                       onClick={() => {
                         if (assets.length > 0) {
@@ -358,6 +360,7 @@ const Trade = () => {
                           setShowTradePanel(true);
                           setShowAutoAdmin(false);
                           setShowTriggerView(false);
+                          setShowDeposit(false);
                         }
                       }}
                       className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
@@ -369,6 +372,7 @@ const Trade = () => {
                         setShowTriggerView(!showTriggerView);
                         setShowTradePanel(false);
                         setShowAutoAdmin(false);
+                        setShowDeposit(false);
                       }}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
                         showTriggerView
@@ -383,6 +387,7 @@ const Trade = () => {
                         setShowAutoAdmin(!showAutoAdmin);
                         setShowTradePanel(false);
                         setShowTriggerView(false);
+                        setShowDeposit(false);
                       }}
                       className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
                         showAutoAdmin
@@ -391,6 +396,21 @@ const Trade = () => {
                       }`}
                     >
                       ✨ Auto
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowDeposit(!showDeposit);
+                        setShowTradePanel(false);
+                        setShowTriggerView(false);
+                        setShowAutoAdmin(false);
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                        showDeposit
+                          ? "from-green-500/30 to-green-600/20 border-green-500/50 text-green-300"
+                          : "from-green-500/20 to-green-600/10 border-green-500/30 text-green-400"
+                      }`}
+                    >
+                      + Deposit
                     </button>
                   </div>
                 )}
@@ -438,8 +458,8 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Cash Balances + Stats — hidden when Auto Trade or Trigger is open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && isAdmin && (
+                {/* Cash Balances + Stats — hidden when Auto Trade, Trigger, or Deposit is open */}
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && isAdmin && (
                   <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
@@ -458,8 +478,8 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Pool Stats Grid - hidden when Auto Trade or Trigger is open */}
-                {!((showAutoAdmin || showTriggerView) && isAdmin) && poolStats && (
+                {/* Pool Stats Grid - hidden when Auto Trade, Trigger, or Deposit is open */}
+                {!((showAutoAdmin || showTriggerView || showDeposit) && isAdmin) && poolStats && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {[
@@ -571,8 +591,21 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
+              {/* ─── Record Deposit View (admin only) ─── */}
+              <AnimatePresence>
+                {showDeposit && isAdmin && (
+                  <RecordDepositView
+                    adminWallet={walletAddress}
+                    totalPoolValue={totalPoolValue}
+                    poolStats={poolStats}
+                    onClose={() => setShowDeposit(false)}
+                    onSuccess={handleRefresh}
+                  />
+                )}
+              </AnimatePresence>
+
               {/* ─── Holdings (hidden when Auto Trade or Trigger is open) ── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && (
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && (
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={assets}
