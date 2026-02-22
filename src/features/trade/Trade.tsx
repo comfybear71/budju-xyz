@@ -4,9 +4,6 @@ import {
   FaSync,
   FaArrowUp,
   FaArrowDown,
-  FaShoppingCart,
-  FaExchangeAlt,
-  FaHistory,
 } from "react-icons/fa";
 import { HiOutlineTrophy, HiOutlineHome, HiOutlineDocumentText } from "react-icons/hi2";
 import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineChartBar, HiOutlineArrowsRightLeft, HiOutlineWallet } from "react-icons/hi2";
@@ -28,14 +25,12 @@ import {
   fetchAdminStats,
   fetchUserPosition,
   fetchTraderState,
-  fetchTransactions,
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
   type UserPosition,
   type TraderState,
-  type TradeTransaction,
 } from "./services/tradeApi";
 
 // Admin wallets
@@ -78,8 +73,6 @@ const Trade = () => {
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
-  const [recentActivity, setRecentActivity] = useState<TradeTransaction[]>([]);
-
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
   const userValue = userPosition ? userPosition.currentValue : 0;
@@ -138,12 +131,6 @@ const Trade = () => {
       // Fetch trader state for insight cards (pending count, bot status)
       const ts = await fetchTraderState();
       setTraderState(ts);
-
-      // Fetch recent activity for inline log
-      const activityWallet = isConnected ? walletAddress : ADMIN_WALLETS[0];
-      fetchTransactions(activityWallet)
-        .then((txs) => setRecentActivity(txs.slice(0, 10)))
-        .catch(() => {});
 
       // Fetch user position if connected (non-admin)
       if (isConnected && !isAdmin && poolVal > 0) {
@@ -575,93 +562,6 @@ const Trade = () => {
                 />
               </div>
 
-              {/* ─── Inline Activity Log ──────────── */}
-              {recentActivity.length > 0 && (
-                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <FaHistory className="text-blue-400" size={12} />
-                      <h3 className="text-sm font-bold text-slate-300">
-                        Recent Activity
-                      </h3>
-                    </div>
-                    <button
-                      onClick={() => handleNavClick("activity")}
-                      className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      View All
-                    </button>
-                  </div>
-                  <div className="space-y-1">
-                    {recentActivity.map((tx, i) => {
-                      const typeIcon =
-                        tx.type === "deposit"
-                          ? { icon: FaArrowDown, color: "text-green-400", bg: "bg-green-500/10" }
-                          : tx.type === "withdrawal"
-                            ? { icon: FaArrowUp, color: "text-red-400", bg: "bg-red-500/10" }
-                            : tx.type === "buy"
-                              ? { icon: FaShoppingCart, color: "text-blue-400", bg: "bg-blue-500/10" }
-                              : { icon: FaExchangeAlt, color: "text-amber-400", bg: "bg-amber-500/10" };
-                      const IconComp = typeIcon.icon;
-                      const displayAmt =
-                        tx.type === "buy" || tx.type === "sell"
-                          ? (tx.amount || 0) * (tx.price || 0)
-                          : tx.amount || 0;
-                      const timeStr = tx.timestamp
-                        ? (() => {
-                            try {
-                              return new Date(tx.timestamp).toLocaleDateString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              });
-                            } catch {
-                              return tx.timestamp;
-                            }
-                          })()
-                        : "";
-
-                      return (
-                        <motion.div
-                          key={`${tx.type}-${tx.timestamp}-${i}`}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ duration: 0.2, delay: i * 0.03 }}
-                          className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-800/30 transition-colors"
-                        >
-                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${typeIcon.bg}`}>
-                            <IconComp className={typeIcon.color} size={10} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[11px] font-bold text-white capitalize">
-                                {tx.type}
-                              </span>
-                              {tx.coin && (
-                                <span className="text-[10px] text-slate-500 font-mono">
-                                  {tx.coin}
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[9px] text-slate-600">
-                              {timeStr}
-                            </div>
-                          </div>
-                          <div className={`text-[11px] font-bold font-mono flex-shrink-0 ${
-                            tx.type === "deposit" || tx.type === "sell"
-                              ? "text-green-400"
-                              : "text-red-400"
-                          }`}>
-                            {tx.type === "deposit" || tx.type === "sell" ? "+" : "-"}$
-                            {displayAmt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
