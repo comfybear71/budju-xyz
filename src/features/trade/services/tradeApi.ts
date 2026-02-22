@@ -417,7 +417,7 @@ export async function registerWallet(walletAddress: string): Promise<any> {
   }
 }
 
-/** Place a trade via Swyftx proxy (PIN required) */
+/** Place a trade via Swyftx proxy (admin-wallet-only, no PIN) */
 export async function placeTrade(order: {
   assetCode: string;
   side: "buy" | "sell";
@@ -425,9 +425,6 @@ export async function placeTrade(order: {
   orderType: "market" | "limit" | "stop";
   triggerPrice?: number;
 }): Promise<{ success: boolean; error?: string }> {
-  const pin = getPin();
-  if (!pin) return { success: false, error: "PIN required for trading" };
-
   try {
     const token = await ensureToken();
     const res = await fetchWithRetry("/api/proxy", {
@@ -438,7 +435,6 @@ export async function placeTrade(order: {
         method: "POST",
         body: order,
         authToken: token,
-        pin,
       }),
     });
     const data = await res.json();

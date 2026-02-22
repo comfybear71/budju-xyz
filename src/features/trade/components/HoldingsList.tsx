@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSortAmountDown,
@@ -21,6 +21,70 @@ interface HoldingsListProps {
   onToggleView?: (mode: "mine" | "pool") => void;
 }
 
+/* ── Animated number that "spins up" when value changes ── */
+const SpinNumber = ({
+  value,
+  formatter,
+  className,
+  flashColor,
+}: {
+  value: number;
+  formatter: (n: number) => string;
+  className?: string;
+  flashColor?: "green" | "red" | null;
+}) => {
+  const [display, setDisplay] = useState(value);
+  const [flashing, setFlashing] = useState(false);
+  const prevRef = useRef(value);
+  const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = value;
+
+    if (prev === value) return;
+
+    // Flash color on change
+    setFlashing(true);
+    const flashTimer = setTimeout(() => setFlashing(false), 800);
+
+    // Animate count-up over 600ms
+    const start = prev;
+    const end = value;
+    const duration = 600;
+    const t0 = performance.now();
+
+    const tick = (now: number) => {
+      const elapsed = now - t0;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setDisplay(start + (end - start) * eased);
+      if (progress < 1) rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      clearTimeout(flashTimer);
+      cancelAnimationFrame(rafRef.current);
+    };
+  }, [value]);
+
+  const flashClass = flashing
+    ? flashColor === "green"
+      ? "text-green-400"
+      : flashColor === "red"
+        ? "text-red-400"
+        : ""
+    : "";
+
+  return (
+    <span className={`${className || ""} ${flashClass} transition-colors duration-500`}>
+      {formatter(display)}
+    </span>
+  );
+};
+
 const HoldingsList = ({
   assets,
   prices,
@@ -33,6 +97,39 @@ const HoldingsList = ({
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortAsc, setSortAsc] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+
+  // Track previous prices to determine up/down direction
+  const prevPricesRef = useRef<Record<string, number>>({});
+  const [priceDirection, setPriceDirection] = useState<Record<string, "up" | "down" | null>>({});
+
+  useEffect(() => {
+    const prev = prevPricesRef.current;
+    const dirs: Record<string, "up" | "down" | null> = {};
+
+    for (const a of assets) {
+      const oldPrice = prev[a.code];
+      const newPrice = prices[a.code] || a.priceUsd;
+      if (oldPrice !== undefined && oldPrice !== newPrice) {
+        dirs[a.code] = newPrice > oldPrice ? "up" : newPrice < oldPrice ? "down" : null;
+      } else {
+        dirs[a.code] = null;
+      }
+    }
+
+    setPriceDirection(dirs);
+    // Store current prices as previous for next comparison
+    const snapshot: Record<string, number> = {};
+    for (const a of assets) {
+      snapshot[a.code] = prices[a.code] || a.priceUsd;
+    }
+    prevPricesRef.current = snapshot;
+
+    // Clear direction indicators after 3 seconds
+    const timer = setTimeout(() => {
+      setPriceDirection({});
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [prices, assets]);
 
   const totalValue = assets.reduce((s, a) => s + a.usdValue, 0);
 
@@ -143,7 +240,7 @@ const HoldingsList = ({
                     {label}
                     {sortKey === key && (
                       <span className="ml-1 opacity-50">
-                        {sortAsc ? "↑" : "↓"}
+                        {sortAsc ? "\u2191" : "\u2193"}
                       </span>
                     )}
                   </button>
@@ -168,6 +265,28 @@ const HoldingsList = ({
                 ? "text-red-400"
                 : "text-slate-500";
 
+          const dir = priceDirection[asset.code];
+          const borderColor =
+            dir === "up"
+              ? "border-green-500/60"
+              : dir === "down"
+                ? "border-red-500/60"
+                : isSelected
+                  ? "border-blue-500/20"
+                  : "border-transparent";
+
+          const glowShadow =
+            dir === "up"
+              ? "shadow-[0_0_12px_rgba(34,197,94,0.15)]"
+              : dir === "down"
+                ? "shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                : "";
+
+          const flashColor =
+            dir === "up" ? ("green" as const)
+              : dir === "down" ? ("red" as const)
+              : null;
+
           return (
             <motion.div
               key={asset.code}
@@ -175,12 +294,12 @@ const HoldingsList = ({
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.2, delay: index * 0.03 }}
               onClick={isAdmin ? () => onSelectAsset(asset.code) : undefined}
-              className={`relative rounded-xl p-3.5 transition-all duration-200 border ${
+              className={`relative rounded-xl p-3.5 transition-all duration-300 border ${borderColor} ${glowShadow} ${
                 isAdmin
                   ? isSelected
-                    ? "bg-blue-500/[0.08] border-blue-500/20 cursor-pointer"
-                    : "bg-slate-800/30 border-transparent hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"
-                  : "bg-slate-800/30 border-transparent"
+                    ? "bg-blue-500/[0.08] cursor-pointer"
+                    : "bg-slate-800/30 hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"
+                  : "bg-slate-800/30"
               }`}
             >
               <div className="flex items-center gap-3">
@@ -207,9 +326,12 @@ const HoldingsList = ({
                       </span>
                     </div>
                     <div className="text-right">
-                      <div className="text-sm font-bold text-white font-mono">
-                        {formatUsd(asset.usdValue)}
-                      </div>
+                      <SpinNumber
+                        value={asset.usdValue}
+                        formatter={formatUsd}
+                        className="text-sm font-bold text-white font-mono"
+                        flashColor={flashColor}
+                      />
                     </div>
                   </div>
 
@@ -227,10 +349,14 @@ const HoldingsList = ({
                       ) : asset.change24h < 0 ? (
                         <FaArrowDown size={8} />
                       ) : null}
-                      <span className="text-[11px] font-bold font-mono">
-                        {asset.change24h > 0 ? "+" : ""}
-                        {asset.change24h.toFixed(1)}%
-                      </span>
+                      <SpinNumber
+                        value={asset.change24h}
+                        formatter={(n) =>
+                          `${n > 0 ? "+" : ""}${n.toFixed(1)}%`
+                        }
+                        className="text-[11px] font-bold font-mono"
+                        flashColor={flashColor}
+                      />
                     </div>
                   </div>
 

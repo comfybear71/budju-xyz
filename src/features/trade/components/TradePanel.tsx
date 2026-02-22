@@ -8,10 +8,12 @@ import {
   FaChevronDown,
   FaLock,
   FaCheckCircle,
+  FaTimesCircle,
+  FaSpinner,
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import type { PortfolioAsset } from "../services/tradeApi";
-import { ASSET_CONFIG } from "../services/tradeApi";
+import { ASSET_CONFIG, placeTrade } from "../services/tradeApi";
 
 type OrderType = "instant" | "trigger" | "auto";
 type Side = "buy" | "sell";
@@ -44,8 +46,8 @@ const TradePanel = ({
   const [coinSearch, setCoinSearch] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState(false);
+  const [showError, setShowError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const asset = assets.find((a) => a.code === selectedAsset);
   const price = prices[selectedAsset] || asset?.priceUsd || 0;
@@ -73,20 +75,39 @@ const TradePanel = ({
 
   const handleTrade = () => {
     if (!isAdmin) return;
-    if (pin.length < 4) {
-      setPinError(true);
-      return;
-    }
     setShowConfirm(true);
   };
 
-  const confirmTrade = () => {
+  const confirmTrade = async () => {
     setShowConfirm(false);
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      setAmountPct(0);
-    }, 2000);
+    setIsSubmitting(true);
+    setShowError(null);
+
+    try {
+      const result = await placeTrade({
+        assetCode: selectedAsset,
+        side,
+        amount: tradeAmount,
+        orderType: orderType === "trigger" ? "limit" : "market",
+        triggerPrice: orderType === "trigger" ? effectivePrice : undefined,
+      });
+
+      if (result.success) {
+        setShowSuccess(true);
+        setTimeout(() => {
+          setShowSuccess(false);
+          setAmountPct(0);
+        }, 2500);
+      } else {
+        setShowError(result.error || "Trade failed — check Swyftx connection");
+        setTimeout(() => setShowError(null), 4000);
+      }
+    } catch (err: any) {
+      setShowError(err.message || "Network error — trade not placed");
+      setTimeout(() => setShowError(null), 4000);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -375,27 +396,6 @@ const TradePanel = ({
           </div>
         )}
 
-        {/* PIN input (admin) */}
-        {isAdmin && (
-          <input
-            type="password"
-            value={pin}
-            onChange={(e) => {
-              setPin(e.target.value);
-              setPinError(false);
-            }}
-            placeholder="Trading PIN"
-            maxLength={10}
-            className={`w-full px-3 py-2 text-xs rounded-lg border text-center font-mono tracking-widest ${
-              pinError
-                ? "border-red-500 bg-red-500/10"
-                : isDarkMode
-                  ? "bg-white/[0.04] border-white/[0.08] text-white placeholder:text-gray-600"
-                  : "bg-gray-50 border-gray-200 text-gray-900"
-            }`}
-          />
-        )}
-
         {/* Trade button */}
         {!isAdmin ? (
           <div
@@ -489,6 +489,23 @@ const TradePanel = ({
         )}
       </AnimatePresence>
 
+      {/* Submitting */}
+      <AnimatePresence>
+        {isSubmitting && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-30 rounded-xl"
+          >
+            <div className="text-center">
+              <FaSpinner className="text-blue-400 mx-auto animate-spin" size={32} />
+              <p className="text-white font-bold mt-2 text-sm">Placing order...</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Success */}
       <AnimatePresence>
         {showSuccess && (
@@ -501,6 +518,24 @@ const TradePanel = ({
             <div className="text-center">
               <FaCheckCircle className="text-green-400 mx-auto" size={40} />
               <p className="text-white font-bold mt-2">Order Placed!</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error */}
+      <AnimatePresence>
+        {showError && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-30 rounded-xl"
+          >
+            <div className="text-center px-4">
+              <FaTimesCircle className="text-red-400 mx-auto" size={40} />
+              <p className="text-white font-bold mt-2">Trade Failed</p>
+              <p className="text-red-400 text-xs mt-1">{showError}</p>
             </div>
           </motion.div>
         )}

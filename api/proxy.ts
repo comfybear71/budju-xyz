@@ -126,13 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: "No authToken provided" });
     }
 
-    // PIN check for trading endpoints
-    const TRADING_ENDPOINTS = ["/orders/"];
-    if (TRADING_ENDPOINTS.includes(endpoint) && method === "POST") {
-      if (pin !== process.env.TRADE_PIN) {
-        return res.status(403).json({ error: "Invalid PIN" });
-      }
-    }
+    // Trading endpoints — admin-wallet-only (PIN removed, admin gate is client-side)
 
     const url = baseURL + endpoint;
     const fetchOptions: RequestInit = {
