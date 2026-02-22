@@ -53,6 +53,7 @@ const Trade = () => {
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
+  const [changes, setChanges] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<
     "connected" | "connecting" | "error"
@@ -99,6 +100,7 @@ const Trade = () => {
           : { usdc: 0, aud: 0 };
 
       setPrices(priceData);
+      setChanges(changeData);
       setUsdcBalance(cashData.usdc);
       setAudBalance(cashData.aud);
 
@@ -154,6 +156,7 @@ const Trade = () => {
     const interval = setInterval(() => {
       Promise.all([fetchPrices(), fetchChanges()]).then(([p, c]) => {
         setPrices(p);
+        setChanges(c);
         setAssets((prev) =>
           prev.map((a) => ({
             ...a,
@@ -388,23 +391,25 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Cash Balances - visible to all */}
-                <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
-                    <span className="text-sm text-slate-400">USDC</span>
-                    <span className="text-sm font-bold text-green-400 font-mono">
-                      ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </span>
+                {/* Cash Balances - admin only */}
+                {isAdmin && (
+                  <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                      <span className="text-sm text-slate-400">USDC</span>
+                      <span className="text-sm font-bold text-green-400 font-mono">
+                        ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                      <span className="text-sm text-slate-400">AUD</span>
+                      <span className="text-sm font-bold text-amber-400 font-mono">
+                        ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-                    <span className="text-sm text-slate-400">AUD</span>
-                    <span className="text-sm font-bold text-amber-400 font-mono">
-                      ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </div>
+                )}
 
                 {/* Pool Stats Grid - visible to all */}
                 {poolStats && (
@@ -434,42 +439,42 @@ const Trade = () => {
                         {formatUsd(totalPoolValue)}
                       </span>
                     </div>
+
+                    {/* User Position — merged into same card for connected non-admin */}
+                    {isConnected && !isAdmin && userPosition && (
+                      <>
+                        <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
+                          <HiOutlineWallet className="w-3 h-3 text-blue-400" />
+                          <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
+                            Your Position
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
+                            <div className="text-base font-bold text-white font-mono">{formatUsd(userPosition.currentValue)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">P&L</div>
+                            <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              {(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
+                              {formatUsd(Math.abs(userPosition.currentValue - userPosition.totalDeposited))}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
+                            <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
+                          </div>
+                          <div>
+                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
+                            <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </>
                 )}
               </div>
-
-              {/* ─── User Position (connected non-admin users) ── */}
-              {isConnected && !isAdmin && userPosition && (
-                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <HiOutlineWallet className="w-3 h-3 text-blue-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
-                      Your Position
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
-                      <div className="text-base font-bold text-white font-mono">{formatUsd(userPosition.currentValue)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">P&L</div>
-                      <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                        {(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
-                        {formatUsd(Math.abs(userPosition.currentValue - userPosition.totalDeposited))}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
-                      <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
-                      <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* ─── Trade Panel (admin only) ─── */}
               <AnimatePresence>
@@ -589,6 +594,7 @@ const Trade = () => {
         isOpen={showAutoTrader}
         onClose={() => setShowAutoTrader(false)}
         prices={prices}
+        changes={changes}
       />
     </main>
   );
