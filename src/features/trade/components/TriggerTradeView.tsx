@@ -561,8 +561,12 @@ const TriggerTradeView = ({
                         : "ORDER");
               const trigger = parseFloat(order.trigger) || parseFloat(order.rate) || parseFloat(order.triggerPrice) || 0;
               const amount = parseFloat(order.quantity) || parseFloat(order.amount) || parseFloat(order.total) || 0;
-              const proximity = Number(order.proximity || 0);
               const orderCurrentPrice = prices[asset] || order.currentPrice || 0;
+              // Always calculate proximity at render time with live prices
+              // (enrichment-time prices may be stale due to React closure)
+              const proximity = orderCurrentPrice > 0 && trigger > 0
+                ? Math.abs(orderCurrentPrice - trigger) / orderCurrentPrice * 100
+                : 0;
               const orderCfg = ASSET_CONFIG[asset] || {
                 color: "#64748b",
                 icon: asset.charAt(0),

@@ -66,7 +66,7 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
     parseFloat(o.quantity) || parseFloat(o.amount) || parseFloat(o.total) || 0;
 
   const getProximity = (o: any): number => {
-    if (o.proximity != null) return Number(o.proximity);
+    // Always calculate from live prices (enrichment-time values may be stale)
     const asset = getAsset(o);
     const current = prices[asset] || 0;
     const trigger = getTrigger(o);
