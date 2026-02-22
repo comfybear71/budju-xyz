@@ -17,7 +17,11 @@ const Leaderboard = ({ isOpen, onClose, poolValue }: Props) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!isOpen || poolValue <= 0) return;
+    if (!isOpen) return;
+    if (poolValue <= 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     fetchLeaderboard(poolValue)
       .then(setEntries)
