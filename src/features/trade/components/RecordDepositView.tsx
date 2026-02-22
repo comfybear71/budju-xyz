@@ -41,12 +41,16 @@ const RecordDepositView = ({
     setIsSubmitting(true);
     setResult(null);
 
+    const originalAmount = rawAmount;
     const res = await recordDeposit(adminWallet, amountUsd, totalPoolValue, currency);
 
     if (res.success) {
+      const amountLabel = currency === "AUD"
+        ? `A$${originalAmount.toFixed(2)} (≈ $${amountUsd.toFixed(2)} USD)`
+        : `$${amountUsd.toFixed(2)} USDC`;
       setResult({
         type: "success",
-        message: `${res.shares?.toFixed(2)} shares issued at NAV $${res.nav?.toFixed(4)}`,
+        message: `${amountLabel} → ${res.shares?.toFixed(2)} shares at NAV $${res.nav?.toFixed(4)}`,
         shares: res.shares,
         nav: res.nav,
       });

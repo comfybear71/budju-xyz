@@ -658,7 +658,7 @@ export async function recordDeposit(
     delete cache["admin_stats"];
     delete cache[`position_${walletAddress}`];
 
-    alog.log(`Deposit recorded: $${amountUsd.toFixed(2)} ${currency} → ${data.shares?.toFixed(2)} shares at NAV $${data.nav?.toFixed(4)}`, "success");
+    alog.log(`Deposit recorded: $${amountUsd.toFixed(2)} USD → ${data.shares?.toFixed(2)} shares at NAV $${data.nav?.toFixed(4)}`, "success");
     return { success: true, shares: data.shares, nav: data.nav };
   } catch (err: any) {
     alog.log(`Deposit error: ${err.message}`, "error");
