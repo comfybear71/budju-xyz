@@ -5,7 +5,6 @@ import NFTHero from "./components/NFTHero";
 import NFTGoldenShowcase from "./components/NFTGoldenShowcase";
 import NFTMarketplace from "./components/NFTMarketplace";
 import NFTHolderBenefits from "./components/NFTHolderBenefits";
-import NFTFaq from "./components/NFTFaq";
 
 const NFT = () => {
   useEffect(() => {
@@ -44,9 +43,6 @@ const NFT = () => {
 
       {/* Holder Benefits */}
       <NFTHolderBenefits />
-
-      {/* FAQ */}
-      <NFTFaq />
     </main>
   );
 };

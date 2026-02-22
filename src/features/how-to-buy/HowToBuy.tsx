@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { motion } from "motion/react";
 import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
-import FaqSection from "./components/FaqSection";
 import HowToBuySteps from "./components/HowToBuySteps";
 import StepByStep from "./components/StepByStep";
 import WalletOptions from "./components/WalletOptions";
@@ -73,9 +72,6 @@ const HowToBuy = () => {
 
       {/* Wallet Options */}
       <WalletOptions />
-
-      {/* FAQ Section */}
-      <FaqSection />
     </main>
   );
 };
