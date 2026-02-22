@@ -11,13 +11,9 @@ const HowToBuy = () => {
   const { isDarkMode } = useTheme();
 
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
-
-    // Set document title and metadata
     document.title = `How To Buy ${APP_NAME} - Simple Step-by-Step Guide`;
 
-    // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
     if (metaDescription) {
       metaDescription.setAttribute(
@@ -36,22 +32,36 @@ const HowToBuy = () => {
   return (
     <main>
       {/* Hero Section */}
-      <section className="pt-24 pb-16">
-        <div className="budju-container">
+      <section className="pt-24 pb-16 overflow-hidden px-4">
+        <div className="max-w-5xl mx-auto relative">
+          {/* Decorative blurs */}
+          <div className="absolute -top-20 -right-20 w-64 h-64 bg-budju-blue/15 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-20 -left-20 w-64 h-64 bg-budju-pink/15 rounded-full blur-3xl pointer-events-none" />
+
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="text-center max-w-3xl mx-auto"
+            className="text-center max-w-3xl mx-auto relative z-10"
           >
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
-              <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-                HOW
-              </span>{" "}
-              <span className="text-budju-blue">TO BUY BUDJU</span>
+            {/* Badge */}
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-budju-blue/10 border border-budju-blue/20 mb-5">
+              <span className="w-2 h-2 rounded-full bg-budju-blue animate-pulse" />
+              <span className="text-budju-blue text-xs font-bold uppercase tracking-wider">
+                Simple 3-Step Process
+              </span>
+            </div>
+
+            <h1
+              className={`text-3xl md:text-4xl lg:text-5xl font-bold font-display mb-5 leading-tight ${isDarkMode ? "text-white" : "text-gray-900"}`}
+            >
+              How To Buy{" "}
+              <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+                BUDJU
+              </span>
             </h1>
             <p
-              className={`text-xl ${isDarkMode ? "text-gray-300" : "text-white"}`}
+              className={`text-base md:text-lg leading-relaxed max-w-2xl mx-auto ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
             >
               Join the BUDJU parade in just a few simple steps. Follow this
               guide to get your first BUDJU tokens and become part of our

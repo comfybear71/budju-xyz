@@ -8,13 +8,12 @@ import {
 } from "lightweight-charts";
 import { useTheme } from "@/context/ThemeContext";
 import React from "react";
-import { FaChartBar } from "react-icons/fa";
 
 const TokenImage = React.memo(({ baseToken }: { baseToken: string }) => (
   <img
     src={`/images/tokens/${baseToken.toLowerCase()}.png`}
     alt={baseToken}
-    className="w-6 h-6 mr-2"
+    className="w-5 h-5 mr-1.5"
     onError={(e) => {
       (e.target as HTMLImageElement).src =
         "/images/tokens/token-placeholder.png";
@@ -43,32 +42,25 @@ interface PriceChartProps {
 
 const chartColors = {
   dark: {
-    background: "rgba(35, 35, 45, 0.8)",
-    text: "rgba(255, 255, 255, 0.8)",
-    grid: "rgba(70, 70, 90, 0.4)",
-    upColor: "#26a69a",
-    downColor: "#ef5350",
-    borderUpColor: "#26a69a",
-    borderDownColor: "#ef5350",
-    wickUpColor: "#26a69a",
-    wickDownColor: "#ef5350",
+    background: "rgba(12, 12, 32, 0.6)",
+    text: "rgba(255, 255, 255, 0.5)",
+    grid: "rgba(255, 255, 255, 0.03)",
+    lineColor: "#3b82f6",
+    areaTopColor: "rgba(59, 130, 246, 0.3)",
+    areaBottomColor: "rgba(59, 130, 246, 0.01)",
   },
   light: {
     background: "rgba(255, 255, 255, 0.3)",
-    text: "rgba(0, 0, 0, 0.8)",
-    grid: "rgba(170, 170, 170, 0.3)",
-    upColor: "#26a69a",
-    downColor: "#ef5350",
-    borderUpColor: "#26a69a",
-    borderDownColor: "#ef5350",
-    wickUpColor: "#26a69a",
-    wickDownColor: "#ef5350",
+    text: "rgba(0, 0, 0, 0.6)",
+    grid: "rgba(170, 170, 170, 0.15)",
+    lineColor: "#3b82f6",
+    areaTopColor: "rgba(59, 130, 246, 0.3)",
+    areaBottomColor: "rgba(59, 130, 246, 0.01)",
   },
 };
 
 /**
  * Format very small USD prices like $0.000009138 as $0.0₅9138
- * Uses subscript notation for leading zeros after decimal
  */
 const formatSmallPrice = (price: number): string => {
   if (price >= 0.01) return price.toFixed(4);
@@ -96,7 +88,7 @@ const subscriptDigit = (n: number): string => {
 
 const generateDefaultData = (): CandlestickItem[] => {
   const data: CandlestickItem[] = [];
-  const basePrice = 0.000009; // BUDJU price in USD
+  const basePrice = 0.000009;
   const now = new Date();
 
   for (let i = 30; i >= 0; i--) {
@@ -113,14 +105,7 @@ const generateDefaultData = (): CandlestickItem[] => {
     const low = Math.min(open, close) * (1 - Math.random() * 0.005);
     const volume = Math.floor(Math.random() * 1000) + 500;
 
-    data.push({
-      time: Math.floor(date.getTime() / 1000),
-      open,
-      high,
-      low,
-      close,
-      volume,
-    });
+    data.push({ time: Math.floor(date.getTime() / 1000), open, high, low, close, volume });
   }
 
   return data;
@@ -132,19 +117,14 @@ const PriceChart: React.FC<PriceChartProps> = ({
   quoteToken,
   timeframe,
   onTimeframeChange,
-  // loading = false,
-  // isConnected = false,
 }) => {
   const { isDarkMode } = useTheme();
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartWrapperRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
-  const [showVolume, setShowVolume] = useState(false);
+  const areaSeriesRef = useRef<ISeriesApi<"Area"> | null>(null);
 
-  // Use raw data directly (already in USD from GeckoTerminal)
   const chartData = useMemo(() => {
     if (!rawData || rawData.length === 0) return generateDefaultData();
     return rawData;
@@ -161,23 +141,23 @@ const PriceChart: React.FC<PriceChartProps> = ({
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
-      candleSeriesRef.current = null;
-      volumeSeriesRef.current = null;
+      areaSeriesRef.current = null;
     }
 
     const colors = isDarkMode ? chartColors.dark : chartColors.light;
 
-    // Calculate the available height for the chart by subtracting the header height
     const headerHeight = headerRef.current.getBoundingClientRect().height;
     const containerHeight = chartContainerRef.current.clientHeight;
-    const chartHeight = containerHeight - headerHeight - 16; // Subtract padding (e.g., 16px for p-4)
+    const chartHeight = containerHeight - headerHeight - 8;
 
     const chart = createChart(chartWrapperRef.current, {
       width: chartContainerRef.current.clientWidth,
-      height: chartHeight, // Use calculated height
+      height: chartHeight,
       layout: {
-        background: { type: ColorType.Solid, color: colors.background },
+        background: { type: ColorType.Solid, color: "transparent" },
         textColor: colors.text,
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        fontSize: 10,
       },
       grid: {
         vertLines: { color: colors.grid },
@@ -186,13 +166,25 @@ const PriceChart: React.FC<PriceChartProps> = ({
       timeScale: {
         timeVisible: true,
         secondsVisible: false,
-        borderColor: colors.grid,
+        borderColor: "transparent",
+        fixLeftEdge: true,
+        fixRightEdge: true,
       },
       crosshair: {
         mode: 1,
+        vertLine: {
+          color: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+          width: 1,
+          style: 2,
+        },
+        horzLine: {
+          color: isDarkMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+          width: 1,
+          style: 2,
+        },
       },
       rightPriceScale: {
-        borderColor: colors.grid,
+        borderColor: "transparent",
       },
       handleScroll: {
         mouseWheel: true,
@@ -207,53 +199,28 @@ const PriceChart: React.FC<PriceChartProps> = ({
       },
     });
 
-    const candlestickSeries = chart.addCandlestickSeries({
-      upColor: colors.upColor,
-      downColor: colors.downColor,
-      borderUpColor: colors.borderUpColor,
-      borderDownColor: colors.borderDownColor,
-      wickUpColor: colors.wickUpColor,
-      wickDownColor: colors.wickDownColor,
-    });
-
-    const volumeSeries = chart.addHistogramSeries({
-      color: "#26a69a",
-      priceFormat: { type: "volume" },
-      priceScaleId: "",
-      scaleMargins: {
-        top: 0.7,
-        bottom: 0,
-      },
+    // Area (shaded line) chart
+    const areaSeries = chart.addAreaSeries({
+      lineColor: colors.lineColor,
+      topColor: colors.areaTopColor,
+      bottomColor: colors.areaBottomColor,
+      lineWidth: 2,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
     });
 
     const formattedData = chartData.map((item) => ({
       time: (typeof item.time === "string"
         ? Math.floor(new Date(item.time).getTime() / 1000)
         : item.time) as Time,
-      open: item.open,
-      high: item.high,
-      low: item.low,
-      close: item.close,
+      value: item.close,
     }));
 
-    const volumeData = chartData
-      .filter((item) => item.volume !== undefined)
-      .map((item) => ({
-        time: (typeof item.time === "string"
-          ? Math.floor(new Date(item.time).getTime() / 1000)
-          : item.time) as Time,
-        value: item.volume || 0,
-        color: item.close >= item.open ? colors.upColor : colors.downColor,
-      }));
-
-    candlestickSeries.setData(formattedData);
-    volumeSeries.setData(showVolume ? volumeData : []);
-
+    areaSeries.setData(formattedData);
     chart.timeScale().fitContent();
 
     chartRef.current = chart;
-    candleSeriesRef.current = candlestickSeries;
-    volumeSeriesRef.current = volumeSeries;
+    areaSeriesRef.current = areaSeries;
 
     const handleResize = () => {
       if (
@@ -265,7 +232,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
         const newHeaderHeight =
           headerRef.current.getBoundingClientRect().height;
         const newContainerHeight = chartContainerRef.current.clientHeight;
-        const newChartHeight = newContainerHeight - newHeaderHeight - 16; // Adjust for padding
+        const newChartHeight = newContainerHeight - newHeaderHeight - 8;
 
         chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
@@ -283,21 +250,16 @@ const PriceChart: React.FC<PriceChartProps> = ({
         chartRef.current = null;
       }
     };
-  }, [chartData, isDarkMode, showVolume]);
+  }, [chartData, isDarkMode]);
 
   useEffect(() => {
-    if (
-      !chartRef.current ||
-      !candleSeriesRef.current ||
-      !volumeSeriesRef.current
-    )
-      return;
+    if (!chartRef.current || !areaSeriesRef.current) return;
 
     const colors = isDarkMode ? chartColors.dark : chartColors.light;
 
     chartRef.current.applyOptions({
       layout: {
-        background: { type: ColorType.Solid, color: colors.background },
+        background: { type: ColorType.Solid, color: "transparent" },
         textColor: colors.text,
       },
       grid: {
@@ -306,109 +268,75 @@ const PriceChart: React.FC<PriceChartProps> = ({
       },
     });
 
-    candleSeriesRef.current.applyOptions({
-      upColor: colors.upColor,
-      downColor: colors.downColor,
-      borderUpColor: colors.borderUpColor,
-      borderDownColor: colors.borderDownColor,
-      wickUpColor: colors.wickUpColor,
-      wickDownColor: colors.wickDownColor,
+    areaSeriesRef.current.applyOptions({
+      lineColor: colors.lineColor,
+      topColor: colors.areaTopColor,
+      bottomColor: colors.areaBottomColor,
     });
-
-    const volumeData = chartData
-      .filter((item) => item.volume !== undefined)
-      .map((item) => ({
-        time: (typeof item.time === "string"
-          ? Math.floor(new Date(item.time).getTime() / 1000)
-          : item.time) as Time,
-        value: item.volume || 0,
-        color: item.close >= item.open ? colors.upColor : colors.downColor,
-      }));
-
-    volumeSeriesRef.current.applyOptions({
-      color: "#26a69a",
-    });
-
-    volumeSeriesRef.current.setData(showVolume ? volumeData : []);
-  }, [isDarkMode, chartData, showVolume]);
+  }, [isDarkMode]);
 
   const timeframes = ["15m", "1H", "4H", "1D", "1W"];
 
+  const lastPrice = chartData.length > 0 ? chartData[chartData.length - 1].close : 0;
+  const prevPrice = chartData.length > 1 ? chartData[chartData.length - 2].close : lastPrice;
+  const priceChange = prevPrice > 0 ? ((lastPrice - prevPrice) / prevPrice) * 100 : 0;
+  const isPositive = priceChange >= 0;
+
   return (
     <div ref={chartContainerRef} className="w-full h-full">
-      {/* Header Section (Token Info, Timeframes, etc.) */}
-      <div ref={headerRef} className="mb-4">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      {/* Header */}
+      <div ref={headerRef} className="mb-2">
+        {/* Row 1: Token pair + price */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
             <div className="flex items-center">
               <TokenImage baseToken={baseToken} />
-              <span className="text-white text-lg font-bold">
-                {baseToken} / {quoteToken}
+              <span className={`text-sm font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                {baseToken}/{quoteToken}
               </span>
-            </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              {timeframes.map((tf) => (
-                <button
-                  key={tf}
-                  onClick={() => onTimeframeChange && onTimeframeChange(tf)}
-                  className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                    timeframe === tf
-                      ? isDarkMode
-                        ? "bg-budju-blue text-white"
-                        : "bg-white/40 text-white font-bold"
-                      : isDarkMode
-                        ? "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                        : "bg-white/20 text-white hover:bg-white/30"
-                  }`}
-                >
-                  {tf}
-                </button>
-              ))}
-              <button
-                onClick={() => setShowVolume(!showVolume)}
-                className="text-gray-400 hover:text-gray-200 ml-2"
-              >
-                <FaChartBar className="w-5 h-5" />
-              </button>
             </div>
           </div>
 
-          {chartData.length > 0 && (
-            <div className="text-white">
-              <span className="text-2xl md:text-3xl font-bold">
-                ${formatSmallPrice(chartData[chartData.length - 1].close)}
+          {lastPrice > 0 && (
+            <div className="flex items-center gap-2">
+              <span className={`text-lg font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}>
+                ${formatSmallPrice(lastPrice)}
               </span>
               <span
-                className={`ml-2 ${
-                  chartData[chartData.length - 1].close >=
-                  (chartData[chartData.length - 2]?.close || 0)
-                    ? "text-green-500"
-                    : "text-red-500"
-                }`}
+                className={`text-xs font-bold ${isPositive ? "text-green-400" : "text-red-400"}`}
               >
-                {chartData[chartData.length - 1].close >=
-                (chartData[chartData.length - 2]?.close || 0)
-                  ? "+"
-                  : ""}
-                {(
-                  ((chartData[chartData.length - 1].close -
-                    (chartData[chartData.length - 2]?.close ||
-                      chartData[chartData.length - 1].close)) /
-                    (chartData[chartData.length - 2]?.close ||
-                      chartData[chartData.length - 1].close)) *
-                  100
-                ).toFixed(2)}
-                %
+                {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
               </span>
             </div>
           )}
         </div>
+
+        {/* Row 2: Timeframe buttons — always horizontal */}
+        <div className="flex items-center gap-1.5">
+          {timeframes.map((tf) => (
+            <button
+              key={tf}
+              onClick={() => onTimeframeChange && onTimeframeChange(tf)}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                timeframe === tf
+                  ? isDarkMode
+                    ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                    : "bg-blue-50 text-blue-600 border border-blue-200"
+                  : isDarkMode
+                    ? "text-gray-500 hover:text-gray-400 hover:bg-white/[0.04]"
+                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Chart Wrapper to Handle Overflow */}
+      {/* Chart */}
       <div
         ref={chartWrapperRef}
-        className="w-full h-[calc(100%-theme(spacing.16))] overflow-hidden"
+        className="w-full h-[calc(100%-theme(spacing.16))] overflow-hidden rounded-lg"
       />
     </div>
   );
