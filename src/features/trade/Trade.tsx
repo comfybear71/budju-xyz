@@ -352,7 +352,10 @@ const Trade = () => {
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
                 {/* Admin: 3 quick-nav buttons (Instant/Trigger/Auto) → TradePanel */}
                 {isAdmin && (
-                  <div className={showAutoAdmin || showTriggerView || showDeposit ? "flex gap-2" : "flex gap-2 mb-3"}>
+                  <div
+                    className={`flex gap-2 overflow-x-auto -mx-1 px-1 snap-x ${showAutoAdmin || showTriggerView || showDeposit ? "" : "mb-3"}`}
+                    style={{ scrollbarWidth: "none" }}
+                  >
                     <button
                       onClick={() => {
                         if (assets.length > 0) {
@@ -363,7 +366,7 @@ const Trade = () => {
                           setShowDeposit(false);
                         }
                       }}
-                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
+                      className="flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400 snap-start"
                     >
                       ⚡ Instant
                     </button>
@@ -374,7 +377,7 @@ const Trade = () => {
                         setShowAutoAdmin(false);
                         setShowDeposit(false);
                       }}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
                         showTriggerView
                           ? "from-amber-500/30 to-amber-600/20 border-amber-500/50 text-amber-300"
                           : "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
@@ -389,7 +392,7 @@ const Trade = () => {
                         setShowTriggerView(false);
                         setShowDeposit(false);
                       }}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
                         showAutoAdmin
                           ? "from-emerald-500/30 to-emerald-600/20 border-emerald-500/50 text-emerald-300"
                           : "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
@@ -404,7 +407,7 @@ const Trade = () => {
                         setShowTriggerView(false);
                         setShowAutoAdmin(false);
                       }}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
                         showDeposit
                           ? "from-green-500/30 to-green-600/20 border-green-500/50 text-green-300"
                           : "from-green-500/20 to-green-600/10 border-green-500/30 text-green-400"
