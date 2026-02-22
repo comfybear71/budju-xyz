@@ -160,7 +160,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const raw = Array.isArray(ordersData) ? ordersData : (ordersData as any).orders ?? [];
       console.log(`Open orders: ${raw.length} raw orders from Swyftx`);
       for (const o of raw) {
-        console.log(`  Order: secondary_asset=${o.secondary_asset}, trigger=${o.trigger}, order_type=${o.order_type}, quantity=${o.quantity}, amount=${o.amount}`);
+        console.log(`  Order: secondary_asset=${o.secondary_asset}, trigger=${o.trigger}, rate=${o.rate}, order_type=${o.order_type}, quantity=${o.quantity}, amount=${o.amount}`);
       }
       const enriched = raw.map((o: any) => {
         const primaryId = String(o.primary_asset ?? o.primaryAsset ?? "");

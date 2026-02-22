@@ -787,9 +787,11 @@ export async function fetchEnrichedPendingOrders(
         const isBuy = ot === 1 || ot === 3 || ot === 5;
         // Prefer enriched asset.code from proxy, fall back to secondary_asset
         const assetCode = o.asset?.code || o.secondary_asset || "";
-        // Try multiple field names for trigger price
-        const trigger = parseFloat(o.trigger ?? o.triggerPrice ?? o.trigger_price ?? o.rate ?? 0);
-        const amount = parseFloat(o.amount ?? o.total ?? o.quantity ?? 0);
+        // Swyftx uses "rate" for limit price and "trigger" for stop threshold —
+        // use || (not ??) so that 0 falls through to the next field
+        const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
+        // For pending orders, "amount" is often 0 (unfilled); "quantity" holds the USDC order size
+        const amount = parseFloat(o.quantity) || parseFloat(o.amount) || parseFloat(o.total) || 0;
         const currentPrice = prices[assetCode] || 0;
         const distance = currentPrice > 0 && trigger > 0
           ? (Math.abs(currentPrice - trigger) / currentPrice) * 100
@@ -813,8 +815,8 @@ export async function fetchEnrichedPendingOrders(
           created: o.created_time ?? "",
         };
       })
-      // Only filter out orders with no identifiable asset — keep orders even if trigger is 0
-      .filter((o: any) => o.asset && o.asset !== "UNKNOWN" && o.asset !== "");
+      // Keep all orders that have any identifiable asset (including numeric IDs and UNKNOWN)
+      .filter((o: any) => o.asset && o.asset !== "" && o.asset !== "0");
 
     console.log(`Pending orders: ${raw.length} raw → ${mapped.length} after filter (dropped ${raw.length - mapped.length})`);
     if (mapped.length < raw.length) {

@@ -38,8 +38,12 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
     loadOrders();
   }, [isOpen]);
 
-  const getAsset = (o: any): string =>
-    o.asset || o.primaryAsset || o.assetCode || o.primary_asset || "?";
+  const getAsset = (o: any): string => {
+    // Handle both enriched string ("BTC") and server-state object ({ code: "BTC" })
+    const raw = o.asset;
+    return (typeof raw === "object" && raw?.code) ? raw.code :
+      raw || o.primaryAsset || o.assetCode || o.primary_asset || "?";
+  };
 
   const getType = (o: any): string => {
     if (o.type) return String(o.type).replace(/_/g, " ");
@@ -56,10 +60,10 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const isBuy = (o: any): boolean => getType(o).toUpperCase().includes("BUY");
 
   const getTrigger = (o: any): number =>
-    Number(o.triggerPrice || o.trigger || o.rate || 0);
+    parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
 
   const getAmount = (o: any): number =>
-    Number(o.amount || o.total || 0);
+    parseFloat(o.quantity) || parseFloat(o.amount) || parseFloat(o.total) || 0;
 
   const getProximity = (o: any): number => {
     if (o.proximity != null) return Number(o.proximity);
@@ -145,12 +149,14 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
                     const currentPrice = prices[asset] || 0;
                     const cfg = ASSET_CONFIG[asset] || { color: "#64748b", icon: asset.charAt(0), name: asset };
 
-                    // Proximity bar progress
+                    // Proximity bar: fills MORE when CLOSER to target
                     const progress = Math.min(1, Math.max(0.05, 1 - proximity / 20));
-                    let barColor = buy ? "#22c55e" : "#ef4444";
-                    if (proximity < 2) barColor = "#ef4444";
-                    else if (proximity < 5) barColor = "#f97316";
-                    else if (proximity < 10) barColor = "#eab308";
+                    // Color: green/blue = close to target, orange/red = far away
+                    let barColor: string;
+                    if (proximity <= 2) barColor = "#22c55e";       // green — very close
+                    else if (proximity <= 5) barColor = "#3b82f6";  // blue — close
+                    else if (proximity <= 10) barColor = "#f97316"; // orange — moderate
+                    else barColor = "#ef4444";                      // red — far away
 
                     return (
                       <div
