@@ -1,7 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { gsap } from "gsap";
-import WalletConnect from "@components/common/WalletConnect";
 import { particleBurst } from "@/lib/utils/animation";
 import { useTheme } from "@/context/ThemeContext";
 import { useWallet } from "@hooks/useWallet";
@@ -426,17 +425,17 @@ const SwapTool = () => {
               )}
 
               {/* Action Button */}
-              {isConnected ? (
-                <button
-                  onClick={handleSwap}
-                  disabled={loading || !fromAmount || parseFloat(fromAmount) === 0}
-                  className="w-full py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-budju-pink to-budju-blue hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  {loading ? "Processing..." : `Swap ${fromToken} to ${toToken}`}
-                </button>
-              ) : (
-                <WalletConnect className="w-full" />
-              )}
+              <button
+                onClick={isConnected ? handleSwap : undefined}
+                disabled={!isConnected || loading || !fromAmount || parseFloat(fromAmount) === 0}
+                className="w-full py-3 rounded-xl text-sm font-bold text-white bg-gradient-to-r from-budju-pink to-budju-blue hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {!isConnected
+                  ? "Connect Wallet to Swap"
+                  : loading
+                    ? "Processing..."
+                    : `Swap ${fromToken} to ${toToken}`}
+              </button>
             </div>
           </div>
         </div>
