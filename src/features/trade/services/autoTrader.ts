@@ -368,7 +368,11 @@ export class AutoTrader {
       }
     }
 
+    // Save all state so non-admin users can see monitoring data
     this._saveActiveState();
+    this._saveTierSettings();
+    this._saveTierAssignments();
+    this._saveCooldowns();
     this._ensureMonitoring();
     this._notifyChange();
     return { success: true };

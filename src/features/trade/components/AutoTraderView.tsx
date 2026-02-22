@@ -44,12 +44,15 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
   }, [isOpen]);
 
   // Build monitoring data from tier config + assignments
-  // Falls back to autoTierAssets[tier].coins when autoTierAssignments is empty
+  // Uses autoActive.targets for real buy/sell triggers when available
   const getMonitoringData = () => {
     if (!state) return [];
     const assignments = state.autoTierAssignments || {};
     const tierAssets = state.autoTierAssets || {};
     const cooldowns = state.autoCooldowns || {};
+    const autoActive = state._rawAutoActive || {};
+    const liveTargets = autoActive.targets || {};
+    const tierActive = autoActive.tierActive || {};
 
     // Build coin→tierKey map from assignments first
     const coinTierMap: Record<string, string> = {};
@@ -67,22 +70,38 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
       }
     }
 
+    // If still empty, build from liveTargets (coins being actively monitored)
+    if (Object.keys(coinTierMap).length === 0) {
+      for (const coin of Object.keys(liveTargets)) {
+        coinTierMap[coin] = "tier1"; // fallback tier key
+      }
+    }
+
     const items: any[] = [];
     for (const [coin, tierKey] of Object.entries(coinTierMap)) {
       const tier = tierAssets[tierKey] || {};
       const dev = Number(tier.deviation) || 0;
       const cp = Number(prices[coin]) || 0;
       const change = Number(changes[coin]) || 0;
+      const live = liveTargets[coin];
+
+      // Check if this coin's tier is actually active
+      const tierNum = tierKey.replace("tier", "");
+      const isTierActive = !!(tierActive[tierNum] ?? tierActive[tierKey] ?? tier.active);
+
       items.push({
         coin,
         tierKey,
         tierName: tier.name || tierKey.replace("tier", "T"),
         deviation: dev,
         currentPrice: cp,
-        buyTrigger: cp > 0 ? cp * (1 - dev / 100) : 0,
-        sellTrigger: cp > 0 ? cp * (1 + dev / 100) : 0,
+        // Use real targets from autoActive when available, fall back to calculated
+        buyTrigger: live ? live.buy : (cp > 0 ? cp * (1 - dev / 100) : 0),
+        sellTrigger: live ? live.sell : (cp > 0 ? cp * (1 + dev / 100) : 0),
         change24h: change,
         inCooldown: !!(cooldowns[coin] && Date.now() < cooldowns[coin]),
+        hasLiveTarget: !!live,
+        isTierActive,
       });
     }
     return items;
@@ -185,7 +204,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                     const tierName = tierCfg.name || tierKey.replace("tier", "Tier ");
                     const dev = Number(tierCfg.deviation) || 0;
                     const alloc = Number(tierCfg.allocation) || 0;
-                    const tierActive = tierCfg.active !== false;
+                    // Use the real active state from monitoring data
+                    const tierActive = coins.some((c: any) => c.isTierActive);
 
                     return (
                       <div key={tierKey} className="mb-3">
@@ -221,6 +241,23 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
 
+                            // Calculate proximity to trigger (same logic as admin view)
+                            let progress = 0;
+                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
+                              const mid = (item.buyTrigger + item.sellTrigger) / 2;
+                              const halfRange = (item.sellTrigger - item.buyTrigger) / 2;
+                              if (halfRange > 0) {
+                                progress = item.currentPrice < mid
+                                  ? (mid - item.currentPrice) / halfRange
+                                  : (item.currentPrice - mid) / halfRange;
+                              }
+                            }
+                            progress = Math.max(0, Math.min(1, progress));
+                            let barColor = "#3b82f6";
+                            if (progress >= 0.95) barColor = "#ef4444";
+                            else if (progress >= 0.75) barColor = "#f97316";
+                            else if (progress >= 0.5) barColor = "#eab308";
+
                             return (
                               <div
                                 key={item.coin}
@@ -237,6 +274,11 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                       {item.coin}
                                     </span>
                                     {item.inCooldown && <span className="text-[9px] text-yellow-500">(cooldown)</span>}
+                                    {item.hasLiveTarget && (
+                                      <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                                        LIVE
+                                      </span>
+                                    )}
                                     <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.15)", color: "#a855f7" }}>
                                       {tierKey.replace("tier", "T")}
                                     </span>
@@ -249,14 +291,14 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </div>
                                 </div>
 
-                                {/* Progress bar showing price position between buy and sell */}
+                                {/* Progress bar showing proximity to buy/sell trigger */}
                                 <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
                                   <div
-                                    className="h-full rounded-full"
+                                    className="h-full rounded-full transition-all duration-700"
                                     style={{
-                                      background: cfg.color,
-                                      width: `${Math.min(100, item.deviation * 15)}%`,
-                                      opacity: 0.7,
+                                      background: barColor,
+                                      width: `${(progress * 100).toFixed(0)}%`,
+                                      opacity: 0.8,
                                     }}
                                   />
                                 </div>
