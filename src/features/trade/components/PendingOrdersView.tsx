@@ -62,8 +62,14 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const getTrigger = (o: any): number =>
     parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
 
-  const getAmount = (o: any): number =>
-    parseFloat(o.quantity) || parseFloat(o.amount) || parseFloat(o.total) || 0;
+  const getAmount = (o: any): number => {
+    // "amount"/"total" = USDC value; "quantity" = crypto token count — don't mix them
+    const rawAmt = parseFloat(o.amount) || parseFloat(o.total) || 0;
+    if (rawAmt > 0) return rawAmt;
+    const rawQty = parseFloat(o.quantity) || 0;
+    const trig = getTrigger(o);
+    return rawQty > 0 && trig > 0 ? rawQty * trig : 0;
+  };
 
   const getProximity = (o: any): number => {
     // Always calculate from live prices (enrichment-time values may be stale)

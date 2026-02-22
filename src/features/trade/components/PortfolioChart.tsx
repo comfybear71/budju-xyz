@@ -11,6 +11,7 @@ interface Props {
   usdcBalance: number;
   label: string;
   subtitle?: string;
+  onSelectAsset?: (code: string) => void;
 }
 
 const PortfolioChart = ({
@@ -19,6 +20,7 @@ const PortfolioChart = ({
   usdcBalance,
   label,
   subtitle,
+  onSelectAsset,
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
@@ -74,6 +76,13 @@ const PortfolioChart = ({
           },
         },
         animation: { animateRotate: true, duration: 800 },
+        onClick: hasData && onSelectAsset ? (_event: any, elements: any[]) => {
+          if (elements.length > 0) {
+            const idx = elements[0].index;
+            const code = chartData.labels[idx];
+            if (code) onSelectAsset(code);
+          }
+        } : undefined,
       },
     });
 

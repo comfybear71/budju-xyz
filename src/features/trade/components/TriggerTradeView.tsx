@@ -560,7 +560,10 @@ const TriggerTradeView = ({
                         ? "STOP SELL"
                         : "ORDER");
               const trigger = parseFloat(order.trigger) || parseFloat(order.rate) || parseFloat(order.triggerPrice) || 0;
-              const amount = parseFloat(order.quantity) || parseFloat(order.amount) || parseFloat(order.total) || 0;
+              // "amount" is USDC value; "quantity" is crypto token count — don't mix them
+              const rawAmt = parseFloat(order.amount) || parseFloat(order.total) || 0;
+              const rawQty = parseFloat(order.quantity) || 0;
+              const amount = rawAmt || (rawQty > 0 && trigger > 0 ? rawQty * trigger : 0);
               const orderCurrentPrice = prices[asset] || order.currentPrice || 0;
               // Always calculate proximity at render time with live prices
               // (enrichment-time prices may be stale due to React closure)

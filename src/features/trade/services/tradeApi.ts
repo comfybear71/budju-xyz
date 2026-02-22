@@ -790,8 +790,11 @@ export async function fetchEnrichedPendingOrders(
         // Swyftx uses "rate" for limit price and "trigger" for stop threshold —
         // use || (not ??) so that 0 falls through to the next field
         const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
-        // For pending orders, "amount" is often 0 (unfilled); "quantity" holds the USDC order size
-        const amount = parseFloat(o.quantity) || parseFloat(o.amount) || parseFloat(o.total) || 0;
+        // Swyftx "quantity" is crypto token count (e.g. 603.6 ENA), NOT USDC value.
+        // "amount"/"total" is the USDC value. If both are 0 (pending), derive from qty * trigger.
+        const rawAmount = parseFloat(o.amount) || parseFloat(o.total) || 0;
+        const rawQty = parseFloat(o.quantity) || 0;
+        const amount = rawAmount || (rawQty > 0 && trigger > 0 ? rawQty * trigger : 0);
         const currentPrice = prices[assetCode] || 0;
         const distance = currentPrice > 0 && trigger > 0
           ? (Math.abs(currentPrice - trigger) / currentPrice) * 100

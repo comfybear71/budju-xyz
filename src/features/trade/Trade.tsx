@@ -219,7 +219,12 @@ const Trade = () => {
 
   const handleSelectAsset = (code: string) => {
     setSelectedAsset(code);
-    if (isAdmin) setShowTradePanel(true);
+    if (isAdmin) {
+      setShowTradePanel(true);
+      setShowTriggerView(false);
+      setShowAutoAdmin(false);
+      setShowDeposit(false);
+    }
   };
 
   const handleNavClick = (nav: "leaders" | "home" | "activity") => {
@@ -313,6 +318,7 @@ const Trade = () => {
                         : "Pool Total"
                     }
                     subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
+                    onSelectAsset={isAdmin ? handleSelectAsset : undefined}
                   />
 
                   {/* Admin: tap coin to trade / User: connect to join */}
