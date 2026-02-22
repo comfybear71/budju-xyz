@@ -442,8 +442,18 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
           return (
             <div key={tierKey}>
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: tierCfg.color }}>
-                T{tierNum} – {tierCfg.name}
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
+                  T{tierNum} – {tierCfg.name}
+                </div>
+                <div className="flex gap-3 text-[10px]">
+                  <span className="text-slate-500">
+                    Dev <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.deviation ?? 0}%</span>
+                  </span>
+                  <span className="text-slate-500">
+                    Alloc <span className="font-bold text-green-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-1.5">

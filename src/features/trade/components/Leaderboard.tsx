@@ -50,7 +50,7 @@ const Leaderboard = ({ isOpen, onClose, poolValue }: Props) => {
       ? [podium[1], podium[0]]
       : podium;
 
-  const medalEmojis = ["🥈", "🥇", "🥉"];
+  const medalEmojis = ["🥇", "🥈", "🥉"];
   const podiumHeights = ["h-24", "h-32", "h-20"];
 
   return (
