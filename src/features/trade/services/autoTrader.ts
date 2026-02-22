@@ -123,6 +123,9 @@ export class AutoTrader {
   private _cachedPrices: Record<string, number> = {};
   private _cachedUsdcBalance: number = 0;
 
+  // Warmup: skip first price check after resume so fresh prices load first
+  private _warmup = false;
+
   // ── Computed ─────────────────────────────────────────────
 
   get isActive(): boolean {
@@ -207,15 +210,49 @@ export class AutoTrader {
       amount: (Number(e.qty ?? e.quantity) || 0) * (Number(e.price) || 0),
     }));
 
-    // Load bot active state — but do NOT auto-resume monitoring.
-    // User must explicitly press Start to begin trading.
-    // This prevents phantom trades on app reload.
+    // Load bot active state and resume monitoring automatically
     if (state.autoBotActive || state._rawAutoActive) {
-      // Keep tiers inactive — require explicit Start
-      this.tierActive = { 1: false, 2: false, 3: false };
+      const autoActive = state._rawAutoActive || {};
+
+      // Restore tier active state
+      const savedTierActive = autoActive.tierActive || {};
+      for (let t = 1; t <= 3; t++) {
+        const key = String(t);
+        this.tierActive[t] = !!(savedTierActive[key] ?? savedTierActive[t]);
+      }
+
+      // Restore targets
+      const savedTargets = autoActive.targets || {};
       this.targets = {};
-      this._isOwner = false;
-      this._log("Auto-trader loaded — press Start on a tier to begin", "info");
+      for (const [code, val] of Object.entries(savedTargets)) {
+        if (typeof val === "object" && val !== null && (val as any).buy && (val as any).sell) {
+          this.targets[code] = val as CoinTargets;
+        }
+      }
+
+      // Remove coins on cooldown from targets
+      for (const code of Object.keys(this.targets)) {
+        if (this._isOnCooldown(code)) {
+          delete this.targets[code];
+        }
+      }
+
+      // Device ownership check
+      const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
+      const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
+
+      if (otherDevice && freshHeartbeat) {
+        this._isOwner = false;
+        this._log("Auto-trading active on another device — viewing only", "info");
+      } else if (this.isActive) {
+        // Take ownership and resume with warmup (skip first price check
+        // so fresh prices load before any trades execute)
+        this._isOwner = true;
+        this._warmup = true;
+        this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
+        this._saveActiveState();
+        this._ensureMonitoring();
+      }
     }
 
     // Ensure default assignments if none exist
@@ -480,6 +517,17 @@ export class AutoTrader {
     }
 
     this._checkCount++;
+
+    // Warmup: on first check after resume, refresh data but skip trading.
+    // This lets fresh prices load so we don't trade on stale targets.
+    if (this._warmup) {
+      this._warmup = false;
+      this._log("Warmup: refreshing prices before monitoring begins...", "info");
+      await this._refreshData();
+      this._saveActiveState();
+      this._notifyChange();
+      return;
+    }
 
     // Refresh heartbeat
     this._saveActiveState();
