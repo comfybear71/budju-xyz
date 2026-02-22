@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus } from "react-icons/fa";
-import { fetchTraderState, ASSET_CONFIG, type TraderState } from "../services/tradeApi";
+import { fetchTraderState, saveTraderState, ASSET_CONFIG, type TraderState } from "../services/tradeApi";
 
 interface Props {
   prices: Record<string, number>;
   changes: Record<string, number>;
+  adminWallet: string;
   onClose: () => void;
 }
 
@@ -35,7 +36,7 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
   (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
 );
 
-const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
+const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) => {
   const [state, setState] = useState<TraderState | null>(null);
   const [loading, setLoading] = useState(true);
   // Local tier edits (for sliders + add/remove coins)
@@ -185,6 +186,34 @@ const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
     if (!tier) return false;
     const cooldowns = state?.autoCooldowns || {};
     return tier.coins.some((coin) => cooldowns[coin] && Date.now() < cooldowns[coin]);
+  };
+
+  // Toggle tier active state (start/stop)
+  const handleToggleTier = async (tierKey: string, activate: boolean) => {
+    const tierAssets = state?.autoTierAssets || {};
+    const updatedTiers = { ...tierAssets };
+    updatedTiers[tierKey] = { ...updatedTiers[tierKey], active: activate };
+    const res = await saveTraderState(adminWallet, { autoTiers: updatedTiers });
+    if (res.success) {
+      // Refresh state from server
+      const fresh = await fetchTraderState();
+      if (fresh) setState(fresh);
+    }
+  };
+
+  // Override cooldowns for all coins in a tier
+  const handleOverrideCooldowns = async (tierKey: string) => {
+    const tier = tiers.find((t) => t.key === tierKey);
+    if (!tier) return;
+    const cooldowns = { ...(state?.autoCooldowns || {}) };
+    for (const coin of tier.coins) {
+      delete cooldowns[coin];
+    }
+    const res = await saveTraderState(adminWallet, { autoCooldowns: cooldowns });
+    if (res.success) {
+      const fresh = await fetchTraderState();
+      if (fresh) setState(fresh);
+    }
   };
 
   const formatPrice = (n: number) => {
@@ -394,27 +423,49 @@ const AdminAutoTradeView = ({ prices, changes, onClose }: Props) => {
                     </div>
                   </div>
 
-                  {/* Stop / Override buttons — full width row */}
+                  {/* Start / Stop / Override buttons */}
                   <div className="flex gap-2">
-                    <button
-                      className="flex-[3] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                      style={{
-                        background: tier.active ? "#ef4444" : "#22c55e",
-                        color: "#fff",
-                      }}
-                    >
-                      {tier.active ? "Stop" : "Start"}
-                    </button>
-                    <button
-                      className="flex-[2] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                      style={{
-                        background: hasCooldowns ? "rgba(239,68,68,0.12)" : "rgba(255,255,255,0.04)",
-                        border: hasCooldowns ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(255,255,255,0.08)",
-                        color: hasCooldowns ? "#ef4444" : "#475569",
-                      }}
-                    >
-                      Override
-                    </button>
+                    {!tier.active ? (
+                      /* Inactive tier → full-width green Start */
+                      <button
+                        onClick={() => handleToggleTier(tier.key, true)}
+                        className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                        style={{ background: "#22c55e", color: "#fff" }}
+                      >
+                        Start
+                      </button>
+                    ) : hasCooldowns ? (
+                      /* Active + cooldowns → Stop + Override side by side */
+                      <>
+                        <button
+                          onClick={() => handleToggleTier(tier.key, false)}
+                          className="flex-[3] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                          style={{ background: "#ef4444", color: "#fff" }}
+                        >
+                          Stop
+                        </button>
+                        <button
+                          onClick={() => handleOverrideCooldowns(tier.key)}
+                          className="flex-[2] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                          style={{
+                            background: "rgba(239,68,68,0.12)",
+                            border: "1px solid rgba(239,68,68,0.3)",
+                            color: "#ef4444",
+                          }}
+                        >
+                          Override
+                        </button>
+                      </>
+                    ) : (
+                      /* Active + no cooldowns → full-width red Stop */
+                      <button
+                        onClick={() => handleToggleTier(tier.key, false)}
+                        className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                        style={{ background: "#ef4444", color: "#fff" }}
+                      >
+                        Stop
+                      </button>
+                    )}
                   </div>
                 </div>
               );

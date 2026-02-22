@@ -542,6 +542,7 @@ const Trade = () => {
                   <AdminAutoTradeView
                     prices={prices}
                     changes={changes}
+                    adminWallet={walletAddress}
                     onClose={() => setShowAutoAdmin(false)}
                   />
                 )}

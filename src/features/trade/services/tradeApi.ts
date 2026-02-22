@@ -468,6 +468,26 @@ export async function fetchTraderState(): Promise<TraderState | null> {
   });
 }
 
+/** Save trader state (admin only — partial updates) */
+export async function saveTraderState(
+  adminWallet: string,
+  updates: Record<string, unknown>,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const res = await fetchWithRetry("/api/state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet, ...updates }),
+    });
+    const data = await res.json();
+    // Invalidate cached trader state so next fetch gets fresh data
+    delete cache["trader_state"];
+    return { success: res.ok, error: res.ok ? undefined : data.error };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Save failed" };
+  }
+}
+
 /** Clear cached data */
 export function clearCache() {
   for (const key of Object.keys(cache)) delete cache[key];
