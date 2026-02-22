@@ -520,9 +520,9 @@ export async function placeTrade(order: {
     };
 
     if (isSuccess) {
-      alog.log(`Trade executed: ${order.side} ${order.secondary} — order ${result.orderId}`, "success");
+      alog.log(`Trade executed: ${order.side} ${order.assetCode} — order ${result.orderId}`, "success");
     } else {
-      alog.log(`Trade failed: ${order.side} ${order.secondary} — ${result.error}`, "error");
+      alog.log(`Trade failed: ${order.side} ${order.assetCode} — ${result.error}`, "error");
     }
 
     return result;
@@ -743,13 +743,14 @@ export async function fetchEnrichedPendingOrders(
 
     const raw = Array.isArray(data) ? data : (data.orders ?? []);
 
-    return raw
+    const mapped = raw
       .map((o: any) => {
         const ot = parseInt(o.order_type ?? o.orderType ?? 0);
         const isBuy = ot === 1 || ot === 3 || ot === 5;
         // Prefer enriched asset.code from proxy, fall back to secondary_asset
         const assetCode = o.asset?.code || o.secondary_asset || "";
-        const trigger = parseFloat(o.trigger ?? 0);
+        // Try multiple field names for trigger price
+        const trigger = parseFloat(o.trigger ?? o.triggerPrice ?? o.trigger_price ?? o.rate ?? 0);
         const amount = parseFloat(o.amount ?? o.total ?? o.quantity ?? 0);
         const currentPrice = prices[assetCode] || 0;
         const distance = currentPrice > 0 && trigger > 0
@@ -774,8 +775,21 @@ export async function fetchEnrichedPendingOrders(
           created: o.created_time ?? "",
         };
       })
-      .filter((o: any) => o.trigger > 0 && o.asset && o.asset !== "UNKNOWN")
-      .sort((a: any, b: any) => a.proximity - b.proximity);
+      // Only filter out orders with no identifiable asset — keep orders even if trigger is 0
+      .filter((o: any) => o.asset && o.asset !== "UNKNOWN" && o.asset !== "");
+
+    console.log(`Pending orders: ${raw.length} raw → ${mapped.length} after filter (dropped ${raw.length - mapped.length})`);
+    if (mapped.length < raw.length) {
+      const dropped = raw.filter((_: any, i: number) => {
+        const code = _.asset?.code || _.secondary_asset || "";
+        return !code || code === "UNKNOWN";
+      });
+      for (const d of dropped) {
+        console.warn(`Dropped order: secondary_asset=${d.secondary_asset}, asset.code=${d.asset?.code}, trigger=${d.trigger}`);
+      }
+    }
+
+    return mapped.sort((a: any, b: any) => a.proximity - b.proximity);
   } catch {
     return [];
   }

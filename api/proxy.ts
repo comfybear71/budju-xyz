@@ -158,6 +158,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Enrich orders with string asset codes
       const raw = Array.isArray(ordersData) ? ordersData : (ordersData as any).orders ?? [];
+      console.log(`Open orders: ${raw.length} raw orders from Swyftx`);
+      for (const o of raw) {
+        console.log(`  Order: secondary_asset=${o.secondary_asset}, trigger=${o.trigger}, order_type=${o.order_type}, quantity=${o.quantity}, amount=${o.amount}`);
+      }
       const enriched = raw.map((o: any) => {
         const primaryId = String(o.primary_asset ?? o.primaryAsset ?? "");
         const secondaryId = String(o.secondary_asset ?? o.secondaryAsset ?? "");
@@ -174,6 +178,75 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
       return res.status(200).json({ orders: enriched });
+    }
+
+    // ORDER PLACEMENT — resolve asset codes to numeric Swyftx IDs
+    // Swyftx expects numeric asset IDs (e.g. 36 for USDC, 3 for BTC),
+    // but the client sends string codes (e.g. "USDC", "XRP").
+    if (endpoint === "/orders/" && method === "POST" && body) {
+      const authHeaders = {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": "SwyftxTrader/1.0",
+      };
+
+      // Fetch asset list to build code → ID map
+      const assetsRes = await fetch(baseURL + "/markets/assets/", {
+        method: "GET",
+        headers: authHeaders,
+      });
+      const assetsData = await assetsRes.json();
+
+      const codeToId: Record<string, string> = {};
+      if (Array.isArray(assetsData)) {
+        for (const a of assetsData) {
+          if (a.code && a.id != null) {
+            codeToId[String(a.code).toUpperCase()] = String(a.id);
+          }
+        }
+      }
+
+      // Resolve string codes to numeric IDs
+      const resolvedBody = { ...body };
+
+      if (resolvedBody.primary && isNaN(Number(resolvedBody.primary))) {
+        const id = codeToId[String(resolvedBody.primary).toUpperCase()];
+        if (id) {
+          console.log(`Order: resolved primary "${resolvedBody.primary}" → ID ${id}`);
+          resolvedBody.primary = id;
+        } else {
+          console.warn(`Order: could not resolve primary "${resolvedBody.primary}"`);
+        }
+      }
+
+      if (resolvedBody.secondary && isNaN(Number(resolvedBody.secondary))) {
+        const id = codeToId[String(resolvedBody.secondary).toUpperCase()];
+        if (id) {
+          console.log(`Order: resolved secondary "${resolvedBody.secondary}" → ID ${id}`);
+          resolvedBody.secondary = id;
+        } else {
+          console.warn(`Order: could not resolve secondary "${resolvedBody.secondary}"`);
+        }
+      }
+
+      if (resolvedBody.assetQuantity && isNaN(Number(resolvedBody.assetQuantity))) {
+        const id = codeToId[String(resolvedBody.assetQuantity).toUpperCase()];
+        if (id) {
+          resolvedBody.assetQuantity = id;
+        }
+      }
+
+      console.log("Order placement payload:", JSON.stringify(resolvedBody));
+
+      const orderRes = await fetch(baseURL + "/orders/", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify(resolvedBody),
+      });
+
+      const orderData = await orderRes.json();
+      console.log("Order response:", orderRes.status, JSON.stringify(orderData));
+      return res.status(orderRes.status).json(orderData);
     }
 
     // Trading endpoints — admin-wallet-only (PIN removed, admin gate is client-side)
