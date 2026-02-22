@@ -779,3 +779,31 @@ export async function fetchEnrichedPendingOrders(
     return [];
   }
 }
+
+/** Cancel a pending order on Swyftx */
+export async function cancelOrder(
+  orderUuid: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const token = await ensureToken();
+
+    const res = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: `/orders/${orderUuid}/`,
+        method: "DELETE",
+        authToken: token,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || `HTTP ${res.status}` };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
