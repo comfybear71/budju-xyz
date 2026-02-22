@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTimes } from "react-icons/fa";
-import { fetchTraderState, ASSET_CONFIG } from "../services/tradeApi";
+import { FaTimes, FaSync } from "react-icons/fa";
+import { fetchTraderState, fetchEnrichedPendingOrders, ASSET_CONFIG } from "../services/tradeApi";
 
 interface Props {
   isOpen: boolean;
@@ -13,13 +13,29 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      // Try live Swyftx orders first (enriched with current prices)
+      const liveOrders = await fetchEnrichedPendingOrders(prices);
+      if (liveOrders.length > 0) {
+        setOrders(liveOrders);
+      } else {
+        // Fall back to cached enrichedOrders from server state
+        const state = await fetchTraderState();
+        setOrders(state?.enrichedOrders || []);
+      }
+    } catch {
+      // Fall back to server state on error
+      const state = await fetchTraderState();
+      setOrders(state?.enrichedOrders || []);
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-    setLoading(true);
-    fetchTraderState().then((state) => {
-      setOrders(state?.enrichedOrders || []);
-      setLoading(false);
-    });
+    loadOrders();
   }, [isOpen]);
 
   const getAsset = (o: any): string =>
@@ -84,18 +100,28 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
                   </div>
                   <span className="text-base font-bold text-slate-200">Pending Orders</span>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.06)" }}
-                >
-                  <FaTimes size={14} className="text-slate-400" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => loadOrders()}
+                    disabled={loading}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <FaSync size={10} className={`text-slate-400 ${loading ? "animate-spin" : ""}`} />
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <FaTimes size={14} className="text-slate-400" />
+                  </button>
+                </div>
               </div>
 
-              {/* View-only notice */}
+              {/* View-only notice + order count */}
               <div className="text-[11px] text-slate-500 text-center mb-3 py-1.5 px-2.5 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
-                View only — orders are managed by the pool admin
+                View only — {orders.length > 0 ? `${orders.length} orders managed by pool admin` : "orders are managed by the pool admin"}
               </div>
 
               {/* Orders list */}

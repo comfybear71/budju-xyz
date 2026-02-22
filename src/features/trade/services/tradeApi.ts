@@ -596,3 +596,155 @@ export async function saveTraderState(
 export function clearCache() {
   for (const key of Object.keys(cache)) delete cache[key];
 }
+
+// ── Additional API functions (ported from FLUB) ───────────
+
+/** Record a trade to MongoDB */
+export async function recordTradeInDB(
+  adminWallet: string,
+  coin: string,
+  tradeType: "buy" | "sell",
+  cryptoAmount: number,
+  price: number,
+): Promise<boolean> {
+  try {
+    const res = await fetch("/api/trade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        adminWallet,
+        coin,
+        type: tradeType,
+        amount: cryptoAmount,
+        price,
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch Swyftx order history (filled orders) */
+export async function fetchSwyftxOrderHistory(
+  limit = 100,
+): Promise<any[]> {
+  try {
+    const token = await ensureToken();
+    const res = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: `/orders/?limit=${limit}`,
+        method: "GET",
+        authToken: token,
+      }),
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    const raw = Array.isArray(data) ? data : (data.orders ?? []);
+
+    // Only include filled orders (status 4)
+    return raw
+      .filter((o: any) => parseInt(o.status) === 4)
+      .map((o: any) => {
+        const ot = parseInt(o.order_type ?? o.orderType ?? 0);
+        const isBuy = ot === 1 || ot === 3 || ot === 5;
+        return {
+          swyftxId: o.orderUuid ?? o.id ?? "",
+          type: isBuy ? "buy" : "sell",
+          coin: o.secondary_asset ?? "",
+          quantity: parseFloat(o.quantity ?? 0),
+          trigger: parseFloat(o.trigger ?? 0),
+          amount: parseFloat(o.amount ?? o.total ?? o.quantity ?? 0),
+          timestamp: o.updated_time ?? o.created_time ?? "",
+          orderType: ot,
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+/** Sync Swyftx order history to MongoDB (deduplicates by swyftxId) */
+export async function syncSwyftxTradesToDB(
+  adminWallet: string,
+): Promise<{ imported: number; skipped: number } | null> {
+  try {
+    const swyftxOrders = await fetchSwyftxOrderHistory(200);
+    if (swyftxOrders.length === 0) return { imported: 0, skipped: 0 };
+
+    const res = await fetch("/api/trade/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet, trades: swyftxOrders }),
+    });
+
+    if (res.ok) return await res.json();
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch and enrich pending orders from Swyftx */
+export async function fetchEnrichedPendingOrders(
+  prices: Record<string, number>,
+): Promise<any[]> {
+  try {
+    const token = await ensureToken();
+
+    // Fetch open orders from Swyftx
+    const res = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        endpoint: "/orders/open",
+        method: "GET",
+        authToken: token,
+      }),
+    });
+
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (data.error) return [];
+
+    const raw = Array.isArray(data) ? data : (data.orders ?? []);
+
+    return raw
+      .map((o: any) => {
+        const ot = parseInt(o.order_type ?? o.orderType ?? 0);
+        const isBuy = ot === 1 || ot === 3 || ot === 5;
+        const assetCode = o.asset?.code || o.secondary_asset || "";
+        const trigger = parseFloat(o.trigger ?? 0);
+        const amount = parseFloat(o.amount ?? o.total ?? 0);
+        const currentPrice = prices[assetCode] || 0;
+        const distance = currentPrice > 0 && trigger > 0
+          ? (Math.abs(currentPrice - trigger) / currentPrice) * 100
+          : 100;
+
+        const typeMap: Record<number, string> = {
+          3: "LIMIT BUY", 4: "LIMIT SELL",
+          5: "STOP BUY", 6: "STOP SELL",
+        };
+
+        return {
+          orderId: o.orderUuid ?? o.id ?? "",
+          orderType: ot,
+          type: typeMap[ot] || "ORDER",
+          isBuy,
+          asset: assetCode,
+          trigger,
+          amount,
+          currentPrice,
+          proximity: Math.round(distance * 100) / 100,
+          created: o.created_time ?? "",
+        };
+      })
+      .filter((o: any) => o.trigger > 0)
+      .sort((a: any, b: any) => a.proximity - b.proximity);
+  } catch {
+    return [];
+  }
+}

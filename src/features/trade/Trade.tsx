@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSync,
@@ -32,6 +32,7 @@ import {
   type UserPosition,
   type TraderState,
 } from "./services/tradeApi";
+import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 
 // Admin wallets
 const ADMIN_WALLETS = [
@@ -73,6 +74,10 @@ const Trade = () => {
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
+  const [, forceUpdate] = useState(0);
+  const autoTraderRef = useRef(getAutoTrader());
+  const autoTrader = autoTraderRef.current;
+
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
   const userValue = userPosition ? userPosition.currentValue : 0;
@@ -170,10 +175,32 @@ const Trade = () => {
                 : a.usdValue,
           })),
         );
+        // Feed fresh prices to AutoTrader
+        autoTrader.updatePrices(p);
       });
     }, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [autoTrader]);
+
+  // Initialize AutoTrader for admin users
+  useEffect(() => {
+    if (!isAdmin || !walletAddress) return;
+
+    autoTrader.setAdminWallet(walletAddress);
+    autoTrader.setLogger((msg, level) => {
+      console.log(`[AutoTrader/${level}] ${msg}`);
+    });
+    autoTrader.setOnStateChange(() => {
+      forceUpdate((n) => n + 1);
+    });
+
+    // Load state from server and potentially resume monitoring
+    autoTrader.loadFromServer();
+
+    return () => {
+      destroyAutoTrader();
+    };
+  }, [isAdmin, walletAddress, autoTrader]);
 
   const handleRefresh = () => {
     clearCache();
@@ -544,6 +571,7 @@ const Trade = () => {
                     changes={changes}
                     adminWallet={walletAddress}
                     onClose={() => setShowAutoAdmin(false)}
+                    autoTrader={autoTrader}
                   />
                 )}
               </AnimatePresence>

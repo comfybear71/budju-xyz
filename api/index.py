@@ -201,7 +201,7 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 # Accept partial updates — only overwrite keys that are sent
-                allowed_keys = {'pendingOrders', 'autoTiers', 'autoCooldowns', 'autoTradeLog', 'autoActive'}
+                allowed_keys = {'pendingOrders', 'enrichedOrders', 'autoTiers', 'autoCooldowns', 'autoTradeLog', 'autoActive', 'autoTierAssignments'}
                 update = {k: v for k, v in body.items() if k in allowed_keys}
 
                 if not update:

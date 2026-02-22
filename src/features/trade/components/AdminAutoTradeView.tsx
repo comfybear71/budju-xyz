@@ -1,34 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus } from "react-icons/fa";
-import { fetchTraderState, saveTraderState, ASSET_CONFIG, type TraderState } from "../services/tradeApi";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync } from "react-icons/fa";
+import { ASSET_CONFIG, syncSwyftxTradesToDB } from "../services/tradeApi";
+import { AutoTrader, TIER_CONFIG } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
   changes: Record<string, number>;
   adminWallet: string;
   onClose: () => void;
-}
-
-interface TierData {
-  key: string;
-  name: string;
-  deviation: number;
-  allocation: number;
-  coins: string[];
-  active: boolean;
-}
-
-interface MonitoringItem {
-  coin: string;
-  tierKey: string;
-  tierName: string;
-  deviation: number;
-  currentPrice: number;
-  buyTrigger: number;
-  sellTrigger: number;
-  change24h: number;
-  inCooldown: boolean;
+  autoTrader: AutoTrader;
 }
 
 // Coins available for auto-trading (exclude stables/fiat)
@@ -36,140 +17,91 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
   (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
 );
 
-const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) => {
-  const [state, setState] = useState<TraderState | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Local tier edits (for sliders + add/remove coins)
-  const [tierEdits, setTierEdits] = useState<Record<string, Partial<TierData>>>({});
-  // Which tier has add-coin picker open
-  const [addCoinTier, setAddCoinTier] = useState<string | null>(null);
-  // Countdown timer for next refresh
+const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader }: Props) => {
+  const [, setTick] = useState(0);
+  const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(30);
+  const [startingTier, setStartingTier] = useState<number | null>(null);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  // Force re-render when autoTrader state changes
+  const refresh = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
-    setLoading(true);
-    fetchTraderState().then((data) => {
-      setState(data);
-      setLoading(false);
-    });
-  }, []);
+    autoTrader.setOnStateChange(refresh);
+    return () => autoTrader.setOnStateChange(() => {});
+  }, [autoTrader, refresh]);
 
-  // Auto-refresh state every 30s with countdown
+  // Countdown timer for next price check
   useEffect(() => {
-    const refreshInterval = setInterval(() => {
-      fetchTraderState().then((data) => {
-        if (data) setState(data);
-        setCountdown(30);
-      });
-    }, 30_000);
-    const countdownInterval = setInterval(() => {
-      setCountdown((c) => (c > 0 ? c - 1 : 0));
-    }, 1_000);
-    return () => {
-      clearInterval(refreshInterval);
-      clearInterval(countdownInterval);
-    };
+    const interval = setInterval(() => {
+      setCountdown((c) => (c > 0 ? c - 1 : 30));
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  const botActive = state?.autoBotActive ?? false;
+  // Feed prices to autoTrader
+  useEffect(() => {
+    autoTrader.updatePrices(prices);
+  }, [autoTrader, prices]);
 
-  // Build tiers from autoTierAssets, merged with local edits
-  const getTiers = (): TierData[] => {
-    if (!state) return [];
-    const tierAssets = state.autoTierAssets || {};
-    const assignments = state.autoTierAssignments || {};
+  const snapshot = autoTrader.getSnapshot();
+  const botActive = snapshot.isActive;
 
-    // Group coins by tier from assignments
-    const tierCoins: Record<string, string[]> = {};
-    for (const [coin, tier] of Object.entries(assignments)) {
-      const k = tier as string;
-      if (!tierCoins[k]) tierCoins[k] = [];
-      tierCoins[k].push(coin);
+  // Build tier data
+  const getTiers = () => {
+    const tiers = [];
+    for (let t = 1; t <= 3; t++) {
+      const cfg = TIER_CONFIG[t];
+      const settings = snapshot.tierSettings[`tier${t}`];
+      const coins = autoTrader.getCoinsForTier(t);
+      const active = snapshot.tierActive[t] || false;
+      tiers.push({ num: t, cfg, settings, coins, active });
     }
-
-    return Object.entries(tierAssets).map(([key, cfg]: [string, any]) => {
-      const edits = tierEdits[key] || {};
-      return {
-        key,
-        name: cfg.name || key.replace("tier", "Tier "),
-        deviation: edits.deviation ?? (Number(cfg.deviation) || 0),
-        allocation: edits.allocation ?? (Number(cfg.allocation) || 0),
-        coins: edits.coins ?? tierCoins[key] ?? cfg.coins ?? [],
-        active: cfg.active !== false,
-      };
-    });
+    return tiers;
   };
 
-  // Get all coins already assigned to any tier
+  // Get all assigned coins
   const getAssignedCoins = (): Set<string> => {
-    const tiers = getTiers();
-    const assigned = new Set<string>();
-    for (const tier of tiers) {
-      for (const coin of tier.coins) assigned.add(coin);
-    }
-    return assigned;
+    return new Set(Object.keys(snapshot.tierAssignments));
   };
 
-  // Update a tier's local edit
-  const updateTier = (tierKey: string, updates: Partial<TierData>) => {
-    setTierEdits((prev) => ({
-      ...prev,
-      [tierKey]: { ...(prev[tierKey] || {}), ...updates },
-    }));
-  };
-
-  // Add a coin to a tier
-  const addCoinToTier = (tierKey: string, coin: string) => {
-    const tier = getTiers().find((t) => t.key === tierKey);
-    if (!tier) return;
-    const newCoins = [...tier.coins, coin];
-    updateTier(tierKey, { coins: newCoins });
-    setAddCoinTier(null);
-  };
-
-  // Remove a coin from a tier
-  const removeCoinFromTier = (tierKey: string, coin: string) => {
-    const tier = getTiers().find((t) => t.key === tierKey);
-    if (!tier) return;
-    const newCoins = tier.coins.filter((c) => c !== coin);
-    updateTier(tierKey, { coins: newCoins });
-  };
-
-  // Build monitoring data — from assignments or tier coins
-  const getMonitoringData = (): MonitoringItem[] => {
-    if (!state) return [];
-    const tiers = getTiers();
-    const cooldowns = state.autoCooldowns || {};
-
-    const items: MonitoringItem[] = [];
-    for (const tier of tiers) {
-      for (const coin of tier.coins) {
-        const dev = tier.deviation;
+  // Build monitoring data
+  const getMonitoringData = () => {
+    const items: any[] = [];
+    for (let t = 1; t <= 3; t++) {
+      if (!snapshot.tierActive[t]) continue;
+      const coins = autoTrader.getCoinsForTier(t);
+      const settings = snapshot.tierSettings[`tier${t}`];
+      for (const coin of coins) {
         const cp = Number(prices[coin]) || 0;
         const change = Number(changes[coin]) || 0;
+        const target = snapshot.targets[coin];
+        const inCooldown = autoTrader._isOnCooldown(coin);
         items.push({
           coin,
-          tierKey: tier.key,
-          tierName: tier.name,
-          deviation: dev,
+          tierNum: t,
+          tierName: TIER_CONFIG[t].name,
+          deviation: settings.deviation,
           currentPrice: cp,
-          buyTrigger: cp > 0 ? cp * (1 - dev / 100) : 0,
-          sellTrigger: cp > 0 ? cp * (1 + dev / 100) : 0,
+          buyTrigger: target ? target.buy : (cp > 0 ? cp * (1 - settings.deviation / 100) : 0),
+          sellTrigger: target ? target.sell : (cp > 0 ? cp * (1 + settings.deviation / 100) : 0),
           change24h: change,
-          inCooldown: !!(cooldowns[coin] && Date.now() < cooldowns[coin]),
+          inCooldown,
+          hasTarget: !!target,
         });
       }
     }
     return items;
   };
 
-  // Group monitoring by tier
+  // Group by tier
   const getGrouped = () => {
     const data = getMonitoringData();
-    const groups: Record<string, MonitoringItem[]> = {};
+    const groups: Record<number, any[]> = {};
     for (const item of data) {
-      if (!groups[item.tierKey]) groups[item.tierKey] = [];
-      groups[item.tierKey].push(item);
+      if (!groups[item.tierNum]) groups[item.tierNum] = [];
+      groups[item.tierNum].push(item);
     }
     return groups;
   };
@@ -177,55 +109,52 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  const tradeLog = state?.autoTradeLog || [];
+  const tradeLog = snapshot.tradeLog;
   const assignedCoins = getAssignedCoins();
 
-  // Check if any coins in a tier have active cooldowns
-  const tierHasCooldowns = (tierKey: string) => {
-    const tier = tiers.find((t) => t.key === tierKey);
-    if (!tier) return false;
-    const cooldowns = state?.autoCooldowns || {};
-    return tier.coins.some((coin) => cooldowns[coin] && Date.now() < cooldowns[coin]);
-  };
-
-  // Toggle tier active state (start/stop)
-  // Updates both autoTiers (BUDJU format) and autoActive.tierActive (FLUB format)
-  const handleToggleTier = async (tierKey: string, activate: boolean) => {
-    const tierAssets = state?.autoTierAssets || {};
-    const updatedTiers = { ...tierAssets };
-    updatedTiers[tierKey] = { ...updatedTiers[tierKey], active: activate };
-
-    // Also update FLUB-format autoActive.tierActive for cross-app compatibility
-    const rawAutoActive = state?._rawAutoActive || {};
-    const tierNum = tierKey.replace("tier", "");
-    const updatedAutoActive = {
-      ...rawAutoActive,
-      tierActive: { ...(rawAutoActive.tierActive || {}), [tierNum]: activate },
-    };
-
-    const res = await saveTraderState(adminWallet, {
-      autoTiers: updatedTiers,
-      autoActive: updatedAutoActive,
-    });
-    if (res.success) {
-      const fresh = await fetchTraderState();
-      if (fresh) setState(fresh);
+  const handleStartTier = async (tierNum: number) => {
+    setStartingTier(tierNum);
+    const result = await autoTrader.startTier(tierNum);
+    setStartingTier(null);
+    if (!result.success) {
+      // Error is logged by autoTrader
     }
   };
 
-  // Override cooldowns for all coins in a tier
-  const handleOverrideCooldowns = async (tierKey: string) => {
-    const tier = tiers.find((t) => t.key === tierKey);
-    if (!tier) return;
-    const cooldowns = { ...(state?.autoCooldowns || {}) };
-    for (const coin of tier.coins) {
-      delete cooldowns[coin];
+  const handleStopTier = (tierNum: number) => {
+    autoTrader.stopTier(tierNum);
+  };
+
+  const handleOverrideCooldowns = (tierNum: number) => {
+    autoTrader.overrideCooldowns(tierNum);
+  };
+
+  const handleUpdateDeviation = (tierNum: number, deviation: number) => {
+    autoTrader.updateTierSettings(tierNum, { deviation });
+  };
+
+  const handleUpdateAllocation = (tierNum: number, allocation: number) => {
+    autoTrader.updateTierSettings(tierNum, { allocation });
+  };
+
+  const handleAddCoin = (tierNum: number, coin: string) => {
+    autoTrader.assignCoin(coin, tierNum);
+    setAddCoinTier(null);
+  };
+
+  const handleRemoveCoin = (coin: string) => {
+    autoTrader.unassignCoin(coin);
+  };
+
+  const handleSyncTrades = async () => {
+    setSyncStatus("Syncing...");
+    const result = await syncSwyftxTradesToDB(adminWallet);
+    if (result) {
+      setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+    } else {
+      setSyncStatus("Sync failed");
     }
-    const res = await saveTraderState(adminWallet, { autoCooldowns: cooldowns });
-    if (res.success) {
-      const fresh = await fetchTraderState();
-      if (fresh) setState(fresh);
-    }
+    setTimeout(() => setSyncStatus(null), 4000);
   };
 
   const formatPrice = (n: number) => {
@@ -234,16 +163,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
     if (n >= 1) return `$${n.toFixed(2)}`;
     return `$${n.toFixed(4)}`;
   };
-
-  if (loading) {
-    return (
-      <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-        <div className="flex justify-center py-12">
-          <div className="w-8 h-8 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <motion.div
@@ -271,17 +190,23 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
           >
             {botActive ? "ACTIVE" : "INACTIVE"}
           </span>
+          {botActive && snapshot.isOwner && (
+            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
+              OWNER
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={botActive ? () => autoTrader.stopAll() : undefined}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all"
             style={{
-              background: botActive ? "rgba(239,68,68,0.15)" : "rgba(34,197,94,0.15)",
-              border: `1px solid ${botActive ? "rgba(239,68,68,0.3)" : "rgba(34,197,94,0.3)"}`,
-              color: botActive ? "#ef4444" : "#22c55e",
+              background: botActive ? "rgba(239,68,68,0.15)" : "rgba(100,116,139,0.15)",
+              border: `1px solid ${botActive ? "rgba(239,68,68,0.3)" : "rgba(100,116,139,0.3)"}`,
+              color: botActive ? "#ef4444" : "#64748b",
             }}
           >
-            {botActive ? <><FaStop size={8} /> Stop</> : <><FaPlay size={8} /> Start</>}
+            {botActive ? <><FaStop size={8} /> Stop All</> : "No tiers active"}
           </button>
           <button
             onClick={onClose}
@@ -295,195 +220,190 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
 
       <div className="p-4 space-y-3">
         {/* ── Tier Cards — horizontal scroll ── */}
-        {tiers.length > 0 && (
-          <div
-            className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x"
-            style={{ scrollbarWidth: "none" }}
-          >
-            {tiers.map((tier) => {
-              const cooldowns = state?.autoCooldowns || {};
-              const availableToAdd = AVAILABLE_COINS.filter(
-                (c) => !assignedCoins.has(c)
-              );
-              const hasCooldowns = tierHasCooldowns(tier.key);
+        <div
+          className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x"
+          style={{ scrollbarWidth: "none" }}
+        >
+          {tiers.map((tier) => {
+            const availableToAdd = AVAILABLE_COINS.filter(
+              (c) => !assignedCoins.has(c)
+            );
+            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(coin));
 
-              return (
-                <div
-                  key={tier.key}
-                  className="flex-shrink-0 rounded-xl p-4 snap-start"
-                  style={{
-                    background: "rgba(168,85,247,0.06)",
-                    border: "1px solid rgba(168,85,247,0.15)",
-                    width: "min(300px, 85vw)",
-                  }}
-                >
-                  {/* Tier title + ACTIVE badge */}
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[14px] font-bold" style={{ color: "#a855f7" }}>
-                      {tier.key.replace("tier", "T")} – {tier.name}
-                    </span>
-                    <span
-                      className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
-                      style={{
-                        background: tier.active ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
-                        color: tier.active ? "#22c55e" : "#64748b",
-                      }}
-                    >
-                      {tier.active ? "ACTIVE" : "INACTIVE"}
-                    </span>
-                  </div>
+            return (
+              <div
+                key={tier.num}
+                className="flex-shrink-0 rounded-xl p-4 snap-start"
+                style={{
+                  background: `${tier.cfg.color}10`,
+                  border: `1px solid ${tier.cfg.color}25`,
+                  width: "min(300px, 85vw)",
+                }}
+              >
+                {/* Tier title + ACTIVE badge */}
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-[14px] font-bold" style={{ color: tier.cfg.color }}>
+                    T{tier.num} – {tier.cfg.name}
+                  </span>
+                  <span
+                    className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
+                    style={{
+                      background: tier.active ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
+                      color: tier.active ? "#22c55e" : "#64748b",
+                    }}
+                  >
+                    {tier.active ? "ACTIVE" : "INACTIVE"}
+                  </span>
+                </div>
 
-                  {/* Coin tags with colored X + add circle */}
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    {tier.coins.map((coin: string) => {
+                {/* Coin tags */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {tier.coins.map((coin: string) => {
+                    const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                    const cd = autoTrader._isOnCooldown(coin);
+                    return (
+                      <span
+                        key={coin}
+                        className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
+                        style={{
+                          background: cfg.color + "20",
+                          border: `1px solid ${cfg.color}40`,
+                          color: cfg.color,
+                          opacity: cd ? 0.5 : 1,
+                        }}
+                      >
+                        {coin}{cd ? " (cd)" : ""}
+                        <button
+                          onClick={() => handleRemoveCoin(coin)}
+                          className="hover:opacity-100 transition-opacity"
+                          style={{ color: "#ef4444" }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
+                  <button
+                    onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      color: "#64748b",
+                    }}
+                  >
+                    <FaPlus size={9} />
+                  </button>
+                </div>
+
+                {/* Add coin picker */}
+                {addCoinTier === tier.num && availableToAdd.length > 0 && (
+                  <div
+                    className="flex flex-wrap gap-1 mb-3 p-2 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    {availableToAdd.map((coin) => {
                       const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                      const cd = cooldowns[coin] && Date.now() < cooldowns[coin];
                       return (
-                        <span
+                        <button
                           key={coin}
-                          className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
+                          onClick={() => handleAddCoin(tier.num, coin)}
+                          className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
                           style={{
-                            background: cfg.color + "20",
-                            border: `1px solid ${cfg.color}40`,
+                            background: cfg.color + "15",
+                            border: `1px solid ${cfg.color}30`,
                             color: cfg.color,
                           }}
                         >
-                          {coin}{cd ? " (cd)" : ""}
-                          <button
-                            onClick={() => removeCoinFromTier(tier.key, coin)}
-                            className="hover:opacity-100 transition-opacity"
-                            style={{ color: "#ef4444" }}
-                          >
-                            ×
-                          </button>
-                        </span>
+                          {coin}
+                        </button>
                       );
                     })}
-                    {/* + circle button */}
+                  </div>
+                )}
+
+                {/* Dev + Alloc sliders */}
+                <div className="flex gap-3 mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-500">Dev</span>
+                      <span className="text-[11px] font-bold text-blue-400">{tier.settings.deviation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={tier.cfg.devMin}
+                      max={tier.cfg.devMax}
+                      step={0.5}
+                      value={tier.settings.deviation}
+                      onChange={(e) => handleUpdateDeviation(tier.num, Number(e.target.value))}
+                      className="w-full h-1.5"
+                      style={{ accentColor: "#3b82f6" }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-500">Alloc</span>
+                      <span className="text-[11px] font-bold text-green-400">{tier.settings.allocation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={tier.cfg.allocMin}
+                      max={tier.cfg.allocMax}
+                      step={1}
+                      value={tier.settings.allocation}
+                      onChange={(e) => handleUpdateAllocation(tier.num, Number(e.target.value))}
+                      className="w-full h-1.5"
+                      style={{ accentColor: "#22c55e" }}
+                    />
+                  </div>
+                </div>
+
+                {/* Start / Stop / Override buttons */}
+                <div className="flex gap-2">
+                  {!tier.active ? (
                     <button
-                      onClick={() => setAddCoinTier(addCoinTier === tier.key ? null : tier.key)}
-                      className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
-                      style={{
-                        background: "rgba(255,255,255,0.06)",
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        color: "#64748b",
-                      }}
+                      onClick={() => handleStartTier(tier.num)}
+                      disabled={startingTier === tier.num}
+                      className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                      style={{ background: startingTier === tier.num ? "#64748b" : "#22c55e", color: "#fff" }}
                     >
-                      <FaPlus size={9} />
+                      {startingTier === tier.num ? "Starting..." : "Start"}
                     </button>
-                  </div>
-
-                  {/* Add coin picker dropdown */}
-                  {addCoinTier === tier.key && availableToAdd.length > 0 && (
-                    <div
-                      className="flex flex-wrap gap-1 mb-3 p-2 rounded-lg"
-                      style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                    >
-                      {availableToAdd.map((coin) => {
-                        const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                        return (
-                          <button
-                            key={coin}
-                            onClick={() => addCoinToTier(tier.key, coin)}
-                            className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
-                            style={{
-                              background: cfg.color + "15",
-                              border: `1px solid ${cfg.color}30`,
-                              color: cfg.color,
-                            }}
-                          >
-                            {coin}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Dev + Alloc sliders side by side */}
-                  <div className="flex gap-3 mb-3">
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-slate-500">Dev</span>
-                        <span className="text-[11px] font-bold text-blue-400">{tier.deviation}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={1}
-                        max={20}
-                        step={0.5}
-                        value={tier.deviation}
-                        onChange={(e) => updateTier(tier.key, { deviation: Number(e.target.value) })}
-                        className="w-full h-1.5"
-                        style={{ accentColor: "#3b82f6" }}
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-slate-500">Alloc</span>
-                        <span className="text-[11px] font-bold text-green-400">{tier.allocation}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={50}
-                        step={1}
-                        value={tier.allocation}
-                        onChange={(e) => updateTier(tier.key, { allocation: Number(e.target.value) })}
-                        className="w-full h-1.5"
-                        style={{ accentColor: "#22c55e" }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Start / Stop / Override buttons */}
-                  <div className="flex gap-2">
-                    {!tier.active ? (
-                      /* Inactive tier → full-width green Start */
+                  ) : hasCooldowns ? (
+                    <>
                       <button
-                        onClick={() => handleToggleTier(tier.key, true)}
-                        className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                        style={{ background: "#22c55e", color: "#fff" }}
-                      >
-                        Start
-                      </button>
-                    ) : hasCooldowns ? (
-                      /* Active + cooldowns → Stop + Override side by side */
-                      <>
-                        <button
-                          onClick={() => handleToggleTier(tier.key, false)}
-                          className="flex-[3] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                          style={{ background: "#ef4444", color: "#fff" }}
-                        >
-                          Stop
-                        </button>
-                        <button
-                          onClick={() => handleOverrideCooldowns(tier.key)}
-                          className="flex-[2] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                          style={{
-                            background: "rgba(239,68,68,0.12)",
-                            border: "1px solid rgba(239,68,68,0.3)",
-                            color: "#ef4444",
-                          }}
-                        >
-                          Override
-                        </button>
-                      </>
-                    ) : (
-                      /* Active + no cooldowns → full-width red Stop */
-                      <button
-                        onClick={() => handleToggleTier(tier.key, false)}
-                        className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                        onClick={() => handleStopTier(tier.num)}
+                        className="flex-[3] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
                         style={{ background: "#ef4444", color: "#fff" }}
                       >
                         Stop
                       </button>
-                    )}
-                  </div>
+                      <button
+                        onClick={() => handleOverrideCooldowns(tier.num)}
+                        className="flex-[2] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                        style={{
+                          background: "rgba(239,68,68,0.12)",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                          color: "#ef4444",
+                        }}
+                      >
+                        Override
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => handleStopTier(tier.num)}
+                      className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
+                      style={{ background: "#ef4444", color: "#fff" }}
+                    >
+                      Stop
+                    </button>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </div>
+            );
+          })}
+        </div>
 
         {/* ── Monitoring header ── */}
         <div className="rounded-lg p-2 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
@@ -498,22 +418,42 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
         {/* ── Coin monitoring grouped by tier ── */}
         {monitoringCount === 0 ? (
           <div className="text-[10px] text-slate-500 text-center py-4">
-            No coins assigned to tiers yet. Add coins to tiers above to start monitoring.
+            No active tiers. Start a tier above to begin monitoring.
           </div>
         ) : Object.entries(grouped).map(([tierKey, coins]) => {
-          const tier = tiers.find((t) => t.key === tierKey);
-          const tierName = tier?.name || tierKey.replace("tier", "Tier ");
+          const tierNum = Number(tierKey);
+          const tierCfg = TIER_CONFIG[tierNum];
 
           return (
             <div key={tierKey}>
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: "#a855f7" }}>
-                {tierKey.replace("tier", "T")} – {tierName}
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: tierCfg.color }}>
+                T{tierNum} – {tierCfg.name}
               </div>
 
               <div className="space-y-1.5">
-                {coins.map((item) => {
+                {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
+
+                  // Calculate progress toward buy or sell trigger
+                  let progress = 0;
+                  if (item.hasTarget && item.currentPrice > 0) {
+                    const mid = (item.buyTrigger + item.sellTrigger) / 2;
+                    const halfRange = (item.sellTrigger - item.buyTrigger) / 2;
+                    if (halfRange > 0) {
+                      if (item.currentPrice < mid) {
+                        progress = (mid - item.currentPrice) / halfRange;
+                      } else {
+                        progress = (item.currentPrice - mid) / halfRange;
+                      }
+                    }
+                  }
+                  progress = Math.max(0, Math.min(1, progress));
+
+                  let barColor = "#3b82f6";
+                  if (progress >= 0.95) barColor = "#ef4444";
+                  else if (progress >= 0.75) barColor = "#f97316";
+                  else if (progress >= 0.5) barColor = "#eab308";
 
                   return (
                     <div
@@ -524,16 +464,21 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
                         border: `1px solid ${item.inCooldown ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.04)"}`,
                       }}
                     >
-                      {/* Coin name + tier badge + change */}
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold" style={{ color: cfg.color }}>
                             {item.coin}
                           </span>
-                          {item.inCooldown && <span className="text-[9px] text-yellow-500">(cooldown)</span>}
-                          <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.15)", color: "#a855f7" }}>
-                            {tierKey.replace("tier", "T")}
-                          </span>
+                          {item.inCooldown && (
+                            <span className="text-[9px] text-yellow-500">
+                              (cd {autoTrader.getCooldownRemaining(item.coin)})
+                            </span>
+                          )}
+                          {item.hasTarget && (
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                              LIVE
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1" style={{ color: changeColor }}>
                           {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
@@ -546,16 +491,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
                       {/* Progress bar */}
                       <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
                         <div
-                          className="h-full rounded-full"
+                          className="h-full rounded-full transition-all duration-700"
                           style={{
-                            background: cfg.color,
-                            width: `${Math.min(100, item.deviation * 15)}%`,
-                            opacity: 0.7,
+                            background: barColor,
+                            width: `${(progress * 100).toFixed(0)}%`,
+                            opacity: 0.8,
                           }}
                         />
                       </div>
 
-                      {/* Buy / Current / Sell row */}
                       <div className="flex justify-between text-[10px] font-mono">
                         <span className="text-green-400/70">Buy &lt; {formatPrice(item.buyTrigger)}</span>
                         <span className="text-slate-300 font-bold">{formatPrice(item.currentPrice)}</span>
@@ -571,9 +515,21 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
 
         {/* ── Trade Log ── */}
         <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
-          <div className="px-2.5 py-1.5" style={{ background: "rgba(59,130,246,0.08)" }}>
+          <div className="px-2.5 py-1.5 flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)" }}>
             <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+            <button
+              onClick={handleSyncTrades}
+              className="text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+              style={{ color: "#3b82f6", background: "rgba(59,130,246,0.1)" }}
+            >
+              <FaSync size={7} /> Sync
+            </button>
           </div>
+          {syncStatus && (
+            <div className="px-2.5 py-1 text-[9px] font-bold text-center" style={{ background: "rgba(59,130,246,0.05)", color: "#3b82f6" }}>
+              {syncStatus}
+            </div>
+          )}
           <div style={{ maxHeight: 200, overflowY: "auto" }}>
             {tradeLog.length === 0 ? (
               <div className="text-[10px] text-slate-500 text-center py-3">
@@ -581,11 +537,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
               </div>
             ) : (
               <div className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-                {tradeLog.slice(0, 20).map((entry: any, i: number) => {
-                  const isSell = entry.side?.toLowerCase() === "sell";
-                  const qty = Number(entry.qty) || 0;
-                  const price = Number(entry.price) || 0;
-                  const total = qty * price;
+                {tradeLog.slice(0, 20).map((entry, i) => {
+                  const isSell = entry.side === "SELL";
+                  const total = entry.quantity * entry.price;
                   const coinCfg = ASSET_CONFIG[entry.coin] || { color: "#64748b" };
                   return (
                     <div key={i} className="flex items-center justify-between px-2.5 py-2">
@@ -597,12 +551,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
                           {entry.coin}
                         </span>
                         <span className="text-[10px] font-bold" style={{ color: isSell ? "#ef4444" : "#22c55e" }}>
-                          {entry.side?.toUpperCase()}
+                          {entry.side}
                         </span>
                       </div>
                       <div className="text-right">
                         <div className="text-[10px] text-slate-500 font-mono">
-                          {qty.toFixed(4)} @ {formatPrice(price)}
+                          {entry.quantity.toFixed(4)} @ {formatPrice(entry.price)}
                         </div>
                         <div className="text-[11px] font-bold text-white font-mono">
                           {formatPrice(total)}
@@ -617,9 +571,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
         </div>
 
         {/* Empty state */}
-        {tiers.length === 0 && monitoringCount === 0 && tradeLog.length === 0 && (
+        {tiers.every((t) => t.coins.length === 0) && monitoringCount === 0 && tradeLog.length === 0 && (
           <div className="text-center py-8 text-slate-500 text-xs">
-            No auto-trade configuration found
+            No coins assigned to any tier. Add coins to tiers above to get started.
           </div>
         )}
       </div>
