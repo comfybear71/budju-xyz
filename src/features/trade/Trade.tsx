@@ -22,6 +22,7 @@ import {
   fetchAdminStats,
   fetchUserPosition,
   clearCache,
+  AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
   type UserPosition,
@@ -62,9 +63,10 @@ const Trade = () => {
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
+  const [tradeInfoMode, setTradeInfoMode] = useState<"trigger" | "auto" | null>(null);
 
-  // Computed
-  const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0);
+  // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
+  const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
   const userValue = userPosition ? userPosition.currentValue : 0;
 
   // ── Load data (all public — no wallet needed) ──
@@ -108,8 +110,8 @@ const Trade = () => {
 
       setAssets(merged);
 
-      // Calculate pool value for MongoDB queries
-      const poolVal = merged.reduce((s, a) => s + a.usdValue, 0);
+      // Calculate pool value for MongoDB queries (crypto + cash)
+      const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
 
       // Fetch pool stats for ALL visitors (public data)
       if (poolVal > 0) {
@@ -258,7 +260,7 @@ const Trade = () => {
                       ? "My Portfolio"
                       : "Pool Total"
                   }
-                  subtitle={`${assets.length} assets + cash`}
+                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
                 />
 
                 {/* Admin: Tap coin to trade */}
@@ -304,27 +306,88 @@ const Trade = () => {
 
               {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                {/* Quick trade buttons - visible to all, only functional for admin */}
+                {/* Quick trade buttons */}
                 <div className="flex gap-2 mb-3">
-                  {[
-                    { label: "Instant", icon: "\u26A1", color: "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400" },
-                    { label: "Trigger", icon: "\u2699", color: "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400" },
-                    { label: "Auto", icon: "\u2728", color: "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400" },
-                  ].map((mode) => (
+                  {/* Instant - admin only */}
+                  {isAdmin && (
                     <button
-                      key={mode.label}
                       onClick={() => {
-                        if (isAdmin && assets.length > 0) {
+                        if (assets.length > 0) {
                           setSelectedAsset(assets[0].code);
                           setShowTradePanel(true);
                         }
                       }}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${mode.color}`}
+                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
                     >
-                      {mode.icon} {mode.label}
+                      ⚡ Instant
                     </button>
-                  ))}
+                  )}
+                  {/* Trigger - viewable by all */}
+                  <button
+                    onClick={() => {
+                      if (isAdmin && assets.length > 0) {
+                        setSelectedAsset(assets[0].code);
+                        setShowTradePanel(true);
+                      } else {
+                        setTradeInfoMode(tradeInfoMode === "trigger" ? null : "trigger");
+                      }
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                      tradeInfoMode === "trigger" && !isAdmin
+                        ? "from-amber-500/30 to-amber-600/20 border-amber-400/50 text-amber-300"
+                        : "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
+                    }`}
+                  >
+                    ⚙ Trigger
+                  </button>
+                  {/* Auto - viewable by all */}
+                  <button
+                    onClick={() => {
+                      if (isAdmin && assets.length > 0) {
+                        setSelectedAsset(assets[0].code);
+                        setShowTradePanel(true);
+                      } else {
+                        setTradeInfoMode(tradeInfoMode === "auto" ? null : "auto");
+                      }
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                      tradeInfoMode === "auto" && !isAdmin
+                        ? "from-emerald-500/30 to-emerald-600/20 border-emerald-400/50 text-emerald-300"
+                        : "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
+                    }`}
+                  >
+                    ✨ Auto
+                  </button>
                 </div>
+
+                {/* Trade info cards for non-admin viewers */}
+                {!isAdmin && tradeInfoMode && (
+                  <div className="mb-3 p-3 rounded-xl border border-white/[0.06] bg-slate-800/30">
+                    {tradeInfoMode === "trigger" ? (
+                      <div className="text-center">
+                        <div className="text-amber-400 text-sm font-bold mb-1">⚙ Trigger Orders</div>
+                        <p className="text-xs text-slate-400 mb-2">
+                          The pool admin sets buy/sell orders that execute automatically when
+                          a coin hits a target price — buying dips and selling rises.
+                        </p>
+                        <div className="text-[10px] text-slate-500">
+                          {poolStats ? `${poolStats.tradeCount} trades executed` : "Loading..."}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <div className="text-emerald-400 text-sm font-bold mb-1">✨ Auto Trader</div>
+                        <p className="text-xs text-slate-400 mb-2">
+                          Tier-based strategy that automatically rebalances the portfolio.
+                          Configures deviation thresholds and allocation percentages per tier.
+                        </p>
+                        <div className="text-[10px] text-slate-500">
+                          {poolStats ? `${poolStats.tradeCount} trades executed` : "Loading..."}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Cash Balances - visible to all */}
                 <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
