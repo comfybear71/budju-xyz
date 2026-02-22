@@ -540,7 +540,7 @@ const TriggerTradeView = ({
             No pending orders
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="space-y-1.5" style={{ maxHeight: 400, overflowY: "auto" }}>
             {orders.map((order, i) => {
               const asset =
                 order.asset ||
@@ -568,119 +568,78 @@ const TriggerTradeView = ({
                 icon: asset.charAt(0),
                 name: asset,
               };
+              const orderId = order.orderId || order.orderUuid || order.id;
+
+              // Proximity-based bar
+              const progress = Math.min(1, Math.max(0.05, 1 - proximity / 20));
+              let barColor = buy ? "#22c55e" : "#ef4444";
+              if (proximity < 2) barColor = "#ef4444";
+              else if (proximity < 5) barColor = "#f97316";
+              else if (proximity < 10) barColor = "#eab308";
 
               return (
                 <div
-                  key={order.orderId || order.orderUuid || order.id || i}
-                  className="rounded-xl overflow-hidden"
+                  key={orderId || i}
+                  className="rounded-lg p-2.5"
                   style={{
-                    background: "rgba(255,255,255,0.03)",
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.04)",
                     borderLeft: `3px solid ${buy ? "#22c55e" : "#ef4444"}`,
                   }}
                 >
-                  <div className="p-3">
-                    {/* Top: coin + type + price + cancel */}
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                          style={{ background: orderCfg.color }}
-                        >
-                          {asset.slice(0, 2)}
-                        </div>
-                        <span className="text-sm font-bold text-slate-200">
-                          {asset}
-                        </span>
-                        <span
-                          className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                          style={{
-                            background: buy
-                              ? "rgba(34,197,94,0.15)"
-                              : "rgba(239,68,68,0.15)",
-                            color: buy ? "#22c55e" : "#ef4444",
-                          }}
-                        >
-                          {type}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white font-mono">
-                          {formatPrice(trigger)}
-                        </span>
-                        {isAdmin && (
-                          <button
-                            onClick={() =>
-                              handleCancel(
-                                order.orderId ||
-                                  order.orderUuid ||
-                                  order.id,
-                              )
-                            }
-                            disabled={
-                              cancellingId ===
-                              (order.orderId ||
-                                order.orderUuid ||
-                                order.id)
-                            }
-                            className="w-5 h-5 rounded-md flex items-center justify-center hover:bg-red-500/20 transition-colors"
-                          >
-                            {cancellingId ===
-                            (order.orderId ||
-                              order.orderUuid ||
-                              order.id) ? (
-                              <FaSpinner
-                                size={8}
-                                className="text-slate-500 animate-spin"
-                              />
-                            ) : (
-                              <FaTimes size={8} className="text-slate-500" />
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Amount + proximity */}
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        $
-                        {amount.toLocaleString(undefined, {
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        USDC
+                  {/* Row 1: coin + type + proximity + amount + cancel */}
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold" style={{ color: orderCfg.color }}>
+                        {asset}
                       </span>
                       <span
-                        className="text-[11px] font-bold"
-                        style={{ color: buy ? "#22c55e" : "#ef4444" }}
-                      >
-                        {proximity.toFixed(1)}% away
-                      </span>
-                    </div>
-
-                    {/* Progress bar */}
-                    <div
-                      className="h-1 rounded-full overflow-hidden mb-2"
-                      style={{ background: "rgba(255,255,255,0.06)" }}
-                    >
-                      <div
-                        className="h-full rounded-full"
+                        className="text-[9px] font-bold px-1 py-0.5 rounded"
                         style={{
-                          background: buy
-                            ? "linear-gradient(90deg, #22c55e, #4ade80)"
-                            : "linear-gradient(90deg, #ef4444, #f87171)",
-                          width: `${Math.min(100, Math.max(5, 100 - proximity * 5))}%`,
+                          background: buy ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                          color: buy ? "#22c55e" : "#ef4444",
                         }}
-                      />
-                    </div>
-
-                    {/* Current + trigger */}
-                    <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                      <span>
-                        Now:{" "}
-                        {formatPrice(orderCurrentPrice)}
+                      >
+                        {type}
                       </span>
-                      <span>Trigger: {formatPrice(trigger)}</span>
+                      <span className="text-[9px] font-bold" style={{ color: buy ? "#22c55e" : "#ef4444" }}>
+                        {proximity.toFixed(1)}%
+                      </span>
                     </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-300 font-mono">
+                        ${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          onClick={() => handleCancel(orderId)}
+                          disabled={cancellingId === orderId}
+                          className="w-4 h-4 rounded flex items-center justify-center hover:bg-red-500/20 transition-colors"
+                        >
+                          {cancellingId === orderId ? (
+                            <FaSpinner size={7} className="text-slate-500 animate-spin" />
+                          ) : (
+                            <FaTimes size={7} className="text-slate-500" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 2: proximity bar */}
+                  <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                    <div
+                      className="h-full rounded-full transition-all duration-700"
+                      style={{ background: barColor, width: `${(progress * 100).toFixed(0)}%`, opacity: 0.8 }}
+                    />
+                  </div>
+
+                  {/* Row 3: current / trigger prices */}
+                  <div className="flex justify-between text-[10px] font-mono">
+                    <span className="text-slate-500">Now {formatPrice(orderCurrentPrice)}</span>
+                    <span className={buy ? "text-green-400/70" : "text-red-400/70"}>
+                      Trigger {formatPrice(trigger)}
+                    </span>
                   </div>
                 </div>
               );

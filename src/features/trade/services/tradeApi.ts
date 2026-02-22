@@ -747,9 +747,10 @@ export async function fetchEnrichedPendingOrders(
       .map((o: any) => {
         const ot = parseInt(o.order_type ?? o.orderType ?? 0);
         const isBuy = ot === 1 || ot === 3 || ot === 5;
+        // Prefer enriched asset.code from proxy, fall back to secondary_asset
         const assetCode = o.asset?.code || o.secondary_asset || "";
         const trigger = parseFloat(o.trigger ?? 0);
-        const amount = parseFloat(o.amount ?? o.total ?? 0);
+        const amount = parseFloat(o.amount ?? o.total ?? o.quantity ?? 0);
         const currentPrice = prices[assetCode] || 0;
         const distance = currentPrice > 0 && trigger > 0
           ? (Math.abs(currentPrice - trigger) / currentPrice) * 100
@@ -761,7 +762,7 @@ export async function fetchEnrichedPendingOrders(
         };
 
         return {
-          orderId: o.orderUuid ?? o.id ?? "",
+          orderId: o.orderUuid ?? o.order_uuid ?? o.id ?? "",
           orderType: ot,
           type: typeMap[ot] || "ORDER",
           isBuy,
@@ -773,7 +774,7 @@ export async function fetchEnrichedPendingOrders(
           created: o.created_time ?? "",
         };
       })
-      .filter((o: any) => o.trigger > 0)
+      .filter((o: any) => o.trigger > 0 && o.asset && o.asset !== "UNKNOWN")
       .sort((a: any, b: any) => a.proximity - b.proximity);
   } catch {
     return [];

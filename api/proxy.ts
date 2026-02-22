@@ -126,6 +126,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(401).json({ error: "No authToken provided" });
     }
 
+    // OPEN ORDERS ENDPOINT — enrich with asset codes (Swyftx returns numeric IDs)
+    if (endpoint === "/orders/open" || endpoint === "/orders/open/") {
+      const authHeaders = {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": "SwyftxTrader/1.0",
+      };
+
+      // Fetch open orders and asset list in parallel
+      const [ordersRes, assetsRes] = await Promise.all([
+        fetch(baseURL + "/orders/open/", { method: "GET", headers: authHeaders }),
+        fetch(baseURL + "/markets/assets/", { method: "GET", headers: authHeaders }),
+      ]);
+
+      if (!ordersRes.ok) {
+        const errData = await ordersRes.json().catch(() => ({}));
+        return res.status(ordersRes.status).json(errData);
+      }
+
+      const ordersData = await ordersRes.json();
+      const assetsData = await assetsRes.json();
+
+      // Build lookup: assetId → { code, name }
+      const assetMap: Record<string, { code: string; name: string }> = {};
+      if (Array.isArray(assetsData)) {
+        for (const a of assetsData) {
+          assetMap[String(a.id)] = { code: a.code || "UNKNOWN", name: a.name || "Unknown" };
+        }
+      }
+
+      // Enrich orders with string asset codes
+      const raw = Array.isArray(ordersData) ? ordersData : (ordersData as any).orders ?? [];
+      const enriched = raw.map((o: any) => {
+        const primaryId = String(o.primary_asset ?? o.primaryAsset ?? "");
+        const secondaryId = String(o.secondary_asset ?? o.secondaryAsset ?? "");
+        return {
+          ...o,
+          primary_asset: primaryId,
+          secondary_asset: secondaryId,
+          asset: {
+            code: assetMap[secondaryId]?.code || o.asset?.code || secondaryId,
+            name: assetMap[secondaryId]?.name || o.asset?.name || "Unknown",
+          },
+          primaryAssetCode: assetMap[primaryId]?.code || primaryId,
+        };
+      });
+
+      return res.status(200).json({ orders: enriched });
+    }
+
     // Trading endpoints — admin-wallet-only (PIN removed, admin gate is client-side)
 
     const url = baseURL + endpoint;

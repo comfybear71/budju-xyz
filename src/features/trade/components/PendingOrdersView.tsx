@@ -85,7 +85,7 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "tween", duration: 0.3 }}
-            className="absolute inset-x-0 bottom-0 top-14 bg-[#0a0a1a] rounded-t-2xl overflow-y-auto"
+            className="absolute inset-x-0 bottom-0 top-14 bg-[#0a0a1a] rounded-t-2xl overflow-y-auto pb-20"
             style={{ maxWidth: 420, margin: "0 auto" }}
           >
             <div className="p-4">
@@ -124,7 +124,7 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
                 View only — {orders.length > 0 ? `${orders.length} orders managed by pool admin` : "orders are managed by the pool admin"}
               </div>
 
-              {/* Orders list */}
+              {/* Orders list — compact cards, scrollable */}
               {loading ? (
                 <div className="flex justify-center py-12">
                   <div className="w-8 h-8 rounded-full border-2 border-purple-500 border-t-transparent animate-spin" />
@@ -134,7 +134,7 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
                   No pending orders
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="space-y-1.5">
                   {orders.map((order, i) => {
                     const asset = getAsset(order);
                     const buy = isBuy(order);
@@ -145,72 +145,67 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
                     const currentPrice = prices[asset] || 0;
                     const cfg = ASSET_CONFIG[asset] || { color: "#64748b", icon: asset.charAt(0), name: asset };
 
+                    // Proximity bar progress
+                    const progress = Math.min(1, Math.max(0.05, 1 - proximity / 20));
+                    let barColor = buy ? "#22c55e" : "#ef4444";
+                    if (proximity < 2) barColor = "#ef4444";
+                    else if (proximity < 5) barColor = "#f97316";
+                    else if (proximity < 10) barColor = "#eab308";
+
                     return (
                       <div
                         key={order.orderId || order.orderUuid || order.id || i}
-                        className="rounded-xl overflow-hidden"
+                        className="rounded-lg p-2.5"
                         style={{
-                          background: "rgba(255,255,255,0.03)",
+                          background: "rgba(255,255,255,0.02)",
+                          border: `1px solid rgba(255,255,255,0.04)`,
                           borderLeft: `3px solid ${buy ? "#22c55e" : "#ef4444"}`,
                         }}
                       >
-                        <div className="p-3">
-                          {/* Top row: coin + type + trigger price */}
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <div
-                                className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                                style={{ background: cfg.color }}
-                              >
-                                {(cfg.icon || asset.charAt(0)).slice(0, 2)}
-                              </div>
-                              <span className="text-sm font-bold text-slate-200">{asset}</span>
-                              <span
-                                className="text-[9px] font-bold px-1.5 py-0.5 rounded"
-                                style={{
-                                  background: buy ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
-                                  color: buy ? "#22c55e" : "#ef4444",
-                                }}
-                              >
-                                {type}
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold text-white font-mono">
-                              ${trigger.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                            </span>
-                          </div>
-
-                          {/* Amount + proximity */}
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              ${amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} USDC
+                        {/* Row 1: coin + type badge + proximity + trigger price */}
+                        <div className="flex items-center justify-between mb-1.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold" style={{ color: cfg.color }}>
+                              {asset}
                             </span>
                             <span
-                              className="text-[11px] font-bold"
-                              style={{ color: buy ? "#22c55e" : "#ef4444" }}
+                              className="text-[9px] font-bold px-1 py-0.5 rounded"
+                              style={{
+                                background: buy ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                                color: buy ? "#22c55e" : "#ef4444",
+                              }}
                             >
-                              {proximity.toFixed(1)}% away
+                              {type}
+                            </span>
+                            <span className="text-[9px] font-bold" style={{ color: buy ? "#22c55e" : "#ef4444" }}>
+                              {proximity.toFixed(1)}%
                             </span>
                           </div>
+                          <span className="text-[10px] font-bold text-slate-300 font-mono">
+                            ${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </span>
+                        </div>
 
-                          {/* Proximity bar */}
-                          <div className="h-1 rounded-full overflow-hidden mb-2" style={{ background: "rgba(255,255,255,0.06)" }}>
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                background: buy
-                                  ? "linear-gradient(90deg, #22c55e, #4ade80)"
-                                  : "linear-gradient(90deg, #ef4444, #f87171)",
-                                width: `${Math.min(100, Math.max(5, 100 - proximity * 5))}%`,
-                              }}
-                            />
-                          </div>
+                        {/* Row 2: proximity bar */}
+                        <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
+                          <div
+                            className="h-full rounded-full transition-all duration-700"
+                            style={{
+                              background: barColor,
+                              width: `${(progress * 100).toFixed(0)}%`,
+                              opacity: 0.8,
+                            }}
+                          />
+                        </div>
 
-                          {/* Current + trigger prices */}
-                          <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                            <span>Now: ${currentPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-                            <span>Trigger: ${trigger.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-                          </div>
+                        {/* Row 3: current / trigger prices */}
+                        <div className="flex justify-between text-[10px] font-mono">
+                          <span className="text-slate-500">
+                            Now ${currentPrice.toLocaleString(undefined, { maximumFractionDigits: currentPrice >= 1 ? 2 : 4 })}
+                          </span>
+                          <span className={buy ? "text-green-400/70" : "text-red-400/70"}>
+                            Trigger ${trigger.toLocaleString(undefined, { maximumFractionDigits: trigger >= 1 ? 2 : 4 })}
+                          </span>
                         </div>
                       </div>
                     );
