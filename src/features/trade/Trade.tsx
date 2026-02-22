@@ -33,6 +33,8 @@ import {
   type TraderState,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
+import { getActivityLog } from "./services/activityLog";
+import ActivityLog from "./components/ActivityLog";
 
 // Admin wallets
 const ADMIN_WALLETS = [
@@ -77,6 +79,7 @@ const Trade = () => {
   const [, forceUpdate] = useState(0);
   const autoTraderRef = useRef(getAutoTrader());
   const autoTrader = autoTraderRef.current;
+  const activityLog = getActivityLog();
 
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
@@ -86,6 +89,7 @@ const Trade = () => {
   const loadData = useCallback(async () => {
     try {
       setApiStatus("connecting");
+      activityLog.log("Connecting to exchange and price feeds...", "info");
 
       // Use allSettled so one failing source never kills the whole page
       const results = await Promise.allSettled([
@@ -143,8 +147,10 @@ const Trade = () => {
         setUserPosition(pos);
       }
 
+      activityLog.log("Connected — all data loaded", "success");
       setApiStatus("connected");
     } catch (err) {
+      activityLog.log(`Connection error: ${err}`, "error");
       console.error("Failed to load trade data:", err);
       setApiStatus("error");
     } finally {
@@ -188,7 +194,7 @@ const Trade = () => {
 
     autoTrader.setAdminWallet(walletAddress);
     autoTrader.setLogger((msg, level) => {
-      console.log(`[AutoTrader/${level}] ${msg}`);
+      activityLog.log(`[AutoTrader] ${msg}`, level === "success" ? "success" : level === "error" ? "error" : "info");
     });
     autoTrader.setOnStateChange(() => {
       forceUpdate((n) => n + 1);
@@ -561,6 +567,9 @@ const Trade = () => {
                 />
               </div>
               )}
+
+              {/* ─── Activity Log (visible to ALL users) ──────────── */}
+              <ActivityLog />
 
             </div>
           )}

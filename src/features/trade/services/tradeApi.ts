@@ -6,6 +6,9 @@
 //   CoinGecko    → Real-time USD prices
 // ============================================================
 
+import { getActivityLog } from "./activityLog";
+const alog = getActivityLog();
+
 // ── Types ──────────────────────────────────────────────────
 
 export interface PortfolioAsset {
@@ -222,7 +225,7 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
       const data = await res.json();
       const rawAssets = data.assets || data || [];
 
-      return rawAssets
+      const result = rawAssets
         .filter((a: any) => {
           const bal = Number(a.balance) || 0;
           const code = a.code || "";
@@ -250,8 +253,10 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
             icon: cfg.icon,
           };
         });
+      alog.log(`Loaded ${result.length} assets from Swyftx`, "success");
+      return result;
     } catch (err) {
-      console.error("fetchPortfolio error:", err);
+      alog.log(`Portfolio fetch error: ${err}`, "error");
       return [];
     }
   });
@@ -278,14 +283,17 @@ export async function fetchPrices(): Promise<Record<string, number>> {
     try {
       const data = await fetchCoinGeckoViaProxy();
       const prices: Record<string, number> = {};
+      let updated = 0;
       for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
         if (cfg.coingeckoId && data[cfg.coingeckoId]) {
           prices[code] = data[cfg.coingeckoId].usd || 0;
+          updated++;
         }
       }
+      alog.log(`CoinGecko: updated ${updated} coin prices in USD`, "success");
       return prices;
     } catch (err) {
-      console.error("fetchPrices error:", err);
+      alog.log(`Price fetch error: ${err}`, "error");
       return {};
     }
   });
@@ -505,12 +513,21 @@ export async function placeTrade(order: {
     const hasOrderId = !!(data.orderId || data.orderUuid || data.order_id);
     const isSuccess = res.ok && !hasError && hasOrderId;
 
-    return {
+    const result = {
       success: isSuccess,
       orderId: data.orderId || data.orderUuid || data.order_id,
       error: isSuccess ? undefined : (data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : JSON.stringify(data))),
     };
+
+    if (isSuccess) {
+      alog.log(`Trade executed: ${order.side} ${order.secondary} — order ${result.orderId}`, "success");
+    } else {
+      alog.log(`Trade failed: ${order.side} ${order.secondary} — ${result.error}`, "error");
+    }
+
+    return result;
   } catch (err: any) {
+    alog.log(`Trade error: ${err.message || "Trade failed"}`, "error");
     return { success: false, error: err.message || "Trade failed" };
   }
 }
@@ -563,6 +580,12 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         timestamp: e.timestamp || e.time || "",
       }));
 
+      const orderCount = (data.enrichedOrders || data.pendingOrders || []).length;
+      alog.log(
+        `ServerState: loaded (${orderCount} orders, ${tradeLog.length} trades, ${Object.keys(assignments).length} coins assigned)`,
+        "info",
+      );
+
       return {
         enrichedOrders: data.enrichedOrders || data.pendingOrders || [],
         autoTierAssets: tierAssets,
@@ -573,7 +596,8 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         currentAutoTier: data.currentAutoTier,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
-    } catch {
+    } catch (err) {
+      alog.log(`ServerState: fetch error — ${err}`, "error");
       return null;
     }
   });
