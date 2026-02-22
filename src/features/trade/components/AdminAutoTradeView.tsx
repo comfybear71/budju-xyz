@@ -251,11 +251,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   width: "min(300px, 85vw)",
                 }}
               >
-                {/* Tier title + ACTIVE badge */}
+                {/* Tier title + targets + ACTIVE badge */}
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-[14px] font-bold" style={{ color: tier.cfg.color }}>
-                    T{tier.num} – {tier.cfg.name}
-                  </span>
+                  <div>
+                    <span className="text-[14px] font-bold" style={{ color: tier.cfg.color }}>
+                      T{tier.num} – {tier.cfg.name}
+                    </span>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc
+                    </div>
+                  </div>
                   <span
                     className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
                     style={{
