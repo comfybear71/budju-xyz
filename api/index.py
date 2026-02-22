@@ -107,11 +107,7 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"allocations": allocations})
 
             elif path == '/api/admin/stats':
-                wallet = params.get('wallet')
                 pool_value = params.get('poolValue')
-                if not wallet or not is_admin(wallet):
-                    self._send_json(403, {"error": "Admin access required"})
-                    return
                 if not pool_value:
                     self._send_json(400, {"error": "poolValue parameter required"})
                     return

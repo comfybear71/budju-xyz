@@ -21,7 +21,7 @@ MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
 DB_NAME = os.getenv("DB_NAME", "flub")
 
 # Admin wallet addresses (set via env var, comma-separated)
-ADMIN_WALLETS = [w.strip() for w in os.getenv("ADMIN_WALLETS", "").split(",") if w.strip()]
+ADMIN_WALLETS = [w.strip() for w in os.getenv("ADMIN_WALLETS", "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq").split(",") if w.strip()]
 
 client = MongoClient(MONGODB_URI)
 db = client[DB_NAME]

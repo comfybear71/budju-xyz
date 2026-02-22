@@ -207,7 +207,7 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
         .filter((a: any) => {
           const bal = Number(a.balance) || 0;
           const code = a.code || "";
-          return bal > 0 && code !== "USD";
+          return bal > 0 && code !== "USD" && code !== "AUD" && code !== "USDC";
         })
         .map((a: any) => {
           const code = a.code || "";
@@ -346,15 +346,14 @@ export async function fetchTransactions(
   });
 }
 
-/** Fetch admin stats from MongoDB */
+/** Fetch pool stats from MongoDB (public - visible to all visitors) */
 export async function fetchAdminStats(
   poolValue: number,
-  adminWallet: string,
 ): Promise<AdminStats | null> {
   return cached("admin_stats", 30_000, async () => {
     try {
       const res = await fetchWithRetry(
-        `/api/admin/stats?wallet=${adminWallet}&poolValue=${poolValue}`,
+        `/api/admin/stats?poolValue=${poolValue}`,
       );
       if (!res.ok) return null;
       return await res.json();

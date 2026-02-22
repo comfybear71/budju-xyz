@@ -1,20 +1,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  FaTrophy,
-  FaHistory,
-  FaHome,
   FaSync,
-  FaRobot,
-  FaUsers,
-  FaMoneyBillWave,
-  FaChartLine,
-  FaExchangeAlt,
-  FaPercentage,
-  FaWallet,
   FaArrowUp,
   FaArrowDown,
 } from "react-icons/fa";
+import { HiOutlineTrophy, HiOutlineHome, HiOutlineDocumentText } from "react-icons/hi2";
+import { HiOutlineUsers, HiOutlineBanknotes, HiOutlineChartBar, HiOutlineArrowsRightLeft, HiOutlineWallet } from "react-icons/hi2";
 import { APP_NAME } from "@constants/config";
 import { useWallet } from "@hooks/useWallet";
 import PortfolioChart from "./components/PortfolioChart";
@@ -119,13 +111,13 @@ const Trade = () => {
       // Calculate pool value for MongoDB queries
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0);
 
-      // Fetch admin stats from MongoDB (needs poolValue for NAV calc)
-      if (isAdmin && poolVal > 0) {
-        const stats = await fetchAdminStats(poolVal, walletAddress);
+      // Fetch pool stats for ALL visitors (public data)
+      if (poolVal > 0) {
+        const stats = await fetchAdminStats(poolVal);
         setPoolStats(stats);
       }
 
-      // Fetch user position if connected
+      // Fetch user position if connected (non-admin)
       if (isConnected && !isAdmin && poolVal > 0) {
         const pos = await fetchUserPosition(walletAddress, poolVal);
         setUserPosition(pos);
@@ -266,7 +258,7 @@ const Trade = () => {
                       ? "My Portfolio"
                       : "Pool Total"
                   }
-                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
+                  subtitle={`${assets.length} assets + cash`}
                 />
 
                 {/* Admin: Tap coin to trade */}
@@ -310,76 +302,85 @@ const Trade = () => {
                 )}
               </div>
 
-              {/* ─── Admin Controls (admin-only) ── */}
-              {isAdmin && (
-                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                  {/* Quick trade buttons */}
-                  <div className="flex gap-2 mb-3">
-                    {[
-                      { label: "Instant", color: "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400 hover:border-blue-400/50" },
-                      { label: "Trigger", color: "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400 hover:border-amber-400/50" },
-                      { label: "Auto", color: "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:border-emerald-400/50" },
-                    ].map((mode) => (
-                      <button
-                        key={mode.label}
-                        onClick={() => {
-                          if (assets.length > 0) {
-                            setSelectedAsset(assets[0].code);
-                            setShowTradePanel(true);
-                          }
-                        }}
-                        className={`flex-1 py-2.5 rounded-xl text-[11px] font-bold bg-gradient-to-b border transition-all ${mode.color}`}
-                      >
-                        {mode.label}
-                      </button>
-                    ))}
-                  </div>
+              {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
+              <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                {/* Quick trade buttons - visible to all, only functional for admin */}
+                <div className="flex gap-2 mb-3">
+                  {[
+                    { label: "Instant", icon: "\u26A1", color: "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400" },
+                    { label: "Trigger", icon: "\u2699", color: "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400" },
+                    { label: "Auto", icon: "\u2728", color: "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400" },
+                  ].map((mode) => (
+                    <button
+                      key={mode.label}
+                      onClick={() => {
+                        if (isAdmin && assets.length > 0) {
+                          setSelectedAsset(assets[0].code);
+                          setShowTradePanel(true);
+                        }
+                      }}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${mode.color}`}
+                    >
+                      {mode.icon} {mode.label}
+                    </button>
+                  ))}
+                </div>
 
-                  {/* Cash Balances - inline like FLUB */}
-                  <div className="flex items-center gap-4 mb-3 px-1">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-400" />
-                      <span className="text-xs text-slate-400">USDC</span>
-                      <span className="text-xs font-bold text-green-400 font-mono">
-                        ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-400" />
-                      <span className="text-xs text-slate-400">AUD</span>
-                      <span className="text-xs font-bold text-blue-400 font-mono">
-                        ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
+                {/* Cash Balances - visible to all */}
+                <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                    <span className="text-sm text-slate-400">USDC</span>
+                    <span className="text-sm font-bold text-green-400 font-mono">
+                      ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                    <span className="text-sm text-slate-400">AUD</span>
+                    <span className="text-sm font-bold text-amber-400 font-mono">
+                      ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
 
-                  {/* Admin Stats Grid */}
-                  {poolStats && (
-                    <div className="grid grid-cols-3 gap-2">
+                {/* Pool Stats Grid - visible to all */}
+                {poolStats && (
+                  <>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
                       {[
-                        { label: "Users", value: poolStats.userCount, icon: FaUsers, color: "text-blue-400" },
-                        { label: "Deposited", value: formatUsd(poolStats.totalUserDeposited), icon: FaMoneyBillWave, color: "text-green-400" },
-                        { label: "User Value", value: formatUsd(poolStats.totalUserValue), icon: FaChartLine, color: "text-cyan-400" },
-                        { label: "NAV", value: poolStats.nav.toFixed(4), icon: FaWallet, color: "text-purple-400" },
-                        { label: "Trades", value: poolStats.tradeCount, icon: FaExchangeAlt, color: "text-emerald-400" },
-                        { label: "User P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: FaPercentage, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
+                        { label: "USERS", value: poolStats.userCount, icon: HiOutlineUsers, color: "text-blue-400" },
+                        { label: "DEPOSITED", value: formatUsd(poolStats.totalUserDeposited), icon: HiOutlineBanknotes, color: "text-green-400" },
+                        { label: "USER VALUE", value: formatUsd(poolStats.totalUserValue), icon: HiOutlineChartBar, color: "text-cyan-400" },
+                        { label: "NAV", value: `$${poolStats.nav.toFixed(4)}`, icon: HiOutlineWallet, color: "text-purple-400" },
+                        { label: "TRADES", value: poolStats.tradeCount, icon: HiOutlineArrowsRightLeft, color: "text-emerald-400" },
+                        { label: "USER P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: HiOutlineChartBar, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
                       ].map((stat) => (
-                        <div key={stat.label} className="rounded-xl bg-slate-800/40 p-2.5 text-center">
-                          <stat.icon className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`} />
-                          <div className="text-[10px] text-slate-500 mb-0.5">{stat.label}</div>
-                          <div className={`text-xs font-bold font-mono ${stat.color}`}>{stat.value}</div>
+                        <div key={stat.label} className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-2.5 text-center">
+                          <div className="text-[10px] text-slate-500 font-semibold tracking-wider mb-1">{stat.label}</div>
+                          <div className={`text-sm font-bold font-mono ${stat.color}`}>{stat.value}</div>
                         </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* ─── User Position (connected users) ── */}
+                    {/* Pool value footer */}
+                    <div className="flex justify-between items-center px-1 pt-1 border-t border-slate-700/20">
+                      <span className="text-[10px] text-slate-600 font-mono">
+                        DB: {poolStats.userCount}u {poolStats.depositCount}d {poolStats.tradeCount}t pool
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        {formatUsd(totalPoolValue)}
+                      </span>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* ─── User Position (connected non-admin users) ── */}
               {isConnected && !isAdmin && userPosition && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <FaWallet className="w-3 h-3 text-blue-400" />
+                    <HiOutlineWallet className="w-3 h-3 text-blue-400" />
                     <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
                       Your Position
                     </span>
@@ -450,42 +451,55 @@ const Trade = () => {
         {/* ─── Bottom Navigation Bar ──────────────── */}
         <div className="fixed bottom-0 left-0 right-0 z-40">
           <div className="max-w-2xl mx-auto">
-            <div className="mx-3 mb-3 rounded-2xl border border-white/[0.06] bg-[#0f172a]/90 backdrop-blur-xl shadow-lg shadow-black/40">
+            <div className="mx-3 mb-3 rounded-2xl border border-white/[0.06] bg-[#0f172a]/95 backdrop-blur-xl shadow-lg shadow-black/40">
               <div className="flex items-center justify-around py-2 px-4">
+                {/* LEADERS - outline trophy */}
                 <button
                   onClick={() => handleNavClick("leaders")}
                   className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
                     activeNav === "leaders" ? "text-yellow-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaTrophy
-                    size={16}
+                  <HiOutlineTrophy
+                    size={22}
+                    strokeWidth={1.5}
                     style={activeNav === "leaders" ? { filter: "drop-shadow(0 0 6px rgba(250,204,21,0.8)) drop-shadow(0 0 12px rgba(250,204,21,0.4))" } : undefined}
                   />
-                  <span className="text-[10px] font-semibold">Leaders</span>
+                  <span className="text-[10px] font-bold tracking-wider">LEADERS</span>
                 </button>
 
+                {/* HOME - outline home in circle border */}
                 <button onClick={() => handleNavClick("home")} className="relative -mt-5">
-                  <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all border-2 ${
                     activeNav === "home"
-                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_25px_rgba(59,130,246,0.5),0_0_50px_rgba(59,130,246,0.2)]"
-                      : "bg-slate-800 border border-slate-700/50 hover:border-blue-500/30"
+                      ? "border-blue-500/60 bg-[#0f172a] shadow-[0_0_20px_rgba(59,130,246,0.4),0_0_40px_rgba(59,130,246,0.15)]"
+                      : "border-slate-700/50 bg-[#0f172a] hover:border-blue-500/30"
                   }`}>
-                    <FaHome size={18} className={activeNav === "home" ? "text-white" : "text-slate-400"} />
+                    <HiOutlineHome
+                      size={22}
+                      strokeWidth={1.5}
+                      className={activeNav === "home" ? "text-blue-400" : "text-slate-400"}
+                      style={activeNav === "home" ? { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.8))" } : undefined}
+                    />
                   </div>
+                  <span className={`block text-center text-[10px] font-bold tracking-wider mt-1 ${
+                    activeNav === "home" ? "text-blue-400" : "text-slate-500"
+                  }`}>HOME</span>
                 </button>
 
+                {/* ACTIVITY - outline document icon */}
                 <button
                   onClick={() => handleNavClick("activity")}
                   className={`flex flex-col items-center gap-1 py-2 px-5 rounded-xl transition-all ${
                     activeNav === "activity" ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaHistory
-                    size={16}
+                  <HiOutlineDocumentText
+                    size={22}
+                    strokeWidth={1.5}
                     style={activeNav === "activity" ? { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.8)) drop-shadow(0 0 12px rgba(59,130,246,0.4))" } : undefined}
                   />
-                  <span className="text-[10px] font-semibold">Activity</span>
+                  <span className="text-[10px] font-bold tracking-wider">ACTIVITY</span>
                 </button>
               </div>
             </div>
