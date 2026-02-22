@@ -14,6 +14,7 @@ import HoldingsList from "./components/HoldingsList";
 import TradePanel from "./components/TradePanel";
 import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
+import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -68,6 +69,7 @@ const Trade = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showPendingOrders, setShowPendingOrders] = useState(false);
   const [showAutoTrader, setShowAutoTrader] = useState(false);
+  const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -259,51 +261,83 @@ const Trade = () => {
             <div className="space-y-4">
               {/* ─── Portfolio Chart (public) ────── */}
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                <PortfolioChart
-                  assets={assets}
-                  totalValue={
-                    holdingsView === "mine" && isConnected && !isAdmin
-                      ? userValue
-                      : totalPoolValue
-                  }
-                  usdcBalance={usdcBalance}
-                  label={
-                    holdingsView === "mine" && isConnected && !isAdmin
-                      ? "My Portfolio"
-                      : "Pool Total"
-                  }
-                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
-                />
-
-                {/* Admin: tap coin to trade / User: connect to join */}
-                <p className="text-center text-xs text-slate-500 mt-3">
-                  {isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
-                </p>
-
-                {/* Mine/Pool toggle for connected users */}
-                {isConnected && !isAdmin && (
-                  <div className="flex justify-center gap-2 mt-4">
-                    <button
-                      onClick={() => setHoldingsView("pool")}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        holdingsView === "pool"
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      Pool
-                    </button>
-                    <button
-                      onClick={() => setHoldingsView("mine")}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                        holdingsView === "mine"
-                          ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                          : "text-slate-500 hover:text-slate-300"
-                      }`}
-                    >
-                      Mine
-                    </button>
+                {showAutoAdmin && isAdmin ? (
+                  /* Auto mode: chart shifted left with auto header on right */
+                  <div className="flex items-center gap-4">
+                    <div className="flex-shrink-0" style={{ width: "45%" }}>
+                      <PortfolioChart
+                        assets={assets}
+                        totalValue={totalPoolValue}
+                        usdcBalance={usdcBalance}
+                        label="Pool Total"
+                      />
+                    </div>
+                    <div className="flex-1 text-center">
+                      <div className="text-lg font-bold text-slate-200 mb-1">Auto Trade</div>
+                      <div
+                        className="inline-block text-[10px] font-bold px-2.5 py-1 rounded-xl"
+                        style={{
+                          background: traderState?.autoBotActive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)",
+                          color: traderState?.autoBotActive ? "#22c55e" : "#ef4444",
+                        }}
+                      >
+                        {traderState?.autoBotActive ? "ACTIVE" : "INACTIVE"}
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-2">
+                        {assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash
+                      </p>
+                    </div>
                   </div>
+                ) : (
+                  /* Normal mode: chart centered */
+                  <>
+                    <PortfolioChart
+                      assets={assets}
+                      totalValue={
+                        holdingsView === "mine" && isConnected && !isAdmin
+                          ? userValue
+                          : totalPoolValue
+                      }
+                      usdcBalance={usdcBalance}
+                      label={
+                        holdingsView === "mine" && isConnected && !isAdmin
+                          ? "My Portfolio"
+                          : "Pool Total"
+                      }
+                      subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
+                    />
+
+                    {/* Admin: tap coin to trade / User: connect to join */}
+                    <p className="text-center text-xs text-slate-500 mt-3">
+                      {isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
+                    </p>
+
+                    {/* Mine/Pool toggle for connected users */}
+                    {isConnected && !isAdmin && (
+                      <div className="flex justify-center gap-2 mt-4">
+                        <button
+                          onClick={() => setHoldingsView("pool")}
+                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                            holdingsView === "pool"
+                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                              : "text-slate-500 hover:text-slate-300"
+                          }`}
+                        >
+                          Pool
+                        </button>
+                        <button
+                          onClick={() => setHoldingsView("mine")}
+                          className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                            holdingsView === "mine"
+                              ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                              : "text-slate-500 hover:text-slate-300"
+                          }`}
+                        >
+                          Mine
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -317,6 +351,7 @@ const Trade = () => {
                         if (assets.length > 0) {
                           setSelectedAsset(assets[0].code);
                           setShowTradePanel(true);
+                          setShowAutoAdmin(false);
                         }
                       }}
                       className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
@@ -328,6 +363,7 @@ const Trade = () => {
                         if (assets.length > 0) {
                           setSelectedAsset(assets[0].code);
                           setShowTradePanel(true);
+                          setShowAutoAdmin(false);
                         }
                       }}
                       className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
@@ -336,12 +372,14 @@ const Trade = () => {
                     </button>
                     <button
                       onClick={() => {
-                        if (assets.length > 0) {
-                          setSelectedAsset(assets[0].code);
-                          setShowTradePanel(true);
-                        }
+                        setShowAutoAdmin(!showAutoAdmin);
+                        setShowTradePanel(false);
                       }}
-                      className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all ${
+                        showAutoAdmin
+                          ? "from-emerald-500/30 to-emerald-600/20 border-emerald-500/50 text-emerald-300"
+                          : "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
+                      }`}
                     >
                       ✨ Auto
                     </button>
@@ -495,6 +533,17 @@ const Trade = () => {
                       onClose={() => setShowTradePanel(false)}
                     />
                   </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ─── Admin Auto Trade View ─── */}
+              <AnimatePresence>
+                {showAutoAdmin && isAdmin && (
+                  <AdminAutoTradeView
+                    prices={prices}
+                    changes={changes}
+                    onClose={() => setShowAutoAdmin(false)}
+                  />
                 )}
               </AnimatePresence>
 
