@@ -91,10 +91,7 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"users": users, "count": len(users)})
 
             elif path == '/api/state':
-                wallet = params.get('admin_wallet')
-                if not wallet or not is_admin(wallet):
-                    self._send_json(403, {"error": "Admin access required"})
-                    return
+                # Public read access - everyone can view trade state
                 state = get_trader_state()
                 self._send_json(200, state)
 
@@ -162,6 +159,7 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "walletAddress required"})
                     return
 
+                # Signature verification is optional — allows simple registration on connect
                 user_data = register_user(wallet_address, signature, message)
                 self._send_json(200, user_data)
 
@@ -202,6 +200,7 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
 
+                # Accept partial updates — only overwrite keys that are sent
                 allowed_keys = {'pendingOrders', 'autoTiers', 'autoCooldowns', 'autoTradeLog', 'autoActive'}
                 update = {k: v for k, v in body.items() if k in allowed_keys}
 
@@ -243,6 +242,7 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "coin, type, amount, and price required"})
                     return
 
+                # Get current allocations for all active users
                 allocations = calculate_pool_allocations()
 
                 result = record_trade(

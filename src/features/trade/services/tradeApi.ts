@@ -64,6 +64,38 @@ export interface UserPosition {
   totalDeposited: number;
 }
 
+export interface PendingOrder {
+  id: string;
+  asset: string;
+  type: string; // 'LIMIT_BUY' | 'LIMIT_SELL' | 'STOP_LIMIT_BUY' | 'STOP_LIMIT_SELL'
+  triggerPrice: number;
+  amount: number;
+  quantity: number;
+  createdAt: string;
+  source: "local" | "swyftx";
+}
+
+export interface AutoTier {
+  id: number;
+  deviation: number;
+  allocation: number;
+  coins: string[];
+  active: boolean;
+}
+
+export interface TraderState {
+  pendingOrders: PendingOrder[];
+  autoTiers: AutoTier[];
+  autoCooldowns: Record<string, number>;
+  autoTradeLog: Array<{
+    coin: string;
+    side: string;
+    qty: number;
+    price: number;
+    timestamp: string;
+  }>;
+}
+
 // ── Asset config ───────────────────────────────────────────
 
 export const ASSET_CONFIG: Record<
@@ -307,8 +339,10 @@ export async function fetchCashBalances(): Promise<{ usdc: number; aud: number }
       let usdc = 0;
       let aud = 0;
       for (const a of assets) {
-        if (a.code === "USDC") usdc = Number(a.aud_value) * AUD_TO_USD || 0;
-        if (a.code === "AUD") aud = Number(a.aud_value) || 0;
+        // USDC: use balance directly (1 USDC ≈ 1 USD), fallback to aud_value conversion
+        if (a.code === "USDC") usdc = Number(a.balance) || (Number(a.aud_value) * AUD_TO_USD) || 0;
+        // AUD: use balance directly (value in AUD)
+        if (a.code === "AUD") aud = Number(a.balance) || Number(a.aud_value) || 0;
       }
       return { usdc, aud };
     } catch {
@@ -426,6 +460,33 @@ export async function placeTrade(order: {
   } catch (err: any) {
     return { success: false, error: err.message || "Trade failed" };
   }
+}
+
+/** Fetch trader state (public - pending orders, auto tiers, trade log) */
+export async function fetchTraderState(): Promise<TraderState | null> {
+  return cached("trader_state", 30_000, async () => {
+    try {
+      const res = await fetchWithRetry("/api/state");
+      if (!res.ok) return null;
+      const data = await res.json();
+      return {
+        pendingOrders: data.pendingOrders || [],
+        autoTiers: Array.isArray(data.autoTiers)
+          ? data.autoTiers
+          : Object.entries(data.autoTiers || {}).map(([key, val]: [string, any], i) => ({
+              id: i + 1,
+              deviation: val.deviation || 0,
+              allocation: val.allocation || 0,
+              coins: val.coins || [],
+              active: val.active !== false,
+            })),
+        autoCooldowns: data.autoCooldowns || {},
+        autoTradeLog: data.autoTradeLog || [],
+      };
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** Clear cached data */
