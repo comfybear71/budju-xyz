@@ -78,6 +78,8 @@ export interface TraderState {
     timestamp: string;
   }>;
   currentAutoTier?: string;
+  /** Raw autoActive object from server for safe merging on save */
+  _rawAutoActive?: any;
 }
 
 // ── Asset config ───────────────────────────────────────────
@@ -453,14 +455,56 @@ export async function fetchTraderState(): Promise<TraderState | null> {
       const res = await fetchWithRetry("/api/state");
       if (!res.ok) return null;
       const data = await res.json();
+
+      // autoActive can be an object { isActive, tierActive, targets, ... } (FLUB format)
+      // or a simple boolean. Extract properly.
+      const autoActive = data.autoActive;
+      const isActiveObj = typeof autoActive === "object" && autoActive !== null;
+      const botActive = data.autoBotActive ?? (isActiveObj ? autoActive.isActive : autoActive) ?? false;
+      const tierActiveMap: Record<string, boolean> = isActiveObj ? (autoActive.tierActive || {}) : {};
+
+      // Merge tier active state from autoActive.tierActive into tier configs
+      const rawTiers = data.autoTierAssets || data.autoTiers || {};
+      const tierAssets: Record<string, any> = {};
+      for (const [key, cfg] of Object.entries(rawTiers) as [string, any][]) {
+        // tierActive uses numeric keys (1,2,3) while tier keys are "tier1","tier2","tier3"
+        const tierNum = key.replace("tier", "");
+        const activeFromMap = tierActiveMap[tierNum] ?? tierActiveMap[key];
+        tierAssets[key] = {
+          ...cfg,
+          active: cfg.active ?? activeFromMap ?? false,
+        };
+      }
+
+      // Normalize tier assignments — FLUB uses numeric tier values (1,2,3)
+      // while BUDJU expects string keys ("tier1","tier2","tier3")
+      const rawAssignments = data.autoTierAssignments || {};
+      const assignments: Record<string, string> = {};
+      for (const [coin, tier] of Object.entries(rawAssignments)) {
+        const tierStr = String(tier);
+        assignments[coin] = tierStr.startsWith("tier") ? tierStr : `tier${tierStr}`;
+      }
+
+      // Normalize trade log — FLUB uses { time, coin, side, quantity, price, amount }
+      // while BUDJU expects { timestamp, coin, side, qty, price }
+      const rawLog = data.autoTradeLog || [];
+      const tradeLog = rawLog.map((e: any) => ({
+        coin: e.coin || "",
+        side: (e.side || "").toLowerCase(),
+        qty: Number(e.qty ?? e.quantity) || 0,
+        price: Number(e.price) || 0,
+        timestamp: e.timestamp || e.time || "",
+      }));
+
       return {
         enrichedOrders: data.enrichedOrders || data.pendingOrders || [],
-        autoTierAssets: data.autoTierAssets || data.autoTiers || {},
-        autoTierAssignments: data.autoTierAssignments || {},
-        autoBotActive: data.autoBotActive ?? data.autoActive ?? false,
+        autoTierAssets: tierAssets,
+        autoTierAssignments: assignments,
+        autoBotActive: !!botActive,
         autoCooldowns: data.autoCooldowns || {},
-        autoTradeLog: data.autoTradeLog || [],
+        autoTradeLog: tradeLog,
         currentAutoTier: data.currentAutoTier,
+        _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch {
       return null;

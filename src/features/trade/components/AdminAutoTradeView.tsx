@@ -189,13 +189,25 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose }: Props) =>
   };
 
   // Toggle tier active state (start/stop)
+  // Updates both autoTiers (BUDJU format) and autoActive.tierActive (FLUB format)
   const handleToggleTier = async (tierKey: string, activate: boolean) => {
     const tierAssets = state?.autoTierAssets || {};
     const updatedTiers = { ...tierAssets };
     updatedTiers[tierKey] = { ...updatedTiers[tierKey], active: activate };
-    const res = await saveTraderState(adminWallet, { autoTiers: updatedTiers });
+
+    // Also update FLUB-format autoActive.tierActive for cross-app compatibility
+    const rawAutoActive = state?._rawAutoActive || {};
+    const tierNum = tierKey.replace("tier", "");
+    const updatedAutoActive = {
+      ...rawAutoActive,
+      tierActive: { ...(rawAutoActive.tierActive || {}), [tierNum]: activate },
+    };
+
+    const res = await saveTraderState(adminWallet, {
+      autoTiers: updatedTiers,
+      autoActive: updatedAutoActive,
+    });
     if (res.success) {
-      // Refresh state from server
       const fresh = await fetchTraderState();
       if (fresh) setState(fresh);
     }
