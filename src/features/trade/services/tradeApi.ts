@@ -417,28 +417,92 @@ export async function registerWallet(walletAddress: string): Promise<any> {
   }
 }
 
-/** Place a trade via Swyftx proxy (admin-wallet-only, no PIN) */
+/** Swyftx order type constants */
+const SWYFTX_ORDER = {
+  MARKET_BUY: 1,
+  MARKET_SELL: 2,
+  LIMIT_BUY: 3,    // triggers when price DROPS to target
+  LIMIT_SELL: 4,   // triggers when price RISES to target
+  STOP_BUY: 5,     // triggers when price RISES above target
+  STOP_SELL: 6,    // triggers when price DROPS below target
+} as const;
+
+/** Minimum order sizes in USDC */
+const MIN_MARKET_USDC = 7;
+const MIN_LIMIT_USDC = 50;
+
+/** Place a trade via Swyftx proxy (admin-wallet-only) */
 export async function placeTrade(order: {
   assetCode: string;
   side: "buy" | "sell";
   amount: number;
   orderType: "market" | "limit" | "stop";
   triggerPrice?: number;
-}): Promise<{ success: boolean; error?: string }> {
+  currentPrice?: number;
+}): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
+    // Validate minimum order size
+    const minAmount = order.orderType === "market" ? MIN_MARKET_USDC : MIN_LIMIT_USDC;
+    if (order.amount < minAmount) {
+      return { success: false, error: `Minimum order is $${minAmount} USDC` };
+    }
+
     const token = await ensureToken();
+
+    // Determine the numeric Swyftx order type
+    let swyftxOrderType: number;
+
+    if (order.orderType === "market") {
+      swyftxOrderType = order.side === "buy"
+        ? SWYFTX_ORDER.MARKET_BUY
+        : SWYFTX_ORDER.MARKET_SELL;
+    } else {
+      // Limit/trigger orders — determine direction from trigger vs current price
+      const current = order.currentPrice || 0;
+      const trigger = order.triggerPrice || 0;
+
+      if (order.side === "buy") {
+        // Buy Dip: trigger < current → LIMIT_BUY (waits for price to drop)
+        // Buy Rise: trigger > current → STOP_BUY (triggers when price rises)
+        swyftxOrderType = trigger < current
+          ? SWYFTX_ORDER.LIMIT_BUY
+          : SWYFTX_ORDER.STOP_BUY;
+      } else {
+        // Sell Rise: trigger > current → LIMIT_SELL (waits for price to rise)
+        // Sell Dip: trigger < current → STOP_SELL (triggers when price drops)
+        swyftxOrderType = trigger > current
+          ? SWYFTX_ORDER.LIMIT_SELL
+          : SWYFTX_ORDER.STOP_SELL;
+      }
+    }
+
+    // Build the Swyftx order payload — matches working FLUB format
+    const swyftxPayload = {
+      primary: "USDC",
+      secondary: order.assetCode,
+      quantity: String(order.amount),
+      assetQuantity: "USDC",
+      orderType: swyftxOrderType,
+      trigger: order.triggerPrice ? String(order.triggerPrice) : "",
+    };
+
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         endpoint: "/orders/",
         method: "POST",
-        body: order,
+        body: swyftxPayload,
         authToken: token,
       }),
     });
+
     const data = await res.json();
-    return { success: res.ok, error: res.ok ? undefined : data.error };
+    return {
+      success: res.ok,
+      orderId: data.orderId,
+      error: res.ok ? undefined : (data.error || data.message || JSON.stringify(data)),
+    };
   } catch (err: any) {
     return { success: false, error: err.message || "Trade failed" };
   }

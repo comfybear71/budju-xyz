@@ -84,12 +84,20 @@ const TradePanel = ({
     setShowError(null);
 
     try {
+      // For trigger orders, derive side from offset direction:
+      // negative offset = buy the dip, positive offset = sell the rise
+      const tradeSide: "buy" | "sell" =
+        orderType === "trigger"
+          ? triggerOffset < 0 ? "buy" : "sell"
+          : side;
+
       const result = await placeTrade({
         assetCode: selectedAsset,
-        side,
+        side: tradeSide,
         amount: tradeAmount,
         orderType: orderType === "trigger" ? "limit" : "market",
         triggerPrice: orderType === "trigger" ? effectivePrice : undefined,
+        currentPrice: price,
       });
 
       if (result.success) {
