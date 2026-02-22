@@ -20,6 +20,7 @@
 import {
   fetchPortfolio,
   fetchPrices,
+  fetchCashBalances,
   fetchTraderState,
   saveTraderState,
   placeTrade,
@@ -120,6 +121,7 @@ export class AutoTrader {
   // Cached data for the execution loop
   private _cachedAssets: PortfolioAsset[] = [];
   private _cachedPrices: Record<string, number> = {};
+  private _cachedUsdcBalance: number = 0;
 
   // ── Computed ─────────────────────────────────────────────
 
@@ -310,9 +312,8 @@ export class AutoTrader {
     // Refresh data first
     await this._refreshData();
 
-    // Check USDC balance
-    const usdcAsset = this._cachedAssets.find((a) => a.code === "USDC");
-    const usdcBalance = usdcAsset?.usdValue ?? 0;
+    // Check USDC balance (fetched separately since fetchPortfolio filters it out)
+    const usdcBalance = this._cachedUsdcBalance;
 
     if (usdcBalance < MIN_USDC_RESERVE + 10) {
       const msg = `Need $${MIN_USDC_RESERVE + 10}+ USDC (keeping $${MIN_USDC_RESERVE} reserve)`;
@@ -548,8 +549,7 @@ export class AutoTrader {
   // ── Trade Execution ─────────────────────────────────────
 
   private async _executeBuy(code: string, currentPrice: number, settings: TierSettings) {
-    const usdcAsset = this._cachedAssets.find((a) => a.code === "USDC");
-    const usdcBalance = usdcAsset?.usdValue ?? 0;
+    const usdcBalance = this._cachedUsdcBalance;
 
     const tradeAmount = (settings.allocation / 100) * usdcBalance;
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
@@ -684,9 +684,14 @@ export class AutoTrader {
 
   private async _refreshData() {
     try {
-      const [assets, prices] = await Promise.all([fetchPortfolio(), fetchPrices()]);
+      const [assets, prices, cash] = await Promise.all([
+        fetchPortfolio(),
+        fetchPrices(),
+        fetchCashBalances(),
+      ]);
       this._cachedAssets = assets;
       this._cachedPrices = prices;
+      this._cachedUsdcBalance = cash.usdc;
     } catch (error: any) {
       this._log(`Data refresh error: ${error.message}`, "error");
     }

@@ -112,12 +112,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const tradeLog = snapshot.tradeLog;
   const assignedCoins = getAssignedCoins();
 
+  const [tierError, setTierError] = useState<string | null>(null);
+
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
+    setTierError(null);
     const result = await autoTrader.startTier(tierNum);
     setStartingTier(null);
-    if (!result.success) {
-      // Error is logged by autoTrader
+    if (!result.success && result.error) {
+      setTierError(result.error);
+      setTimeout(() => setTierError(null), 5000);
     }
   };
 
@@ -219,6 +223,13 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
       </div>
 
       <div className="p-4 space-y-3">
+        {/* Error banner */}
+        {tierError && (
+          <div className="text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">
+            {tierError}
+          </div>
+        )}
+
         {/* ── Tier Cards — horizontal scroll ── */}
         <div
           className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x"
