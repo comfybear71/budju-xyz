@@ -77,6 +77,7 @@ const Trade = () => {
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showHighRisk, setShowHighRisk] = useState(false);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -302,7 +303,7 @@ const Trade = () => {
           {!loading && (
             <div className="space-y-4">
               {/* ─── Portfolio Chart (hidden when any trade view is open) ────── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && (
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <PortfolioChart
                     assets={assets}
@@ -356,75 +357,46 @@ const Trade = () => {
 
               {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
-                {/* Admin: 3 quick-nav buttons (Instant/Trigger/Auto) → TradePanel */}
+                {/* Admin: nav buttons — FLUB-style pills in a dark container */}
                 {isAdmin && (
                   <div
-                    className={`flex gap-2 overflow-x-auto -mx-1 px-1 snap-x ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel ? "" : "mb-3"}`}
-                    style={{ scrollbarWidth: "none" }}
+                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk ? "" : "mb-3"}`}
+                    style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
                   >
-                    <button
-                      onClick={() => {
-                        if (assets.length > 0) {
-                          setSelectedAsset(assets[0].code);
-                          setShowTradePanel(true);
-                          setShowAutoAdmin(false);
-                          setShowTriggerView(false);
-                          setShowDeposit(false);
-                        }
-                      }}
-                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
-                        showTradePanel
-                          ? "from-blue-500/30 to-blue-600/20 border-blue-500/50 text-blue-300"
-                          : "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
-                      }`}
-                    >
-                      ⚡ Instant
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowTriggerView(!showTriggerView);
-                        setShowTradePanel(false);
-                        setShowAutoAdmin(false);
-                        setShowDeposit(false);
-                      }}
-                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
-                        showTriggerView
-                          ? "from-amber-500/30 to-amber-600/20 border-amber-500/50 text-amber-300"
-                          : "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400"
-                      }`}
-                    >
-                      ⚙ Trigger
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowAutoAdmin(!showAutoAdmin);
-                        setShowTradePanel(false);
-                        setShowTriggerView(false);
-                        setShowDeposit(false);
-                      }}
-                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
-                        showAutoAdmin
-                          ? "from-emerald-500/30 to-emerald-600/20 border-emerald-500/50 text-emerald-300"
-                          : "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400"
-                      }`}
-                    >
-                      ✨ Auto
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowDeposit(!showDeposit);
-                        setShowTradePanel(false);
-                        setShowTriggerView(false);
-                        setShowAutoAdmin(false);
-                      }}
-                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
-                        showDeposit
-                          ? "from-green-500/30 to-green-600/20 border-green-500/50 text-green-300"
-                          : "from-green-500/20 to-green-600/10 border-green-500/30 text-green-400"
-                      }`}
-                    >
-                      + Deposit
-                    </button>
+                    <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
+                      {([
+                        { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
+                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } } },
+                        { key: "trigger", label: "Trigger", icon: "\u2699", active: showTriggerView, color: "amber",
+                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } },
+                        { key: "auto", label: "Auto", icon: "\u2728", active: showAutoAdmin, color: "emerald",
+                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowDeposit(false); setShowHighRisk(false); } },
+                        { key: "deposit", label: "Deposit", icon: "+", active: showDeposit, color: "green",
+                          onClick: () => { setShowDeposit(!showDeposit); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                        { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
+                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); } },
+                      ] as const).map((btn) => {
+                        const colorMap: Record<string, { active: string; inactive: string }> = {
+                          blue:    { active: "bg-blue-500/20 text-blue-300 border-blue-500/40", inactive: "text-slate-400 border-transparent hover:text-blue-400" },
+                          amber:   { active: "bg-amber-500/20 text-amber-300 border-amber-500/40", inactive: "text-slate-400 border-transparent hover:text-amber-400" },
+                          emerald: { active: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40", inactive: "text-slate-400 border-transparent hover:text-emerald-400" },
+                          green:   { active: "bg-green-500/20 text-green-300 border-green-500/40", inactive: "text-slate-400 border-transparent hover:text-green-400" },
+                          red:     { active: "bg-red-500/20 text-red-300 border-red-500/40", inactive: "text-slate-400 border-transparent hover:text-red-400" },
+                        };
+                        const colors = colorMap[btn.color] || colorMap.blue;
+                        return (
+                          <button
+                            key={btn.key}
+                            onClick={btn.onClick}
+                            className={`flex-shrink-0 px-4 py-2 rounded-lg text-xs font-bold border transition-all whitespace-nowrap ${
+                              btn.active ? colors.active : colors.inactive
+                            }`}
+                          >
+                            {btn.icon} {btn.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
 
@@ -472,7 +444,7 @@ const Trade = () => {
                 )}
 
                 {/* Cash Balances + Stats — hidden when any trade view is open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && isAdmin && (
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && isAdmin && (
                   <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
@@ -492,7 +464,7 @@ const Trade = () => {
                 )}
 
                 {/* Pool Stats Grid - hidden when any trade view is open */}
-                {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel) && isAdmin) && poolStats && (
+                {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk) && isAdmin) && poolStats && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {[
@@ -617,8 +589,32 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── Holdings (hidden when Auto Trade or Trigger is open) ── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && (
+              {/* ─── High Risk View (admin only — placeholder) ─── */}
+              <AnimatePresence>
+                {showHighRisk && isAdmin && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 10 }}
+                    className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm p-6 text-center"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-3">
+                      <span className="text-2xl">🔥</span>
+                    </div>
+                    <h3 className="text-base font-bold text-red-400 mb-1">High Risk</h3>
+                    <p className="text-xs text-slate-500">Coming soon — high-risk leveraged strategies and volatile asset plays.</p>
+                    <button
+                      onClick={() => setShowHighRisk(false)}
+                      className="mt-4 px-4 py-2 rounded-lg text-xs font-bold text-slate-400 bg-white/[0.04] hover:text-white transition-colors"
+                    >
+                      Close
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ─── Holdings (hidden when any trade view is open) ── */}
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={assets}

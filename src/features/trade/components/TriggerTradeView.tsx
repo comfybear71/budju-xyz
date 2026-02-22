@@ -16,6 +16,7 @@ import {
   cancelOrder,
   fetchEnrichedPendingOrders,
   fetchTraderState,
+  fetchSwyftxOrderHistory,
   type PortfolioAsset,
 } from "../services/tradeApi";
 
@@ -50,8 +51,9 @@ const TriggerTradeView = ({
   const [showError, setShowError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  // Pending orders
+  // Pending orders + recently filled
   const [orders, setOrders] = useState<any[]>([]);
+  const [filledOrders, setFilledOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
 
   // Set default coin
@@ -64,17 +66,22 @@ const TriggerTradeView = ({
     }
   }, [assets, selectedCoin]);
 
-  // Load pending orders
+  // Load pending orders + recently filled
   const loadOrders = async () => {
     setLoadingOrders(true);
     try {
-      const liveOrders = await fetchEnrichedPendingOrders(prices);
+      const [liveOrders, history] = await Promise.all([
+        fetchEnrichedPendingOrders(prices),
+        fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
+      ]);
       if (liveOrders.length > 0) {
         setOrders(liveOrders);
       } else {
         const state = await fetchTraderState();
         setOrders(state?.enrichedOrders || []);
       }
+      // Show last 5 recently filled orders
+      setFilledOrders(history.slice(0, 5));
     } catch {
       try {
         const state = await fetchTraderState();
@@ -653,6 +660,51 @@ const TriggerTradeView = ({
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* ── Recently Filled Orders ── */}
+        {filledOrders.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-white/[0.04]">
+            <div className="flex items-center gap-2 mb-2">
+              <FaCheckCircle size={10} className="text-green-400/60" />
+              <span className="text-[11px] font-bold text-slate-500">Recently Filled</span>
+            </div>
+            <div className="space-y-1">
+              {filledOrders.map((filled, i) => {
+                const fCoin = filled.coin || "?";
+                const fCfg = ASSET_CONFIG[fCoin] || { color: "#64748b", icon: fCoin.charAt(0), name: fCoin };
+                const fBuy = filled.type === "buy";
+                const fAmount = Number(filled.amount) || 0;
+                const fQty = Number(filled.quantity) || 0;
+                const fTime = filled.timestamp ? new Date(filled.timestamp).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+                return (
+                  <div
+                    key={filled.swyftxId || i}
+                    className="flex items-center justify-between py-1.5 px-2 rounded-lg"
+                    style={{ background: "rgba(255,255,255,0.015)" }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold" style={{ color: fCfg.color }}>{fCoin}</span>
+                      <span
+                        className="text-[8px] font-bold px-1 py-0.5 rounded"
+                        style={{
+                          background: fBuy ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
+                          color: fBuy ? "#22c55e80" : "#ef444480",
+                        }}
+                      >
+                        {fBuy ? "BOUGHT" : "SOLD"}
+                      </span>
+                      <span className="text-[9px] text-slate-600">{fTime}</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {fQty > 0 ? `${fQty.toFixed(fQty >= 1 ? 2 : 4)} ` : ""}
+                      ${fAmount > 0 ? fAmount.toFixed(2) : ""}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
