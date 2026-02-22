@@ -372,10 +372,14 @@ def get_admin_stats(total_pool_value: float) -> Dict:
     total_shares = pool["totalShares"]
     nav = total_pool_value / total_shares if total_shares > 0 else 1.0
 
-    all_users = list(users_collection.find({"isActive": True}))
-    all_user_count = len(all_users)
-    total_deposited = sum(u.get("totalDeposited", 0) for u in all_users)
-    total_value = sum(u.get("shares", 0) * nav for u in all_users)
+    # User stats exclude admin wallets (admins manage the pool, not investors)
+    non_admin_users = list(users_collection.find({
+        "isActive": True,
+        "walletAddress": {"$nin": ADMIN_WALLETS}
+    }))
+    user_count = len(non_admin_users)
+    total_deposited = sum(u.get("totalDeposited", 0) for u in non_admin_users)
+    total_value = sum(u.get("shares", 0) * nav for u in non_admin_users)
 
     last_dep = deposits_collection.find_one(sort=[("timestamp", -1)])
     last_user = users_collection.find_one(sort=[("joinedDate", -1)])
@@ -384,7 +388,7 @@ def get_admin_stats(total_pool_value: float) -> Dict:
     withdrawal_count = withdrawals_collection.count_documents({})
 
     return {
-        "userCount": all_user_count,
+        "userCount": user_count,
         "totalUserDeposited": round(total_deposited, 2),
         "totalUserValue": round(total_value, 2),
         "poolValue": round(total_pool_value, 2),
