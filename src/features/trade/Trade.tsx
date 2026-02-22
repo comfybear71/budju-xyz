@@ -37,6 +37,7 @@ import {
 
 // Admin wallets
 const ADMIN_WALLETS = [
+  "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq",
   "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc",
   "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po",
 ];
@@ -265,8 +266,15 @@ const Trade = () => {
                       ? "My Portfolio"
                       : "Pool Total"
                   }
-                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets`}
+                  subtitle={`${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`}
                 />
+
+                {/* Admin: Tap coin to trade */}
+                {isAdmin && (
+                  <p className="text-center text-xs text-slate-500 mt-3">
+                    Tap coin to trade
+                  </p>
+                )}
 
                 {/* Connect wallet to join */}
                 {!isConnected && (
@@ -305,43 +313,56 @@ const Trade = () => {
               {/* ─── Admin Controls (admin-only) ── */}
               {isAdmin && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <FaRobot className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400/70">
-                      Admin Controls
-                    </span>
+                  {/* Quick trade buttons */}
+                  <div className="flex gap-2 mb-3">
+                    {[
+                      { label: "Instant", color: "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400 hover:border-blue-400/50" },
+                      { label: "Trigger", color: "from-amber-500/20 to-amber-600/10 border-amber-500/30 text-amber-400 hover:border-amber-400/50" },
+                      { label: "Auto", color: "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:border-emerald-400/50" },
+                    ].map((mode) => (
+                      <button
+                        key={mode.label}
+                        onClick={() => {
+                          if (assets.length > 0) {
+                            setSelectedAsset(assets[0].code);
+                            setShowTradePanel(true);
+                          }
+                        }}
+                        className={`flex-1 py-2.5 rounded-xl text-[11px] font-bold bg-gradient-to-b border transition-all ${mode.color}`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Cash Balances */}
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <div className="rounded-xl bg-slate-800/40 p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                        USDC
-                      </div>
-                      <div className="text-sm font-bold text-green-400 font-mono">
+                  {/* Cash Balances - inline like FLUB */}
+                  <div className="flex items-center gap-4 mb-3 px-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-400" />
+                      <span className="text-xs text-slate-400">USDC</span>
+                      <span className="text-xs font-bold text-green-400 font-mono">
                         ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </div>
+                      </span>
                     </div>
-                    <div className="rounded-xl bg-slate-800/40 p-3">
-                      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">
-                        AUD
-                      </div>
-                      <div className="text-sm font-bold text-blue-400 font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />
+                      <span className="text-xs text-slate-400">AUD</span>
+                      <span className="text-xs font-bold text-blue-400 font-mono">
                         ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      </div>
+                      </span>
                     </div>
                   </div>
 
                   {/* Admin Stats Grid */}
                   {poolStats && (
-                    <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="grid grid-cols-3 gap-2">
                       {[
                         { label: "Users", value: poolStats.userCount, icon: FaUsers, color: "text-blue-400" },
                         { label: "Deposited", value: formatUsd(poolStats.totalUserDeposited), icon: FaMoneyBillWave, color: "text-green-400" },
-                        { label: "NAV", value: poolStats.nav.toFixed(4), icon: FaChartLine, color: "text-cyan-400" },
-                        { label: "Trades", value: poolStats.tradeCount, icon: FaExchangeAlt, color: "text-purple-400" },
-                        { label: "Pool Value", value: formatUsd(totalPoolValue), icon: FaWallet, color: "text-emerald-400" },
-                        { label: "P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: FaPercentage, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
+                        { label: "User Value", value: formatUsd(poolStats.totalUserValue), icon: FaChartLine, color: "text-cyan-400" },
+                        { label: "NAV", value: poolStats.nav.toFixed(4), icon: FaWallet, color: "text-purple-400" },
+                        { label: "Trades", value: poolStats.tradeCount, icon: FaExchangeAlt, color: "text-emerald-400" },
+                        { label: "User P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: FaPercentage, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
                       ].map((stat) => (
                         <div key={stat.label} className="rounded-xl bg-slate-800/40 p-2.5 text-center">
                           <stat.icon className={`w-3 h-3 mx-auto mb-1 ${stat.color} opacity-60`} />
@@ -351,24 +372,6 @@ const Trade = () => {
                       ))}
                     </div>
                   )}
-
-                  {/* Quick trade buttons */}
-                  <div className="flex gap-2">
-                    {["Instant", "Trigger", "Auto"].map((mode) => (
-                      <button
-                        key={mode}
-                        onClick={() => {
-                          if (assets.length > 0) {
-                            setSelectedAsset(assets[0].code);
-                            setShowTradePanel(true);
-                          }
-                        }}
-                        className="flex-1 py-2 rounded-xl text-[11px] font-bold bg-slate-800/60 border border-slate-700/40 text-slate-400 hover:text-white hover:border-blue-500/30 transition-all"
-                      >
-                        {mode}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               )}
 
@@ -455,14 +458,21 @@ const Trade = () => {
                     activeNav === "leaders" ? "text-yellow-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaTrophy size={16} className={activeNav === "leaders" ? "drop-shadow-[0_0_6px_rgba(250,204,21,0.5)]" : ""} />
+                  <div className="relative">
+                    <FaTrophy size={16} />
+                    {activeNav === "leaders" && (
+                      <div className="absolute inset-0 blur-md">
+                        <FaTrophy size={16} className="text-yellow-400" />
+                      </div>
+                    )}
+                  </div>
                   <span className="text-[10px] font-semibold">Leaders</span>
                 </button>
 
                 <button onClick={() => handleNavClick("home")} className="relative -mt-5">
                   <div className={`w-14 h-14 rounded-full flex items-center justify-center transition-all ${
                     activeNav === "home"
-                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_20px_rgba(59,130,246,0.4)]"
+                      ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-[0_0_25px_rgba(59,130,246,0.5),0_0_50px_rgba(59,130,246,0.2)]"
                       : "bg-slate-800 border border-slate-700/50 hover:border-blue-500/30"
                   }`}>
                     <FaHome size={18} className={activeNav === "home" ? "text-white" : "text-slate-400"} />
@@ -475,7 +485,14 @@ const Trade = () => {
                     activeNav === "activity" ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <FaHistory size={16} className={activeNav === "activity" ? "drop-shadow-[0_0_6px_rgba(59,130,246,0.5)]" : ""} />
+                  <div className="relative">
+                    <FaHistory size={16} />
+                    {activeNav === "activity" && (
+                      <div className="absolute inset-0 blur-md">
+                        <FaHistory size={16} className="text-blue-400" />
+                      </div>
+                    )}
+                  </div>
                   <span className="text-[10px] font-semibold">Activity</span>
                 </button>
               </div>
