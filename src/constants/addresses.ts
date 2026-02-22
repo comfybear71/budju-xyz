@@ -18,6 +18,8 @@ export const BANK_ADDRESS =
 // Platform links
 export const DEX_LINK =
   "https://budjucoin.com/swap";
+export const RAYDIUM_SWAP_LINK =
+  "https://raydium.io/swap/?inputMint=sol&outputMint=2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 export const SOLSCAN_LINK =
   "https://solscan.io/token/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 export const DEXSCREENER_LINK =
