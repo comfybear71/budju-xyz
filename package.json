@@ -22,6 +22,7 @@
     "@solana/web3.js": "^1.98.0",
     "@tailwindcss/postcss": "^4.0.9",
     "@tailwindcss/vite": "^4.0.9",
+    "@vercel/blob": "^2.3.0",
     "autoprefixer": "^10.4.20",
     "buffer": "^6.0.3",
     "chart.js": "^4.4.8",

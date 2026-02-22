@@ -155,6 +155,7 @@ const Footer = () => {
               <li><Link to={ROUTES.TOKENOMICS} className={linkClass}>Tokenomics</Link></li>
               <li><Link to={ROUTES.BURN} className={linkClass}>Burn Statistics</Link></li>
               <li><Link to={ROUTES.HOW_TO_BUY} className={linkClass}>How To Buy</Link></li>
+              <li><Link to={ROUTES.MARKETING} className={linkClass}>Marketing</Link></li>
               <li>
                 <a
                   href="https://solscan.io/token/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump"

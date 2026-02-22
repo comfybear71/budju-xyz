@@ -15,6 +15,7 @@ import {
   FaBahai,
   FaQuestion,
   FaFire,
+  FaBullhorn,
 } from "react-icons/fa";
 import { gsap } from "gsap";
 import { useTheme } from "@/context/ThemeContext";
@@ -41,6 +42,7 @@ const allNavItems: NavItem[] = [
   { name: ROUTE_NAMES[ROUTES.BURN], path: ROUTES.BURN, icon: FaFire },
   { name: ROUTE_NAMES[ROUTES.SHOP], path: "https://shop-of-budjus.myspreadshop.com.au", icon: FaShoppingCart },
   { name: ROUTE_NAMES[ROUTES.HOW_TO_BUY], path: ROUTES.HOW_TO_BUY, icon: FaQuestion },
+  { name: ROUTE_NAMES[ROUTES.MARKETING], path: ROUTES.MARKETING, icon: FaBullhorn },
 ];
 
 const Navbar = () => {
