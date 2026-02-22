@@ -41,8 +41,8 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const getAsset = (o: any): string => {
     // Handle both enriched string ("BTC") and server-state object ({ code: "BTC" })
     const raw = o.asset;
-    return (typeof raw === "object" && raw?.code) ? raw.code :
-      raw || o.primaryAsset || o.assetCode || o.primary_asset || "?";
+    return String((typeof raw === "object" && raw?.code) ? raw.code :
+      raw || o.primaryAsset || o.assetCode || o.primary_asset || "?");
   };
 
   const getType = (o: any): string => {

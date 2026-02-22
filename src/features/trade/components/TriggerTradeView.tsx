@@ -551,9 +551,9 @@ const TriggerTradeView = ({
             {orders.map((order, i) => {
               // Handle both enriched string ("BTC") and server-state object ({ code: "BTC" })
               const rawAsset = order.asset;
-              const asset =
+              const asset = String(
                 (typeof rawAsset === "object" && rawAsset?.code) ? rawAsset.code :
-                rawAsset || order.primaryAsset || order.assetCode || "?";
+                rawAsset || order.primaryAsset || order.assetCode || "?");
               const buy = order.isBuy ?? order.type?.includes("BUY");
               const type =
                 order.type ||
@@ -672,7 +672,7 @@ const TriggerTradeView = ({
             </div>
             <div className="space-y-1">
               {filledOrders.map((filled, i) => {
-                const fCoin = filled.coin || "?";
+                const fCoin = String(filled.coin || "?");
                 const fCfg = ASSET_CONFIG[fCoin] || { color: "#64748b", icon: fCoin.charAt(0), name: fCoin };
                 const fBuy = filled.type === "buy";
                 const fAmount = Number(filled.amount) || 0;

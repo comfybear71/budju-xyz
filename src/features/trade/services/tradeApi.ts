@@ -700,19 +700,43 @@ export async function fetchSwyftxOrderHistory(
 ): Promise<any[]> {
   try {
     const token = await ensureToken();
-    const res = await fetchWithRetry("/api/proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint: `/orders/?limit=${limit}`,
-        method: "GET",
-        authToken: token,
-      }),
-    });
 
-    if (!res.ok) return [];
-    const data = await res.json();
+    // Fetch orders and asset list in parallel so we can resolve numeric IDs → codes
+    const [ordersRes, assetsRes] = await Promise.all([
+      fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: `/orders/?limit=${limit}`,
+          method: "GET",
+          authToken: token,
+        }),
+      }),
+      fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: "/markets/assets/",
+          method: "GET",
+          authToken: token,
+        }),
+      }),
+    ]);
+
+    if (!ordersRes.ok) return [];
+    const data = await ordersRes.json();
     const raw = Array.isArray(data) ? data : (data.orders ?? []);
+
+    // Build asset map: numeric Swyftx ID → string code (e.g. "3" → "BTC")
+    const assetMap: Record<string, string> = {};
+    if (assetsRes.ok) {
+      const assetsData = await assetsRes.json();
+      if (Array.isArray(assetsData)) {
+        for (const a of assetsData) {
+          assetMap[String(a.id)] = a.code || "";
+        }
+      }
+    }
 
     // Only include filled orders (status 4)
     return raw
@@ -720,10 +744,11 @@ export async function fetchSwyftxOrderHistory(
       .map((o: any) => {
         const ot = parseInt(o.order_type ?? o.orderType ?? 0);
         const isBuy = ot === 1 || ot === 3 || ot === 5;
+        const coinCode = assetMap[String(o.secondary_asset)] || String(o.secondary_asset ?? "");
         return {
           swyftxId: o.orderUuid ?? o.id ?? "",
           type: isBuy ? "buy" : "sell",
-          coin: o.secondary_asset ?? "",
+          coin: coinCode,
           quantity: parseFloat(o.quantity ?? 0),
           trigger: parseFloat(o.trigger ?? 0),
           amount: parseFloat(o.amount ?? o.total ?? o.quantity ?? 0),
