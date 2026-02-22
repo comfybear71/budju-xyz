@@ -301,8 +301,8 @@ const Trade = () => {
 
           {!loading && (
             <div className="space-y-4">
-              {/* ─── Portfolio Chart (hidden when Auto Trade, Trigger, or Deposit is open) ────── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && (
+              {/* ─── Portfolio Chart (hidden when any trade view is open) ────── */}
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <PortfolioChart
                     assets={assets}
@@ -359,7 +359,7 @@ const Trade = () => {
                 {/* Admin: 3 quick-nav buttons (Instant/Trigger/Auto) → TradePanel */}
                 {isAdmin && (
                   <div
-                    className={`flex gap-2 overflow-x-auto -mx-1 px-1 snap-x ${showAutoAdmin || showTriggerView || showDeposit ? "" : "mb-3"}`}
+                    className={`flex gap-2 overflow-x-auto -mx-1 px-1 snap-x ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "none" }}
                   >
                     <button
@@ -372,7 +372,11 @@ const Trade = () => {
                           setShowDeposit(false);
                         }
                       }}
-                      className="flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400 snap-start"
+                      className={`flex-shrink-0 min-w-[22%] py-2.5 rounded-xl text-xs font-bold bg-gradient-to-b border transition-all snap-start ${
+                        showTradePanel
+                          ? "from-blue-500/30 to-blue-600/20 border-blue-500/50 text-blue-300"
+                          : "from-blue-500/20 to-blue-600/10 border-blue-500/30 text-blue-400"
+                      }`}
                     >
                       ⚡ Instant
                     </button>
@@ -467,8 +471,8 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Cash Balances + Stats — hidden when Auto Trade, Trigger, or Deposit is open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && isAdmin && (
+                {/* Cash Balances + Stats — hidden when any trade view is open */}
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && isAdmin && (
                   <div className="flex items-center justify-center gap-6 mb-3 py-2 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-green-400" />
@@ -487,8 +491,8 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Pool Stats Grid - hidden when Auto Trade, Trigger, or Deposit is open */}
-                {!((showAutoAdmin || showTriggerView || showDeposit) && isAdmin) && poolStats && (
+                {/* Pool Stats Grid - hidden when any trade view is open */}
+                {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel) && isAdmin) && poolStats && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {[
