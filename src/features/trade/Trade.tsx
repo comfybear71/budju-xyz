@@ -458,14 +458,10 @@ const Trade = () => {
                     activeNav === "leaders" ? "text-yellow-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <div className="relative">
-                    <FaTrophy size={16} />
-                    {activeNav === "leaders" && (
-                      <div className="absolute inset-0 blur-md">
-                        <FaTrophy size={16} className="text-yellow-400" />
-                      </div>
-                    )}
-                  </div>
+                  <FaTrophy
+                    size={16}
+                    style={activeNav === "leaders" ? { filter: "drop-shadow(0 0 6px rgba(250,204,21,0.8)) drop-shadow(0 0 12px rgba(250,204,21,0.4))" } : undefined}
+                  />
                   <span className="text-[10px] font-semibold">Leaders</span>
                 </button>
 
@@ -485,14 +481,10 @@ const Trade = () => {
                     activeNav === "activity" ? "text-blue-400" : "text-slate-500 hover:text-slate-300"
                   }`}
                 >
-                  <div className="relative">
-                    <FaHistory size={16} />
-                    {activeNav === "activity" && (
-                      <div className="absolute inset-0 blur-md">
-                        <FaHistory size={16} className="text-blue-400" />
-                      </div>
-                    )}
-                  </div>
+                  <FaHistory
+                    size={16}
+                    style={activeNav === "activity" ? { filter: "drop-shadow(0 0 6px rgba(59,130,246,0.8)) drop-shadow(0 0 12px rgba(59,130,246,0.4))" } : undefined}
+                  />
                   <span className="text-[10px] font-semibold">Activity</span>
                 </button>
               </div>

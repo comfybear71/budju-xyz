@@ -238,18 +238,26 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   });
 }
 
-/** Fetch live USD prices from CoinGecko */
+/** Fetch raw CoinGecko data via our own proxy (avoids WebView CORS blocks) */
+async function fetchCoinGeckoViaProxy(): Promise<Record<string, any>> {
+  const ids = Object.values(ASSET_CONFIG)
+    .map((a) => a.coingeckoId)
+    .filter(Boolean)
+    .join(",");
+  const res = await fetchWithRetry("/api/proxy", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint: "/prices/", body: { ids } }),
+  });
+  if (!res.ok) return {};
+  return await res.json();
+}
+
+/** Fetch live USD prices from CoinGecko (proxied server-side) */
 export async function fetchPrices(): Promise<Record<string, number>> {
   return cached("prices", 30_000, async () => {
     try {
-      const ids = Object.values(ASSET_CONFIG)
-        .map((a) => a.coingeckoId)
-        .filter(Boolean)
-        .join(",");
-      const res = await fetchWithRetry(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-      );
-      const data = await res.json();
+      const data = await fetchCoinGeckoViaProxy();
       const prices: Record<string, number> = {};
       for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
         if (cfg.coingeckoId && data[cfg.coingeckoId]) {
@@ -264,18 +272,11 @@ export async function fetchPrices(): Promise<Record<string, number>> {
   });
 }
 
-/** Fetch 24h changes from CoinGecko */
+/** Fetch 24h changes from CoinGecko (proxied server-side) */
 export async function fetchChanges(): Promise<Record<string, number>> {
   return cached("changes", 60_000, async () => {
     try {
-      const ids = Object.values(ASSET_CONFIG)
-        .map((a) => a.coingeckoId)
-        .filter(Boolean)
-        .join(",");
-      const res = await fetchWithRetry(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-      );
-      const data = await res.json();
+      const data = await fetchCoinGeckoViaProxy();
       const changes: Record<string, number> = {};
       for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
         if (cfg.coingeckoId && data[cfg.coingeckoId]) {

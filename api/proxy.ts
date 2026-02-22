@@ -90,6 +90,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ assets });
     }
 
+    // PRICES ENDPOINT — proxy CoinGecko server-side to avoid WebView CORS issues
+    if (endpoint === "/prices/") {
+      const { ids } = body || {};
+      if (!ids) return res.status(400).json({ error: "ids required" });
+      const cgRes = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+      );
+      const data = await cgRes.json();
+      return res.status(200).json(data);
+    }
+
     // Auth endpoint — use stored API key
     if (endpoint === "/auth/refresh/") {
       const authRes = await fetch(baseURL + "/auth/refresh/", {
