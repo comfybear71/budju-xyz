@@ -241,42 +241,52 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
 /** Fetch live USD prices from CoinGecko */
 export async function fetchPrices(): Promise<Record<string, number>> {
   return cached("prices", 30_000, async () => {
-    const ids = Object.values(ASSET_CONFIG)
-      .map((a) => a.coingeckoId)
-      .filter(Boolean)
-      .join(",");
-    const res = await fetchWithRetry(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-    );
-    const data = await res.json();
-    const prices: Record<string, number> = {};
-    for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
-      if (cfg.coingeckoId && data[cfg.coingeckoId]) {
-        prices[code] = data[cfg.coingeckoId].usd || 0;
+    try {
+      const ids = Object.values(ASSET_CONFIG)
+        .map((a) => a.coingeckoId)
+        .filter(Boolean)
+        .join(",");
+      const res = await fetchWithRetry(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+      );
+      const data = await res.json();
+      const prices: Record<string, number> = {};
+      for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
+        if (cfg.coingeckoId && data[cfg.coingeckoId]) {
+          prices[code] = data[cfg.coingeckoId].usd || 0;
+        }
       }
+      return prices;
+    } catch (err) {
+      console.error("fetchPrices error:", err);
+      return {};
     }
-    return prices;
   });
 }
 
 /** Fetch 24h changes from CoinGecko */
 export async function fetchChanges(): Promise<Record<string, number>> {
   return cached("changes", 60_000, async () => {
-    const ids = Object.values(ASSET_CONFIG)
-      .map((a) => a.coingeckoId)
-      .filter(Boolean)
-      .join(",");
-    const res = await fetchWithRetry(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
-    );
-    const data = await res.json();
-    const changes: Record<string, number> = {};
-    for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
-      if (cfg.coingeckoId && data[cfg.coingeckoId]) {
-        changes[code] = data[cfg.coingeckoId].usd_24h_change || 0;
+    try {
+      const ids = Object.values(ASSET_CONFIG)
+        .map((a) => a.coingeckoId)
+        .filter(Boolean)
+        .join(",");
+      const res = await fetchWithRetry(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+      );
+      const data = await res.json();
+      const changes: Record<string, number> = {};
+      for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
+        if (cfg.coingeckoId && data[cfg.coingeckoId]) {
+          changes[code] = data[cfg.coingeckoId].usd_24h_change || 0;
+        }
       }
+      return changes;
+    } catch (err) {
+      console.error("fetchChanges error:", err);
+      return {};
     }
-    return changes;
   });
 }
 

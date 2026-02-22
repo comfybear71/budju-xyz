@@ -79,14 +79,24 @@ const Trade = () => {
     try {
       setApiStatus("connecting");
 
-      // Fetch portfolio from Swyftx + CoinGecko prices
-      const [portfolioData, priceData, changeData, cashData] =
-        await Promise.all([
-          fetchPortfolio(),
-          fetchPrices(),
-          fetchChanges(),
-          fetchCashBalances(),
-        ]);
+      // Use allSettled so one failing source never kills the whole page
+      const results = await Promise.allSettled([
+        fetchPortfolio(),
+        fetchPrices(),
+        fetchChanges(),
+        fetchCashBalances(),
+      ]);
+
+      const portfolioData =
+        results[0].status === "fulfilled" ? results[0].value : [];
+      const priceData =
+        results[1].status === "fulfilled" ? results[1].value : {};
+      const changeData =
+        results[2].status === "fulfilled" ? results[2].value : {};
+      const cashData =
+        results[3].status === "fulfilled"
+          ? results[3].value
+          : { usdc: 0, aud: 0 };
 
       setPrices(priceData);
       setUsdcBalance(cashData.usdc);
@@ -120,7 +130,7 @@ const Trade = () => {
         setUserPosition(pos);
       }
 
-      setApiStatus(merged.length > 0 ? "connected" : "connected");
+      setApiStatus("connected");
     } catch (err) {
       console.error("Failed to load trade data:", err);
       setApiStatus("error");
