@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { FaPlus } from "react-icons/fa";
 import { POOL_WALLET } from "@constants/addresses";
 import { sendUsdcDeposit } from "@lib/services/depositService";
@@ -73,7 +74,7 @@ const DepositModal = ({
     }
   };
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
       onClick={(e) => {
@@ -169,7 +170,8 @@ const DepositModal = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
 
