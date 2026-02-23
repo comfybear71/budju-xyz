@@ -86,7 +86,7 @@ const SpinNumber = ({
 };
 
 /* ── Countdown clock — resets each time prices refresh ── */
-const REFRESH_SECONDS = 30;
+const REFRESH_SECONDS = 90;
 
 const RefreshClock = ({ prices }: { prices: Record<string, number> }) => {
   const [remaining, setRemaining] = useState(REFRESH_SECONDS);
