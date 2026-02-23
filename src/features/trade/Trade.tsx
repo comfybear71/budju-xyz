@@ -479,27 +479,27 @@ const Trade = () => {
 
                 {/* Cash Balances + Admin Balance — hidden when any trade view is open */}
                 {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && isAdmin && (
-                  <div className="flex items-center justify-center gap-4 mb-3 py-2 rounded-xl bg-slate-800/30">
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-green-400" />
-                      <span className="text-xs text-slate-400">USDC</span>
-                      <span className="text-xs font-bold text-green-400 font-mono">
-                        ${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                      <span className="text-[10px] text-slate-400">USDC</span>
+                      <span className="text-[10px] font-bold text-green-400 font-mono">
+                        ${Math.round(usdcBalance).toLocaleString()}
                       </span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-amber-400" />
-                      <span className="text-xs text-slate-400">AUD</span>
-                      <span className="text-xs font-bold text-amber-400 font-mono">
-                        ${audBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span className="text-[10px] text-slate-400">AUD</span>
+                      <span className="text-[10px] font-bold text-amber-400 font-mono">
+                        ${Math.round(audBalance).toLocaleString()}
                       </span>
                     </div>
-                    <div className="w-px h-4 bg-slate-700/50" />
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-cyan-400" />
-                      <span className="text-xs text-slate-400">Admin</span>
-                      <span className="text-xs font-bold text-cyan-400 font-mono">
-                        {formatUsd(totalPoolValue - (poolStats?.totalUserValue || 0))}
+                    <div className="w-px h-3 bg-slate-700/50" />
+                    <div className="flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      <span className="text-[10px] text-slate-400">Admin</span>
+                      <span className="text-[10px] font-bold text-cyan-400 font-mono">
+                        ${Math.round(totalPoolValue - (poolStats?.totalUserValue || 0)).toLocaleString()}
                       </span>
                     </div>
                   </div>
