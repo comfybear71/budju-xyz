@@ -21,7 +21,7 @@ import {
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
-import { TOKEN_ADDRESS } from "@constants/addresses";
+import { TOKEN_ADDRESS, JLP_MINT } from "@constants/addresses";
 import { ROUTES } from "@/constants/routes";
 import walletService, {
   WalletBalance,
@@ -76,6 +76,7 @@ const networkOptions: Network[] = ["mainnet", "devnet"];
 const customTokens = [
   { symbol: "BUDJU", address: TOKEN_ADDRESS, decimals: 6 },
   { symbol: "USDC", address: USDC_ADDRESS, decimals: 6 },
+  { symbol: "JLP", address: JLP_MINT, decimals: 6 },
 ];
 
 const WalletConnect = ({
@@ -481,7 +482,7 @@ const WalletConnect = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className={`z-50 rounded-xl overflow-hidden border shadow-2xl backdrop-blur-xl ${panelBg} fixed top-14 left-3 right-3 sm:absolute sm:top-auto sm:left-auto sm:right-0 sm:mt-2 sm:w-80`}
+            className={`z-50 rounded-xl overflow-hidden overflow-y-auto border shadow-2xl backdrop-blur-xl ${panelBg} fixed top-14 left-3 right-3 max-h-[calc(100dvh-4rem)] sm:absolute sm:top-auto sm:left-auto sm:right-0 sm:mt-2 sm:w-80 sm:max-h-[80vh]`}
           >
             {!connection.connected ? (
               <>
@@ -1087,23 +1088,23 @@ const WalletConnect = ({
                 </div>
 
                 {/* Quick Actions */}
-                <div className={`px-3 py-3 border-b ${dividerColor}`}>
+                <div className={`px-3 py-2 border-b ${dividerColor}`}>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-widest px-1 mb-2.5 block ${subtextColor}`}
+                    className={`text-[10px] font-bold uppercase tracking-widest px-1 mb-1.5 block ${subtextColor}`}
                   >
                     Quick Actions
                   </span>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-3 gap-1.5">
                     <button
                       onClick={() => goTo(ROUTES.SWAP)}
-                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-cyan-500/[0.08] to-transparent border-cyan-500/[0.1] hover:border-cyan-500/30"
                           : "bg-gradient-to-b from-cyan-50 to-transparent border-cyan-200/30 hover:border-cyan-300/60"
                       }`}
                     >
                       <FaExchangeAlt
-                        className={`w-4 h-4 ${
+                        className={`w-3.5 h-3.5 ${
                           isDarkMode
                             ? "text-cyan-400 group-hover:text-cyan-300"
                             : "text-cyan-600 group-hover:text-cyan-500"
@@ -1112,15 +1113,15 @@ const WalletConnect = ({
                       <span className={textColor}>Swap</span>
                     </button>
                     <button
-                      onClick={() => goTo(ROUTES.BANK)}
-                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      onClick={() => goTo(ROUTES.TRADE)}
+                      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/[0.1] hover:border-emerald-500/30"
                           : "bg-gradient-to-b from-emerald-50 to-transparent border-emerald-200/30 hover:border-emerald-300/60"
                       }`}
                     >
                       <FaRobot
-                        className={`w-4 h-4 ${
+                        className={`w-3.5 h-3.5 ${
                           isDarkMode
                             ? "text-emerald-400 group-hover:text-emerald-300"
                             : "text-emerald-600 group-hover:text-emerald-500"
@@ -1130,14 +1131,14 @@ const WalletConnect = ({
                     </button>
                     <button
                       onClick={() => goTo(ROUTES.POOL)}
-                      className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-purple-500/[0.08] to-transparent border-purple-500/[0.1] hover:border-purple-500/30"
                           : "bg-gradient-to-b from-purple-50 to-transparent border-purple-200/30 hover:border-purple-300/60"
                       }`}
                     >
                       <FaSwimmingPool
-                        className={`w-4 h-4 ${
+                        className={`w-3.5 h-3.5 ${
                           isDarkMode
                             ? "text-purple-400 group-hover:text-purple-300"
                             : "text-purple-600 group-hover:text-purple-500"
@@ -1194,7 +1195,9 @@ const WalletConnect = ({
                                   ? "/images/tokens/budju.png"
                                   : token.symbol === "USDC"
                                     ? "/images/tokens/usdc.png"
-                                    : "/images/tokens/sol.png"
+                                    : token.symbol === "JLP"
+                                      ? "/images/tokens/jlp.svg"
+                                      : "/images/tokens/sol.png"
                               }
                               alt={token.symbol}
                               className="w-5 h-5 rounded-full"
