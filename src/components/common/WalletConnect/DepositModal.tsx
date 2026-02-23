@@ -108,12 +108,14 @@ const DepositModal = ({
 
         {/* Amount input */}
         <input
-          type="number"
+          type="text"
+          inputMode="decimal"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "" || /^\d*\.?\d*$/.test(v)) setAmount(v);
+          }}
           placeholder="Amount (USDC)"
-          min="1"
-          step="1"
           disabled={loading}
           className="w-full px-4 py-3.5 text-base text-center bg-black/30 border-2 border-white/10 rounded-xl text-white placeholder-gray-500 outline-none focus:border-emerald-500/40 mb-2 font-mono"
         />
