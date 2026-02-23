@@ -29,7 +29,8 @@ from database import (
     get_db_debug,
     sync_deposits_from_client,
     sync_trades_from_swyftx,
-    admin_import_user
+    admin_import_user,
+    recalibrate_pool
 )
 
 
@@ -296,6 +297,20 @@ class handler(BaseHTTPRequestHandler):
                     wallet_address, float(deposit_amount),
                     float(pool_value), tx_hash
                 )
+                self._send_json(200, result)
+
+            elif path == '/api/admin/recalibrate':
+                admin_wallet = body.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                pool_value = body.get('totalPoolValue')
+                if not pool_value:
+                    self._send_json(400, {"error": "totalPoolValue required"})
+                    return
+
+                result = recalibrate_pool(float(pool_value))
                 self._send_json(200, result)
 
             else:

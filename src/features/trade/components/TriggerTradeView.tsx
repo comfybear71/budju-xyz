@@ -55,6 +55,7 @@ const TriggerTradeView = ({
   const [orders, setOrders] = useState<any[]>([]);
   const [filledOrders, setFilledOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const [localOrders, setLocalOrders] = useState<any[]>([]);
   const pricesRef = useRef(prices);
   pricesRef.current = prices;
 
@@ -76,9 +77,22 @@ const TriggerTradeView = ({
         fetchEnrichedPendingOrders(pricesRef.current),
         fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
       ]);
-      // Always trust Swyftx live response — if 0 orders, show 0
-      setOrders(liveOrders);
       setFilledOrders(history.slice(0, 5));
+
+      // Merge: start with live Swyftx orders, then add locally-placed orders
+      // that haven't appeared in the API yet (Swyftx can take a few seconds)
+      const liveIds = new Set(liveOrders.map((o: any) => o.orderId));
+      const filledIds = new Set(history.map((o: any) => o.swyftxId || o.orderId));
+      setLocalOrders((prev) => prev.filter(
+        (lo) => !liveIds.has(lo.orderId) && !filledIds.has(lo.orderId)
+      ));
+      setOrders((prevOrders) => {
+        // Get current local orders that aren't in live or filled
+        const stillLocal = (prevOrders || []).filter(
+          (o: any) => o._local && !liveIds.has(o.orderId) && !filledIds.has(o.orderId)
+        );
+        return [...liveOrders, ...stillLocal];
+      });
     } catch {
       // Only fall back to server state on network error
       try {
@@ -149,6 +163,28 @@ const TriggerTradeView = ({
         setShowSuccess(true);
         setAmountPct(0);
         setTimeout(() => setShowSuccess(false), 2500);
+
+        // Immediately add order to list so it shows instantly
+        const isBuy = mode === "buy";
+        const typeMap: Record<string, string> = {
+          buy: triggerPrice < currentPrice ? "LIMIT BUY" : "STOP BUY",
+          sell: triggerPrice > currentPrice ? "LIMIT SELL" : "STOP SELL",
+        };
+        const localOrder = {
+          orderId: result.orderId || `local_${Date.now()}`,
+          type: typeMap[mode] || "ORDER",
+          isBuy,
+          asset: selectedCoin,
+          trigger: triggerPrice,
+          amount: tradeAmount,
+          currentPrice,
+          proximity: Math.round(Math.abs(currentPrice - triggerPrice) / currentPrice * 10000) / 100,
+          created: new Date().toISOString(),
+          _local: true,
+        };
+        setOrders((prev) => [localOrder, ...prev]);
+        setLocalOrders((prev) => [localOrder, ...prev]);
+
         // Retry refresh at staggered intervals — Swyftx may take a moment
         // to register the new order in /orders/open
         for (const delay of [1500, 4000, 8000]) {

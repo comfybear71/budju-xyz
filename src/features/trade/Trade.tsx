@@ -30,6 +30,7 @@ import {
   fetchTraderState,
   fetchEnrichedPendingOrders,
   registerWallet,
+  recalibratePool,
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
@@ -559,9 +560,28 @@ const Trade = () => {
                       <span className="text-[10px] text-slate-600 font-mono">
                         DB: {poolStats.userCount}u {poolStats.depositCount}d {poolStats.tradeCount}t pool
                       </span>
-                      <span className="text-[10px] text-slate-500 font-mono">
-                        {formatUsd(totalPoolValue)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async () => {
+                            if (!walletAddress || !totalPoolValue) return;
+                            if (!confirm(`Recalibrate pool at ${formatUsd(totalPoolValue)}? This resets NAV to $1 and user shares to deposit totals.`)) return;
+                            const result = await recalibratePool(walletAddress, totalPoolValue);
+                            if (result.success) {
+                              alert(`Recalibrated! Admin capital: ${formatUsd(result.adminCapital || 0)}, User deposits: ${formatUsd(result.totalUserDeposits || 0)}`);
+                              clearCache();
+                              loadData();
+                            } else {
+                              alert(`Error: ${result.error}`);
+                            }
+                          }}
+                          className="text-[9px] text-amber-500/60 hover:text-amber-400 font-mono"
+                        >
+                          recalibrate
+                        </button>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          {formatUsd(totalPoolValue)}
+                        </span>
+                      </div>
                     </div>
                     </>
                     )}

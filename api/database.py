@@ -157,6 +157,59 @@ def initialize_pool(total_pool_value: float) -> Dict:
     }
 
 
+def recalibrate_pool(total_pool_value: float) -> Dict:
+    """Reset pool accounting with a clean NAV = $1 snapshot.
+
+    Sets totalShares = total_pool_value so NAV becomes exactly $1.00.
+    Each non-admin user's shares are reset to their totalDeposited so that
+    their allocation = deposits / poolValue.  The remainder is the admin's
+    implicit capital (phantom shares).
+
+    Call this once to fix a misaligned pool, then normal deposit/NAV flow
+    takes over from here.
+    """
+    # Snapshot user deposits before resetting shares
+    non_admin_users = list(users_collection.find({
+        "isActive": True,
+        "walletAddress": {"$nin": ADMIN_WALLETS}
+    }))
+
+    total_user_deposits = sum(u.get("totalDeposited", 0) for u in non_admin_users)
+
+    # Reset pool totalShares = current pool value (NAV → $1.00)
+    pool_state_collection.update_one(
+        {"_id": "pool"},
+        {"$set": {
+            "totalShares": total_pool_value,
+            "recalibrated": datetime.utcnow()
+        }},
+        upsert=True
+    )
+
+    # Reset each user's shares = their totalDeposited (at NAV $1)
+    for user in non_admin_users:
+        deposited = user.get("totalDeposited", 0.0)
+        allocation = (deposited / total_pool_value * 100) if total_pool_value > 0 else 0
+        users_collection.update_one(
+            {"walletAddress": user["walletAddress"]},
+            {"$set": {
+                "shares": deposited,
+                "allocation": allocation
+            }}
+        )
+
+    admin_capital = total_pool_value - total_user_deposits
+
+    return {
+        "success": True,
+        "totalShares": total_pool_value,
+        "nav": 1.0,
+        "adminCapital": round(admin_capital, 2),
+        "totalUserDeposits": round(total_user_deposits, 2),
+        "usersRecalibrated": len(non_admin_users)
+    }
+
+
 def get_nav(total_pool_value: float) -> float:
     pool = get_pool_state()
     total_shares = pool["totalShares"]

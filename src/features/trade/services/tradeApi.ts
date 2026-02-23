@@ -873,6 +873,25 @@ export async function fetchEnrichedPendingOrders(
   }
 }
 
+/** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals */
+export async function recalibratePool(
+  adminWallet: string,
+  totalPoolValue: number,
+): Promise<{ success: boolean; adminCapital?: number; totalUserDeposits?: number; error?: string }> {
+  try {
+    const res = await fetchWithRetry("/api/admin/recalibrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet, totalPoolValue }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 /** Cancel a pending order on Swyftx */
 export async function cancelOrder(
   orderUuid: string,
