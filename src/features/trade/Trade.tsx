@@ -564,10 +564,10 @@ const Trade = () => {
                         <button
                           onClick={async () => {
                             if (!walletAddress || !totalPoolValue) return;
-                            if (!confirm(`Recalibrate pool at ${formatUsd(totalPoolValue)}? This resets NAV to $1 and user shares to deposit totals.`)) return;
+                            if (!confirm(`Snapshot pool at ${formatUsd(totalPoolValue)}? Each user's deposit resets to their current value. P&L resets to 0%.`)) return;
                             const result = await recalibratePool(walletAddress, totalPoolValue);
                             if (result.success) {
-                              alert(`Recalibrated! Admin capital: ${formatUsd(result.adminCapital || 0)}, User deposits: ${formatUsd(result.totalUserDeposits || 0)}`);
+                              alert(`Snapshot done! Admin capital: ${formatUsd(result.adminCapital || 0)}, User value: ${formatUsd(result.totalUserValue || 0)}`);
                               clearCache();
                               loadData();
                             } else {

@@ -158,23 +158,41 @@ def initialize_pool(total_pool_value: float) -> Dict:
 
 
 def recalibrate_pool(total_pool_value: float) -> Dict:
-    """Reset pool accounting with a clean NAV = $1 snapshot.
+    """Snapshot the pool: reset every user's deposit to their current value.
 
-    Sets totalShares = total_pool_value so NAV becomes exactly $1.00.
-    Each non-admin user's shares are reset to their totalDeposited so that
-    their allocation = deposits / poolValue.  The remainder is the admin's
-    implicit capital (phantom shares).
+    Calculates each user's current share value, then sets:
+      - totalDeposited = current value  (P&L resets to 0%)
+      - shares = current value          (NAV resets to $1.00)
+      - totalShares = total_pool_value
 
-    Call this once to fix a misaligned pool, then normal deposit/NAV flow
-    takes over from here.
+    After this, every user's P&L starts fresh from their actual position.
     """
-    # Snapshot user deposits before resetting shares
+    pool = get_pool_state()
+    old_total_shares = pool["totalShares"]
+    old_nav = (total_pool_value / old_total_shares) if old_total_shares > 0 else 1.0
+
     non_admin_users = list(users_collection.find({
         "isActive": True,
         "walletAddress": {"$nin": ADMIN_WALLETS}
     }))
 
-    total_user_deposits = sum(u.get("totalDeposited", 0) for u in non_admin_users)
+    total_user_value = 0.0
+
+    # Set each user's deposited = their current share value (P&L → 0%)
+    for user in non_admin_users:
+        old_shares = user.get("shares", 0.0)
+        current_value = old_shares * old_nav
+        allocation = (current_value / total_pool_value * 100) if total_pool_value > 0 else 0
+        total_user_value += current_value
+
+        users_collection.update_one(
+            {"walletAddress": user["walletAddress"]},
+            {"$set": {
+                "totalDeposited": round(current_value, 2),
+                "shares": current_value,
+                "allocation": round(allocation, 2)
+            }}
+        )
 
     # Reset pool totalShares = current pool value (NAV → $1.00)
     pool_state_collection.update_one(
@@ -186,26 +204,14 @@ def recalibrate_pool(total_pool_value: float) -> Dict:
         upsert=True
     )
 
-    # Reset each user's shares = their totalDeposited (at NAV $1)
-    for user in non_admin_users:
-        deposited = user.get("totalDeposited", 0.0)
-        allocation = (deposited / total_pool_value * 100) if total_pool_value > 0 else 0
-        users_collection.update_one(
-            {"walletAddress": user["walletAddress"]},
-            {"$set": {
-                "shares": deposited,
-                "allocation": allocation
-            }}
-        )
-
-    admin_capital = total_pool_value - total_user_deposits
+    admin_capital = total_pool_value - total_user_value
 
     return {
         "success": True,
         "totalShares": total_pool_value,
         "nav": 1.0,
         "adminCapital": round(admin_capital, 2),
-        "totalUserDeposits": round(total_user_deposits, 2),
+        "totalUserValue": round(total_user_value, 2),
         "usersRecalibrated": len(non_admin_users)
     }
 
