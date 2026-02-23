@@ -18,6 +18,7 @@ import {
   FaCoins,
   FaArrowRight,
   FaPlus,
+  FaPiggyBank,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
@@ -1094,10 +1095,10 @@ const WalletConnect = ({
                   >
                     Quick Actions
                   </span>
-                  <div className="grid grid-cols-3 gap-1.5">
+                  <div className="grid grid-cols-4 gap-1.5">
                     <button
                       onClick={() => goTo(ROUTES.SWAP)}
-                      className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      className={`flex flex-col items-center gap-1 px-1 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-cyan-500/[0.08] to-transparent border-cyan-500/[0.1] hover:border-cyan-500/30"
                           : "bg-gradient-to-b from-cyan-50 to-transparent border-cyan-200/30 hover:border-cyan-300/60"
@@ -1114,7 +1115,7 @@ const WalletConnect = ({
                     </button>
                     <button
                       onClick={() => goTo(ROUTES.TRADE)}
-                      className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      className={`flex flex-col items-center gap-1 px-1 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/[0.1] hover:border-emerald-500/30"
                           : "bg-gradient-to-b from-emerald-50 to-transparent border-emerald-200/30 hover:border-emerald-300/60"
@@ -1131,7 +1132,7 @@ const WalletConnect = ({
                     </button>
                     <button
                       onClick={() => goTo(ROUTES.POOL)}
-                      className={`flex flex-col items-center gap-1 px-1.5 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                      className={`flex flex-col items-center gap-1 px-1 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-purple-500/[0.08] to-transparent border-purple-500/[0.1] hover:border-purple-500/30"
                           : "bg-gradient-to-b from-purple-50 to-transparent border-purple-200/30 hover:border-purple-300/60"
@@ -1145,6 +1146,23 @@ const WalletConnect = ({
                         }`}
                       />
                       <span className={textColor}>Pool</span>
+                    </button>
+                    <button
+                      onClick={() => goTo(ROUTES.BANK)}
+                      className={`flex flex-col items-center gap-1 px-1 py-2 rounded-lg text-[9px] font-semibold transition-all duration-200 cursor-pointer group border ${
+                        isDarkMode
+                          ? "bg-gradient-to-b from-amber-500/[0.08] to-transparent border-amber-500/[0.1] hover:border-amber-500/30"
+                          : "bg-gradient-to-b from-amber-50 to-transparent border-amber-200/30 hover:border-amber-300/60"
+                      }`}
+                    >
+                      <FaPiggyBank
+                        className={`w-3 h-3 ${
+                          isDarkMode
+                            ? "text-amber-400 group-hover:text-amber-300"
+                            : "text-amber-600 group-hover:text-amber-500"
+                        }`}
+                      />
+                      <span className={textColor}>Bank</span>
                     </button>
                   </div>
                 </div>
