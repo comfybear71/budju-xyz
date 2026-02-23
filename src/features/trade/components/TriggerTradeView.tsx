@@ -19,6 +19,7 @@ import {
   fetchTraderState,
   saveTraderState,
   fetchSwyftxOrderHistory,
+  diagnosePendingOrders,
   type PortfolioAsset,
 } from "../services/tradeApi";
 
@@ -60,6 +61,7 @@ const TriggerTradeView = ({
   const [filledOrders, setFilledOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [localOrders, setLocalOrders] = useState<any[]>([]);
+  const [debugInfo, setDebugInfo] = useState<string>("");
   const pricesRef = useRef(prices);
   pricesRef.current = prices;
 
@@ -88,6 +90,10 @@ const TriggerTradeView = ({
         fetchTraderState().catch(() => null),
       ]);
       setFilledOrders(history.slice(0, 5));
+
+      // Diagnostic: capture counts for on-screen debug (temp)
+      const diag = await diagnosePendingOrders().catch(() => "fetch-err");
+      setDebugInfo(`API:${liveOrders.length} Hist:${historyPending.length} DB:${(traderState?.enrichedOrders||[]).length} Filled:${history.length}\n${diag}`);
 
       // Deduplicate across all sources by orderId
       const seenIds = new Set<string>();
@@ -631,6 +637,11 @@ const TriggerTradeView = ({
         ) : orders.length === 0 ? (
           <div className="text-center text-slate-500 text-xs py-5 rounded-xl border border-white/[0.04]">
             No pending orders
+            {debugInfo && (
+              <div className="mt-2 text-[10px] text-slate-600 font-mono whitespace-pre-wrap break-all text-left px-3">
+                {debugInfo}
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-1.5" style={{ maxHeight: 400, overflowY: "auto" }}>

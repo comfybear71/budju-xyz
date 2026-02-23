@@ -876,8 +876,30 @@ export async function fetchEnrichedPendingOrders(
     }
 
     return mapped.sort((a: any, b: any) => a.proximity - b.proximity);
-  } catch {
+  } catch (e: any) {
     return [];
+  }
+}
+
+/** Temp diagnostic: return raw API response for debugging on mobile */
+export async function diagnosePendingOrders(): Promise<string> {
+  try {
+    const res = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: "/orders/open", method: "GET" }),
+    });
+    const status = res.status;
+    const data = await res.json();
+    const isArr = Array.isArray(data);
+    const keys = data ? Object.keys(data) : [];
+    const raw = isArr ? data : (data?.orders ?? data?.data ?? []);
+    const rawLen = Array.isArray(raw) ? raw.length : "not-array";
+    const sample = Array.isArray(raw) && raw.length > 0
+      ? JSON.stringify(raw[0]).slice(0, 120) : "empty";
+    return `HTTP${status} keys=${keys} isArr=${isArr} raw=${rawLen} sample=${sample}`;
+  } catch (e: any) {
+    return `Error: ${e.message}`;
   }
 }
 
