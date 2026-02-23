@@ -85,7 +85,7 @@ const TriggerTradeView = ({
       const [liveOrders, historyPending, history, traderState] = await Promise.all([
         fetchEnrichedPendingOrders(pricesRef.current),
         fetchPendingFromHistory(pricesRef.current).catch(() => [] as any[]),
-        fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
+        fetchSwyftxOrderHistory(50).catch(() => [] as any[]),
         fetchTraderState().catch(() => null),
       ]);
       setFilledOrders(history.slice(0, 5));

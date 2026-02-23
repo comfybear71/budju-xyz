@@ -859,12 +859,21 @@ export async function fetchEnrichedPendingOrders(
   } catch { /* API unavailable — fall through to DB */ }
 
   // 2. Swyftx API returned nothing — fall back to MongoDB-stored pending orders
+  //    Cross-reference with filled history to auto-remove completed orders
   try {
-    const state = await fetchTraderState();
+    const [state, filledHistory] = await Promise.all([
+      fetchTraderState(),
+      fetchSwyftxOrderHistory(50).catch(() => [] as any[]),
+    ]);
     const dbOrders = state?.enrichedOrders || [];
-    if (dbOrders.length > 0) {
-      return enrichDbOrders(dbOrders, prices);
-    }
+    if (dbOrders.length === 0) return [];
+
+    // Filter out orders that have been filled on Swyftx
+    const filledIds = new Set(filledHistory.map((o: any) => o.swyftxId || o.orderId));
+    const getId = (o: any) => o.orderId || o.orderUuid || o.id || "";
+    const active = dbOrders.filter((o: any) => !filledIds.has(getId(o)));
+
+    return enrichDbOrders(active, prices);
   } catch { /* DB also unavailable */ }
 
   return [];
