@@ -26,6 +26,7 @@ import {
   fetchCashBalances,
   fetchAdminStats,
   fetchUserPosition,
+  fetchLeaderboard,
   fetchTraderState,
   fetchEnrichedPendingOrders,
   registerWallet,
@@ -34,6 +35,7 @@ import {
   type PortfolioAsset,
   type AdminStats,
   type UserPosition,
+  type LeaderboardEntry,
   type TraderState,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
@@ -75,6 +77,8 @@ const Trade = () => {
   const [showTriggerView, setShowTriggerView] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
+  const [showDepositBreakdown, setShowDepositBreakdown] = useState(false);
+  const [depositBreakdown, setDepositBreakdown] = useState<LeaderboardEntry[]>([]);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -496,20 +500,57 @@ const Trade = () => {
                 {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk) && isAdmin) && poolStats && (
                   <>
                     <div className="grid grid-cols-3 gap-2 mb-2">
-                      {[
+                      {([
                         { label: "USERS", value: poolStats.userCount, icon: HiOutlineUsers, color: "text-blue-400" },
-                        { label: "DEPOSITED", value: formatUsd(poolStats.totalUserDeposited), icon: HiOutlineBanknotes, color: "text-green-400" },
+                        { label: "DEPOSITED", value: formatUsd(poolStats.totalUserDeposited), icon: HiOutlineBanknotes, color: "text-green-400",
+                          onClick: isAdmin ? async () => {
+                            if (showDepositBreakdown) { setShowDepositBreakdown(false); return; }
+                            const lb = await fetchLeaderboard(totalPoolValue);
+                            setDepositBreakdown(lb.filter((u) => u.totalDeposited > 0));
+                            setShowDepositBreakdown(true);
+                          } : undefined },
                         { label: "USER VALUE", value: formatUsd(poolStats.totalUserValue), icon: HiOutlineChartBar, color: "text-cyan-400" },
                         { label: "NAV", value: `$${poolStats.nav.toFixed(4)}`, icon: HiOutlineWallet, color: "text-purple-400" },
                         { label: "TRADES", value: poolStats.tradeCount, icon: HiOutlineArrowsRightLeft, color: "text-emerald-400" },
                         { label: "USER P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: HiOutlineChartBar, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
-                      ].map((stat) => (
-                        <div key={stat.label} className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-2.5 text-center">
+                      ] as { label: string; value: string | number; icon: any; color: string; onClick?: () => void }[]).map((stat) => (
+                        <div
+                          key={stat.label}
+                          onClick={stat.onClick}
+                          className={`rounded-xl border border-slate-700/30 bg-slate-800/40 p-2.5 text-center ${stat.onClick ? "cursor-pointer hover:border-slate-600/50 active:scale-95 transition-all" : ""}`}
+                        >
                           <div className="text-[10px] text-slate-500 font-semibold tracking-wider mb-1">{stat.label}</div>
                           <div className={`text-sm font-bold font-mono ${stat.color}`}>{stat.value}</div>
                         </div>
                       ))}
                     </div>
+
+                    {/* Deposit breakdown (admin only) */}
+                    <AnimatePresence>
+                      {showDepositBreakdown && depositBreakdown.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden mb-2"
+                        >
+                          <div className="rounded-xl border border-green-500/20 bg-slate-900/60 p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-green-400/70">User Deposits</span>
+                              <button onClick={() => setShowDepositBreakdown(false)} className="text-[10px] text-slate-500 hover:text-white">Close</button>
+                            </div>
+                            <div className="space-y-1.5">
+                              {depositBreakdown.map((user) => (
+                                <div key={user.walletAddress} className="flex items-center justify-between py-1 px-1.5 rounded-lg hover:bg-slate-800/40">
+                                  <span className="text-[11px] text-slate-400 font-mono">{user.walletShort}</span>
+                                  <span className="text-[11px] font-bold text-green-400 font-mono">{formatUsd(user.totalDeposited)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Pool value footer */}
                     <div className="flex justify-between items-center px-1 pt-1 border-t border-slate-700/20">
