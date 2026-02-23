@@ -96,7 +96,12 @@ const Trade = () => {
 
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
-  const userValue = userPosition ? userPosition.currentValue : 0;
+  // Derive user value from LIVE pool value × their share allocation, not a stale server snapshot.
+  // Server returns allocation% = (userShares / totalShares) × 100, which stays valid as long as
+  // no new deposits/withdrawals occur. This keeps the user value accurate as prices update.
+  const userValue = userPosition
+    ? totalPoolValue * (userPosition.allocation / 100)
+    : 0;
 
   // ── Load data (all public — no wallet needed) ──
   const loadData = useCallback(async () => {
@@ -528,13 +533,13 @@ const Trade = () => {
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
-                            <div className="text-base font-bold text-white font-mono">{formatUsd(userPosition.currentValue)}</div>
+                            <div className="text-base font-bold text-white font-mono">{formatUsd(userValue)}</div>
                           </div>
                           <div>
                             <div className="text-[10px] text-slate-500 uppercase tracking-wider">P&L</div>
-                            <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                              {(userPosition.currentValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
-                              {formatUsd(Math.abs(userPosition.currentValue - userPosition.totalDeposited))}
+                            <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
+                              {(userValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
+                              {formatUsd(Math.abs(userValue - userPosition.totalDeposited))}
                             </div>
                           </div>
                           <div>
