@@ -52,7 +52,7 @@ function authHeaders(token: string) {
 const ALLOWED_PATTERNS: RegExp[] = [
   /^\/orders\/\?limit=\d+$/,               // Order history (GET)
   /^\/markets\/assets\/?$/,                 // Asset list (GET)
-  /^\/orders\/[a-f0-9-]{20,50}\/?$/,       // Cancel specific order by UUID (DELETE)
+  /^\/orders\/[a-zA-Z0-9_-]{10,60}\/?$/,   // Specific order by UUID or ord_ ID (GET/DELETE)
 ];
 
 function isAllowedEndpoint(endpoint: string): boolean {

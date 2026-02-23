@@ -892,6 +892,81 @@ export async function recalibratePool(
   }
 }
 
+/** Cross-reference: fetch non-filled orders from order history.
+ *  Swyftx /orders/open may lag, but recently placed orders appear
+ *  in the full order history with their status. Status 1 = open,
+ *  2 = partially filled, 3 = cancelled, 4 = filled. */
+export async function fetchPendingFromHistory(
+  prices: Record<string, number>,
+): Promise<any[]> {
+  try {
+    const [ordersRes, assetsRes] = await Promise.all([
+      fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/orders/?limit=20", method: "GET" }),
+      }),
+      fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/markets/assets/", method: "GET" }),
+      }),
+    ]);
+
+    if (!ordersRes.ok) return [];
+    const data = await ordersRes.json();
+    const raw = Array.isArray(data) ? data : (data.orders ?? []);
+
+    const assetMap: Record<string, string> = {};
+    if (assetsRes.ok) {
+      const assetsData = await assetsRes.json();
+      if (Array.isArray(assetsData)) {
+        for (const a of assetsData) assetMap[String(a.id)] = a.code || "";
+      }
+    }
+
+    // Only include non-filled, non-cancelled orders with limit/trigger types (3-6)
+    return raw
+      .filter((o: any) => {
+        const status = parseInt(o.status ?? 0);
+        const ot = parseInt(o.order_type ?? o.orderType ?? 0);
+        return (status === 1 || status === 2) && ot >= 3 && ot <= 6;
+      })
+      .map((o: any) => {
+        const ot = parseInt(o.order_type ?? o.orderType ?? 0);
+        const isBuy = ot === 3 || ot === 5;
+        const coinCode = assetMap[String(o.secondary_asset)] || String(o.secondary_asset ?? "");
+        const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || 0;
+        const rawAmount = parseFloat(o.amount) || parseFloat(o.total) || 0;
+        const rawQty = parseFloat(o.quantity) || 0;
+        const amount = rawAmount || (rawQty > 0 && trigger > 0 ? rawQty * trigger : 0);
+        const currentPrice = prices[coinCode] || 0;
+        const distance = currentPrice > 0 && trigger > 0
+          ? (Math.abs(currentPrice - trigger) / currentPrice) * 100
+          : 100;
+        const typeMap: Record<number, string> = {
+          3: "LIMIT BUY", 4: "LIMIT SELL", 5: "STOP BUY", 6: "STOP SELL",
+        };
+        return {
+          orderId: o.orderUuid ?? o.order_uuid ?? o.id ?? "",
+          orderType: ot,
+          type: typeMap[ot] || "ORDER",
+          isBuy,
+          asset: coinCode,
+          trigger,
+          amount,
+          currentPrice,
+          proximity: Math.round(distance * 100) / 100,
+          created: o.created_time ?? "",
+          _fromHistory: true,
+        };
+      })
+      .filter((o: any) => o.asset && o.asset !== "" && o.asset !== "0");
+  } catch {
+    return [];
+  }
+}
+
 /** Cancel a pending order on Swyftx */
 export async function cancelOrder(
   orderUuid: string,

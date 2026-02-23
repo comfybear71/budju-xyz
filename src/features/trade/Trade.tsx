@@ -652,6 +652,7 @@ const Trade = () => {
                     prices={prices}
                     usdcBalance={usdcBalance}
                     isAdmin={isAdmin}
+                    walletAddress={walletAddress}
                     onClose={() => setShowTriggerView(false)}
                   />
                 )}

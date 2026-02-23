@@ -15,7 +15,9 @@ import {
   placeTrade,
   cancelOrder,
   fetchEnrichedPendingOrders,
+  fetchPendingFromHistory,
   fetchTraderState,
+  saveTraderState,
   fetchSwyftxOrderHistory,
   type PortfolioAsset,
 } from "../services/tradeApi";
@@ -27,6 +29,7 @@ interface Props {
   prices: Record<string, number>;
   usdcBalance: number;
   isAdmin: boolean;
+  walletAddress: string;
   onClose: () => void;
 }
 
@@ -35,6 +38,7 @@ const TriggerTradeView = ({
   prices,
   usdcBalance,
   isAdmin,
+  walletAddress,
   onClose,
 }: Props) => {
   // Order form state
@@ -69,32 +73,64 @@ const TriggerTradeView = ({
     }
   }, [assets, selectedCoin]);
 
-  // Load pending orders + recently filled (uses ref so closure is always fresh)
+  // Load pending orders from 4 sources, deduplicated:
+  //   1. Swyftx /orders/open (live open orders)
+  //   2. Swyftx /orders/?limit=20 (cross-reference: pending from history)
+  //   3. MongoDB pendingOrders (saved when orders are placed — persists across devices)
+  //   4. In-memory local orders (optimistic, for instant UI feedback)
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
-      const [liveOrders, history] = await Promise.all([
+      const [liveOrders, historyPending, history, traderState] = await Promise.all([
         fetchEnrichedPendingOrders(pricesRef.current),
+        fetchPendingFromHistory(pricesRef.current).catch(() => [] as any[]),
         fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
+        fetchTraderState().catch(() => null),
       ]);
       setFilledOrders(history.slice(0, 5));
 
-      // Merge: start with live Swyftx orders, then add locally-placed orders
-      // that haven't appeared in the API yet (Swyftx can take a few seconds)
-      const liveIds = new Set(liveOrders.map((o: any) => o.orderId));
+      // Deduplicate across all sources by orderId
+      const seenIds = new Set<string>();
+      const merged: any[] = [];
+      const addOrder = (o: any) => {
+        const id = o.orderId;
+        if (id && !seenIds.has(id)) { seenIds.add(id); merged.push(o); }
+      };
+
+      // Priority: live API orders first, then history cross-ref, then DB-saved orders
+      for (const o of liveOrders) addOrder(o);
+      for (const o of historyPending) addOrder(o);
+
+      // DB-saved pending orders (from MongoDB, visible to all devices)
+      const dbPending = traderState?.enrichedOrders || [];
+      for (const o of dbPending) {
+        if (o._local) addOrder(o); // only add DB-saved local orders that aren't in API yet
+      }
+
       const filledIds = new Set(history.map((o: any) => o.swyftxId || o.orderId));
-      setLocalOrders((prev) => prev.filter(
-        (lo) => !liveIds.has(lo.orderId) && !filledIds.has(lo.orderId)
-      ));
-      setOrders((prevOrders) => {
-        // Get current local orders that aren't in live or filled
-        const stillLocal = (prevOrders || []).filter(
-          (o: any) => o._local && !liveIds.has(o.orderId) && !filledIds.has(o.orderId)
+
+      // Clean up local orders confirmed by API or filled
+      setLocalOrders((prev) => {
+        const remaining = prev.filter(
+          (lo) => !seenIds.has(lo.orderId) && !filledIds.has(lo.orderId)
         );
-        return [...liveOrders, ...stillLocal];
+        // If orders were cleaned up, update MongoDB too
+        if (remaining.length < prev.length && isAdmin && walletAddress) {
+          saveTraderState(walletAddress, { pendingOrders: remaining })
+            .catch(() => {});
+        }
+        return remaining;
+      });
+
+      setOrders((prevOrders) => {
+        // Keep in-memory local orders not yet confirmed
+        const stillLocal = (prevOrders || []).filter(
+          (o: any) => o._local && !seenIds.has(o.orderId) && !filledIds.has(o.orderId)
+        );
+        return [...merged, ...stillLocal];
       });
     } catch {
-      // Only fall back to server state on network error
+      // Fall back to server state on network error
       try {
         const state = await fetchTraderState();
         setOrders(state?.enrichedOrders || []);
@@ -103,7 +139,7 @@ const TriggerTradeView = ({
       }
     }
     setLoadingOrders(false);
-  }, []);
+  }, [isAdmin, walletAddress]);
 
   // Load on mount + auto-refresh every 30s
   useEffect(() => {
@@ -164,13 +200,13 @@ const TriggerTradeView = ({
         setAmountPct(0);
         setTimeout(() => setShowSuccess(false), 2500);
 
-        // Immediately add order to list so it shows instantly
+        // Build pending order object to show immediately + save to DB
         const isBuy = mode === "buy";
         const typeMap: Record<string, string> = {
           buy: triggerPrice < currentPrice ? "LIMIT BUY" : "STOP BUY",
           sell: triggerPrice > currentPrice ? "LIMIT SELL" : "STOP SELL",
         };
-        const localOrder = {
+        const pendingOrder = {
           orderId: result.orderId || `local_${Date.now()}`,
           type: typeMap[mode] || "ORDER",
           isBuy,
@@ -182,8 +218,18 @@ const TriggerTradeView = ({
           created: new Date().toISOString(),
           _local: true,
         };
-        setOrders((prev) => [localOrder, ...prev]);
-        setLocalOrders((prev) => [localOrder, ...prev]);
+
+        // Show immediately in UI
+        setOrders((prev) => [pendingOrder, ...prev]);
+        setLocalOrders((prev) => [pendingOrder, ...prev]);
+
+        // Save to MongoDB so it persists across devices
+        if (isAdmin && walletAddress) {
+          const currentLocal = [...localOrders, pendingOrder];
+          saveTraderState(walletAddress, {
+            pendingOrders: currentLocal,
+          }).catch(() => { /* silent — will be picked up on next refresh */ });
+        }
 
         // Retry refresh at staggered intervals — Swyftx may take a moment
         // to register the new order in /orders/open
