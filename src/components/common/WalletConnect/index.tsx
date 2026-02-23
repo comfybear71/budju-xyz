@@ -1264,7 +1264,7 @@ const WalletConnect = ({
                       <span className={textColor}>Swap</span>
                     </button>
                     <button
-                      onClick={() => goTo(ROUTES.TRADE)}
+                      onClick={() => goTo(ROUTES.BANK)}
                       className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/[0.1] hover:border-emerald-500/30"
