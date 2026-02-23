@@ -135,18 +135,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const token = await getServerToken(apiKey);
       const headers = authHeaders(token);
 
-      const [ordersRes, assetsRes] = await Promise.all([
-        fetch(BASE_URL + "/orders/open/", { method: "GET", headers }),
-        fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
-      ]);
+      // Try without trailing slash first (matches FLUB), fall back to with slash
+      let ordersRes = await fetch(BASE_URL + "/orders/open", { method: "GET", headers });
+      if (!ordersRes.ok) {
+        console.log("Swyftx /orders/open returned", ordersRes.status, "— trying with trailing slash");
+        ordersRes = await fetch(BASE_URL + "/orders/open/", { method: "GET", headers });
+      }
+
+      const assetsRes = await fetch(BASE_URL + "/markets/assets/", { method: "GET", headers });
 
       if (!ordersRes.ok) {
         const errData = await ordersRes.json().catch(() => ({}));
+        console.error("Open orders failed:", ordersRes.status, JSON.stringify(errData));
         return res.status(ordersRes.status).json(errData);
       }
 
       const ordersData = await ordersRes.json();
       const assetsData = await assetsRes.json();
+
+      // Log raw response for diagnostics
+      const dataKeys = ordersData ? Object.keys(ordersData) : [];
+      const isArray = Array.isArray(ordersData);
+      console.log(`Open orders raw: isArray=${isArray}, keys=${JSON.stringify(dataKeys)}, type=${typeof ordersData}`);
+      if (!isArray && typeof ordersData === "object") {
+        // Log all possible nested array fields
+        for (const k of dataKeys) {
+          if (Array.isArray(ordersData[k])) {
+            console.log(`  ordersData.${k}: array of ${ordersData[k].length} items`);
+          }
+        }
+      }
 
       const assetMap: Record<string, { code: string; name: string }> = {};
       if (Array.isArray(assetsData)) {
@@ -155,7 +173,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      const raw = Array.isArray(ordersData) ? ordersData : (ordersData as any).orders ?? [];
+      // Parse orders from all possible response formats
+      let raw: any[];
+      if (Array.isArray(ordersData)) {
+        raw = ordersData;
+      } else if (ordersData?.orders && Array.isArray(ordersData.orders)) {
+        raw = ordersData.orders;
+      } else if (ordersData?.data && Array.isArray(ordersData.data)) {
+        raw = ordersData.data;
+      } else {
+        // Last resort: find any array in the response
+        raw = [];
+        for (const k of dataKeys) {
+          if (Array.isArray(ordersData[k]) && ordersData[k].length > 0) {
+            raw = ordersData[k];
+            console.log(`Open orders: using ordersData.${k} (${raw.length} items)`);
+            break;
+          }
+        }
+      }
+
+      console.log(`Open orders: ${raw.length} orders found`);
+      if (raw.length > 0) {
+        console.log("First order sample:", JSON.stringify(raw[0]).slice(0, 300));
+      }
+
       const enriched = raw.map((o: any) => {
         const primaryId = String(o.primary_asset ?? o.primaryAsset ?? "");
         const secondaryId = String(o.secondary_asset ?? o.secondaryAsset ?? "");

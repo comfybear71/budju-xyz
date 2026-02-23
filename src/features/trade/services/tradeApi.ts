@@ -810,11 +810,19 @@ export async function fetchEnrichedPendingOrders(
       }),
     });
 
-    if (!res.ok) return [];
+    if (!res.ok) {
+      console.warn(`[PendingOrders] /orders/open returned HTTP ${res.status}`);
+      return [];
+    }
     const data = await res.json();
-    if (data.error) return [];
+    console.log(`[PendingOrders] Response keys: ${Object.keys(data || {})}, isArray: ${Array.isArray(data)}`);
+    if (data.error) {
+      console.warn(`[PendingOrders] API error: ${data.error}`);
+      return [];
+    }
 
     const raw = Array.isArray(data) ? data : (data.orders ?? []);
+    console.log(`[PendingOrders] Extracted ${raw.length} raw orders`);
 
     const mapped = raw
       .map((o: any) => {
@@ -913,9 +921,25 @@ export async function fetchPendingFromHistory(
       }),
     ]);
 
-    if (!ordersRes.ok) return [];
+    if (!ordersRes.ok) {
+      console.warn(`[HistoryXRef] /orders/?limit=20 returned HTTP ${ordersRes.status}`);
+      return [];
+    }
     const data = await ordersRes.json();
     const raw = Array.isArray(data) ? data : (data.orders ?? []);
+
+    // Log all order statuses and types for diagnostics
+    const statusCounts: Record<string, number> = {};
+    for (const o of raw) {
+      const key = `status=${o.status},type=${o.order_type ?? o.orderType}`;
+      statusCounts[key] = (statusCounts[key] || 0) + 1;
+    }
+    console.log(`[HistoryXRef] ${raw.length} orders, breakdown:`, JSON.stringify(statusCounts));
+    // Log first non-filled order for debugging
+    const nonFilled = raw.filter((o: any) => parseInt(o.status ?? 0) !== 4);
+    if (nonFilled.length > 0) {
+      console.log(`[HistoryXRef] ${nonFilled.length} non-filled orders found, first:`, JSON.stringify(nonFilled[0]).slice(0, 300));
+    }
 
     const assetMap: Record<string, string> = {};
     if (assetsRes.ok) {
@@ -925,12 +949,13 @@ export async function fetchPendingFromHistory(
       }
     }
 
-    // Only include non-filled, non-cancelled orders with limit/trigger types (3-6)
+    // Include open or partially-filled orders with limit/trigger types (3-6)
     return raw
       .filter((o: any) => {
         const status = parseInt(o.status ?? 0);
         const ot = parseInt(o.order_type ?? o.orderType ?? 0);
-        return (status === 1 || status === 2) && ot >= 3 && ot <= 6;
+        // Accept status 0 (new/pending), 1 (open), 2 (partial) — exclude 3 (cancelled) and 4 (filled)
+        return status >= 0 && status <= 2 && ot >= 3 && ot <= 6;
       })
       .map((o: any) => {
         const ot = parseInt(o.order_type ?? o.orderType ?? 0);
