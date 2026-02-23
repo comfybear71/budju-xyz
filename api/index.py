@@ -169,13 +169,13 @@ class handler(BaseHTTPRequestHandler):
                 wallet_address = body.get('walletAddress')
                 amount = body.get('amount')
                 tx_hash = body.get('txHash')
-                pool_value = body.get('totalPoolValue')
+                pool_value = body.get('totalPoolValue', 0)
 
-                if not all([wallet_address, amount, tx_hash, pool_value]):
-                    self._send_json(400, {"error": "walletAddress, amount, txHash, and totalPoolValue required"})
+                if not wallet_address or amount is None or not tx_hash:
+                    self._send_json(400, {"error": "walletAddress, amount, and txHash required"})
                     return
 
-                if not tx_hash or len(tx_hash) < 20:
+                if len(str(tx_hash)) < 20:
                     self._send_json(400, {"error": "Invalid transaction hash"})
                     return
 
