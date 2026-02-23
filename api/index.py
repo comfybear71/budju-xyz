@@ -164,6 +164,27 @@ class handler(BaseHTTPRequestHandler):
                 user_data = register_user(wallet_address, signature, message)
                 self._send_json(200, user_data)
 
+            elif path == '/api/user-deposit':
+                # User self-service deposit — user sends USDC on-chain, then records here
+                wallet_address = body.get('walletAddress')
+                amount = body.get('amount')
+                tx_hash = body.get('txHash')
+                pool_value = body.get('totalPoolValue')
+
+                if not all([wallet_address, amount, tx_hash, pool_value]):
+                    self._send_json(400, {"error": "walletAddress, amount, txHash, and totalPoolValue required"})
+                    return
+
+                if not tx_hash or len(tx_hash) < 20:
+                    self._send_json(400, {"error": "Invalid transaction hash"})
+                    return
+
+                result = record_deposit(
+                    wallet_address, float(amount), tx_hash,
+                    float(pool_value), 'USDC'
+                )
+                self._send_json(200, result)
+
             elif path == '/api/deposit':
                 # Deposits can only be recorded by admins
                 admin_wallet = body.get('adminWallet')

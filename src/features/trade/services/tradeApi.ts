@@ -682,6 +682,36 @@ export async function recordDeposit(
   }
 }
 
+/** User self-service deposit: record on-chain USDC transfer in MongoDB */
+export async function submitUserDeposit(
+  walletAddress: string,
+  amount: number,
+  txHash: string,
+  totalPoolValue: number,
+): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
+  try {
+    const res = await fetchWithRetry("/api/user-deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, amount, txHash, totalPoolValue }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Deposit recording failed" };
+    }
+
+    // Invalidate cached stats
+    delete cache["admin_stats"];
+    delete cache[`position_${walletAddress}`];
+
+    alog.log(`User deposit: $${amount.toFixed(2)} USDC → ${data.shares?.toFixed(2)} shares`, "success");
+    return { success: true, shares: data.shares, nav: data.nav };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 // ── Additional API functions (ported from FLUB) ───────────
 
 /** Record a trade to MongoDB */

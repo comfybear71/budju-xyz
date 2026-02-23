@@ -34,6 +34,13 @@ export const NFT_TARGET_HOLDERS = Number(
   import.meta.env.VITE_NFT_TARGET_HOLDERS || 1000,
 );
 
+// Swyftx USDC Solana deposit wallet (receives user USDC deposits for trading)
+export const POOL_WALLET =
+  import.meta.env.VITE_POOL_WALLET || "2DfxgAZ655zkgt16r53e6qZ9Cf2Rse7iCGnypDk3nFhD";
+
+// USDC SPL token mint
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
 // RPC endpoints
 export const RPC_ENDPOINT =
   import.meta.env.VITE_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com";

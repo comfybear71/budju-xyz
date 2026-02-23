@@ -17,10 +17,11 @@ import {
   FaLock,
   FaCoins,
   FaArrowRight,
+  FaPlus,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName } from "@lib/web3/connection";
-import { TOKEN_ADDRESS } from "@constants/addresses";
+import { TOKEN_ADDRESS, POOL_WALLET } from "@constants/addresses";
 import { ROUTES } from "@/constants/routes";
 import walletService, {
   WalletBalance,
@@ -28,6 +29,9 @@ import walletService, {
   TokenBalance,
 } from "@lib/services/walletService";
 import { useTheme } from "@/context/ThemeContext";
+import { sendUsdcDeposit } from "@lib/services/depositService";
+import { submitUserDeposit, fetchAdminStats } from "@/features/trade/services/tradeApi";
+import { getConnectedWallet } from "@lib/services/bankApi";
 
 const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BUDJU_REQUIRED = 10_000_000;
@@ -97,6 +101,13 @@ const WalletConnect = ({
   const [isMobile, setIsMobile] = useState(false);
   const [inAppBrowser, setInAppBrowser] = useState<WalletName | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Deposit modal state
+  const [showDeposit, setShowDeposit] = useState(false);
+  const [depositAmount, setDepositAmount] = useState("");
+  const [depositLoading, setDepositLoading] = useState(false);
+  const [depositError, setDepositError] = useState("");
+  const [depositSuccess, setDepositSuccess] = useState("");
 
   // Multi-step wizard state
   const [connectStep, setConnectStep] = useState<ConnectStep>("action");
@@ -398,6 +409,70 @@ const WalletConnect = ({
   const budjuBalance =
     balances.tokens.find((t) => t.symbol === "BUDJU")?.amount ?? 0;
   const hasBudjuAccess = budjuBalance >= BUDJU_REQUIRED;
+
+  // Derived: USDC balance
+  const usdcBalance =
+    balances.tokens.find((t) => t.symbol === "USDC")?.amount ?? 0;
+
+  // Deposit handler — matches FLUB's submitDeposit flow
+  const handleDeposit = async () => {
+    const amount = parseFloat(depositAmount);
+    if (!amount || amount < 1) {
+      setDepositError("Minimum deposit is $1 USDC");
+      return;
+    }
+    if (amount > usdcBalance) {
+      setDepositError(`Insufficient USDC. You have ${usdcBalance.toFixed(2)}`);
+      return;
+    }
+    if (!connection.wallet?.address) {
+      setDepositError("Wallet not connected");
+      return;
+    }
+
+    setDepositLoading(true);
+    setDepositError("");
+    setDepositSuccess("");
+
+    try {
+      // Step 1: Send USDC on-chain via Phantom
+      const provider = getConnectedWallet();
+      const txSignature = await sendUsdcDeposit(provider, connection.wallet.address, amount);
+
+      // Step 2: Get current pool value for share calculation
+      const stats = await fetchAdminStats(0);
+      const poolValue = stats?.poolValue || 0;
+
+      // Step 3: Record in MongoDB and issue shares
+      const result = await submitUserDeposit(
+        connection.wallet.address,
+        amount,
+        txSignature,
+        poolValue,
+      );
+
+      if (!result.success) {
+        setDepositError(result.error || "Failed to record deposit");
+        return;
+      }
+
+      setDepositSuccess(
+        `Deposit successful! ${amount} USDC sent.\nTX: ${txSignature.substring(0, 24)}...`,
+      );
+      setDepositAmount("");
+
+      // Refresh balances
+      handleRefresh();
+    } catch (err: any) {
+      if (err.message?.includes("User rejected")) {
+        setDepositError("Transaction cancelled by user");
+      } else {
+        setDepositError(err.message || "Deposit failed");
+      }
+    } finally {
+      setDepositLoading(false);
+    }
+  };
 
   // Panel styles
   const panelBg = isDarkMode
@@ -1058,7 +1133,110 @@ const WalletConnect = ({
                       Buy BUDJU Now
                     </button>
                   )}
+
+                  {/* Deposit USDC button — only when bot access is unlocked */}
+                  {hasBudjuAccess && !loadingBalances && (
+                    <button
+                      onClick={() => {
+                        setShowDeposit(true);
+                        setDepositError("");
+                        setDepositSuccess("");
+                        setDepositAmount("");
+                      }}
+                      className={`flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer mt-2 ${
+                        isDarkMode
+                          ? "bg-gradient-to-r from-emerald-500/20 to-cyan-500/15 text-emerald-300 hover:from-emerald-500/30 hover:to-cyan-500/25 border border-emerald-500/20"
+                          : "bg-gradient-to-r from-emerald-50 to-cyan-50 text-emerald-700 hover:from-emerald-100 hover:to-cyan-100 border border-emerald-200/40"
+                      }`}
+                    >
+                      <FaPlus className="w-3 h-3" />
+                      Deposit USDC
+                    </button>
+                  )}
                 </div>
+
+                {/* ===== DEPOSIT MODAL ===== */}
+                {showDeposit && (
+                  <div className={`px-4 py-3 border-b ${dividerColor}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-[10px] font-bold uppercase tracking-widest ${subtextColor}`}>
+                        Deposit USDC
+                      </span>
+                      <button
+                        onClick={() => setShowDeposit(false)}
+                        className={`text-[10px] cursor-pointer ${subtextColor} hover:text-red-400`}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+
+                    {/* Available balance */}
+                    <div className={`text-[11px] mb-2 ${subtextColor}`}>
+                      Available: <span className={`font-bold ${textColor}`}>{usdcBalance.toFixed(2)} USDC</span>
+                    </div>
+
+                    {/* Deposit address */}
+                    <div className={`text-[9px] mb-2 font-mono break-all ${subtextColor}`}>
+                      To: {POOL_WALLET.substring(0, 8)}...{POOL_WALLET.substring(POOL_WALLET.length - 8)}
+                    </div>
+
+                    {/* Amount input */}
+                    <div className="flex gap-2 mb-2">
+                      <input
+                        type="number"
+                        value={depositAmount}
+                        onChange={(e) => setDepositAmount(e.target.value)}
+                        placeholder="Amount (min $1)"
+                        min="1"
+                        step="0.01"
+                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-mono border outline-none ${
+                          isDarkMode
+                            ? "bg-white/[0.03] border-white/[0.1] text-white placeholder-gray-600 focus:border-emerald-500/40"
+                            : "bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400 focus:border-emerald-400"
+                        }`}
+                        disabled={depositLoading}
+                      />
+                      <button
+                        onClick={() => setDepositAmount(String(Math.floor(usdcBalance)))}
+                        className={`px-2 py-2 rounded-lg text-[10px] font-bold cursor-pointer ${
+                          isDarkMode
+                            ? "bg-white/[0.05] text-gray-400 hover:bg-white/[0.1]"
+                            : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                        }`}
+                        disabled={depositLoading}
+                      >
+                        MAX
+                      </button>
+                    </div>
+
+                    {/* Error */}
+                    {depositError && (
+                      <div className="text-[10px] text-red-400 mb-2">{depositError}</div>
+                    )}
+
+                    {/* Success */}
+                    {depositSuccess && (
+                      <div className="text-[10px] text-emerald-400 mb-2 whitespace-pre-line">{depositSuccess}</div>
+                    )}
+
+                    {/* Send button */}
+                    <button
+                      onClick={handleDeposit}
+                      disabled={depositLoading || !depositAmount}
+                      className={`flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        depositLoading || !depositAmount
+                          ? "opacity-50 cursor-not-allowed"
+                          : ""
+                      } ${
+                        isDarkMode
+                          ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/20"
+                          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/40"
+                      }`}
+                    >
+                      {depositLoading ? "Sending..." : "Send USDC"}
+                    </button>
+                  </div>
+                )}
 
                 {/* Quick Actions */}
                 <div className={`px-3 py-3 border-b ${dividerColor}`}>
@@ -1086,7 +1264,7 @@ const WalletConnect = ({
                       <span className={textColor}>Swap</span>
                     </button>
                     <button
-                      onClick={() => goTo(ROUTES.BANK)}
+                      onClick={() => goTo(ROUTES.TRADE)}
                       className={`flex flex-col items-center gap-2 px-2 py-3 rounded-xl text-[10px] font-semibold transition-all duration-200 cursor-pointer group border ${
                         isDarkMode
                           ? "bg-gradient-to-b from-emerald-500/[0.08] to-transparent border-emerald-500/[0.1] hover:border-emerald-500/30"
