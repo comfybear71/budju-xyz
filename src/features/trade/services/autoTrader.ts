@@ -902,6 +902,36 @@ export class AutoTrader {
     }
   }
 
+  // ── Trade Amount Estimates ──────────────────────────────
+
+  /** Get cached USDC balance (from last refresh) */
+  getUsdcBalance(): number {
+    return this._cachedUsdcBalance;
+  }
+
+  /** Get estimated BUY order amount in USDC for a coin */
+  getEstimatedBuyAmount(code: string): number {
+    const settings = this.getSettings(code);
+    const usdc = this._cachedUsdcBalance;
+    const amount = (settings.allocation / 100) * usdc;
+    // Respect reserve
+    if (usdc - amount < MIN_USDC_RESERVE) {
+      return Math.max(0, usdc - MIN_USDC_RESERVE);
+    }
+    return amount;
+  }
+
+  /** Get estimated SELL order value in USD for a coin */
+  getEstimatedSellValue(code: string): number {
+    const settings = this.getSettings(code);
+    const asset = this._cachedAssets.find((a) => a.code === code);
+    const balance = asset?.balance ?? 0;
+    const price = this._cachedPrices[code] || 0;
+    const sellPercent = settings.allocation * SELL_RATIO;
+    const quantity = (sellPercent / 100) * balance;
+    return quantity * price;
+  }
+
   // ── Snapshot for UI ─────────────────────────────────────
 
   getSnapshot(): AutoTraderSnapshot {

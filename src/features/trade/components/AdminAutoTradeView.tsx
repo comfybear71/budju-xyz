@@ -461,6 +461,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
 
+                  // Calculate distance to each trigger as a percentage of current price
+                  const pctToBuy = item.currentPrice > 0 && item.buyTrigger > 0
+                    ? ((item.currentPrice - item.buyTrigger) / item.currentPrice) * 100
+                    : 100;
+                  const pctToSell = item.currentPrice > 0 && item.sellTrigger > 0
+                    ? ((item.sellTrigger - item.currentPrice) / item.currentPrice) * 100
+                    : 100;
+                  const nearestSide: "buy" | "sell" = pctToBuy <= pctToSell ? "buy" : "sell";
+                  const nearestPct = Math.max(0, nearestSide === "buy" ? pctToBuy : pctToSell);
+
                   // Calculate progress toward buy or sell trigger
                   let progress = 0;
                   if (item.hasTarget && item.currentPrice > 0) {
@@ -476,18 +486,49 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   }
                   progress = Math.max(0, Math.min(1, progress));
 
+                  // Proximity thresholds for visual emphasis
+                  const isNear = progress >= 0.65;
+                  const isHot = progress >= 0.85;
+                  const isCritical = progress >= 0.95;
+
                   let barColor = "#3b82f6";
-                  if (progress >= 0.95) barColor = "#ef4444";
-                  else if (progress >= 0.75) barColor = "#f97316";
-                  else if (progress >= 0.5) barColor = "#eab308";
+                  if (isCritical) barColor = "#ef4444";
+                  else if (isHot) barColor = "#f97316";
+                  else if (isNear) barColor = "#eab308";
+
+                  // Estimated trade amounts
+                  const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin);
+                  const estSellValue = autoTrader.getEstimatedSellValue(item.coin);
+                  const estAmount = nearestSide === "buy" ? estBuyAmount : estSellValue;
 
                   return (
                     <div
                       key={item.coin}
-                      className="rounded-lg p-2.5"
+                      className="rounded-lg p-2.5 transition-all duration-500"
                       style={{
-                        background: item.inCooldown ? "rgba(234,179,8,0.05)" : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${item.inCooldown ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.04)"}`,
+                        background: item.inCooldown
+                          ? "rgba(234,179,8,0.05)"
+                          : isCritical && item.hasTarget
+                            ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
+                            : isHot && item.hasTarget
+                              ? "rgba(249,115,22,0.06)"
+                              : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${
+                          item.inCooldown
+                            ? "rgba(234,179,8,0.2)"
+                            : isCritical && item.hasTarget
+                              ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                              : isHot && item.hasTarget
+                                ? "rgba(249,115,22,0.3)"
+                                : "rgba(255,255,255,0.04)"
+                        }`,
+                        boxShadow: isCritical && item.hasTarget && !item.inCooldown
+                          ? nearestSide === "buy"
+                            ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
+                            : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
+                          : isHot && item.hasTarget && !item.inCooldown
+                            ? "0 0 8px rgba(249,115,22,0.1)"
+                            : "none",
                       }}
                     >
                       <div className="flex items-center justify-between mb-1.5">
@@ -500,11 +541,26 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                               (cd {autoTrader.getCooldownRemaining(item.coin)})
                             </span>
                           )}
-                          {item.hasTarget && (
+                          {item.hasTarget && !item.inCooldown && isNear ? (
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}
+                              style={{
+                                background: nearestSide === "buy"
+                                  ? isCritical ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.15)"
+                                  : isCritical ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.15)",
+                                color: nearestSide === "buy" ? "#22c55e" : "#ef4444",
+                                border: `1px solid ${nearestSide === "buy" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                              }}
+                            >
+                              {isCritical ? (nearestSide === "buy" ? "BUY IMMINENT" : "SELL IMMINENT")
+                                : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
+                                : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
+                            </span>
+                          ) : item.hasTarget && !item.inCooldown ? (
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
                               LIVE
                             </span>
-                          )}
+                          ) : null}
                         </div>
                         <div className="flex items-center gap-1" style={{ color: changeColor }}>
                           {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
@@ -521,16 +577,42 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                           style={{
                             background: barColor,
                             width: `${(progress * 100).toFixed(0)}%`,
-                            opacity: 0.8,
+                            opacity: isCritical ? 1 : 0.8,
                           }}
                         />
                       </div>
 
                       <div className="flex justify-between text-[10px] font-mono">
-                        <span className="text-green-400/70">Buy &lt; {formatPrice(item.buyTrigger)}</span>
+                        <span className={pctToBuy <= pctToSell && item.hasTarget ? "text-green-400 font-bold" : "text-green-400/70"}>
+                          Buy &lt; {formatPrice(item.buyTrigger)}
+                        </span>
                         <span className="text-slate-300 font-bold">{formatPrice(item.currentPrice)}</span>
-                        <span className="text-red-400/70">Sell &gt; {formatPrice(item.sellTrigger)}</span>
+                        <span className={pctToSell < pctToBuy && item.hasTarget ? "text-red-400 font-bold" : "text-red-400/70"}>
+                          Sell &gt; {formatPrice(item.sellTrigger)}
+                        </span>
                       </div>
+
+                      {/* Proximity + estimated trade amount */}
+                      {item.hasTarget && !item.inCooldown && (
+                        <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                          <span className="text-[9px] font-mono" style={{
+                            color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
+                              : isHot ? "#f97316"
+                              : "#64748b",
+                          }}>
+                            {nearestPct.toFixed(1)}% to {nearestSide}
+                          </span>
+                          {estAmount > 0 && (
+                            <span className="text-[9px] font-mono" style={{
+                              color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
+                                : isHot ? "#f97316"
+                                : "#64748b",
+                            }}>
+                              ~{formatPrice(estAmount)} {nearestSide === "buy" ? "USDC" : "value"}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
