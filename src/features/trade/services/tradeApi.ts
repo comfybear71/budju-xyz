@@ -242,19 +242,42 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   });
 }
 
-/** Fetch raw CoinGecko data via our own proxy (avoids WebView CORS blocks) */
+/** Fetch raw CoinGecko data via our own proxy (avoids WebView CORS blocks).
+ *  Deduplicates concurrent calls and caches the raw response so both
+ *  fetchPrices() and fetchChanges() share a single API call. */
+let _cgCache: { data: Record<string, any>; time: number } | null = null;
+let _cgInflight: Promise<Record<string, any>> | null = null;
+const CG_RAW_TTL = 25_000;
+
 async function fetchCoinGeckoViaProxy(): Promise<Record<string, any>> {
-  const ids = Object.values(ASSET_CONFIG)
-    .map((a) => a.coingeckoId)
-    .filter(Boolean)
-    .join(",");
-  const res = await fetchWithRetry("/api/proxy", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: "/prices/", body: { ids } }),
-  });
-  if (!res.ok) return {};
-  return await res.json();
+  // Return cached raw data if still fresh
+  if (_cgCache && Date.now() - _cgCache.time < CG_RAW_TTL) {
+    return _cgCache.data;
+  }
+  // Deduplicate: if a request is already in-flight, piggy-back on it
+  if (_cgInflight) return _cgInflight;
+
+  _cgInflight = (async () => {
+    try {
+      const ids = Object.values(ASSET_CONFIG)
+        .map((a) => a.coingeckoId)
+        .filter(Boolean)
+        .join(",");
+      const res = await fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/prices/", body: { ids } }),
+      });
+      if (!res.ok) return _cgCache?.data || {};
+      const data = await res.json();
+      _cgCache = { data, time: Date.now() };
+      return data;
+    } finally {
+      _cgInflight = null;
+    }
+  })();
+
+  return _cgInflight;
 }
 
 /** Fetch live USD prices from CoinGecko (proxied server-side) */
@@ -281,13 +304,13 @@ export async function fetchPrices(): Promise<Record<string, number>> {
 
 /** Fetch 24h changes from CoinGecko (proxied server-side) */
 export async function fetchChanges(): Promise<Record<string, number>> {
-  return cached("changes", 60_000, async () => {
+  return cached("changes", 30_000, async () => {
     try {
       const data = await fetchCoinGeckoViaProxy();
       const changes: Record<string, number> = {};
       for (const [code, cfg] of Object.entries(ASSET_CONFIG)) {
         if (cfg.coingeckoId && data[cfg.coingeckoId]) {
-          changes[code] = data[cfg.coingeckoId].usd_24h_change || 0;
+          changes[code] = data[cfg.coingeckoId].usd_24h_change ?? 0;
         }
       }
       return changes;

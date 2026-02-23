@@ -122,7 +122,6 @@ const Trade = () => {
           : { usdc: 0, aud: 0 };
 
       setPrices(priceData);
-      setChanges(changeData);
       setUsdcBalance(cashData.usdc);
       setAudBalance(cashData.aud);
 
@@ -138,6 +137,15 @@ const Trade = () => {
       }));
 
       setAssets(merged);
+
+      // Enrich changes with Swyftx fallback so auto-trader always has data
+      const enrichedChanges = { ...changeData };
+      for (const a of merged) {
+        if (a.change24h && enrichedChanges[a.code] === undefined) {
+          enrichedChanges[a.code] = a.change24h;
+        }
+      }
+      setChanges(enrichedChanges);
 
       // Calculate pool value for MongoDB queries (crypto + cash)
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
