@@ -321,8 +321,8 @@ const HoldingsList = ({
         </div>
       </div>
 
-      {/* Holdings Cards */}
-      <div className="space-y-2">
+      {/* Holdings Cards — scrollable when list is long */}
+      <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(148,163,184,0.2) transparent" }}>
         {sorted.map((asset, index) => {
           const cfg = ASSET_CONFIG[asset.code];
           const isSelected = selectedAsset === asset.code;

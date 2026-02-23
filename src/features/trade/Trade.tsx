@@ -259,6 +259,8 @@ const Trade = () => {
       setShowTriggerView(false);
       setShowAutoAdmin(false);
       setShowDeposit(false);
+      // Scroll to top so the trade panel is visible
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
