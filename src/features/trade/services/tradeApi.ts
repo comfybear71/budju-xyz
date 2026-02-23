@@ -795,125 +795,79 @@ export async function syncSwyftxTradesToDB(
   }
 }
 
-/** Fetch and enrich pending orders from Swyftx */
+/** Re-enrich DB-stored orders with live prices */
+function enrichDbOrders(dbOrders: any[], prices: Record<string, number>): any[] {
+  return dbOrders
+    .map((o: any) => {
+      const asset = typeof o.asset === "object" ? o.asset?.code : o.asset || "";
+      const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || 0;
+      const currentPrice = prices[asset] || 0;
+      const proximity = currentPrice > 0 && trigger > 0
+        ? Math.round(Math.abs(currentPrice - trigger) / currentPrice * 10000) / 100
+        : o.proximity ?? 100;
+      return { ...o, asset, currentPrice, proximity };
+    })
+    .filter((o: any) => o.asset && o.asset !== "" && o.asset !== "0")
+    .sort((a: any, b: any) => a.proximity - b.proximity);
+}
+
+/** Fetch and enrich pending orders — tries Swyftx API first, falls back to MongoDB */
 export async function fetchEnrichedPendingOrders(
   prices: Record<string, number>,
 ): Promise<any[]> {
+  // 1. Try Swyftx /orders/open API (broken on demo, but may work on production)
   try {
-    // Fetch open orders from Swyftx (auth handled server-side)
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint: "/orders/open",
-        method: "GET",
-      }),
+      body: JSON.stringify({ endpoint: "/orders/open", method: "GET" }),
     });
 
-    if (!res.ok) {
-      console.warn(`[PendingOrders] /orders/open returned HTTP ${res.status}`);
-      return [];
-    }
-    const data = await res.json();
-    console.log(`[PendingOrders] Response keys: ${Object.keys(data || {})}, isArray: ${Array.isArray(data)}`);
-    if (data.error) {
-      console.warn(`[PendingOrders] API error: ${data.error}`);
-      return [];
-    }
-
-    const raw = Array.isArray(data) ? data : (data.orders ?? []);
-    console.log(`[PendingOrders] Extracted ${raw.length} raw orders`);
-
-    const mapped = raw
-      .map((o: any) => {
-        const ot = parseInt(o.order_type ?? o.orderType ?? 0);
-        const isBuy = ot === 1 || ot === 3 || ot === 5;
-        // Prefer enriched asset.code from proxy, fall back to secondary_asset
-        const assetCode = o.asset?.code || o.secondary_asset || "";
-        // Swyftx uses "rate" for limit price and "trigger" for stop threshold —
-        // use || (not ??) so that 0 falls through to the next field
-        const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
-        // Swyftx "quantity" is crypto token count (e.g. 603.6 ENA), NOT USDC value.
-        // "amount"/"total" is the USDC value. If both are 0 (pending), derive from qty * trigger.
-        const rawAmount = parseFloat(o.amount) || parseFloat(o.total) || 0;
-        const rawQty = parseFloat(o.quantity) || 0;
-        const amount = rawAmount || (rawQty > 0 && trigger > 0 ? rawQty * trigger : 0);
-        const currentPrice = prices[assetCode] || 0;
-        const distance = currentPrice > 0 && trigger > 0
-          ? (Math.abs(currentPrice - trigger) / currentPrice) * 100
-          : 100;
-
-        const typeMap: Record<number, string> = {
-          3: "LIMIT BUY", 4: "LIMIT SELL",
-          5: "STOP BUY", 6: "STOP SELL",
-        };
-
-        return {
-          orderId: o.orderUuid ?? o.order_uuid ?? o.id ?? "",
-          orderType: ot,
-          type: typeMap[ot] || "ORDER",
-          isBuy,
-          asset: assetCode,
-          trigger,
-          amount,
-          currentPrice,
-          proximity: Math.round(distance * 100) / 100,
-          created: o.created_time ?? "",
-        };
-      })
-      // Keep all orders that have any identifiable asset (including numeric IDs and UNKNOWN)
-      .filter((o: any) => o.asset && o.asset !== "" && o.asset !== "0");
-
-    console.log(`Pending orders: ${raw.length} raw → ${mapped.length} after filter (dropped ${raw.length - mapped.length})`);
-    if (mapped.length < raw.length) {
-      const dropped = raw.filter((_: any, i: number) => {
-        const code = _.asset?.code || _.secondary_asset || "";
-        return !code || code === "UNKNOWN";
-      });
-      for (const d of dropped) {
-        console.warn(`Dropped order: secondary_asset=${d.secondary_asset}, asset.code=${d.asset?.code}, trigger=${d.trigger}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (!data.error) {
+        const raw = Array.isArray(data) ? data : (data.orders ?? []);
+        if (raw.length > 0) {
+          const mapped = raw
+            .map((o: any) => {
+              const ot = parseInt(o.order_type ?? o.orderType ?? 0);
+              const isBuy = ot === 1 || ot === 3 || ot === 5;
+              const assetCode = o.asset?.code || o.secondary_asset || "";
+              const trigger = parseFloat(o.trigger) || parseFloat(o.rate) || parseFloat(o.triggerPrice) || parseFloat(o.trigger_price) || 0;
+              const rawAmount = parseFloat(o.amount) || parseFloat(o.total) || 0;
+              const rawQty = parseFloat(o.quantity) || 0;
+              const amount = rawAmount || (rawQty > 0 && trigger > 0 ? rawQty * trigger : 0);
+              const currentPrice = prices[assetCode] || 0;
+              const distance = currentPrice > 0 && trigger > 0
+                ? (Math.abs(currentPrice - trigger) / currentPrice) * 100 : 100;
+              const typeMap: Record<number, string> = {
+                3: "LIMIT BUY", 4: "LIMIT SELL", 5: "STOP BUY", 6: "STOP SELL",
+              };
+              return {
+                orderId: o.orderUuid ?? o.order_uuid ?? o.id ?? "",
+                orderType: ot, type: typeMap[ot] || "ORDER", isBuy,
+                asset: assetCode, trigger, amount, currentPrice,
+                proximity: Math.round(distance * 100) / 100,
+                created: o.created_time ?? "",
+              };
+            })
+            .filter((o: any) => o.asset && o.asset !== "" && o.asset !== "0");
+          if (mapped.length > 0) return mapped.sort((a: any, b: any) => a.proximity - b.proximity);
+        }
       }
     }
+  } catch { /* API unavailable — fall through to DB */ }
 
-    return mapped.sort((a: any, b: any) => a.proximity - b.proximity);
-  } catch (e: any) {
-    return [];
-  }
-}
-
-/** Temp diagnostic: return raw API response for debugging on mobile */
-export async function diagnosePendingOrders(): Promise<string> {
-  const lines: string[] = [];
-  const tryEndpoint = async (label: string, endpoint: string) => {
-    try {
-      const r = await fetchWithRetry("/api/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint, method: "GET" }),
-      });
-      const d = await r.json();
-      const arr = Array.isArray(d) ? d : (d?.orders ?? d?.data ?? []);
-      const len = Array.isArray(arr) ? arr.length : "?";
-      const err = d?.error ? String(typeof d.error === "object" ? d.error.message || JSON.stringify(d.error) : d.error).slice(0, 60) : "";
-      const sample = Array.isArray(arr) && arr.length > 0
-        ? `s${arr[0].status}t${arr[0].order_type}` : "";
-      lines.push(`${label}→${r.status}(${len})${err ? " E:" + err : ""}${sample ? " " + sample : ""}`);
-    } catch (e: any) {
-      lines.push(`${label}→ERR:${e.message.slice(0, 30)}`);
+  // 2. Swyftx API returned nothing — fall back to MongoDB-stored pending orders
+  try {
+    const state = await fetchTraderState();
+    const dbOrders = state?.enrichedOrders || [];
+    if (dbOrders.length > 0) {
+      return enrichDbOrders(dbOrders, prices);
     }
-  };
+  } catch { /* DB also unavailable */ }
 
-  // Test multiple Swyftx endpoint variations
-  await Promise.all([
-    tryEndpoint("open", "/orders/open"),
-    tryEndpoint("BTC", "/orders/3/"),       // orders for BTC (asset 3)
-    tryEndpoint("SOL", "/orders/130/"),      // orders for SOL (asset 130)
-    tryEndpoint("ETH", "/orders/5/"),        // orders for ETH (asset 5)
-    tryEndpoint("ENA", "/orders/496/"),      // orders for ENA (asset 496)
-    tryEndpoint("SUI", "/orders/438/"),      // orders for SUI (asset 438)
-    tryEndpoint("ADA", "/orders/12/"),       // orders for ADA (asset 12)
-  ]);
-  return lines.join("\n");
+  return [];
 }
 
 /** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals */

@@ -19,7 +19,6 @@ import {
   fetchTraderState,
   saveTraderState,
   fetchSwyftxOrderHistory,
-  diagnosePendingOrders,
   type PortfolioAsset,
 } from "../services/tradeApi";
 
@@ -90,10 +89,7 @@ const TriggerTradeView = ({
         fetchTraderState().catch(() => null),
       ]);
       setFilledOrders(history.slice(0, 5));
-
-      // Diagnostic: capture counts for on-screen debug (temp)
-      const diag = await diagnosePendingOrders().catch(() => "fetch-err");
-      setDebugInfo(`API:${liveOrders.length} Hist:${historyPending.length} DB:${(traderState?.enrichedOrders||[]).length} Filled:${history.length}\n${diag}`);
+      setDebugInfo(`API:${liveOrders.length} Hist:${historyPending.length} DB:${(traderState?.enrichedOrders||[]).length} Filled:${history.length}`);
 
       // Deduplicate across all sources by orderId
       const seenIds = new Set<string>();
@@ -109,31 +105,36 @@ const TriggerTradeView = ({
 
       // DB-saved pending orders (from MongoDB, visible to all devices)
       const dbPending = traderState?.enrichedOrders || [];
-      for (const o of dbPending) {
-        if (o._local) addOrder(o); // only add DB-saved local orders that aren't in API yet
-      }
+      for (const o of dbPending) addOrder(o);
 
       const filledIds = new Set(history.map((o: any) => o.swyftxId || o.orderId));
+
+      // Remove filled orders from merged list
+      const activeMerged = merged.filter((o) => !filledIds.has(o.orderId));
 
       // Clean up local orders confirmed by API or filled
       setLocalOrders((prev) => {
         const remaining = prev.filter(
           (lo) => !seenIds.has(lo.orderId) && !filledIds.has(lo.orderId)
         );
-        // If orders were cleaned up, update MongoDB too
-        if (remaining.length < prev.length && isAdmin && walletAddress) {
-          saveTraderState(walletAddress, { pendingOrders: remaining })
-            .catch(() => {});
-        }
         return remaining;
       });
+
+      // Clean up filled orders from MongoDB too
+      if (isAdmin && walletAddress && dbPending.length > 0) {
+        const dbRemaining = dbPending.filter((o: any) => !filledIds.has(o.orderId));
+        if (dbRemaining.length < dbPending.length) {
+          saveTraderState(walletAddress, { pendingOrders: dbRemaining })
+            .catch(() => {});
+        }
+      }
 
       setOrders((prevOrders) => {
         // Keep in-memory local orders not yet confirmed
         const stillLocal = (prevOrders || []).filter(
           (o: any) => o._local && !seenIds.has(o.orderId) && !filledIds.has(o.orderId)
         );
-        return [...merged, ...stillLocal];
+        return [...activeMerged, ...stillLocal];
       });
     } catch {
       // Fall back to server state on network error
