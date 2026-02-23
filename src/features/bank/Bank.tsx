@@ -16,6 +16,7 @@ import { ROUTES } from "@/constants/routes";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
 import BankTokens from "./components/BankTokens";
+import BankJLP from "./components/BankJLP";
 import BankChart from "./components/BankChart";
 import BankTransactions from "./components/BankTransactions";
 import { useTheme } from "@/context/ThemeContext";
@@ -173,6 +174,9 @@ const Bank = () => {
           </motion.div>
         </div>
       </div>
+
+      {/* ── Yield Vault (JLP) ── */}
+      <BankJLP />
 
       <div className="budju-section-divider" />
 

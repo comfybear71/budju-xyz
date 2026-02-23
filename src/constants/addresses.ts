@@ -41,6 +41,9 @@ export const POOL_WALLET =
 // USDC SPL token mint
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
+// JLP (Jupiter Liquidity Provider) token mint
+export const JLP_MINT = "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4";
+
 // RPC endpoints
 export const RPC_ENDPOINT =
   import.meta.env.VITE_RPC_ENDPOINT || "https://api.mainnet-beta.solana.com";

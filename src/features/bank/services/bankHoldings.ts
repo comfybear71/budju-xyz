@@ -121,6 +121,12 @@ const KNOWN_TOKENS: Record<
     logo: "/images/tokens/ray.svg",
     color: "bg-purple-500",
   },
+  "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4": {
+    name: "Jupiter Perps LP",
+    symbol: "JLP",
+    logo: "/images/tokens/jlp.svg",
+    color: "bg-emerald-500",
+  },
 };
 
 const SOL_METADATA = {
