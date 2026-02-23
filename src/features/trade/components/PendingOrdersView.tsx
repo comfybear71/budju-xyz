@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaSync } from "react-icons/fa";
 import { fetchTraderState, fetchEnrichedPendingOrders, ASSET_CONFIG } from "../services/tradeApi";
@@ -12,16 +12,15 @@ interface Props {
 const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const pricesRef = useRef(prices);
+  pricesRef.current = prices;
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch live orders from Swyftx — always trust the result.
-      // If Swyftx returns 0 orders, show 0 (don't fall back to stale MongoDB data).
-      const liveOrders = await fetchEnrichedPendingOrders(prices);
+      const liveOrders = await fetchEnrichedPendingOrders(pricesRef.current);
       setOrders(liveOrders);
     } catch {
-      // Only fall back to server state on network error
       try {
         const state = await fetchTraderState();
         setOrders(state?.enrichedOrders || []);
@@ -30,12 +29,15 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
       }
     }
     setLoading(false);
-  };
+  }, []);
 
+  // Load on open + auto-refresh every 30s while open
   useEffect(() => {
     if (!isOpen) return;
     loadOrders();
-  }, [isOpen]);
+    const interval = setInterval(loadOrders, 30_000);
+    return () => clearInterval(interval);
+  }, [isOpen, loadOrders]);
 
   const getAsset = (o: any): string => {
     // Handle both enriched string ("BTC") and server-state object ({ code: "BTC" })

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "motion/react";
 import {
   FaTimes,
@@ -55,6 +55,8 @@ const TriggerTradeView = ({
   const [orders, setOrders] = useState<any[]>([]);
   const [filledOrders, setFilledOrders] = useState<any[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
+  const pricesRef = useRef(prices);
+  pricesRef.current = prices;
 
   // Set default coin
   useEffect(() => {
@@ -66,18 +68,16 @@ const TriggerTradeView = ({
     }
   }, [assets, selectedCoin]);
 
-  // Load pending orders + recently filled
-  const loadOrders = async () => {
+  // Load pending orders + recently filled (uses ref so closure is always fresh)
+  const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
       const [liveOrders, history] = await Promise.all([
-        fetchEnrichedPendingOrders(prices),
+        fetchEnrichedPendingOrders(pricesRef.current),
         fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
       ]);
       // Always trust Swyftx live response — if 0 orders, show 0
-      // (don't fall back to stale MongoDB enrichedOrders)
       setOrders(liveOrders);
-      // Show last 5 recently filled orders
       setFilledOrders(history.slice(0, 5));
     } catch {
       // Only fall back to server state on network error
@@ -89,11 +89,14 @@ const TriggerTradeView = ({
       }
     }
     setLoadingOrders(false);
-  };
+  }, []);
 
+  // Load on mount + auto-refresh every 30s
   useEffect(() => {
     loadOrders();
-  }, []);
+    const interval = setInterval(loadOrders, 30_000);
+    return () => clearInterval(interval);
+  }, [loadOrders]);
 
   // Derived values
   const currentPrice = prices[selectedCoin] || 0;
@@ -146,8 +149,11 @@ const TriggerTradeView = ({
         setShowSuccess(true);
         setAmountPct(0);
         setTimeout(() => setShowSuccess(false), 2500);
-        // Refresh orders after placing
-        setTimeout(() => loadOrders(), 1500);
+        // Retry refresh at staggered intervals — Swyftx may take a moment
+        // to register the new order in /orders/open
+        for (const delay of [1500, 4000, 8000]) {
+          setTimeout(() => loadOrders(), delay);
+        }
       } else {
         setShowError(result.error || "Order failed");
         setTimeout(() => setShowError(null), 4000);
