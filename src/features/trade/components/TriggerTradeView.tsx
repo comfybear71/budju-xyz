@@ -255,14 +255,20 @@ const TriggerTradeView = ({
     }
   };
 
-  // Cancel order
+  // Cancel order — remove from UI + MongoDB even if Swyftx API fails
+  // (stale orders that no longer exist on Swyftx still need local cleanup)
   const handleCancel = async (orderUuid: string) => {
     if (!isAdmin) return;
     setCancellingId(orderUuid);
-    const result = await cancelOrder(orderUuid);
+    await cancelOrder(orderUuid).catch(() => {});
     setCancellingId(null);
-    if (result.success) {
-      setOrders((prev) => prev.filter((o) => o.orderId !== orderUuid));
+    // Always remove from UI state
+    setOrders((prev) => prev.filter((o) => (o.orderId || o.orderUuid || o.id) !== orderUuid));
+    setLocalOrders((prev) => prev.filter((o) => o.orderId !== orderUuid));
+    // Remove from MongoDB
+    if (walletAddress) {
+      const remaining = orders.filter((o) => (o.orderId || o.orderUuid || o.id) !== orderUuid);
+      saveTraderState(walletAddress, { pendingOrders: remaining, enrichedOrders: remaining }).catch(() => {});
     }
   };
 
