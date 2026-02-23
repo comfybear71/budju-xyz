@@ -884,6 +884,7 @@ export async function fetchEnrichedPendingOrders(
 /** Temp diagnostic: return raw API response for debugging on mobile */
 export async function diagnosePendingOrders(): Promise<string> {
   try {
+    // 1) Try /orders/open (original endpoint)
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -891,13 +892,23 @@ export async function diagnosePendingOrders(): Promise<string> {
     });
     const status = res.status;
     const data = await res.json();
-    const isArr = Array.isArray(data);
-    const keys = data ? Object.keys(data) : [];
-    const raw = isArr ? data : (data?.orders ?? data?.data ?? []);
-    const rawLen = Array.isArray(raw) ? raw.length : "not-array";
-    const sample = Array.isArray(raw) && raw.length > 0
-      ? JSON.stringify(raw[0]).slice(0, 120) : "empty";
-    return `HTTP${status} keys=${keys} isArr=${isArr} raw=${rawLen} sample=${sample}`;
+    const errMsg = data?.error ? JSON.stringify(data.error).slice(0, 100) : "none";
+
+    // 2) Also check /orders/?limit=50 for any non-filled statuses
+    const histRes = await fetchWithRetry("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: "/orders/?limit=50", method: "GET" }),
+    });
+    const histData = await histRes.json();
+    const histRaw = Array.isArray(histData) ? histData : (histData?.orders ?? []);
+    const statusMap: Record<string, number> = {};
+    for (const o of histRaw) {
+      const s = String(o.status ?? "?");
+      statusMap[s] = (statusMap[s] || 0) + 1;
+    }
+
+    return `/open→HTTP${status} err=${errMsg}\n/orders→${histRaw.length} statuses=${JSON.stringify(statusMap)}`;
   } catch (e: any) {
     return `Error: ${e.message}`;
   }
@@ -934,7 +945,7 @@ export async function fetchPendingFromHistory(
       fetchWithRetry("/api/proxy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: "/orders/?limit=20", method: "GET" }),
+        body: JSON.stringify({ endpoint: "/orders/?limit=50", method: "GET" }),
       }),
       fetchWithRetry("/api/proxy", {
         method: "POST",
@@ -944,7 +955,7 @@ export async function fetchPendingFromHistory(
     ]);
 
     if (!ordersRes.ok) {
-      console.warn(`[HistoryXRef] /orders/?limit=20 returned HTTP ${ordersRes.status}`);
+      console.warn(`[HistoryXRef] /orders/?limit=50 returned HTTP ${ordersRes.status}`);
       return [];
     }
     const data = await ordersRes.json();
