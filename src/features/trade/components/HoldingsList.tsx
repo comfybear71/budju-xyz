@@ -85,6 +85,73 @@ const SpinNumber = ({
   );
 };
 
+/* ── Countdown clock — resets each time prices refresh ── */
+const REFRESH_SECONDS = 30;
+
+const RefreshClock = ({ prices }: { prices: Record<string, number> }) => {
+  const [remaining, setRemaining] = useState(REFRESH_SECONDS);
+  const startRef = useRef(Date.now());
+
+  // Reset countdown whenever prices change
+  useEffect(() => {
+    startRef.current = Date.now();
+    setRemaining(REFRESH_SECONDS);
+  }, [prices]);
+
+  // Tick every second
+  useEffect(() => {
+    const id = setInterval(() => {
+      const elapsed = (Date.now() - startRef.current) / 1000;
+      const left = Math.max(0, REFRESH_SECONDS - Math.floor(elapsed));
+      setRemaining(left);
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const progress = remaining / REFRESH_SECONDS; // 1 → 0
+  const r = 7;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - progress);
+
+  return (
+    <div className="flex items-center gap-1 ml-2 opacity-60" title={`Refreshing in ${remaining}s`}>
+      <svg width="18" height="18" viewBox="0 0 18 18" className="flex-shrink-0">
+        {/* Background ring */}
+        <circle cx="9" cy="9" r={r} fill="none" stroke="rgba(148,163,184,0.15)" strokeWidth="1.5" />
+        {/* Countdown ring */}
+        <circle
+          cx="9" cy="9" r={r}
+          fill="none"
+          stroke={remaining <= 5 ? "#3b82f6" : "rgba(148,163,184,0.4)"}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          transform="rotate(-90 9 9)"
+          style={{ transition: "stroke-dashoffset 1s linear, stroke 0.3s ease" }}
+        />
+        {/* Clock hands — minute hand rotates once per cycle */}
+        <line
+          x1="9" y1="9" x2="9" y2="4.5"
+          stroke={remaining <= 5 ? "#3b82f6" : "rgba(148,163,184,0.5)"}
+          strokeWidth="1"
+          strokeLinecap="round"
+          transform={`rotate(${(1 - progress) * 360} 9 9)`}
+          style={{ transition: "transform 1s linear, stroke 0.3s ease" }}
+        />
+        {/* Centre dot */}
+        <circle cx="9" cy="9" r="1" fill={remaining <= 5 ? "#3b82f6" : "rgba(148,163,184,0.4)"} style={{ transition: "fill 0.3s ease" }} />
+      </svg>
+      <span
+        className="text-[9px] font-mono font-bold tabular-nums"
+        style={{ color: remaining <= 5 ? "#3b82f6" : "rgba(148,163,184,0.5)", transition: "color 0.3s ease", minWidth: "14px" }}
+      >
+        {remaining}s
+      </span>
+    </div>
+  );
+};
+
 const HoldingsList = ({
   assets,
   prices,
@@ -195,12 +262,15 @@ const HoldingsList = ({
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-bold text-slate-300">
-          Holdings
-          <span className="text-slate-600 font-normal ml-1.5">
-            ({assets.length})
-          </span>
-        </h3>
+        <div className="flex items-center">
+          <h3 className="text-sm font-bold text-slate-300">
+            Holdings
+            <span className="text-slate-600 font-normal ml-1.5">
+              ({assets.length})
+            </span>
+          </h3>
+          <RefreshClock prices={prices} />
+        </div>
         <div className="relative">
           <button
             onClick={() => setShowSortMenu(!showSortMenu)}
