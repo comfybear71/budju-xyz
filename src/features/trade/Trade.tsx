@@ -496,9 +496,11 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Pool Stats Grid - hidden when any trade view is open */}
+                {/* Pool Stats Grid - admin only, hidden when any trade view is open */}
                 {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk) && isAdmin) && poolStats && (
                   <>
+                    {isAdmin && (
+                    <>
                     <div className="grid grid-cols-3 gap-2 mb-2">
                       {([
                         { label: "USERS", value: poolStats.userCount, icon: HiOutlineUsers, color: "text-blue-400" },
@@ -561,8 +563,10 @@ const Trade = () => {
                         {formatUsd(totalPoolValue)}
                       </span>
                     </div>
+                    </>
+                    )}
 
-                    {/* User Position — merged into same card for connected non-admin */}
+                    {/* User Position — visible for connected non-admin users */}
                     {isConnected && !isAdmin && userPosition && (
                       <>
                         <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
