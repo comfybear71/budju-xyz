@@ -241,7 +241,17 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
 
-                            // Calculate proximity to trigger (same logic as admin view)
+                            // Calculate distance to each trigger
+                            const pctToBuy = item.currentPrice > 0 && item.buyTrigger > 0
+                              ? ((item.currentPrice - item.buyTrigger) / item.currentPrice) * 100
+                              : 100;
+                            const pctToSell = item.currentPrice > 0 && item.sellTrigger > 0
+                              ? ((item.sellTrigger - item.currentPrice) / item.currentPrice) * 100
+                              : 100;
+                            const nearestSide: "buy" | "sell" = pctToBuy <= pctToSell ? "buy" : "sell";
+                            const nearestPct = Math.max(0, nearestSide === "buy" ? pctToBuy : pctToSell);
+
+                            // Calculate proximity to trigger
                             let progress = 0;
                             if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
                               const mid = (item.buyTrigger + item.sellTrigger) / 2;
@@ -253,32 +263,73 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                               }
                             }
                             progress = Math.max(0, Math.min(1, progress));
+
+                            const isNear = progress >= 0.65;
+                            const isHot = progress >= 0.85;
+                            const isCritical = progress >= 0.95;
+
                             let barColor = "#3b82f6";
-                            if (progress >= 0.95) barColor = "#ef4444";
-                            else if (progress >= 0.75) barColor = "#f97316";
-                            else if (progress >= 0.5) barColor = "#eab308";
+                            if (isCritical) barColor = "#ef4444";
+                            else if (isHot) barColor = "#f97316";
+                            else if (isNear) barColor = "#eab308";
 
                             return (
                               <div
                                 key={item.coin}
-                                className="rounded-lg p-2.5"
+                                className="rounded-lg p-2.5 transition-all duration-500"
                                 style={{
-                                  background: item.inCooldown ? "rgba(234,179,8,0.05)" : "rgba(255,255,255,0.02)",
-                                  border: `1px solid ${item.inCooldown ? "rgba(234,179,8,0.2)" : "rgba(255,255,255,0.04)"}`,
+                                  background: item.inCooldown
+                                    ? "rgba(234,179,8,0.05)"
+                                    : isCritical && item.hasLiveTarget
+                                      ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
+                                      : isHot && item.hasLiveTarget
+                                        ? "rgba(249,115,22,0.06)"
+                                        : "rgba(255,255,255,0.02)",
+                                  border: `1px solid ${
+                                    item.inCooldown
+                                      ? "rgba(234,179,8,0.2)"
+                                      : isCritical && item.hasLiveTarget
+                                        ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                                        : isHot && item.hasLiveTarget
+                                          ? "rgba(249,115,22,0.3)"
+                                          : "rgba(255,255,255,0.04)"
+                                  }`,
+                                  boxShadow: isCritical && item.hasLiveTarget && !item.inCooldown
+                                    ? nearestSide === "buy"
+                                      ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
+                                      : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
+                                    : isHot && item.hasLiveTarget && !item.inCooldown
+                                      ? "0 0 8px rgba(249,115,22,0.1)"
+                                      : "none",
                                 }}
                               >
-                                {/* Coin name + tier badge + change */}
+                                {/* Coin name + status badge + change */}
                                 <div className="flex items-center justify-between mb-1.5">
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs font-bold" style={{ color: cfg.color }}>
                                       {item.coin}
                                     </span>
                                     {item.inCooldown && <span className="text-[9px] text-yellow-500">(cooldown)</span>}
-                                    {item.hasLiveTarget && (
+                                    {item.hasLiveTarget && !item.inCooldown && isNear ? (
+                                      <span
+                                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}
+                                        style={{
+                                          background: nearestSide === "buy"
+                                            ? isCritical ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.15)"
+                                            : isCritical ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.15)",
+                                          color: nearestSide === "buy" ? "#22c55e" : "#ef4444",
+                                          border: `1px solid ${nearestSide === "buy" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                                        }}
+                                      >
+                                        {isCritical ? (nearestSide === "buy" ? "BUY IMMINENT" : "SELL IMMINENT")
+                                          : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
+                                          : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
+                                      </span>
+                                    ) : item.hasLiveTarget && !item.inCooldown ? (
                                       <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
                                         LIVE
                                       </span>
-                                    )}
+                                    ) : null}
                                     <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.15)", color: "#a855f7" }}>
                                       {tierKey.replace("tier", "T")}
                                     </span>
@@ -298,17 +349,34 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                     style={{
                                       background: barColor,
                                       width: `${(progress * 100).toFixed(0)}%`,
-                                      opacity: 0.8,
+                                      opacity: isCritical ? 1 : 0.8,
                                     }}
                                   />
                                 </div>
 
                                 {/* Buy / Current / Sell row */}
                                 <div className="flex justify-between text-[10px] font-mono">
-                                  <span className="text-green-400/70">Buy &lt; {formatPrice(item.buyTrigger)}</span>
+                                  <span className={pctToBuy <= pctToSell && item.hasLiveTarget ? "text-green-400 font-bold" : "text-green-400/70"}>
+                                    Buy &lt; {formatPrice(item.buyTrigger)}
+                                  </span>
                                   <span className="text-slate-300 font-bold">{formatPrice(item.currentPrice)}</span>
-                                  <span className="text-red-400/70">Sell &gt; {formatPrice(item.sellTrigger)}</span>
+                                  <span className={pctToSell < pctToBuy && item.hasLiveTarget ? "text-red-400 font-bold" : "text-red-400/70"}>
+                                    Sell &gt; {formatPrice(item.sellTrigger)}
+                                  </span>
                                 </div>
+
+                                {/* Proximity percentage */}
+                                {item.hasLiveTarget && !item.inCooldown && (
+                                  <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                    <span className="text-[9px] font-mono" style={{
+                                      color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
+                                        : isHot ? "#f97316"
+                                        : "#64748b",
+                                    }}>
+                                      {nearestPct.toFixed(1)}% to {nearestSide}
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             );
                           })}
