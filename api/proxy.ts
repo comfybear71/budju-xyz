@@ -2,10 +2,62 @@
 // Swyftx API Proxy (Vercel Serverless Function)
 // ==========================================
 // Proxies requests to Swyftx exchange API.
-// Keeps the SWYFTX_API_KEY server-side.
-// PIN-protects trading endpoints.
+// Keeps the SWYFTX_API_KEY and access tokens server-side.
+// Only allows specific, allowlisted Swyftx endpoints.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+
+const BASE_URL = "https://api.swyftx.com.au";
+
+// ── Server-side Swyftx token cache ──────────────────────────
+// Reused across warm Vercel function instances. On cold start,
+// a fresh token is obtained automatically.
+let _cachedToken: string | null = null;
+let _tokenExpiry = 0;
+const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes
+
+async function getServerToken(apiKey: string): Promise<string> {
+  if (_cachedToken && Date.now() < _tokenExpiry) return _cachedToken;
+
+  const authRes = await fetch(BASE_URL + "/auth/refresh/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "SwyftxTrader/1.0",
+    },
+    body: JSON.stringify({ apiKey }),
+  });
+
+  const data = await authRes.json();
+  if (!authRes.ok || !data.accessToken) {
+    throw new Error("Swyftx auth failed");
+  }
+
+  _cachedToken = data.accessToken;
+  _tokenExpiry = Date.now() + TOKEN_TTL_MS;
+  return _cachedToken;
+}
+
+function authHeaders(token: string) {
+  return {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "User-Agent": "SwyftxTrader/1.0",
+  };
+}
+
+// ── Endpoint allowlist ──────────────────────────────────────
+// Only these patterns can be forwarded to Swyftx via the
+// generic handler. All other requests are rejected.
+const ALLOWED_PATTERNS: RegExp[] = [
+  /^\/orders\/\?limit=\d+$/,               // Order history (GET)
+  /^\/markets\/assets\/?$/,                 // Asset list (GET)
+  /^\/orders\/[a-f0-9-]{20,50}\/?$/,       // Cancel specific order by UUID (DELETE)
+];
+
+function isAllowedEndpoint(endpoint: string): boolean {
+  return ALLOWED_PATTERNS.some((p) => p.test(endpoint));
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
@@ -24,43 +76,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { endpoint, method, body, authToken, pin } = req.body;
-    const baseURL = "https://api.swyftx.com.au";
+    const { endpoint, method, body } = req.body;
 
     console.log("Proxy request:", method, endpoint);
 
-    // PORTFOLIO ENDPOINT — auth + balance + asset info in one call
+    // ── PORTFOLIO — auth + balance + asset info in one call ──
     if (endpoint === "/portfolio/") {
-      const authRes = await fetch(baseURL + "/auth/refresh/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "SwyftxTrader/1.0",
-        },
-        body: JSON.stringify({ apiKey }),
-      });
-
-      const authData = await authRes.json();
-      if (!authRes.ok || !authData.accessToken) {
-        return res.status(authRes.status).json({ error: "Auth failed" });
-      }
-
-      const authHeaders = {
-        Authorization: `Bearer ${authData.accessToken}`,
-        "Content-Type": "application/json",
-        "User-Agent": "SwyftxTrader/1.0",
-      };
+      const token = await getServerToken(apiKey);
+      const headers = authHeaders(token);
 
       // Fetch balances and asset list in parallel
       const [portfolioRes, assetsRes] = await Promise.all([
-        fetch(baseURL + "/user/balance/", {
-          method: "GET",
-          headers: authHeaders,
-        }),
-        fetch(baseURL + "/markets/assets/", {
-          method: "GET",
-          headers: authHeaders,
-        }),
+        fetch(BASE_URL + "/user/balance/", { method: "GET", headers }),
+        fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
       ]);
 
       const portfolioData = await portfolioRes.json();
@@ -90,7 +118,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ assets });
     }
 
-    // PRICES ENDPOINT — proxy CoinGecko server-side to avoid WebView CORS issues
+    // ── PRICES — proxy CoinGecko server-side to avoid CORS ──
     if (endpoint === "/prices/") {
       const { ids } = body || {};
       if (!ids) return res.status(400).json({ error: "ids required" });
@@ -101,43 +129,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(data);
     }
 
-    // Auth endpoint — use stored API key
-    if (endpoint === "/auth/refresh/") {
-      const authRes = await fetch(baseURL + "/auth/refresh/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "SwyftxTrader/1.0",
-        },
-        body: JSON.stringify({ apiKey }),
-      });
-
-      const data = await authRes.json();
-      console.log("Auth response status:", authRes.status);
-
-      if (!authRes.ok) {
-        return res.status(authRes.status).json(data);
-      }
-      return res.status(200).json(data);
-    }
-
-    // Other endpoints — require JWT from client
-    if (!authToken) {
-      return res.status(401).json({ error: "No authToken provided" });
-    }
-
-    // OPEN ORDERS ENDPOINT — enrich with asset codes (Swyftx returns numeric IDs)
+    // ── OPEN ORDERS — enrich with asset codes ──
     if (endpoint === "/orders/open" || endpoint === "/orders/open/") {
-      const authHeaders = {
-        Authorization: `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-        "User-Agent": "SwyftxTrader/1.0",
-      };
+      const token = await getServerToken(apiKey);
+      const headers = authHeaders(token);
 
-      // Fetch open orders and asset list in parallel
       const [ordersRes, assetsRes] = await Promise.all([
-        fetch(baseURL + "/orders/open/", { method: "GET", headers: authHeaders }),
-        fetch(baseURL + "/markets/assets/", { method: "GET", headers: authHeaders }),
+        fetch(BASE_URL + "/orders/open/", { method: "GET", headers }),
+        fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
       ]);
 
       if (!ordersRes.ok) {
@@ -148,7 +147,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const ordersData = await ordersRes.json();
       const assetsData = await assetsRes.json();
 
-      // Build lookup: assetId → { code, name }
       const assetMap: Record<string, { code: string; name: string }> = {};
       if (Array.isArray(assetsData)) {
         for (const a of assetsData) {
@@ -156,12 +154,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       }
 
-      // Enrich orders with string asset codes
       const raw = Array.isArray(ordersData) ? ordersData : (ordersData as any).orders ?? [];
-      console.log(`Open orders: ${raw.length} raw orders from Swyftx`);
-      for (const o of raw) {
-        console.log(`  Order: secondary_asset=${o.secondary_asset}, trigger=${o.trigger}, rate=${o.rate}, order_type=${o.order_type}, quantity=${o.quantity}, amount=${o.amount}`);
-      }
       const enriched = raw.map((o: any) => {
         const primaryId = String(o.primary_asset ?? o.primaryAsset ?? "");
         const secondaryId = String(o.secondary_asset ?? o.secondaryAsset ?? "");
@@ -180,20 +173,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ orders: enriched });
     }
 
-    // ORDER PLACEMENT — resolve asset codes to numeric Swyftx IDs
-    // Swyftx expects numeric asset IDs (e.g. 36 for USDC, 3 for BTC),
-    // but the client sends string codes (e.g. "USDC", "XRP").
+    // ── ORDER PLACEMENT — resolve asset codes to numeric IDs ──
     if (endpoint === "/orders/" && method === "POST" && body) {
-      const authHeaders = {
-        Authorization: `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-        "User-Agent": "SwyftxTrader/1.0",
-      };
+      const token = await getServerToken(apiKey);
+      const headers = authHeaders(token);
 
       // Fetch asset list to build code → ID map
-      const assetsRes = await fetch(baseURL + "/markets/assets/", {
+      const assetsRes = await fetch(BASE_URL + "/markets/assets/", {
         method: "GET",
-        headers: authHeaders,
+        headers,
       });
       const assetsData = await assetsRes.json();
 
@@ -238,9 +226,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       console.log("Order placement payload:", JSON.stringify(resolvedBody));
 
-      const orderRes = await fetch(baseURL + "/orders/", {
+      const orderRes = await fetch(BASE_URL + "/orders/", {
         method: "POST",
-        headers: authHeaders,
+        headers,
         body: JSON.stringify(resolvedBody),
       });
 
@@ -249,16 +237,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(orderRes.status).json(orderData);
     }
 
-    // Trading endpoints — admin-wallet-only (PIN removed, admin gate is client-side)
+    // ── ALLOWLISTED ENDPOINTS — generic forwarder ──
+    // Only endpoints matching the strict allowlist can pass through.
+    if (!isAllowedEndpoint(endpoint)) {
+      console.warn("Blocked endpoint:", endpoint);
+      return res.status(403).json({ error: "Endpoint not allowed" });
+    }
 
-    const url = baseURL + endpoint;
+    const token = await getServerToken(apiKey);
+    const url = BASE_URL + endpoint;
     const fetchOptions: RequestInit = {
       method: method || "GET",
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-        "User-Agent": "SwyftxTrader/1.0",
-      },
+      headers: authHeaders(token),
     };
 
     if (body && ["POST", "PUT", "PATCH"].includes(method)) {

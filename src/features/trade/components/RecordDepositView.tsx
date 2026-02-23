@@ -42,7 +42,7 @@ const RecordDepositView = ({
     setResult(null);
 
     const originalAmount = rawAmount;
-    const res = await recordDeposit(adminWallet, amountUsd, totalPoolValue, currency);
+    const res = await recordDeposit(adminWallet, adminWallet, amountUsd, totalPoolValue, currency);
 
     if (res.success) {
       const amountLabel = currency === "AUD"

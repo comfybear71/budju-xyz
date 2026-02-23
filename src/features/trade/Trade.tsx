@@ -27,6 +27,7 @@ import {
   fetchAdminStats,
   fetchUserPosition,
   fetchTraderState,
+  registerWallet,
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
@@ -38,18 +39,12 @@ import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
 import ActivityLog from "./components/ActivityLog";
 
-// Admin wallets
-const ADMIN_WALLETS = [
-  "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq",
-  "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc",
-  "DWUjFtJQtVDu2yPUoQaf3Lhy1SPt6vor5q1i4fqH13Po",
-];
-
 const Trade = () => {
   const { connection } = useWallet();
   const walletAddress = connection.wallet?.address || "";
   const isConnected = connection.connected && !!walletAddress;
-  const isAdmin = isConnected && ADMIN_WALLETS.includes(walletAddress);
+  const [userRole, setUserRole] = useState<"admin" | "user" | null>(null);
+  const isAdmin = isConnected && userRole === "admin";
 
   // Data state
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
@@ -85,6 +80,17 @@ const Trade = () => {
   const autoTraderRef = useRef(getAutoTrader());
   const autoTrader = autoTraderRef.current;
   const activityLog = getActivityLog();
+
+  // Fetch user role from server when wallet connects
+  useEffect(() => {
+    if (!isConnected || !walletAddress) {
+      setUserRole(null);
+      return;
+    }
+    registerWallet(walletAddress).then((data) => {
+      if (data?.role) setUserRole(data.role);
+    });
+  }, [isConnected, walletAddress]);
 
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
@@ -704,7 +710,7 @@ const Trade = () => {
       <TransactionHistory
         isOpen={showTransactions}
         onClose={() => { setShowTransactions(false); setActiveNav("home"); }}
-        walletAddress={isConnected ? walletAddress : ADMIN_WALLETS[0]}
+        walletAddress={walletAddress}
       />
       <PendingOrdersView
         isOpen={showPendingOrders}

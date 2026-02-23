@@ -147,28 +147,8 @@ export function hasPin(): boolean {
 }
 
 // ── JWT token management ───────────────────────────────────
-
-let _jwtToken: string | null = null;
-let _jwtExpiry = 0;
-const TOKEN_TTL_MS = 50 * 60 * 1000;
-
-async function ensureToken(): Promise<string> {
-  if (_jwtToken && Date.now() < _jwtExpiry) return _jwtToken;
-
-  const res = await fetchWithRetry("/api/proxy", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint: "/auth/refresh/", method: "POST" }),
-  });
-
-  if (!res.ok) throw new Error(`Auth failed: HTTP ${res.status}`);
-  const data = await res.json();
-  if (!data.accessToken) throw new Error("No access token in response");
-
-  _jwtToken = data.accessToken;
-  _jwtExpiry = Date.now() + TOKEN_TTL_MS;
-  return _jwtToken;
-}
+// Tokens are now managed server-side by the proxy. The client
+// no longer needs to fetch or send Swyftx access tokens.
 
 // ── API helpers ────────────────────────────────────────────
 
@@ -455,8 +435,6 @@ export async function placeTrade(order: {
       return { success: false, error: `Minimum order is $${minAmount} USDC` };
     }
 
-    const token = await ensureToken();
-
     // Determine the numeric Swyftx order type
     let swyftxOrderType: number;
 
@@ -501,7 +479,6 @@ export async function placeTrade(order: {
         endpoint: "/orders/",
         method: "POST",
         body: swyftxPayload,
-        authToken: token,
       }),
     });
 
@@ -630,6 +607,7 @@ export function clearCache() {
 
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
+  adminWallet: string,
   walletAddress: string,
   amountUsd: number,
   totalPoolValue: number,
@@ -641,6 +619,7 @@ export async function recordDeposit(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        adminWallet,
         walletAddress,
         amount: amountUsd,
         txHash,
@@ -699,9 +678,8 @@ export async function fetchSwyftxOrderHistory(
   limit = 100,
 ): Promise<any[]> {
   try {
-    const token = await ensureToken();
-
     // Fetch orders and asset list in parallel so we can resolve numeric IDs → codes
+    // Auth is handled server-side by the proxy
     const [ordersRes, assetsRes] = await Promise.all([
       fetchWithRetry("/api/proxy", {
         method: "POST",
@@ -709,7 +687,6 @@ export async function fetchSwyftxOrderHistory(
         body: JSON.stringify({
           endpoint: `/orders/?limit=${limit}`,
           method: "GET",
-          authToken: token,
         }),
       }),
       fetchWithRetry("/api/proxy", {
@@ -718,7 +695,6 @@ export async function fetchSwyftxOrderHistory(
         body: JSON.stringify({
           endpoint: "/markets/assets/",
           method: "GET",
-          authToken: token,
         }),
       }),
     ]);
@@ -787,16 +763,13 @@ export async function fetchEnrichedPendingOrders(
   prices: Record<string, number>,
 ): Promise<any[]> {
   try {
-    const token = await ensureToken();
-
-    // Fetch open orders from Swyftx
+    // Fetch open orders from Swyftx (auth handled server-side)
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         endpoint: "/orders/open",
         method: "GET",
-        authToken: token,
       }),
     });
 
@@ -868,15 +841,13 @@ export async function cancelOrder(
   orderUuid: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const token = await ensureToken();
-
+    // Auth handled server-side by the proxy
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         endpoint: `/orders/${orderUuid}/`,
         method: "DELETE",
-        authToken: token,
       }),
     });
 

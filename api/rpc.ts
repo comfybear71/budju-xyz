@@ -21,6 +21,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ? `https://mainnet.helius-rpc.com/?api-key=${heliusKey}`
     : "https://api.mainnet-beta.solana.com";
 
+  // Only allow safe read-only RPC methods
+  const ALLOWED_RPC_METHODS = new Set([
+    "getAccountInfo",
+    "getBalance",
+    "getBlock",
+    "getBlockHeight",
+    "getBlockTime",
+    "getConfirmedTransaction",
+    "getEpochInfo",
+    "getGenesisHash",
+    "getLatestBlockhash",
+    "getMinimumBalanceForRentExemption",
+    "getMultipleAccounts",
+    "getProgramAccounts",
+    "getRecentBlockhash",
+    "getSignaturesForAddress",
+    "getSlot",
+    "getTokenAccountBalance",
+    "getTokenAccountsByOwner",
+    "getTransaction",
+    "getVersion",
+  ]);
+
+  const rpcMethod = req.body?.method;
+  if (!rpcMethod || !ALLOWED_RPC_METHODS.has(rpcMethod)) {
+    console.warn("Blocked RPC method:", rpcMethod);
+    return res.status(403).json({ error: `RPC method not allowed: ${rpcMethod}` });
+  }
+
   try {
     const response = await fetch(rpcUrl, {
       method: "POST",

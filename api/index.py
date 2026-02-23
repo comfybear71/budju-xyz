@@ -164,6 +164,12 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, user_data)
 
             elif path == '/api/deposit':
+                # Deposits can only be recorded by admins
+                admin_wallet = body.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
                 wallet_address = body.get('walletAddress')
                 amount = body.get('amount')
                 tx_hash = body.get('txHash')
@@ -212,6 +218,12 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/user/sync':
+                # Share sync can only be performed by admins
+                admin_wallet = body.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
                 wallet_address = body.get('walletAddress')
                 deposits = body.get('deposits', [])
                 pool_value = body.get('totalPoolValue', 0)
