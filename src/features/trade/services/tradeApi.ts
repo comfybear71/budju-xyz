@@ -187,7 +187,19 @@ function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T>
   });
 }
 
-export const AUD_TO_USD = 0.70;
+// Live AUD→USD rate derived from CoinGecko prices (updated each fetch cycle).
+// Falls back to 0.708 if CoinGecko hasn't returned AUD data yet.
+export let AUD_TO_USD = 0.708;
+
+/** Update AUD_TO_USD from CoinGecko data that now includes both USD and AUD prices */
+function updateAudToUsd(data: Record<string, any>) {
+  // Use BTC as the reference (most liquid) to derive AUD→USD rate:
+  // If BTC = $67,000 USD and BTC = A$94,648, then 1 AUD = 67000/94648 = 0.708 USD
+  const ref = data.bitcoin || data.ethereum;
+  if (ref && ref.usd > 0 && ref.aud > 0) {
+    AUD_TO_USD = ref.usd / ref.aud;
+  }
+}
 
 // ── Public API ─────────────────────────────────────────────
 
@@ -271,6 +283,8 @@ async function fetchCoinGeckoViaProxy(): Promise<Record<string, any>> {
       if (!res.ok) return _cgCache?.data || {};
       const data = await res.json();
       _cgCache = { data, time: Date.now() };
+      // Derive live AUD→USD rate from the CoinGecko response
+      updateAudToUsd(data);
       return data;
     } finally {
       _cgInflight = null;

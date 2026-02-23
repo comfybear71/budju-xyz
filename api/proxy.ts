@@ -122,8 +122,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (endpoint === "/prices/") {
       const { ids } = body || {};
       if (!ids) return res.status(400).json({ error: "ids required" });
+      // Fetch both USD and AUD prices to derive a live AUD→USD exchange rate
       const cgRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`,
+        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,aud&include_24hr_change=true`,
       );
       const data = await cgRes.json();
       return res.status(200).json(data);
