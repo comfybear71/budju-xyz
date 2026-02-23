@@ -74,15 +74,13 @@ const TriggerTradeView = ({
         fetchEnrichedPendingOrders(prices),
         fetchSwyftxOrderHistory(10).catch(() => [] as any[]),
       ]);
-      if (liveOrders.length > 0) {
-        setOrders(liveOrders);
-      } else {
-        const state = await fetchTraderState();
-        setOrders(state?.enrichedOrders || []);
-      }
+      // Always trust Swyftx live response — if 0 orders, show 0
+      // (don't fall back to stale MongoDB enrichedOrders)
+      setOrders(liveOrders);
       // Show last 5 recently filled orders
       setFilledOrders(history.slice(0, 5));
     } catch {
+      // Only fall back to server state on network error
       try {
         const state = await fetchTraderState();
         setOrders(state?.enrichedOrders || []);

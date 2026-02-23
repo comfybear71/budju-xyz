@@ -27,6 +27,7 @@ import {
   fetchAdminStats,
   fetchUserPosition,
   fetchTraderState,
+  fetchEnrichedPendingOrders,
   registerWallet,
   clearCache,
   AUD_TO_USD,
@@ -55,6 +56,7 @@ const Trade = () => {
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
+  const [pendingOrderCount, setPendingOrderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<
     "connected" | "connecting" | "error"
@@ -156,9 +158,17 @@ const Trade = () => {
         setPoolStats(stats);
       }
 
-      // Fetch trader state for insight cards (pending count, bot status)
+      // Fetch trader state for insight cards (bot status, tier config)
       const ts = await fetchTraderState();
       setTraderState(ts);
+
+      // Fetch live pending order count from Swyftx (not stale MongoDB data)
+      try {
+        const liveOrders = await fetchEnrichedPendingOrders(priceData);
+        setPendingOrderCount(liveOrders.length);
+      } catch {
+        setPendingOrderCount(0);
+      }
 
       // Fetch user position if connected (non-admin)
       if (isConnected && !isAdmin && poolVal > 0) {
@@ -431,8 +441,8 @@ const Trade = () => {
                       <div className="text-left">
                         <div className="text-[11px] font-bold text-slate-300">Orders</div>
                         <div className="text-[10px] font-bold text-purple-400">
-                          {traderState?.enrichedOrders?.length
-                            ? `${traderState.enrichedOrders.length} pending`
+                          {pendingOrderCount > 0
+                            ? `${pendingOrderCount} pending`
                             : "None"}
                         </div>
                       </div>

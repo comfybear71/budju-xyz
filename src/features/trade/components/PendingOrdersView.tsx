@@ -16,19 +16,18 @@ const PendingOrdersView = ({ isOpen, onClose, prices }: Props) => {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      // Try live Swyftx orders first (enriched with current prices)
+      // Fetch live orders from Swyftx — always trust the result.
+      // If Swyftx returns 0 orders, show 0 (don't fall back to stale MongoDB data).
       const liveOrders = await fetchEnrichedPendingOrders(prices);
-      if (liveOrders.length > 0) {
-        setOrders(liveOrders);
-      } else {
-        // Fall back to cached enrichedOrders from server state
+      setOrders(liveOrders);
+    } catch {
+      // Only fall back to server state on network error
+      try {
         const state = await fetchTraderState();
         setOrders(state?.enrichedOrders || []);
+      } catch {
+        setOrders([]);
       }
-    } catch {
-      // Fall back to server state on error
-      const state = await fetchTraderState();
-      setOrders(state?.enrichedOrders || []);
     }
     setLoading(false);
   };
