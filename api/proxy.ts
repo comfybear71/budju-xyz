@@ -51,6 +51,7 @@ function authHeaders(token: string) {
 // generic handler. All other requests are rejected.
 const ALLOWED_PATTERNS: RegExp[] = [
   /^\/orders\/\?limit=\d+$/,               // Order history (GET)
+  /^\/orders\/\d+\/?$/,                     // Orders for asset ID (GET) e.g. /orders/36/
   /^\/markets\/assets\/?$/,                 // Asset list (GET)
   /^\/orders\/[a-zA-Z0-9_-]{10,60}\/?$/,   // Specific order by UUID or ord_ ID (GET/DELETE)
 ];

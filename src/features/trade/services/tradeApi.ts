@@ -883,35 +883,37 @@ export async function fetchEnrichedPendingOrders(
 
 /** Temp diagnostic: return raw API response for debugging on mobile */
 export async function diagnosePendingOrders(): Promise<string> {
-  try {
-    // 1) Try /orders/open (original endpoint)
-    const res = await fetchWithRetry("/api/proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: "/orders/open", method: "GET" }),
-    });
-    const status = res.status;
-    const data = await res.json();
-    const errMsg = data?.error ? JSON.stringify(data.error).slice(0, 100) : "none";
-
-    // 2) Also check /orders/?limit=50 for any non-filled statuses
-    const histRes = await fetchWithRetry("/api/proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: "/orders/?limit=50", method: "GET" }),
-    });
-    const histData = await histRes.json();
-    const histRaw = Array.isArray(histData) ? histData : (histData?.orders ?? []);
-    const statusMap: Record<string, number> = {};
-    for (const o of histRaw) {
-      const s = String(o.status ?? "?");
-      statusMap[s] = (statusMap[s] || 0) + 1;
+  const lines: string[] = [];
+  const tryEndpoint = async (label: string, endpoint: string) => {
+    try {
+      const r = await fetchWithRetry("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint, method: "GET" }),
+      });
+      const d = await r.json();
+      const arr = Array.isArray(d) ? d : (d?.orders ?? d?.data ?? []);
+      const len = Array.isArray(arr) ? arr.length : "?";
+      const err = d?.error ? String(typeof d.error === "object" ? d.error.message || JSON.stringify(d.error) : d.error).slice(0, 60) : "";
+      const sample = Array.isArray(arr) && arr.length > 0
+        ? `s${arr[0].status}t${arr[0].order_type}` : "";
+      lines.push(`${label}→${r.status}(${len})${err ? " E:" + err : ""}${sample ? " " + sample : ""}`);
+    } catch (e: any) {
+      lines.push(`${label}→ERR:${e.message.slice(0, 30)}`);
     }
+  };
 
-    return `/open→HTTP${status} err=${errMsg}\n/orders→${histRaw.length} statuses=${JSON.stringify(statusMap)}`;
-  } catch (e: any) {
-    return `Error: ${e.message}`;
-  }
+  // Test multiple Swyftx endpoint variations
+  await Promise.all([
+    tryEndpoint("open", "/orders/open"),
+    tryEndpoint("BTC", "/orders/3/"),       // orders for BTC (asset 3)
+    tryEndpoint("SOL", "/orders/130/"),      // orders for SOL (asset 130)
+    tryEndpoint("ETH", "/orders/5/"),        // orders for ETH (asset 5)
+    tryEndpoint("ENA", "/orders/496/"),      // orders for ENA (asset 496)
+    tryEndpoint("SUI", "/orders/438/"),      // orders for SUI (asset 438)
+    tryEndpoint("ADA", "/orders/12/"),       // orders for ADA (asset 12)
+  ]);
+  return lines.join("\n");
 }
 
 /** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals */
