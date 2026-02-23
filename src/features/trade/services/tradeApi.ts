@@ -601,7 +601,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
       );
 
       return {
-        enrichedOrders: data.enrichedOrders || data.pendingOrders || [],
+        enrichedOrders: data.pendingOrders || data.enrichedOrders || [],
         autoTierAssets: tierAssets,
         autoTierAssignments: assignments,
         autoBotActive: !!botActive,

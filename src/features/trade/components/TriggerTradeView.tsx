@@ -95,7 +95,7 @@ const TriggerTradeView = ({
       const seenIds = new Set<string>();
       const merged: any[] = [];
       const addOrder = (o: any) => {
-        const id = o.orderId;
+        const id = o.orderId || o.orderUuid || o.id;
         if (id && !seenIds.has(id)) { seenIds.add(id); merged.push(o); }
       };
 
@@ -124,7 +124,7 @@ const TriggerTradeView = ({
       if (isAdmin && walletAddress && dbPending.length > 0) {
         const dbRemaining = dbPending.filter((o: any) => !filledIds.has(o.orderId));
         if (dbRemaining.length < dbPending.length) {
-          saveTraderState(walletAddress, { pendingOrders: dbRemaining })
+          saveTraderState(walletAddress, { pendingOrders: dbRemaining, enrichedOrders: dbRemaining })
             .catch(() => {});
         }
       }
@@ -234,7 +234,7 @@ const TriggerTradeView = ({
         if (isAdmin && walletAddress) {
           const currentLocal = [...localOrders, pendingOrder];
           saveTraderState(walletAddress, {
-            pendingOrders: currentLocal,
+            pendingOrders: currentLocal, enrichedOrders: currentLocal,
           }).catch(() => { /* silent — will be picked up on next refresh */ });
         }
 
