@@ -119,6 +119,21 @@ def get_pool_state() -> Dict:
     }
 
 
+def get_user_shares_total() -> float:
+    """Sum of shares held by non-admin users only.
+    The admin operates the pool but doesn't own a share of it — all value
+    belongs to the investors.  Pool-state totalShares may include phantom
+    shares from initialize_pool, so we always derive the real denominator
+    from actual user documents."""
+    pipeline = [
+        {"$match": {"isActive": True, "shares": {"$gt": 0},
+                     "walletAddress": {"$nin": ADMIN_WALLETS}}},
+        {"$group": {"_id": None, "total": {"$sum": "$shares"}}}
+    ]
+    result = list(users_collection.aggregate(pipeline))
+    return result[0]["total"] if result else 0.0
+
+
 def initialize_pool(total_pool_value: float) -> Dict:
     existing = pool_state_collection.find_one({"_id": "pool"})
     if existing:
@@ -144,8 +159,7 @@ def initialize_pool(total_pool_value: float) -> Dict:
 
 
 def get_nav(total_pool_value: float) -> float:
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
     if total_shares <= 0 or total_pool_value <= 0:
         return 1.0
     return total_pool_value / total_shares
@@ -161,8 +175,7 @@ def get_user_position(wallet_address: str, total_pool_value: float) -> Dict:
             "allocation": 0, "totalDeposited": 0
         }
 
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
     user_shares = user.get("shares", 0.0)
     nav = total_pool_value / total_shares if total_shares > 0 else 1.0
 
@@ -268,12 +281,14 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
 
 
 def _recalculate_allocations():
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
     if total_shares <= 0:
         return
 
-    users = list(users_collection.find({"isActive": True, "shares": {"$gt": 0}}))
+    users = list(users_collection.find({
+        "isActive": True, "shares": {"$gt": 0},
+        "walletAddress": {"$nin": ADMIN_WALLETS}
+    }))
     for user in users:
         user_shares = user.get("shares", 0.0)
         allocation = (user_shares / total_shares) * 100.0
@@ -326,8 +341,7 @@ def get_all_active_users() -> List[Dict]:
 
 
 def get_leaderboard(total_pool_value: float) -> List[Dict]:
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
     nav = total_pool_value / total_shares if total_shares > 0 else 1.0
 
     users = list(users_collection.find({
@@ -368,8 +382,7 @@ def get_leaderboard(total_pool_value: float) -> List[Dict]:
 
 
 def get_admin_stats(total_pool_value: float) -> Dict:
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
     nav = total_pool_value / total_shares if total_shares > 0 else 1.0
 
     # User stats exclude admin wallets (admins manage the pool, not investors)
@@ -737,13 +750,15 @@ def sync_trades_from_swyftx(trades: List[Dict]) -> Dict:
 
 
 def calculate_pool_allocations() -> Dict[str, float]:
-    pool = get_pool_state()
-    total_shares = pool["totalShares"]
+    total_shares = get_user_shares_total()
 
     if total_shares <= 0:
         return {}
 
-    users = list(users_collection.find({"isActive": True, "shares": {"$gt": 0}}))
+    users = list(users_collection.find({
+        "isActive": True, "shares": {"$gt": 0},
+        "walletAddress": {"$nin": ADMIN_WALLETS}
+    }))
 
     if not users:
         return {}
