@@ -1,6 +1,6 @@
 // ============================================================
-// USDC Deposit Service — Uses @solana/web3.js + @solana/spl-token
-// Same proven pattern as bankApi.ts
+// USDC Deposit Service
+// Reads via /api/rpc proxy (Helius), sends via Phantom wallet
 // ============================================================
 
 import { Connection, PublicKey, Transaction } from "@solana/web3.js";
@@ -10,12 +10,18 @@ import {
   getAccount,
   createTransferInstruction,
 } from "@solana/spl-token";
-import { POOL_WALLET, USDC_MINT, RPC_ENDPOINT } from "@constants/addresses";
+import { POOL_WALLET, USDC_MINT } from "@constants/addresses";
 
 const USDC_DECIMALS = 6;
 
+// Use the RPC proxy — routes through Helius server-side, no rate limits
+const getRpcUrl = () => {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return origin + "/api/rpc";
+};
+
 const getConnection = () =>
-  new Connection(RPC_ENDPOINT, {
+  new Connection(getRpcUrl(), {
     commitment: "confirmed",
     confirmTransactionInitialTimeout: 60000,
   });
@@ -80,12 +86,8 @@ export async function sendUsdcDeposit(
   transaction.recentBlockhash = latestBlockhash.blockhash;
   transaction.feePayer = wallet.publicKey;
 
-  // 4. Sign and send
-  const signedTx = await wallet.signTransaction(transaction);
-  const signature = await connection.sendRawTransaction(signedTx.serialize());
-
-  // Wait for confirmation
-  await connection.confirmTransaction(signature);
+  // 4. Sign and send via Phantom (Phantom uses its own RPC to submit)
+  const { signature } = await wallet.signAndSendTransaction(transaction);
 
   return signature;
 }
