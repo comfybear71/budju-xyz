@@ -7,7 +7,7 @@ const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_CHAT_ID = -1002398835975;
 
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
-const WEBSITE_URL = "https://budjucoin.com";
+const WEBSITE_URL = "https://budju.xyz";
 
 // ── Telegram helpers ────────────────────────────────────────────────────
 async function sendMessage(chatId: number, text: string, parseMode = "HTML") {
