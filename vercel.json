@@ -12,6 +12,7 @@
     { "source": "/api/rpc", "destination": "/api/rpc.ts" },
     { "source": "/api/jupiter", "destination": "/api/jupiter.ts" },
     { "source": "/api/marketing", "destination": "/api/marketing.ts" },
+    { "source": "/api/telegram", "destination": "/api/telegram.ts" },
     { "source": "/api/user/:path*", "destination": "/api/index.py" },
     { "source": "/api/user-deposit", "destination": "/api/index.py" },
     { "source": "/api/deposit", "destination": "/api/index.py" },
