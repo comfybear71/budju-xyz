@@ -412,6 +412,88 @@ function handleQuestion(text: string): string | null {
   return null;
 }
 
+// ── Auto-moderation ─────────────────────────────────────────────────────
+const BANNED_WORDS = [
+  "fuck", "fucker", "fucking", "fck", "f\\*ck", "fuk",
+  "shit", "shitter", "sh1t", "sht",
+  "bitch", "b1tch", "btch",
+  "asshole", "a\\$\\$hole", "arsehole",
+  "cunt", "c\\*nt",
+  "dick", "d1ck",
+  "bastard", "bstrd",
+  "wanker", "twat", "prick",
+  "nigger", "n1gger", "nigga", "n1gga",
+  "faggot", "fag", "f4g",
+  "retard", "retarded",
+  "stfu", "gtfo", "kys",
+];
+
+// Build a single regex from the word list (word boundaries, case-insensitive)
+const PROFANITY_RE = new RegExp(
+  `\\b(${BANNED_WORDS.join("|")})\\b`,
+  "i",
+);
+
+async function deleteMessage(chatId: number, messageId: number) {
+  return fetch(`${TELEGRAM_API}/deleteMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+  });
+}
+
+async function restrictUser(chatId: number, userId: number, durationSeconds: number) {
+  const untilDate = Math.floor(Date.now() / 1000) + durationSeconds;
+  return fetch(`${TELEGRAM_API}/restrictChatMember`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      user_id: userId,
+      until_date: untilDate,
+      permissions: {
+        can_send_messages: false,
+        can_send_audios: false,
+        can_send_documents: false,
+        can_send_photos: false,
+        can_send_videos: false,
+        can_send_video_notes: false,
+        can_send_voice_notes: false,
+        can_send_polls: false,
+        can_send_other_messages: false,
+        can_add_web_page_previews: false,
+      },
+    }),
+  });
+}
+
+/** Returns true if the message was flagged and handled. */
+async function moderateMessage(
+  chatId: number,
+  messageId: number,
+  userId: number,
+  firstName: string,
+  text: string,
+): Promise<boolean> {
+  if (!PROFANITY_RE.test(text)) return false;
+
+  // Delete the offending message
+  await deleteMessage(chatId, messageId);
+
+  // Restrict user for 5 minutes
+  const TIMEOUT_SECONDS = 5 * 60;
+  await restrictUser(chatId, userId, TIMEOUT_SECONDS);
+
+  // Send a warning
+  await sendMessage(
+    chatId,
+    `⚠️ <b>${firstName}</b> has been muted for 5 minutes.\n\n` +
+    `Please keep the chat respectful. This is a friendly community! 🐸`,
+  );
+
+  return true;
+}
+
 // ── Promotional messages ────────────────────────────────────────────────
 const PROMO_MESSAGES = [
   `🐸🚀 <b>BUDJU is building the future of meme coins on Solana!</b>\n\nAutomated trading, NFTs, burns, and a growing community. Are you in?\n\n🌐 ${WEBSITE_URL}`,
@@ -495,6 +577,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (update.message?.text) {
       const chatId = update.message.chat.id;
       const text = update.message.text.trim();
+      const isGroupChat = update.message.chat.type === "supergroup" || update.message.chat.type === "group";
+
+      // Auto-moderate: check for profanity in group chats
+      if (isGroupChat) {
+        const flagged = await moderateMessage(
+          chatId,
+          update.message.message_id,
+          update.message.from.id,
+          update.message.from.first_name || "User",
+          text,
+        );
+        if (flagged) return res.status(200).json({ ok: true, moderated: true });
+      }
+
       const isCommand = text.startsWith("/");
 
       if (isCommand) {
