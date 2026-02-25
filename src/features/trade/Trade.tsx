@@ -479,6 +479,66 @@ const Trade = () => {
                   </div>
                 )}
 
+                {/* USDC Balance + Crypto/USDC Ratio Meter — visible to all, hidden when trade views open */}
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (() => {
+                  const cryptoValue = assets.reduce((s, a) => s + a.usdValue, 0);
+                  const totalVal = cryptoValue + usdcBalance;
+                  const cryptoPct = totalVal > 0 ? Math.round((cryptoValue / totalVal) * 100) : 0;
+                  const usdcPct = totalVal > 0 ? 100 - cryptoPct : 0;
+                  return (
+                    <div className="mb-3 rounded-xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm px-4 py-3">
+                      {/* USDC balance row */}
+                      <div className="flex items-center justify-between mb-2.5">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
+                            <span className="text-[10px] font-bold text-green-400">$</span>
+                          </div>
+                          <span className="text-[11px] font-semibold text-slate-300">USDC Balance</span>
+                        </div>
+                        <span className="text-sm font-bold text-green-400 font-mono">
+                          ${Math.round(usdcBalance).toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Ratio meter */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[10px] font-semibold text-cyan-400">
+                            {cryptoPct}% Crypto
+                          </span>
+                          <span className="text-[10px] font-semibold text-green-400">
+                            {usdcPct}% USDC
+                          </span>
+                        </div>
+                        <div className="relative h-2.5 rounded-full overflow-hidden bg-slate-800/80 border border-white/[0.04]">
+                          <div
+                            className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+                            style={{
+                              width: `${cryptoPct}%`,
+                              background: "linear-gradient(90deg, #06b6d4, #8b5cf6)",
+                            }}
+                          />
+                          <div
+                            className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
+                            style={{
+                              width: `${usdcPct}%`,
+                              background: "linear-gradient(90deg, #22c55e, #4ade80)",
+                            }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between mt-1.5">
+                          <span className="text-[9px] text-slate-500 font-mono">
+                            ${Math.round(cryptoValue).toLocaleString()}
+                          </span>
+                          <span className="text-[9px] text-slate-500 font-mono">
+                            ${Math.round(usdcBalance).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Cash Balances + Admin Balance — hidden when any trade view is open */}
                 {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && isAdmin && (
                   <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
