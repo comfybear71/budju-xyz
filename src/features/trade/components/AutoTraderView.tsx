@@ -268,10 +268,15 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                             const isHot = progress >= 0.85;
                             const isCritical = progress >= 0.95;
 
-                            let barColor = "#3b82f6";
-                            if (isCritical) barColor = "#ef4444";
-                            else if (isHot) barColor = "#f97316";
-                            else if (isNear) barColor = "#eab308";
+                            // Bi-directional bar: green left (buy), red right (sell)
+                            // direction: -1 = toward buy (left), +1 = toward sell (right)
+                            let direction = 0;
+                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
+                              const mid = (item.buyTrigger + item.sellTrigger) / 2;
+                              direction = item.currentPrice >= mid ? 1 : -1;
+                            }
+                            const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
+                            const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
 
                             return (
                               <div
@@ -342,16 +347,35 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </div>
                                 </div>
 
-                                {/* Progress bar showing proximity to buy/sell trigger */}
-                                <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
-                                  <div
-                                    className="h-full rounded-full transition-all duration-700"
-                                    style={{
-                                      background: barColor,
-                                      width: `${(progress * 100).toFixed(0)}%`,
-                                      opacity: isCritical ? 1 : 0.8,
-                                    }}
-                                  />
+                                {/* Bi-directional progress bar: green left (buy) ← center → red right (sell) */}
+                                <div className="w-full h-2 rounded-full mb-1.5 relative overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                                  {/* Center tick mark */}
+                                  <div className="absolute top-0 bottom-0 w-px" style={{ left: "50%", background: "rgba(255,255,255,0.25)", zIndex: 2 }} />
+                                  {direction <= 0 ? (
+                                    /* Buy side: bar grows LEFT from center */
+                                    <div
+                                      className="absolute top-0 bottom-0 rounded-l-full transition-all duration-700"
+                                      style={{
+                                        right: "50%",
+                                        width: `${(progress * 50).toFixed(1)}%`,
+                                        background: barColorBuy,
+                                        opacity: isCritical ? 1 : 0.8,
+                                        boxShadow: isCritical ? `0 0 8px ${barColorBuy}` : "none",
+                                      }}
+                                    />
+                                  ) : (
+                                    /* Sell side: bar grows RIGHT from center */
+                                    <div
+                                      className="absolute top-0 bottom-0 rounded-r-full transition-all duration-700"
+                                      style={{
+                                        left: "50%",
+                                        width: `${(progress * 50).toFixed(1)}%`,
+                                        background: barColorSell,
+                                        opacity: isCritical ? 1 : 0.8,
+                                        boxShadow: isCritical ? `0 0 8px ${barColorSell}` : "none",
+                                      }}
+                                    />
+                                  )}
                                 </div>
 
                                 {/* Buy / Current / Sell row */}
