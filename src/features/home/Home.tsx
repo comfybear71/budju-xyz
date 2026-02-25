@@ -3,25 +3,23 @@ import { APP_NAME, APP_DESCRIPTION } from "@constants/config";
 
 // Components
 import Hero from "./components/Hero";
-import ShopOfBudjus from "./components/ShopOfBudjusPreview";
+import BotAccess from "./components/BotAccess";
+import ShopHighlight from "./components/ShopHighlight";
 import NFTShowcase from "./components/NFTShowcase";
-import JoinParade from "./components/JoinParade";
-import RoadMap from "./components/RoadMap";
-// import HowToBuyPreview from "./components/HowToBuyPreview";
+import BankHighlight from "./components/BankHighlight";
+import LiquidityPools from "./components/LiquidityPools";
 import TokenStats from "@components/common/TokenStats";
-// import MarketMakerPreview from "./components/MarketMakerPreview";
+import EcosystemOverview from "./components/EcosystemOverview";
 
 const Home = () => {
-  // Setup page
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
 
-    // Set document title and metadata
-    document.title = `${APP_NAME} - JOIN THE PARADE`;
+    document.title = `${APP_NAME} — Trading Bot | DeFi on Solana`;
 
-    // Update meta description
-    const metaDescription = document.querySelector('meta[name="description"]');
+    const metaDescription = document.querySelector(
+      'meta[name="description"]',
+    );
     if (metaDescription) {
       metaDescription.setAttribute("content", APP_DESCRIPTION);
     } else {
@@ -31,15 +29,15 @@ const Home = () => {
       document.head.appendChild(newMetaDescription);
     }
 
-    // Update OG tags
-    updateOgTag("title", APP_NAME);
+    updateOgTag("title", `${APP_NAME} — Trading Bot`);
     updateOgTag("description", APP_DESCRIPTION);
     updateOgTag("type", "website");
   }, []);
 
-  // Helper function to update Open Graph tags
   const updateOgTag = (property: string, content: string) => {
-    const ogTag = document.querySelector(`meta[property="og:${property}"]`);
+    const ogTag = document.querySelector(
+      `meta[property="og:${property}"]`,
+    );
     if (ogTag) {
       ogTag.setAttribute("content", content);
     } else {
@@ -52,29 +50,35 @@ const Home = () => {
 
   return (
     <main className="flex flex-col">
-      {/* Hero Section */}
       <Hero />
 
-      {/* Token Stats */}
-      <TokenStats />
+      <div className="budju-section-divider" />
 
-      {/* Shop of Budju's */}
-      <ShopOfBudjus />
+      <BotAccess />
 
-      {/* Roadmap Section */}
-      <RoadMap />
+      <div className="budju-section-divider" />
 
-      {/* NFT Collection Showcase */}
+      <ShopHighlight />
+
+      <div className="budju-section-divider" />
+
       <NFTShowcase />
 
-      {/* Join Parade Section */}
-      <JoinParade />
+      <div className="budju-section-divider" />
 
-      {/* How To Buy Preview */}
-      {/* <HowToBuyPreview /> */}
+      <BankHighlight />
 
-      {/* Market Maker Preview */}
-      {/* <MarketMakerPreview /> */}
+      <div className="budju-section-divider" />
+
+      <LiquidityPools />
+
+      <div className="budju-section-divider" />
+
+      <TokenStats />
+
+      <div className="budju-section-divider" />
+
+      <EcosystemOverview />
     </main>
   );
 };

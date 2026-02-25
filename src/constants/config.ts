@@ -1,7 +1,7 @@
 // App config
 export const APP_NAME = "BUDJU";
 export const APP_DESCRIPTION =
-  "Join the BUDJU Parade - Solana's Most Vibrant Community";
+  "The BUDJU Trading Bot — Automated DeFi on Solana";
 export const APP_URL =
   import.meta.env.VITE_PUBLIC_URL || "https://budjucoin.com";
 

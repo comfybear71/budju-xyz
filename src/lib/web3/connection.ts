@@ -7,7 +7,7 @@ import { WALLET_ADAPTER_NETWORK, RPC_ENDPOINT } from "@constants/addresses";
 import walletService from "@lib/services/walletService";
 
 // Wallet types
-export type WalletName = "phantom" | "solflare" | "other";
+export type WalletName = "phantom" | "solflare" | "jupiter" | "other";
 
 export interface WalletInfo {
   name: WalletName;
@@ -36,6 +36,7 @@ const initialState: ConnectionState = {
 interface SolanaWallet {
   isPhantom?: boolean;
   isSolflare?: boolean;
+  isJupiter?: boolean;
   isConnected?: boolean;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
@@ -46,19 +47,66 @@ declare global {
   interface Window {
     solana?: SolanaWallet;
     solflare?: SolanaWallet;
+    jupiter?: SolanaWallet;
+    phantom?: { solana?: SolanaWallet };
   }
 }
 
+// Detect if running on a mobile device (in-app browser context)
+const isMobileDevice = () =>
+  /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
+
+// Wait for wallet provider injection (Phantom in-app browser may delay)
+const waitForProvider = (timeout = 2000): Promise<void> =>
+  new Promise((resolve) => {
+    if (
+      window.phantom?.solana ||
+      window.solana ||
+      window.solflare ||
+      window.jupiter
+    ) {
+      resolve();
+      return;
+    }
+    let elapsed = 0;
+    const poll = setInterval(() => {
+      elapsed += 100;
+      if (
+        window.phantom?.solana ||
+        window.solana ||
+        window.solflare ||
+        window.jupiter ||
+        elapsed >= timeout
+      ) {
+        clearInterval(poll);
+        resolve();
+      }
+    }, 100);
+  });
+
+/** Get the Phantom wallet adapter (prefers phantom.solana path) */
+const getPhantomAdapter = (): SolanaWallet | undefined =>
+  window.phantom?.solana || window.solana;
+
 // Detect available wallets
 export const checkWalletsAvailability = async (): Promise<WalletName[]> => {
+  await waitForProvider();
   const available: WalletName[] = [];
 
-  if (window.solana?.isPhantom) {
+  const phantom = getPhantomAdapter();
+  if (phantom?.isPhantom) {
     available.push("phantom");
   }
 
   if (window.solflare?.isSolflare) {
     available.push("solflare");
+  }
+
+  // Jupiter wallet injects as window.jupiter or as a standard wallet
+  if (window.jupiter) {
+    available.push("jupiter");
   }
 
   if (window.solana && !window.solana.isPhantom && !window.solana.isSolflare) {
@@ -77,7 +125,7 @@ export const connectWallet = async (
 
     switch (walletName) {
       case "phantom":
-        walletAdapter = window.solana;
+        walletAdapter = getPhantomAdapter();
         if (!walletAdapter?.isPhantom) {
           throw new Error("Phantom wallet not detected");
         }
@@ -86,6 +134,12 @@ export const connectWallet = async (
         walletAdapter = window.solflare;
         if (!walletAdapter?.isSolflare) {
           throw new Error("Solflare wallet not detected");
+        }
+        break;
+      case "jupiter":
+        walletAdapter = window.jupiter;
+        if (!walletAdapter) {
+          throw new Error("Jupiter wallet not detected");
         }
         break;
       case "other":
@@ -130,7 +184,8 @@ export const connectWallet = async (
 // Disconnect from a wallet
 export const disconnectWallet = async (): Promise<ConnectionState> => {
   try {
-    const walletAdapter = window.solana || window.solflare;
+    const walletAdapter =
+      window.phantom?.solana || window.solana || window.solflare || window.jupiter;
     if (walletAdapter && walletAdapter.disconnect) {
       await walletAdapter.disconnect();
     }
@@ -153,34 +208,50 @@ export const checkWalletConnection = async (): Promise<ConnectionState> => {
     const savedConnected = localStorage.getItem("budjuWalletConnected");
 
     if (savedAddress && savedWalletName && savedConnected === "true") {
+      // Wait for wallet provider injection (Phantom in-app browser may delay)
+      await waitForProvider();
+      const mobile = isMobileDevice();
       let walletAdapter: SolanaWallet | undefined;
 
       switch (savedWalletName as WalletName) {
         case "phantom":
-          walletAdapter = window.solana;
-          if (!walletAdapter?.isPhantom || !walletAdapter.isConnected) {
-            return initialState;
-          }
+          walletAdapter = getPhantomAdapter();
+          if (!walletAdapter?.isPhantom) return initialState;
           break;
         case "solflare":
           walletAdapter = window.solflare;
-          if (!walletAdapter?.isSolflare || !walletAdapter.isConnected) {
-            return initialState;
-          }
+          if (!walletAdapter?.isSolflare) return initialState;
+          break;
+        case "jupiter":
+          walletAdapter = window.jupiter;
+          if (!walletAdapter) return initialState;
           break;
         case "other":
           walletAdapter = window.solana;
           if (
             !walletAdapter ||
             walletAdapter.isPhantom ||
-            walletAdapter.isSolflare ||
-            !walletAdapter.isConnected
-          ) {
+            walletAdapter.isSolflare
+          )
             return initialState;
-          }
           break;
         default:
           return initialState;
+      }
+
+      // On mobile (in-app browser), eagerly reconnect if isConnected is false.
+      // In Phantom/Solflare in-app browsers, connect() is auto-approved (no popup).
+      // On desktop, require isConnected to avoid showing an unwanted popup.
+      if (!walletAdapter.isConnected) {
+        if (mobile) {
+          try {
+            await walletAdapter.connect();
+          } catch {
+            return initialState;
+          }
+        } else {
+          return initialState;
+        }
       }
 
       const address = walletAdapter.publicKey.toString();

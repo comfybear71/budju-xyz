@@ -1,4 +1,7 @@
-// import { RPC_ENDPOINT } from "@constants/addresses";
+import {
+  POOL_SOL_BUDJU,
+  POOL_USDC_BUDJU,
+} from "@constants/addresses";
 
 export interface CandlestickData {
   time: number; // Unix timestamp in seconds
@@ -21,7 +24,50 @@ const chartDataCache = new Map<
   string,
   { data: CandlestickData[]; timestamp: number }
 >();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+
+/**
+ * Map token pair to a GeckoTerminal Solana pool address
+ */
+const getPoolAddress = (
+  baseToken: string,
+  quoteToken: string,
+): string | null => {
+  const pair = `${baseToken}/${quoteToken}`;
+  const reversePair = `${quoteToken}/${baseToken}`;
+
+  const pools: Record<string, string> = {
+    "SOL/BUDJU": POOL_SOL_BUDJU,
+    "BUDJU/SOL": POOL_SOL_BUDJU,
+    "USDC/BUDJU": POOL_USDC_BUDJU,
+    "BUDJU/USDC": POOL_USDC_BUDJU,
+  };
+
+  return pools[pair] || pools[reversePair] || null;
+};
+
+/**
+ * Map UI timeframe to GeckoTerminal OHLCV timeframe parameter
+ * GeckoTerminal supports: day, hour, minute (with aggregate)
+ */
+const getGeckoTimeframe = (
+  timeframe: string,
+): { tf: string; aggregate: number } => {
+  switch (timeframe) {
+    case "15m":
+      return { tf: "minute", aggregate: 15 };
+    case "1H":
+      return { tf: "hour", aggregate: 1 };
+    case "4H":
+      return { tf: "hour", aggregate: 4 };
+    case "1D":
+      return { tf: "day", aggregate: 1 };
+    case "1W":
+      return { tf: "day", aggregate: 1 };
+    default:
+      return { tf: "day", aggregate: 1 };
+  }
+};
 
 /**
  * Generate a sample dataset for when API data isn't available
@@ -61,7 +107,7 @@ const generateSampleData = (
 };
 
 /**
- * Get chart data for a token pair
+ * Get chart data for a token pair using GeckoTerminal API
  */
 export const getChartData = async (
   options: ChartOptions,
@@ -75,165 +121,104 @@ export const getChartData = async (
     return cachedData.data;
   }
 
+  const poolAddress = getPoolAddress(baseToken, quoteToken);
+  if (!poolAddress) {
+    console.warn(`No pool address for ${baseToken}/${quoteToken}, using sample data`);
+    return getFallbackData(baseToken, quoteToken, timeframe, limit);
+  }
+
   try {
-    // CryptoCompare API key (get from https://min-api.cryptocompare.com/)
-    const CRYPTOCOMPARE_API_KEY =
-      import.meta.env.VITE_CRYPTOCOMPARE_API_KEY || "";
-    if (!CRYPTOCOMPARE_API_KEY) {
-      throw new Error("CryptoCompare API key not configured");
-    }
+    const { tf, aggregate } = getGeckoTimeframe(timeframe);
+    const adjustedLimit = timeframe === "1W" ? Math.min(limit, 200) : Math.min(limit, 1000);
 
-    // Set token symbols
-    let fsym = baseToken; // Base token symbol (e.g., "SOL", "RAY")
-    let tsym = quoteToken === "USDC" ? "USD" : quoteToken; // Quote token symbol (e.g., "USD", "RAY")
+    // GeckoTerminal OHLCV endpoint
+    const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolAddress}/ohlcv/${tf}?aggregate=${aggregate}&limit=${adjustedLimit}&currency=usd`;
 
-    // Basic validation for tokens
-    const supportedTokens = ["SOL", "RAY", "BUDJU", "USD", "USDC"];
-    if (!supportedTokens.includes(fsym)) {
-      console.warn(`Base token ${fsym} may not be supported by CryptoCompare`);
-    }
-    if (!supportedTokens.includes(quoteToken) && quoteToken !== "USDC") {
-      console.warn(`Quote token ${tsym} may not be supported by CryptoCompare`);
-    }
-
-    // Determine endpoint and aggregation
-    let endpoint: string;
-    let aggregate: number;
-    let adjustedLimit: number;
-
-    switch (timeframe) {
-      case "15m":
-        endpoint = "histominute";
-        aggregate = 15; // 15 minutes
-        adjustedLimit = Math.min(limit, 2000); // Max 2000 points
-        break;
-      case "1H":
-        endpoint = "histominute";
-        aggregate = 60; // 60 minutes
-        adjustedLimit = Math.min(limit, 2000);
-        break;
-      case "4H":
-        endpoint = "histominute";
-        aggregate = 240; // 4 hours
-        adjustedLimit = Math.min(limit, 2000);
-        break;
-      case "1D":
-        endpoint = "histohour";
-        aggregate = 24; // 24 hours = 1 day
-        adjustedLimit = Math.min(limit, 2000); // Max 2000 hours
-        break;
-      case "1W":
-        endpoint = "histoday";
-        aggregate = 7; // 7 days = 1 week
-        adjustedLimit = Math.min(limit, 2000); // Max 2000 days
-        break;
-      default:
-        throw new Error(`Unsupported timeframe: ${timeframe}`);
-    }
-
-    // Fetch data from CryptoCompare
-    const response = await fetch(
-      `https://min-api.cryptocompare.com/data/v2/${endpoint}?fsym=${fsym}&tsym=${tsym}&limit=${adjustedLimit}&aggregate=${aggregate}&api_key=${CRYPTOCOMPARE_API_KEY}`,
-      {
-        headers: {
-          accept: "application/json",
-        },
-      },
-    );
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+    });
 
     if (!response.ok) {
-      throw new Error(
-        `API error: ${response.status} - ${await response.text()}`,
-      );
+      throw new Error(`GeckoTerminal API error: ${response.status}`);
     }
 
-    const data = await response.json();
+    const json = await response.json();
+    const ohlcvList = json?.data?.attributes?.ohlcv_list;
 
-    if (
-      data.Response !== "Success" ||
-      !data.Data ||
-      !Array.isArray(data.Data.Data)
-    ) {
-      throw new Error(
-        `Invalid response from CryptoCompare: ${data.Message || "Unknown error"}`,
-      );
+    if (!ohlcvList || !Array.isArray(ohlcvList) || ohlcvList.length === 0) {
+      throw new Error("No OHLCV data returned from GeckoTerminal");
     }
 
-    // Format CryptoCompare OHLCV data
-    const chartData: CandlestickData[] = data.Data.Data.map((item: any) => ({
-      time: item.time, // Already in seconds
-      open: parseFloat(item.open) || 0,
-      high: parseFloat(item.high) || 0,
-      low: parseFloat(item.low) || 0,
-      close: parseFloat(item.close) || 0,
-      volume: parseFloat(item.volumefrom) || 0, // Volume in base token
-    }));
+    // GeckoTerminal returns: [timestamp, open, high, low, close, volume]
+    // Data comes in reverse chronological order, so we reverse it
+    const chartData: CandlestickData[] = ohlcvList
+      .map((item: number[]) => ({
+        time: item[0], // Already in seconds
+        open: item[1],
+        high: item[2],
+        low: item[3],
+        close: item[4],
+        volume: item[5],
+      }))
+      .filter(
+        (item: CandlestickData) =>
+          item.open > 0 || item.high > 0 || item.low > 0 || item.close > 0,
+      )
+      .sort((a: CandlestickData, b: CandlestickData) => a.time - b.time);
 
-    // Filter out invalid data (e.g., all zeros)
-    const validData = chartData.filter(
-      (item) =>
-        item.open > 0 || item.high > 0 || item.low > 0 || item.close > 0,
-    );
-
-    if (validData.length === 0) {
-      throw new Error("No valid data points returned");
+    if (chartData.length === 0) {
+      throw new Error("No valid data points after filtering");
     }
 
     // Update cache
     chartDataCache.set(cacheKey, {
-      data: validData,
+      data: chartData,
       timestamp: Date.now(),
     });
 
-    return validData;
+    return chartData;
   } catch (error) {
-    console.error("Error fetching chart data from CryptoCompare:", error);
-
-    // Generate sample data as fallback
-    let basePrice = 0;
-    if (baseToken === "SOL" && quoteToken === "RAY") {
-      basePrice = 75.5;
-    } else if (baseToken === "SOL" && quoteToken === "USDC") {
-      basePrice = 140.5;
-    } else if (baseToken === "RAY" && quoteToken === "USDC") {
-      basePrice = 1.85;
-    } else if (baseToken === "BUDJU" && quoteToken === "USDC") {
-      basePrice = 0.0002;
-    } else {
-      basePrice = 1.0;
-    }
-
-    const days = timeframeToDays(timeframe, limit);
-    const sampleData = generateSampleData(basePrice, days);
-
-    chartDataCache.set(cacheKey, {
-      data: sampleData,
-      timestamp: Date.now(),
-    });
-
-    return sampleData;
+    console.error("Error fetching chart data from GeckoTerminal:", error);
+    return getFallbackData(baseToken, quoteToken, timeframe, limit);
   }
 };
 
 /**
- * Convert timeframe to seconds
+ * Fallback sample data when API is unavailable
  */
-// const getTimeframeSeconds = (timeframe: string): number => {
-//   switch (timeframe) {
-//     case "15m":
-//       return 15 * 60;
-//     case "1H":
-//       return 60 * 60;
-//     case "4H":
-//       return 4 * 60 * 60;
-//     case "1D":
-//       return 24 * 60 * 60;
-//     case "1W":
-//       return 7 * 24 * 60 * 60;
-//     default:
-//       return 24 * 60 * 60; // Default to 1 day
-//   }
-// };
+const getFallbackData = (
+  baseToken: string,
+  quoteToken: string,
+  timeframe: string,
+  limit: number,
+): CandlestickData[] => {
+  let basePrice = 0;
+  if (
+    (baseToken === "SOL" && quoteToken === "BUDJU") ||
+    (baseToken === "BUDJU" && quoteToken === "SOL")
+  ) {
+    basePrice = 0.00015; // SOL price in BUDJU terms (USD equivalent)
+  } else if (baseToken === "SOL" && quoteToken === "USDC") {
+    basePrice = 170;
+  } else if (
+    (baseToken === "BUDJU" && quoteToken === "USDC") ||
+    (baseToken === "USDC" && quoteToken === "BUDJU")
+  ) {
+    basePrice = 0.0002;
+  } else {
+    basePrice = 1.0;
+  }
+
+  const days = timeframeToDays(timeframe, limit);
+  const sampleData = generateSampleData(basePrice, days);
+
+  chartDataCache.set(`${baseToken}/${quoteToken}/${timeframe}`, {
+    data: sampleData,
+    timestamp: Date.now(),
+  });
+
+  return sampleData;
+};
 
 /**
  * Convert timeframe to days for sample data

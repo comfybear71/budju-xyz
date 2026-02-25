@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+.next
 *.local
 
 # Editor directories and files
@@ -26,3 +27,6 @@ dist-ssr
 # Environment variables
 .env
 .vercel
+
+# Reference files
+COMPLETE_CODEBASE.txt

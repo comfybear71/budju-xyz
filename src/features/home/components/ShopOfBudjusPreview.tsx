@@ -166,7 +166,7 @@ const ShopOfBudjusPreview = () => {
                   size="lg"
                   fullWidth
                   as="a" // Changed from "link" to "a" for external linking
-                  href="https://shop.budjucoin.com" // Replaced to="/shop" with external URL
+                  href="https://shop-of-budjus.myspreadshop.com.au"
                   target="_blank" // Opens in a new window
                   rel="noopener noreferrer" // Security best practice
                 >

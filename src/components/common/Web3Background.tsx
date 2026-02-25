@@ -33,7 +33,7 @@ const Web3Background: React.FC<Web3BackgroundProps> = ({
         particle.style.animationDelay = `${Math.random() * 8}s`;
 
         particle.style.backgroundColor = isDarkMode
-          ? "rgba(255, 105, 180, 0.5)"
+          ? "rgba(6, 182, 212, 0.3)"
           : "rgba(255, 255, 255, 0.6)";
 
         container.appendChild(particle);

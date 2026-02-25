@@ -77,8 +77,7 @@ export default defineConfig(({ mode }) => {
         "@hooks": path.resolve(__dirname, "./src/hooks"),
         "@lib": path.resolve(__dirname, "./src/lib"),
         "@styles": path.resolve(__dirname, "./src/styles"),
-        "@assets": path.resolve(__dirname, "./src/assets"),
-        "@constants": path.resolve(__dirname, "./src/constants"),
+"@constants": path.resolve(__dirname, "./src/constants"),
         "@types": path.resolve(__dirname, "./src/types"),
       },
     },
@@ -121,6 +120,16 @@ export default defineConfig(({ mode }) => {
       ],
       host: "0.0.0.0", // Bind to all interfaces for network access
       port: 5173,
+      proxy: {
+        // Proxy /api/rpc to Solana RPC during local development
+        "/api/rpc": {
+          target: env.HELIUS_API_KEY
+            ? `https://mainnet.helius-rpc.com/?api-key=${env.HELIUS_API_KEY}`
+            : "https://api.mainnet-beta.solana.com",
+          changeOrigin: true,
+          rewrite: () => "",
+        },
+      },
     },
   };
 });

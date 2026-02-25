@@ -3,32 +3,37 @@ import {
   PublicKey,
   ParsedTransactionWithMeta,
 } from "@solana/web3.js";
-import { getMint, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 // Constants for API keys and endpoints
 const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const BIRDEYE_API_KEY = import.meta.env.VITE_BIRDEYE_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const BIRDEYE_API_ENDPOINT = "https://public-api.birdeye.so/defi/price";
-const BIRDEYE_HISTORICAL_API =
-  "https://public-api.birdeye.so/defi/history_price";
-const BIRDEYE_HOLDERS_API =
-  "https://public-api.birdeye.so/defi/token_holder_list";
+const CRYPTOCOMPARE_API_KEY = import.meta.env.VITE_CRYPTOCOMPARE_API_KEY || "";
+const JUPITER_API_KEY = import.meta.env.VITE_JUPITER_API_KEY || "";
 
-// Validate API keys
-if (!HELIUS_API_KEY || !BIRDEYE_API_KEY) {
-  console.warn("Missing API keys for Helius or BirdEye - some features may not work");
-}
+// Use the Vercel serverless proxy (/api/rpc) for all browser RPC calls.
+// This avoids CORS issues and keeps the Helius API key server-side.
+// Fall back to direct Helius RPC only if an API key is explicitly provided client-side.
+const HELIUS_RPC_ENDPOINT = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : "/api/rpc";
+
+// Initial mint supply for pump.fun tokens (1 billion)
+const INITIAL_MINT_SUPPLY = 1_000_000_000;
 
 // Token and wallet addresses
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const BURN_ADDRESS = "B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK";
-const RAYDIUM_VAULT_ADDRESS = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
-const BANK_OF_BUDJU_ADDRESS = "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
-const COMMUNITY_VAULT_ADDRESS = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+const BURN_TOKEN_ACCOUNT = "9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const RAYDIUM_AUTHORITY_V4 = "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1";
+const BANK_OF_BUDJU_ADDRESS = "83Tk1BGzRDqG7SmHwWEDyEDtmxVT7oz3Tgqcofi5rnF4";
+const DEVELOPER_VAULT_ADDRESS = "6H4S8ZnSuE7NXpm6V77ZvrB7Zk6kSZLucVWFusuZsTCA";
 
-// Create Solana connection
-const connection = new Connection(HELIUS_RPC_ENDPOINT, {
+// Create Solana connection (web3.js needs a full URL, so use the proxy's full URL or Helius)
+const WEB3_RPC_ENDPOINT = HELIUS_API_KEY
+  ? `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`
+  : `${window.location.origin}/api/rpc`;
+const connection = new Connection(WEB3_RPC_ENDPOINT, {
   commitment: "confirmed",
   confirmTransactionInitialTimeout: 60000,
 });
@@ -59,7 +64,7 @@ interface TokenMetrics {
   burned: number;
   raydiumVault: number;
   bankOfBudju: number;
-  communityVault: number;
+  developerVault: number;
   circulatingSupply: number;
 }
 
@@ -75,12 +80,6 @@ interface BurnEvent {
   txHash: string;
   value: number;
   timestamp?: number;
-}
-
-interface Holder {
-  owner: string;
-  amount: number;
-  percentage: number;
 }
 
 // Simple in-memory cache
@@ -137,10 +136,10 @@ async function retryFetch(
   throw new Error("Unexpected error in retryFetch");
 }
 
-// Fetch price and volume data from DexScreener (no API key required)
+// Fetch price, volume and market cap from DexScreener (no API key required)
 async function fetchDexScreenerData(
   tokenAddress: string,
-): Promise<{ price: number; volume24h: number; priceChange24h: number }> {
+): Promise<{ price: number; volume24h: number; priceChange24h: number; marketCap: number; fdv: number }> {
   try {
     const response = await retryFetch(
       `https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`,
@@ -157,182 +156,217 @@ async function fetchDexScreenerData(
         price: parseFloat(pair.priceUsd || "0"),
         volume24h: pair.volume?.h24 || 0,
         priceChange24h: pair.priceChange?.h24 || 0,
+        marketCap: pair.marketCap || pair.fdv || 0,
+        fdv: pair.fdv || 0,
       };
     }
-    return { price: 0, volume24h: 0, priceChange24h: 0 };
+    return { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
   } catch (error) {
     console.error("Error fetching DexScreener data:", error);
-    return { price: 0, volume24h: 0, priceChange24h: 0 };
+    return { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
   }
 }
 
-// Fetch token price - tries DexScreener first (free, no key required), then BirdEye
+// Fetch price via Jupiter Price API v3
+async function fetchJupiterPrice(tokenAddress: string): Promise<number> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
+    const response = await fetch(
+      `https://api.jup.ag/price/v3?ids=${tokenAddress}`,
+      { headers },
+    );
+    if (!response.ok) return 0;
+    const data = await response.json();
+    const price = data?.data?.[tokenAddress]?.usdPrice;
+    return price ? Number(price) : 0;
+  } catch (error) {
+    console.error("Error fetching Jupiter price:", error);
+    return 0;
+  }
+}
+
+// Fetch enriched token data via Jupiter Tokens v2 API
+interface JupiterTokenData {
+  price: number;
+  marketCap: number;
+  holders: number;
+  volume24h: number;
+  liquidity: number;
+}
+
+async function fetchJupiterTokenData(tokenAddress: string): Promise<JupiterTokenData | null> {
+  try {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (JUPITER_API_KEY) headers["x-api-key"] = JUPITER_API_KEY;
+
+    const response = await fetch(
+      `https://api.jup.ag/tokens/v2/search?query=${tokenAddress}`,
+      { headers },
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const token = Array.isArray(data) ? data[0] : null;
+    if (!token) return null;
+
+    return {
+      price: token.usdPrice || 0,
+      marketCap: token.mcap || 0,
+      holders: token.holderCount || 0,
+      volume24h: (token.buyVolume24h || 0) + (token.sellVolume24h || 0),
+      liquidity: token.liquidity || 0,
+    };
+  } catch (error) {
+    console.error("Error fetching Jupiter token data:", error);
+    return null;
+  }
+}
+
+// Fetch price via GeckoTerminal (free, no key required)
+async function fetchGeckoTerminalPrice(tokenAddress: string): Promise<number> {
+  try {
+    const response = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${tokenAddress}`,
+      { headers: { Accept: "application/json" } },
+    );
+    if (!response.ok) return 0;
+    const data = await response.json();
+    const price = data?.data?.attributes?.price_usd;
+    return price ? Number(price) : 0;
+  } catch (error) {
+    console.error("Error fetching GeckoTerminal price:", error);
+    return 0;
+  }
+}
+
+// Fetch total supply via a single lightweight getTokenSupply RPC call
+async function fetchTokenSupply(tokenAddress: string): Promise<number> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "supply-query",
+        method: "getTokenSupply",
+        params: [tokenAddress],
+      }),
+    });
+    clearTimeout(timeoutId);
+    const data = await response.json();
+    const supply = Number(data.result?.value?.uiAmount || 0);
+    console.log(`[TokenService] Total supply: ${supply.toLocaleString()}`);
+    return supply;
+  } catch (error) {
+    console.error("Error fetching token supply:", error);
+    return 0;
+  }
+}
+
+// Fetch token balance for any wallet address using raw JSON-RPC fetch
+async function fetchTokenBalance(walletAddress: string, tokenAddress: string): Promise<number> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: `balance-${walletAddress.slice(0, 8)}`,
+        method: "getTokenAccountsByOwner",
+        params: [
+          walletAddress,
+          { mint: tokenAddress },
+          { encoding: "jsonParsed" },
+        ],
+      }),
+    });
+    clearTimeout(timeoutId);
+    const data = await response.json();
+    if (data.error) {
+      console.error(`[TokenService] RPC error for ${walletAddress.slice(0, 8)}:`, data.error);
+      return 0;
+    }
+    const accounts = data.result?.value || [];
+    const balance = accounts.reduce(
+      (sum: number, account: any) =>
+        sum + (account.account?.data?.parsed?.info?.tokenAmount?.uiAmount || 0),
+      0,
+    );
+    console.log(`[TokenService] Balance for ${walletAddress.slice(0, 8)}...: ${balance.toLocaleString()}`);
+    return balance;
+  } catch (error) {
+    console.error(`Error fetching token balance for ${walletAddress}:`, error);
+    return 0;
+  }
+}
+
+// Alias for backward compatibility
+const fetchBurnAmount = fetchTokenBalance;
+
+// Fetch holder count using Helius DAS getTokenAccounts (requires API key)
+async function fetchHolderCount(tokenAddress: string): Promise<number> {
+  if (!HELIUS_API_KEY) return 0;
+  try {
+    let page = 1;
+    let totalCount = 0;
+    const limit = 1000;
+    while (true) {
+      const response = await fetch(HELIUS_RPC_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "holders-query",
+          method: "getTokenAccounts",
+          params: { page, limit, displayOptions: {}, mint: tokenAddress },
+        }),
+      });
+      const data = await response.json();
+      const accounts = data.result?.token_accounts || [];
+      totalCount += accounts.length;
+      if (accounts.length < limit) break;
+      page++;
+    }
+    return totalCount;
+  } catch (error) {
+    console.error("Error fetching holder count:", error);
+    return 0;
+  }
+}
+
+// Fetch token price — DexScreener first, Jupiter quote as fallback
 async function fetchTokenPrice(tokenAddress: string): Promise<number> {
   const cacheKey = `price_${tokenAddress}`;
   const cachedPrice = getCachedData(cacheKey);
   if (cachedPrice !== null) return cachedPrice;
 
   try {
-    // Try DexScreener first - free, no API key required
     const dexData = await fetchDexScreenerData(tokenAddress);
     if (dexData.price > 0) {
       setCachedData(cacheKey, dexData.price, 5 * 60 * 1000);
       return dexData.price;
     }
-
-    // Fallback to BirdEye if API key is available
-    const birdEyeData = await fetchBirdEyeData(tokenAddress);
-    if (birdEyeData.price > 0) {
-      setCachedData(cacheKey, birdEyeData.price, 5 * 60 * 1000);
-      return birdEyeData.price;
+    const jupiterPrice = await fetchJupiterPrice(tokenAddress);
+    if (jupiterPrice > 0) {
+      setCachedData(cacheKey, jupiterPrice, 5 * 60 * 1000);
+      return jupiterPrice;
     }
-
-    throw new Error("All price sources failed");
+    const geckoPrice = await fetchGeckoTerminalPrice(tokenAddress);
+    if (geckoPrice > 0) {
+      setCachedData(cacheKey, geckoPrice, 5 * 60 * 1000);
+      return geckoPrice;
+    }
+    return 0;
   } catch (error) {
     console.error("Error fetching token price:", error);
     return 0;
-  }
-}
-
-// Fetch BirdEye data
-async function fetchBirdEyeData(
-  tokenAddress: string,
-): Promise<{ price: number; volume24h: number }> {
-  try {
-    const response = await retryFetch(
-      `${BIRDEYE_API_ENDPOINT}?address=${tokenAddress}`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          "x-chain": "solana",
-        },
-      },
-    );
-    const data = await response.json();
-    return {
-      price: Number(data.data?.value || 0),
-      volume24h: Number(data.data?.volume || 0),
-    };
-  } catch (error) {
-    console.error("Error fetching BirdEye data:", error);
-    return { price: 0, volume24h: 0 };
-  }
-}
-
-// Fetch token holders
-async function fetchTokenHolders(tokenAddress: string): Promise<Holder[]> {
-  const cacheKey = `holders_${tokenAddress}`;
-  const cachedHolders = getCachedData(cacheKey);
-  if (cachedHolders !== null) return cachedHolders;
-
-  try {
-    const response = await retryFetch(
-      `${BIRDEYE_HOLDERS_API}?address=${tokenAddress}&limit=200`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          "x-chain": "solana",
-        },
-      },
-    );
-    const data = await response.json();
-    const holders = data.data.items.map((item: any) => ({
-      owner: item.owner,
-      amount: Number(item.amount || 0),
-      percentage: Number(item.percentage || 0),
-    }));
-    setCachedData(cacheKey, holders, 15 * 60 * 1000);
-    return holders;
-  } catch (error) {
-    console.error("Error fetching token holders:", error);
-    const { balances } = await fetchTokenSupplyAndBalances(tokenAddress);
-    const totalAmount = balances.reduce(
-      (sum, balance) => sum + balance.amount,
-      0,
-    );
-    const holders = balances.map((balance) => ({
-      owner: balance.owner,
-      amount: balance.amount,
-      percentage: totalAmount > 0 ? (balance.amount / totalAmount) * 100 : 0,
-    }));
-    setCachedData(cacheKey, holders, 15 * 60 * 1000);
-    return holders;
-  }
-}
-
-// Fetch token supply and balances
-async function fetchTokenSupplyAndBalances(
-  tokenAddress: string = TOKEN_ADDRESS,
-  burnAddress: string = BURN_ADDRESS,
-): Promise<{
-  balances: HeliusTokenBalance[];
-  totalSupply: number;
-  burned: number;
-  raydiumVault: number;
-  bankOfBudju: number;
-  communityVault: number;
-}> {
-  const cacheKey = `supply_${tokenAddress}`;
-  const cachedSupply = getCachedData(cacheKey);
-  if (cachedSupply !== null) return cachedSupply;
-
-  try {
-    const tokenPublicKey = new PublicKey(tokenAddress);
-    const mint = await getMint(connection, tokenPublicKey);
-    const totalSupply = Number(mint.supply) / 10 ** mint.decimals;
-
-    const accounts = await connection.getParsedProgramAccounts(
-      TOKEN_PROGRAM_ID,
-      {
-        filters: [
-          { dataSize: 165 },
-          { memcmp: { offset: 0, bytes: tokenAddress } },
-        ],
-      },
-    );
-
-    const balances: HeliusTokenBalance[] = accounts
-      .map((account) => {
-        const parsedInfo = account.account.data as { parsed: { info: any } };
-        return {
-          owner: parsedInfo.parsed.info.owner,
-          amount: parsedInfo.parsed.info.tokenAmount.uiAmount || 0,
-        };
-      })
-      .filter((balance) => balance.amount > 0.0001);
-
-    const sumBalancesForOwner = (ownerAddress: string): number =>
-      balances
-        .filter((balance) => balance.owner === ownerAddress)
-        .reduce((sum, balance) => sum + (balance.amount || 0), 0);
-
-    const result = {
-      balances,
-      totalSupply,
-      burned: burnAddress ? sumBalancesForOwner(burnAddress) : 0,
-      raydiumVault: RAYDIUM_VAULT_ADDRESS
-        ? sumBalancesForOwner(RAYDIUM_VAULT_ADDRESS)
-        : 0,
-      bankOfBudju: BANK_OF_BUDJU_ADDRESS
-        ? sumBalancesForOwner(BANK_OF_BUDJU_ADDRESS)
-        : 0,
-      communityVault: COMMUNITY_VAULT_ADDRESS
-        ? sumBalancesForOwner(COMMUNITY_VAULT_ADDRESS)
-        : 0,
-    };
-
-    setCachedData(cacheKey, result, 10 * 60 * 1000);
-    return result;
-  } catch (error) {
-    console.error("Error fetching token supply and balances:", error);
-    return {
-      balances: [],
-      totalSupply: 0,
-      burned: 0,
-      raydiumVault: 0,
-      bankOfBudju: 0,
-      communityVault: 0,
-    };
   }
 }
 
@@ -342,54 +376,83 @@ export async function fetchHeliusTokenMetrics(
   burnAddress: string = BURN_ADDRESS,
 ): Promise<TokenMetrics> {
   try {
-    const results = await Promise.allSettled([
-      fetchTokenPrice(tokenAddress),
-      fetchDexScreenerData(tokenAddress),
-      fetchBirdEyeData(tokenAddress),
-      fetchTokenSupplyAndBalances(tokenAddress, burnAddress),
-      fetchTokenHolders(tokenAddress),
-    ]);
+    const [dexResult, supplyResult, holderResult, jupiterResult, geckoResult, jupTokenResult, raydiumResult, bankResult, devResult, burnEventsResult] =
+      await Promise.allSettled([
+        fetchDexScreenerData(tokenAddress),        // price + marketCap + volume (free, no key)
+        fetchTokenSupply(tokenAddress),             // current on-chain supply
+        fetchHolderCount(tokenAddress),             // holders (Helius DAS, needs API key)
+        fetchJupiterPrice(tokenAddress),            // fallback price via Jupiter Price API v3
+        fetchGeckoTerminalPrice(tokenAddress),      // fallback price via GeckoTerminal
+        fetchJupiterTokenData(tokenAddress),        // enriched data via Jupiter Tokens v2
+        fetchTokenBalance(RAYDIUM_AUTHORITY_V4, tokenAddress),      // Raydium liquidity pool
+        fetchTokenBalance(BANK_OF_BUDJU_ADDRESS, tokenAddress),     // Bank of BUDJU balance
+        fetchTokenBalance(DEVELOPER_VAULT_ADDRESS, tokenAddress),   // Developer vault (never sold)
+        fetchBurnEvents(burnAddress, tokenAddress),                 // burn transfer events
+      ]);
 
-    const [priceResult, dexScreenerResult, birdEyeResult, supplyResult, holdersResult] = results;
-    const price = priceResult.status === "fulfilled" ? priceResult.value : 0;
-    const dexScreenerData =
-      dexScreenerResult.status === "fulfilled"
-        ? dexScreenerResult.value
-        : { price: 0, volume24h: 0, priceChange24h: 0 };
-    const birdEyeData =
-      birdEyeResult.status === "fulfilled"
-        ? birdEyeResult.value
-        : { price: 0, volume24h: 0 };
-    const supplyData =
-      supplyResult.status === "fulfilled"
-        ? supplyResult.value
-        : {
-            balances: [],
-            totalSupply: 0,
-            burned: 0,
-            raydiumVault: 0,
-            bankOfBudju: 0,
-            communityVault: 0,
-          };
-    const holders =
-      holdersResult.status === "fulfilled" ? holdersResult.value : [];
+    const dex = dexResult.status === "fulfilled"
+      ? dexResult.value
+      : { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
+    const currentSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
+    const totalSupply = INITIAL_MINT_SUPPLY;
+    // Burned = sum of all transfers TO the burn address (real burn events from blockchain)
+    const burnEvts = burnEventsResult.status === "fulfilled" ? burnEventsResult.value : [];
+    const burned = burnEvts.reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
+    const heliusHolders = holderResult.status === "fulfilled" ? holderResult.value : 0;
+    const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
+    const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
+    const jupToken = jupTokenResult.status === "fulfilled" ? jupTokenResult.value : null;
+    const raydiumVault = raydiumResult.status === "fulfilled" ? raydiumResult.value : 0;
+    const bankOfBudju = bankResult.status === "fulfilled" ? bankResult.value : 0;
+    const developerVault = devResult.status === "fulfilled" ? devResult.value : 0;
 
-    // Use DexScreener volume if available (free), else fall back to BirdEye
-    const volume24h = dexScreenerData.volume24h > 0
-      ? dexScreenerData.volume24h
-      : birdEyeData.volume24h;
+    // Use first available price: DexScreener → Jupiter Price → Jupiter Tokens → GeckoTerminal
+    const price = dex.price > 0
+      ? dex.price
+      : jupiterPrice > 0
+        ? jupiterPrice
+        : jupToken?.price && jupToken.price > 0
+          ? jupToken.price
+          : geckoPrice;
+    // The burned tokens were transferred to burn address then moved to Raydium,
+    // so raydiumVault includes the burned amount. Subtract it to avoid double-counting.
+    const raydiumAdjusted = Math.max(raydiumVault - burned, 0);
+    const circulatingSupply = totalSupply - burned - raydiumAdjusted - bankOfBudju - developerVault;
+    // Use DexScreener market cap if available, then Jupiter Tokens, else compute from price × supply
+    const marketCap = dex.marketCap > 0
+      ? dex.marketCap
+      : jupToken?.marketCap && jupToken.marketCap > 0
+        ? jupToken.marketCap
+        : price * circulatingSupply;
+    // Use Helius holder count if available, fallback to Jupiter Tokens v2
+    const holders = heliusHolders > 0
+      ? heliusHolders
+      : jupToken?.holders || 0;
+    // Use DexScreener volume if available, fallback to Jupiter Tokens v2
+    const volume24h = dex.volume24h > 0
+      ? dex.volume24h
+      : jupToken?.volume24h || 0;
 
-    const circulatingSupply = supplyData.totalSupply - supplyData.burned;
+    console.log("[TokenService] Metrics:", {
+      totalSupply,
+      burned,
+      raydiumVault: raydiumAdjusted,
+      bankOfBudju,
+      developerVault,
+      circulatingSupply,
+      price,
+    });
+
     return {
       price,
-      marketCap: price * circulatingSupply,
-      holders: holders.length,
+      marketCap,
+      holders,
       volume24h,
-      totalSupply: supplyData.totalSupply,
-      burned: supplyData.burned,
-      raydiumVault: supplyData.raydiumVault,
-      bankOfBudju: supplyData.bankOfBudju,
-      communityVault: supplyData.communityVault,
+      totalSupply,
+      burned,
+      raydiumVault: raydiumAdjusted,
+      bankOfBudju,
+      developerVault,
       circulatingSupply,
     };
   } catch (error) {
@@ -403,51 +466,78 @@ export async function fetchHeliusTokenMetrics(
       burned: 0,
       raydiumVault: 0,
       bankOfBudju: 0,
-      communityVault: 0,
+      developerVault: 0,
       circulatingSupply: 0,
     };
   }
 }
 
-// Fetch token balances
+// Fetch token balances (top holders via Helius DAS getTokenAccounts)
 export async function getTokenBalances(
   tokenAddress: string = TOKEN_ADDRESS,
 ): Promise<HeliusTokenBalance[]> {
+  if (!HELIUS_API_KEY) return [];
   try {
-    const holders = await fetchTokenHolders(tokenAddress);
-    return holders.map((h) => ({ owner: h.owner, amount: h.amount }));
+    const response = await fetch(HELIUS_RPC_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "top-holders-query",
+        method: "getTokenAccounts",
+        params: { page: 1, limit: 1000, displayOptions: {}, mint: tokenAddress },
+      }),
+    });
+    const data = await response.json();
+    // amount is raw (pump.fun tokens have 6 decimals)
+    const accounts: Array<{ owner: string; amount: string }> =
+      data.result?.token_accounts || [];
+    return accounts
+      .map((a) => ({ owner: a.owner, amount: Number(a.amount) / 1e6 }))
+      .filter((a) => a.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
   } catch (error) {
     console.error("Error in getTokenBalances:", error);
-    const { balances } = await fetchTokenSupplyAndBalances(tokenAddress);
-    return balances;
+    return [];
   }
 }
 
-// Fetch historical price data
+// Fetch historical price data via GeckoTerminal (free, no key required)
 export async function fetchHistoricalPriceData(
   tokenAddress: string = TOKEN_ADDRESS,
   days: number,
-  type: string = "1D",
+  _type: string = "1D",
 ): Promise<HistoricalPriceData[]> {
   try {
-    const now = Math.floor(Date.now() / 1000);
-    const timeFrom = now - days * 24 * 60 * 60;
-    const response = await retryFetch(
-      `${BIRDEYE_HISTORICAL_API}?address=${tokenAddress}&address_type=token&type=${type}&time_from=${timeFrom}&time_to=${now}`,
-      {
-        headers: {
-          "X-API-KEY": BIRDEYE_API_KEY,
-          accept: "application/json",
-          "x-chain": "solana",
-        },
-      },
+    // Step 1: find the top pool for this token
+    const poolsResp = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/tokens/${tokenAddress}/pools?page=1`,
+      { headers: { Accept: "application/json;version=20230302" } },
     );
-    const data = await response.json();
-    return (data.data.items || []).map((item: any) => ({
-      date: new Date(item.unixTime * 1000).toISOString().split("T")[0],
-      price: Number(item.value || 0),
-      volume: Number(item.volume || 0),
-    }));
+    const poolsData = await poolsResp.json();
+    const pools: any[] = poolsData.data || [];
+    if (pools.length === 0) throw new Error("No pools found for token");
+
+    // pool id format: "solana_POOL_ADDRESS"
+    const poolAddress = pools[0].id.split("_")[1];
+
+    // Step 2: fetch daily OHLCV
+    const ohlcvResp = await fetch(
+      `https://api.geckoterminal.com/api/v2/networks/solana/pools/${poolAddress}/ohlcv/day?limit=${Math.min(days, 1000)}`,
+      { headers: { Accept: "application/json;version=20230302" } },
+    );
+    const ohlcvData = await ohlcvResp.json();
+    const ohlcvList: number[][] =
+      ohlcvData.data?.attributes?.ohlcv_list || [];
+
+    // GeckoTerminal returns [timestamp, open, high, low, close, volume], newest first
+    return ohlcvList
+      .map(([timestamp, , , , close, volume]) => ({
+        date: new Date(timestamp * 1000).toISOString().split("T")[0],
+        price: close,
+        volume,
+      }))
+      .reverse();
   } catch (error) {
     console.error("Error fetching historical price data:", error);
     const today = new Date();
@@ -469,7 +559,7 @@ export async function fetchHistoricalPriceData(
   }
 }
 
-// Fetch burn events
+// Fetch burn events — uses the burn TOKEN ACCOUNT for reliable signature lookup
 export async function fetchBurnEvents(
   burnAddress: string = BURN_ADDRESS,
   tokenAddress: string = TOKEN_ADDRESS,
@@ -479,26 +569,19 @@ export async function fetchBurnEvents(
   if (cachedBurnEvents !== null) return cachedBurnEvents;
 
   try {
-    const burnBalance = await fetchBurnBalance(burnAddress, tokenAddress);
-    const signatures = await fetchRecentSignatures(burnAddress, 20);
-    const burnEvents =
-      signatures.length === 0
-        ? await createFallbackBurnEvent(burnBalance, tokenAddress)
-        : await processBurnTransactions(signatures, burnAddress, tokenAddress);
+    // Use the burn token account (9NNv...) for signatures — this is the actual
+    // SPL token account that receives BUDJU, so all token transfers show up here.
+    const signatures = await fetchRecentSignatures(BURN_TOKEN_ACCOUNT, 20);
+    let burnEvents: BurnEvent[] = [];
+    if (signatures.length > 0) {
+      burnEvents = await processBurnTransactions(signatures, burnAddress, tokenAddress);
+    }
 
     setCachedData(cacheKey, burnEvents, 10 * 60 * 1000);
-    return burnEvents.length > 0
-      ? burnEvents
-      : await createFallbackBurnEvent(burnBalance, tokenAddress);
+    return burnEvents;
   } catch (error) {
     console.error("Error fetching burn events:", error);
-    const burnBalance = await fetchBurnBalance(burnAddress, tokenAddress);
-    const fallbackEvents = await createFallbackBurnEvent(
-      burnBalance,
-      tokenAddress,
-    );
-    setCachedData(cacheKey, fallbackEvents, 10 * 60 * 1000);
-    return fallbackEvents;
+    return [];
   }
 }
 
@@ -530,22 +613,8 @@ async function fetchBurnBalance(
   burnAddress: string,
   tokenAddress: string,
 ): Promise<number> {
-  try {
-    const burnPublicKey = new PublicKey(burnAddress);
-    const tokenPublicKey = new PublicKey(tokenAddress);
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      burnPublicKey,
-      { mint: tokenPublicKey },
-    );
-    return tokenAccounts.value.reduce(
-      (sum, account) =>
-        sum + (account.account.data.parsed.info.tokenAmount.uiAmount || 0),
-      0,
-    );
-  } catch (error) {
-    console.error("Error fetching burn balance:", error);
-    return 0;
-  }
+  // Reuse the same raw JSON-RPC fetch approach
+  return fetchTokenBalance(burnAddress, tokenAddress);
 }
 
 async function processBurnTransactions(
@@ -557,7 +626,7 @@ async function processBurnTransactions(
     if (signatures.length === 0) return [];
     const signatureStrings = signatures.map((sig) => sig.signature);
 
-    // Fetch transactions individually using the standard getTransaction RPC method
+    // Fetch transactions via the RPC proxy
     const txRequests = signatureStrings.map((sig, i) => ({
       jsonrpc: "2.0",
       id: `tx-${i}`,
@@ -585,37 +654,33 @@ async function processBurnTransactions(
       const sig = signatures[i];
       if (!tx) continue;
 
-      let isBurnTransaction = false;
       let burnAmount = 0;
 
       if (tx.meta && tx.meta.postTokenBalances && tx.meta.preTokenBalances) {
-        const preBalanceMap = new Map();
+        // Build a map of pre-balances keyed by accountIndex
+        const preBalanceMap = new Map<number, number>();
         for (const pre of tx.meta.preTokenBalances) {
           if (pre.mint === tokenAddress) {
             preBalanceMap.set(
               pre.accountIndex,
-              pre.uiTokenAmount.uiAmount || 0,
+              pre.uiTokenAmount?.uiAmount || 0,
             );
           }
         }
+        // Check post-balances: use post.owner (reliable) to match the burn address
         for (const post of tx.meta.postTokenBalances) {
-          if (
-            post.mint === tokenAddress &&
-            tx.transaction.message.accountKeys[post.accountIndex] ===
-              burnAddress
-          ) {
+          if (post.mint === tokenAddress && post.owner === burnAddress) {
             const preBalance = preBalanceMap.get(post.accountIndex) || 0;
-            const postBalance = post.uiTokenAmount.uiAmount || 0;
+            const postBalance = post.uiTokenAmount?.uiAmount || 0;
             const diff = postBalance - preBalance;
             if (diff > 0) {
-              isBurnTransaction = true;
               burnAmount += diff;
             }
           }
         }
       }
 
-      if (isBurnTransaction && burnAmount > 0) {
+      if (burnAmount > 0) {
         const timestamp = sig.blockTime * 1000;
         const date = new Date(timestamp).toLocaleDateString("en-US", {
           month: "short",

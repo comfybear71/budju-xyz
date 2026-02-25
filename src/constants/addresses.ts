@@ -13,17 +13,19 @@ export const BURN_ADDRESS_ACCOUNT =
   
 export const BANK_ADDRESS =
   import.meta.env.VITE_BANK_ADDRESS ||
-  "7grCp49j6SExSRud7YA5TdDSbWFyAJjLGif8Syr5CVpc";
+  "83Tk1BGzRDqG7SmHwWEDyEDtmxVT7oz3Tgqcofi5rnF4";
 
 // Platform links
 export const DEX_LINK =
   "https://budjucoin.com/swap";
+export const RAYDIUM_SWAP_LINK =
+  "https://raydium.io/swap/?inputMint=sol&outputMint=2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 export const SOLSCAN_LINK =
   "https://solscan.io/token/2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 export const DEXSCREENER_LINK =
   "https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez";
 export const SHOP_URL =
-  import.meta.env.VITE_SHOP_URL || "https://shop.budjucoin.com";
+  import.meta.env.VITE_SHOP_URL || "https://shop-of-budjus.myspreadshop.com.au";
 export const BURN_URL = 
   "https://solscan.io/account/9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf";
 
@@ -31,6 +33,16 @@ export const BURN_URL =
 export const NFT_TARGET_HOLDERS = Number(
   import.meta.env.VITE_NFT_TARGET_HOLDERS || 1000,
 );
+
+// Swyftx USDC Solana deposit wallet (receives user USDC deposits for trading)
+export const POOL_WALLET =
+  import.meta.env.VITE_POOL_WALLET || "83Tk1BGzRDqG7SmHwWEDyEDtmxVT7oz3Tgqcofi5rnF4";
+
+// USDC SPL token mint
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+// JLP (Jupiter Liquidity Provider) token mint
+export const JLP_MINT = "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4";
 
 // RPC endpoints
 export const RPC_ENDPOINT =
@@ -41,8 +53,9 @@ export const HELIUS_RPC = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_
 // Wallet config
 export const WALLET_ADAPTER_NETWORK = "mainnet-beta"; // or 'devnet'
 
-// Pool addresses
-export const POOL_SOL_BUDJU = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
+// Pool addresses (Raydium AMM — main liquidity)
+export const POOL_SOL_BUDJU = "6PMhvxG7a3wceKBpGJgMVivBG1NUfSz9nA7CaQsJxMEZ";
+export const POOL_SOL_BUDJU_CLMM = "D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka";
 export const POOL_USDC_BUDJU = "HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC";
 
 //Referral link

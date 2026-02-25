@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@hooks/useWallet";
-import { Transaction, VersionedTransaction, Connection } from "@solana/web3.js";
+import { VersionedTransaction, Connection } from "@solana/web3.js";
 import {
   initializeTokenRegistry,
   getTokenBySymbol,
 } from "@lib/services/tokenRegistry";
 import { getChartData, CandlestickData } from "@lib/services/chartApi";
 
-const JUPITER_API_URL = "https://quote-api.jup.ag/v6";
+// Route through server-side proxy so any Jupiter API key stays secret.
+// Falls back to free lite-api.jup.ag when no key is configured.
+const JUPITER_PROXY_URL = "/api/jupiter";
 
 export interface SwapEstimate {
   inAmount: number;
@@ -71,23 +73,30 @@ export const useTrading = (
           throw new Error("Token not found in registry");
         }
 
-        const inputAmount =
-          parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
+        const inputAmount = Math.round(
+          parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals),
+        );
 
         const quoteResponse = await fetch(
-          `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
+          `${JUPITER_PROXY_URL}?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
         );
 
         if (!quoteResponse.ok) {
-          throw new Error("Failed to fetch swap quote");
+          const errorData = await quoteResponse.json().catch(() => null);
+          throw new Error(
+            errorData?.error || "Failed to fetch swap quote",
+          );
         }
 
         const quote = await quoteResponse.json();
 
+        const inAmt = Number(quote.inAmount);
+        const outAmt = Number(quote.outAmount);
+
         setEstimate({
-          inAmount: quote.inAmount,
-          outAmount: quote.outAmount,
-          estimatedPrice: quote.outAmount / quote.inAmount,
+          inAmount: inAmt,
+          outAmount: outAmt,
+          estimatedPrice: inAmt > 0 ? outAmt / inAmt : 0,
           slippageBps: quote.slippageBps,
         });
       } catch (err) {
@@ -123,19 +132,21 @@ export const useTrading = (
         throw new Error("Token not found in registry");
       }
 
-      const inputAmount =
-        parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals);
+      const inputAmount = Math.round(
+        parseFloat(amount) * Math.pow(10, fromTokenInfo.decimals),
+      );
 
       // Step 1: Get a quote first
       console.log("Fetching quote...");
+
       const quoteResponse = await fetch(
-        `${JUPITER_API_URL}/quote?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
+        `${JUPITER_PROXY_URL}?inputMint=${fromTokenInfo.address}&outputMint=${toTokenInfo.address}&amount=${inputAmount}&slippageBps=${slippageBps}`,
       );
 
       if (!quoteResponse.ok) {
-        const errorText = await quoteResponse.text();
-        console.error("Quote response error:", errorText);
-        throw new Error(`Failed to fetch swap quote: ${errorText}`);
+        const errorData = await quoteResponse.json().catch(() => null);
+        console.error("Quote response error:", errorData);
+        throw new Error(errorData?.error || "Failed to fetch swap quote");
       }
 
       const quoteData = await quoteResponse.json();
@@ -144,25 +155,25 @@ export const useTrading = (
       // Step 2: Create a swap transaction using the quote
       console.log("Creating swap transaction...");
 
-      // Format the request body according to Jupiter API v6 requirements
       const swapRequestBody = {
         quoteResponse: quoteData,
         userPublicKey: connection.wallet.address,
-        wrapUnwrapSOL: true,
+        wrapAndUnwrapSol: true,
+        dynamicComputeUnitLimit: true,
       };
 
       console.log("Swap request body:", JSON.stringify(swapRequestBody));
 
-      const swapResponse = await fetch(`${JUPITER_API_URL}/swap`, {
+      const swapResponse = await fetch(JUPITER_PROXY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(swapRequestBody),
       });
 
       if (!swapResponse.ok) {
-        const errorText = await swapResponse.text();
-        console.error("Swap response error:", errorText);
-        throw new Error(`Failed to fetch swap transaction: ${errorText}`);
+        const errorData = await swapResponse.json().catch(() => null);
+        console.error("Swap response error:", errorData);
+        throw new Error(errorData?.error || "Failed to fetch swap transaction");
       }
 
       const swapData = await swapResponse.json();
@@ -175,7 +186,7 @@ export const useTrading = (
       // Step 3: Process the transaction with the wallet
       console.log("Processing transaction with wallet...");
 
-      // Handle versioned transaction from Jupiter v6
+      // Handle versioned transaction from Jupiter
       const transactionBuffer = Buffer.from(swapData.swapTransaction, "base64");
       const versionedTransaction =
         VersionedTransaction.deserialize(transactionBuffer);
@@ -183,7 +194,7 @@ export const useTrading = (
       console.log("Signing transaction...");
 
       // For versioned transactions, we need to handle it differently based on wallet
-      const provider = window.solana || window.solflare;
+      const provider = window.solana || window.solflare || window.jupiter;
       if (!provider) throw new Error("No wallet provider found");
 
       try {

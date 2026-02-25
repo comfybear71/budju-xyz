@@ -1,7 +1,7 @@
 import { useRef, useEffect } from "react";
 import { motion } from "motion/react";
 import { gsap } from "gsap";
-import { FaShieldAlt, FaBolt, FaExchangeAlt, FaWallet } from "react-icons/fa";
+import { FaShieldAlt, FaBolt, FaExchangeAlt, FaWallet, FaCopy } from "react-icons/fa";
 import { TOKEN_ADDRESS } from "@constants/addresses";
 import CopyToClipboard from "@components/common/CopyToClipboard";
 import { useTheme } from "@/context/ThemeContext";
@@ -16,7 +16,11 @@ const wallets = [
       { icon: FaExchangeAlt, text: "Built-in DEX swaps" },
     ],
     downloadUrl: "https://phantom.app/",
-    background: "bg-gradient-to-br from-purple-300 to-purple-900",
+    color: "text-purple-400",
+    bg: "bg-purple-500/10",
+    border: "border-purple-500/20",
+    hoverBorder: "hover:border-purple-500/40",
+    iconColor: "text-purple-400/70",
   },
   {
     name: "Jupiter",
@@ -27,7 +31,11 @@ const wallets = [
       { icon: FaWallet, text: "Multiple wallet support" },
     ],
     downloadUrl: "https://jup.ag/",
-    background: "bg-gradient-to-br from-orange-300 to-red-800",
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500/20",
+    hoverBorder: "hover:border-orange-500/40",
+    iconColor: "text-orange-400/70",
   },
   {
     name: "Solflare",
@@ -38,7 +46,11 @@ const wallets = [
       { icon: FaWallet, text: "Multiple wallet support" },
     ],
     downloadUrl: "https://www.solflare.com/",
-    background: "bg-gradient-to-br from-green-300 to-green-800",
+    color: "text-green-400",
+    bg: "bg-green-500/10",
+    border: "border-green-500/20",
+    hoverBorder: "hover:border-green-500/40",
+    iconColor: "text-green-400/70",
   },
 ];
 
@@ -50,128 +62,141 @@ const WalletOptions = () => {
   useEffect(() => {
     if (sectionRef.current && cardsRef.current) {
       const cards = cardsRef.current.querySelectorAll(".wallet-card");
-
-      // Animate cards on scroll
       gsap.fromTo(
         cards,
-        {
-          opacity: 0,
-          y: 30,
-          scale: 0.95,
-        },
+        { opacity: 0, y: 20, scale: 0.98 },
         {
           opacity: 1,
           y: 0,
           scale: 1,
-          stagger: 0.2,
-          duration: 0.8,
+          stagger: 0.1,
+          duration: 0.5,
           ease: "power2.out",
-          scrollTrigger: {
-            trigger: cardsRef.current,
-            start: "top 80%",
-          },
+          scrollTrigger: { trigger: cardsRef.current, start: "top 80%" },
         },
       );
     }
   }, []);
 
   return (
-    <section ref={sectionRef} className="py-20">
-      <div className="budju-container">
+    <section ref={sectionRef} className="py-16 px-4">
+      <div className="max-w-5xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="text-center mb-10"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            <span className="text-budju-blue">RECOMMENDED</span>{" "}
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              WALLETS
+          <h2
+            className={`text-2xl md:text-3xl font-bold font-display mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+          >
+            Recommended{" "}
+            <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+              Wallets
             </span>
           </h2>
           <p
-            className={`text-lg ${isDarkMode ? "text-gray-300" : "text-white"} max-w-3xl mx-auto`}
+            className={`text-sm max-w-lg mx-auto ${isDarkMode ? "text-gray-500" : "text-gray-500"}`}
           >
             Choose one of these trusted wallets to start your BUDJU journey.
-            Both options offer a secure and easy way to buy, store and manage
-            your tokens.
           </p>
         </motion.div>
 
         {/* Wallet Cards */}
         <div
           ref={cardsRef}
-          className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mb-12"
+          className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto mb-10"
         >
           {wallets.map((wallet) => (
             <div
               key={wallet.name}
-              className={`wallet-card rounded-xl overflow-hidden shadow-budju ${wallet.background} transition-all duration-500 hover:shadow-budju-lg hover:-translate-y-2`}
+              className={`wallet-card rounded-xl border p-5 transition-all duration-300 hover:scale-[1.02] ${
+                isDarkMode
+                  ? `bg-[#0c0c20]/60 ${wallet.border} ${wallet.hoverBorder}`
+                  : `bg-white/60 border-gray-200/40 hover:border-gray-300/60`
+              } backdrop-blur-sm`}
             >
-              <div className="p-6">
-                {/* Wallet Header */}
-                <div className="flex items-center mb-6">
-                  <img
-                    src={wallet.logo}
-                    alt={`${wallet.name} Logo`}
-                    className="w-12 h-12 mr-4"
-                  />
-                  <h3 className="text-2xl font-bold text-white">
-                    {wallet.name}
-                  </h3>
-                </div>
-
-                {/* Features */}
-                <ul className="space-y-3 mb-8">
-                  {wallet.features.map((feature, index) => (
-                    <li key={index} className="flex items-center text-white">
-                      <feature.icon className="mr-3 text-white/70" />
-                      <span>{feature.text}</span>
-                    </li>
-                  ))}
-                </ul>
-
-                {/* Download Button */}
-                <a
-                  href={wallet.downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full bg-white/10 hover:bg-white/20 text-white font-bold py-3 px-4 rounded-lg text-center transition-colors duration-300"
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-4">
+                <img
+                  src={wallet.logo}
+                  alt={`${wallet.name} Logo`}
+                  className="w-10 h-10"
+                />
+                <h3
+                  className={`text-base font-bold ${isDarkMode ? "text-white" : "text-gray-900"}`}
                 >
-                  Download {wallet.name}
-                </a>
+                  {wallet.name}
+                </h3>
               </div>
+
+              {/* Features */}
+              <ul className="space-y-2 mb-5">
+                {wallet.features.map((feature, index) => (
+                  <li key={index} className="flex items-center gap-2">
+                    <feature.icon className={wallet.iconColor} size={12} />
+                    <span
+                      className={`text-xs ${isDarkMode ? "text-gray-400" : "text-gray-600"}`}
+                    >
+                      {feature.text}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              {/* Download Button */}
+              <a
+                href={wallet.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`block w-full py-2.5 rounded-lg text-xs font-bold text-center transition-all ${
+                  isDarkMode
+                    ? `${wallet.bg} ${wallet.border} border ${wallet.color} hover:opacity-80`
+                    : "bg-gray-900 text-white hover:bg-gray-800"
+                }`}
+              >
+                Download {wallet.name}
+              </a>
             </div>
           ))}
         </div>
 
-        {/* BUDJU Token Address */}
+        {/* Token Address */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
-          className={`max-w-4xl mx-auto ${isDarkMode ? "bg-gray-900/50 border-gray-800" : "bg-white/20 border-white/30"} rounded-xl border p-6`}
+          initial={{ opacity: 0, y: 15 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className={`max-w-3xl mx-auto rounded-xl border p-5 ${
+            isDarkMode
+              ? "bg-[#0c0c20]/60 border-white/[0.06]"
+              : "bg-white/60 border-gray-200/40"
+          } backdrop-blur-sm`}
         >
-          <h3 className="text-2xl font-semibold mb-4 text-center">
-            <span className="text-budju-blue">BUDJU</span>{" "}
-            <span className={isDarkMode ? "text-white" : "text-budju-white"}>
-              TOKEN ADDRESS
+          <h3
+            className={`text-base font-bold font-display text-center mb-2 ${isDarkMode ? "text-white" : "text-gray-900"}`}
+          >
+            BUDJU{" "}
+            <span className="bg-gradient-to-r from-budju-pink to-budju-blue bg-clip-text text-transparent">
+              Token Address
             </span>
           </h3>
 
           <p
-            className={`${isDarkMode ? "text-gray-300" : "text-white"} mb-4 text-center`}
+            className={`text-xs text-center mb-3 ${isDarkMode ? "text-gray-500" : "text-gray-500"}`}
           >
             Copy this address to add the BUDJU token to your wallet or when
-            performing a swap:
+            performing a swap.
           </p>
 
           <div
-            className={`flex items-center ${isDarkMode ? "bg-gray-800/80" : "bg-white/30"} p-3 rounded-lg`}
+            className={`flex items-center gap-2 p-3 rounded-lg ${
+              isDarkMode
+                ? "bg-white/[0.03] border border-white/[0.06]"
+                : "bg-gray-50 border border-gray-200/60"
+            }`}
           >
             <code
-              className={`text-sm ${isDarkMode ? "text-gray-300" : "text-white"} font-mono truncate flex-1`}
+              className={`text-[11px] font-mono truncate flex-1 ${isDarkMode ? "text-gray-300" : "text-gray-700"}`}
             >
               {TOKEN_ADDRESS}
             </code>
@@ -179,10 +204,10 @@ const WalletOptions = () => {
           </div>
 
           <p
-            className={`text-center ${isDarkMode ? "text-gray-400" : "text-white/80"} mt-4 text-sm`}
+            className={`text-center text-[10px] mt-2 ${isDarkMode ? "text-gray-600" : "text-gray-400"}`}
           >
-            Always double-check this address when swapping to ensure you're
-            buying the genuine BUDJU token!
+            Always double-check this address to ensure you're buying the genuine
+            BUDJU token!
           </p>
         </motion.div>
       </div>

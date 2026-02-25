@@ -1,18 +1,20 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { getAccount, getAssociatedTokenAddress } from "@solana/spl-token";
 import { TOKEN_ADDRESS } from "@constants/addresses";
 
-const HELIUS_API_KEY = import.meta.env.VITE_HELIUS_API_KEY || "";
-const HELIUS_RPC_ENDPOINT = `https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
-const DEVNET_RPC_ENDPOINT = "https://api.devnet.solana.com"; // Example Devnet RPC
+// ==========================================
+// RPC Proxy — route all Solana calls through the server-side proxy
+// so the Helius API key stays server-side (never in the browser).
+// Matches the proven FLUB pattern: browser → /api/rpc → Helius/public RPC.
+// ==========================================
 
-// Network configurations
-const networks = {
-  mainnet: new Connection(HELIUS_RPC_ENDPOINT, "confirmed"),
-  devnet: new Connection(DEVNET_RPC_ENDPOINT, "confirmed"),
-};
+const RPC_PROXY = "/api/rpc";
+const FALLBACK_RPC = "https://api.mainnet-beta.solana.com";
 
-export type Network = keyof typeof networks;
+const SPL_TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+// USDC mint address
+const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+export type Network = "mainnet" | "devnet";
 
 export interface TokenBalance {
   symbol: string;
@@ -32,70 +34,112 @@ export interface WalletData {
   balance: WalletBalance;
 }
 
+/**
+ * Make a JSON-RPC call to Solana via the server-side proxy.
+ * Falls back to public RPC if the proxy is unreachable.
+ */
+async function solanaRpc(
+  method: string,
+  params: unknown[],
+): Promise<any> {
+  const endpoints = [RPC_PROXY, FALLBACK_RPC];
+
+  for (const endpoint of endpoints) {
+    try {
+      console.log(`[BUDJU] RPC ${method} → ${endpoint}`);
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method,
+          params,
+        }),
+      });
+
+      if (!response.ok) {
+        console.warn(`[BUDJU] RPC ${endpoint} returned ${response.status}, trying next…`);
+        continue;
+      }
+
+      const json = await response.json();
+
+      if (json.error) {
+        console.warn(`[BUDJU] RPC ${endpoint} error: ${json.error.message}, trying next…`);
+        continue;
+      }
+
+      console.log(`[BUDJU] RPC ${method} success via ${endpoint}`);
+      return json.result;
+    } catch (error) {
+      console.warn(`[BUDJU] RPC ${endpoint} failed:`, error);
+      continue;
+    }
+  }
+
+  console.error(`[BUDJU] All RPC endpoints failed for ${method}`);
+  return null;
+}
+
+/**
+ * Get SOL balance for a wallet address.
+ */
+async function getSolBalance(walletAddress: string): Promise<number> {
+  try {
+    const result = await solanaRpc("getBalance", [
+      walletAddress,
+      { commitment: "confirmed" },
+    ]);
+
+    if (result && typeof result.value === "number") {
+      const sol = result.value / 1e9;
+      console.log(`[BUDJU] SOL balance: ${sol}`);
+      return sol;
+    }
+    return 0;
+  } catch (error) {
+    console.error("[BUDJU] Error fetching SOL balance:", error);
+    return 0;
+  }
+}
+
+/**
+ * Get a single SPL token balance by mint address.
+ * Matches the FLUB pattern: getTokenAccountsByOwner with { mint }.
+ */
+async function getTokenBalance(
+  walletAddress: string,
+  mintAddress: string,
+): Promise<number> {
+  try {
+    const result = await solanaRpc("getTokenAccountsByOwner", [
+      walletAddress,
+      { mint: mintAddress },
+      { encoding: "jsonParsed", commitment: "confirmed" },
+    ]);
+
+    if (result && Array.isArray(result.value) && result.value.length > 0) {
+      const info = result.value[0]?.account?.data?.parsed?.info;
+      const uiAmount = info?.tokenAmount?.uiAmount || 0;
+      console.log(`[BUDJU] Token ${mintAddress}: ${uiAmount}`);
+      return uiAmount;
+    }
+    return 0;
+  } catch (error) {
+    console.error(`[BUDJU] Error fetching token ${mintAddress}:`, error);
+    return 0;
+  }
+}
+
 const walletService = {
-  // Current network
   currentNetwork: "mainnet" as Network,
 
-  // Switch network
   switchNetwork(network: Network): void {
-    if (networks[network]) {
-      this.currentNetwork = network;
-    } else {
-      throw new Error(`Unsupported network: ${network}`);
-    }
+    this.currentNetwork = network;
   },
 
-  // Get current connection
-  getConnection(): Connection {
-    return networks[this.currentNetwork];
-  },
-
-  // Get SOL balance
-  async getSolBalance(walletAddress: string): Promise<number> {
-    try {
-      const publicKey = new PublicKey(walletAddress);
-      const balance = await this.getConnection().getBalance(
-        publicKey,
-        "confirmed",
-      );
-      return balance / 1e9; // Convert lamports to SOL
-    } catch (error) {
-      console.error("Error fetching SOL balance:", error);
-      throw new Error("Failed to fetch SOL balance");
-    }
-  },
-
-  // Get token balance
-  async getTokenBalance(
-    walletAddress: string,
-    tokenAddress: string,
-    decimals: number = 6,
-  ): Promise<number> {
-    try {
-      const walletPublicKey = new PublicKey(walletAddress);
-      const tokenPublicKey = new PublicKey(tokenAddress);
-
-      const tokenAccountAddress = await getAssociatedTokenAddress(
-        tokenPublicKey,
-        walletPublicKey,
-      );
-
-      const tokenAccount = await getAccount(
-        this.getConnection(),
-        tokenAccountAddress,
-        "confirmed",
-      );
-      return Number(tokenAccount.amount) / 10 ** decimals;
-    } catch (error) {
-      if ((error as any).message.includes("TokenAccountNotFound")) {
-        return 0; // No token account exists
-      }
-      console.error(`Error fetching token balance for ${tokenAddress}:`, error);
-      throw new Error(`Failed to fetch balance for token ${tokenAddress}`);
-    }
-  },
-
-  // Fetch all balances for a wallet
+  // Fetch all balances for a wallet — SOL + each token individually by mint
   async fetchWalletBalances(
     walletAddress: string,
     customTokens: { symbol: string; address: string; decimals: number }[] = [
@@ -103,30 +147,32 @@ const walletService = {
     ],
   ): Promise<WalletBalance> {
     try {
-      const solBalancePromise = this.getSolBalance(walletAddress);
-      const tokenBalancePromises = customTokens.map((token) =>
-        this.getTokenBalance(walletAddress, token.address, token.decimals).then(
-          (amount) => ({
-            symbol: token.symbol,
-            address: token.address,
-            amount,
-            decimals: token.decimals,
-          }),
-        ),
-      );
+      console.log("[BUDJU] fetchWalletBalances for:", walletAddress);
 
+      // Ensure USDC is always included
+      const hasUsdc = customTokens.some((t) => t.address === USDC_MINT);
+      const tokens = hasUsdc
+        ? customTokens
+        : [...customTokens, { symbol: "USDC", address: USDC_MINT, decimals: 6 }];
+
+      // Fetch SOL + each token in parallel (just like FLUB does)
       const [solBalance, ...tokenBalances] = await Promise.all([
-        solBalancePromise,
-        ...tokenBalancePromises,
+        getSolBalance(walletAddress),
+        ...tokens.map((t) => getTokenBalance(walletAddress, t.address)),
       ]);
 
-      return {
-        sol: solBalance,
-        tokens: tokenBalances,
-      };
+      const result: TokenBalance[] = tokens.map((t, i) => ({
+        symbol: t.symbol,
+        address: t.address,
+        amount: tokenBalances[i],
+        decimals: t.decimals,
+      }));
+
+      console.log("[BUDJU] Final balances:", { sol: solBalance, tokens: result });
+      return { sol: solBalance, tokens: result };
     } catch (error) {
-      console.error("Error fetching wallet balances:", error);
-      throw error;
+      console.error("[BUDJU] Error fetching wallet balances:", error);
+      return { sol: 0, tokens: [] };
     }
   },
 
@@ -142,18 +188,14 @@ const walletService = {
     let isActive = true;
 
     const updateBalances = async () => {
-      try {
-        const balances = await this.fetchWalletBalances(
-          walletAddress,
-          customTokens,
-        );
-        if (isActive) callback(balances);
-      } catch (error) {
-        console.error("Balance update failed:", error);
-      }
+      const balances = await this.fetchWalletBalances(
+        walletAddress,
+        customTokens,
+      );
+      if (isActive) callback(balances);
     };
 
-    updateBalances(); // Initial fetch
+    updateBalances();
     const interval = setInterval(updateBalances, intervalMs);
 
     return () => {
@@ -162,19 +204,16 @@ const walletService = {
     };
   },
 
-  // Format address for display
   formatAddress(address: string): string {
     if (!address) return "";
     return `${address.slice(0, 4)}...${address.slice(-4)}`;
   },
 
-  // Copy address to clipboard
   async copyAddress(address: string): Promise<void> {
     if (!address) throw new Error("No address provided");
     await navigator.clipboard.writeText(address);
   },
 
-  // Open Solscan link
   openSolscan(address: string): void {
     if (!address) return;
     const baseUrl =

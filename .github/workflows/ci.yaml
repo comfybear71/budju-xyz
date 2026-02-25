@@ -2,7 +2,7 @@ name: Deploy to Vercel
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, claude/restore-solana-website-BgXcP ]
 
 jobs:
   deploy:
@@ -37,7 +37,6 @@ jobs:
           echo "VITE_SHOP_URL=${{ secrets.VITE_SHOP_URL }}" >> .env
           echo "VITE_ANALYTICS_ID=${{ secrets.VITE_ANALYTICS_ID }}" >> .env
           echo "VITE_SOLANA_RPC_ENDPOINT=${{ secrets.VITE_SOLANA_RPC_ENDPOINT }}" >> .env
-          echo "VITE_BIRDEYE_API_KEY=${{ secrets.VITE_BIRDEYE_API_KEY }}" >> .env
           echo "VITE_CRYPTOCOMPARE_API_KEY=${{ secrets.VITE_CRYPTOCOMPARE_API_KEY }}" >> .env
 
       - name: Install dependencies
@@ -64,8 +63,8 @@ jobs:
           }
           EOF
 
+      - name: Link Vercel project
+        run: vercel link --yes --scope=stuarts-projects-e0d342be --token=${{ secrets.VERCEL_TOKEN }}
+
       - name: Deploy to Vercel
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

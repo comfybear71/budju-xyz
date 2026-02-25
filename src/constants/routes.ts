@@ -9,6 +9,9 @@ export const ROUTES = {
   NFT: "/nft",
   HOW_TO_BUY: "/how-to-buy", // Added back
   BURN: "/burn",             // New Burn page
+  BALANCE: "/balance",       // Check BUDJU balance
+  TRADE: "/trade",           // Trading Board
+  MARKETING: "/marketing",   // Marketing materials
 };
 
 // Route names for navbar
@@ -22,4 +25,6 @@ export const ROUTE_NAMES = {
   [ROUTES.NFT]: "NFT's",              // Updated per your previous request
   [ROUTES.HOW_TO_BUY]: "How To Buy",  // Added back
   [ROUTES.BURN]: "Burn",              // Name for Burn
+  [ROUTES.TRADE]: "Trade",            // Name for Trade
+  [ROUTES.MARKETING]: "Marketing",    // Name for Marketing
 };

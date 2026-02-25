@@ -1,59 +1,48 @@
 import { useEffect } from "react";
 import { APP_NAME } from "@constants/config";
 import { BudjuParadeBanner } from "@components/common/ScrollingBanner";
-import MintingCountdown from "./components/MintingCountdown";
-import NFTFaq from "./components/NFTFaq";
-import NFTGallery from "./components/NFTGallery";
 import NFTHero from "./components/NFTHero";
+import NFTGoldenShowcase from "./components/NFTGoldenShowcase";
+import NFTMarketplace from "./components/NFTMarketplace";
 import NFTHolderBenefits from "./components/NFTHolderBenefits";
-import NFTRoadmap from "./components/NFTRoadmap";
 
 const NFT = () => {
   useEffect(() => {
-    // Scroll to top on page load
     window.scrollTo(0, 0);
 
-    // Set document title and metadata
-    document.title = `NFT Collection - ${APP_NAME}`;
+    document.title = `NFT Marketplace - ${APP_NAME}`;
 
-    // Update meta description
     const metaDescription = document.querySelector('meta[name="description"]');
+    const content =
+      "BUDJU NFT Marketplace — browse, buy, and collect 30 unique NFTs on Solana. Pay with BUDJU, USDC, or SOL.";
     if (metaDescription) {
-      metaDescription.setAttribute(
-        "content",
-        "Exclusive BUDJU NFT collection - unique digital collectibles for the BUDJU community with special holder benefits.",
-      );
+      metaDescription.setAttribute("content", content);
     } else {
-      const newMetaDescription = document.createElement("meta");
-      newMetaDescription.name = "description";
-      newMetaDescription.content =
-        "Exclusive BUDJU NFT collection - unique digital collectibles for the BUDJU community with special holder benefits.";
-      document.head.appendChild(newMetaDescription);
+      const el = document.createElement("meta");
+      el.name = "description";
+      el.content = content;
+      document.head.appendChild(el);
     }
   }, []);
 
   return (
     <main>
-      {/* Hero Section */}
+      {/* Hero */}
       <NFTHero />
 
       {/* Scrolling Banner */}
       <BudjuParadeBanner />
 
-      {/* Minting Countdown */}
-      <MintingCountdown />
+      {/* Golden NFT Showcase */}
+      <NFTGoldenShowcase />
 
-      {/* NFT Gallery */}
-      <NFTGallery />
+      {/* Full Marketplace */}
+      <div id="marketplace">
+        <NFTMarketplace />
+      </div>
 
-      {/* NFT Holder Benefits */}
+      {/* Holder Benefits */}
       <NFTHolderBenefits />
-
-      {/* NFT Roadmap */}
-      <NFTRoadmap />
-
-      {/* NFT FAQ */}
-      <NFTFaq />
     </main>
   );
 };

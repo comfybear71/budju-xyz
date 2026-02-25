@@ -141,7 +141,7 @@ const BankIntro = () => {
                   </code>
                   <CopyToClipboard text={BANK_ADDRESS} />
                   <a
-                    href={BANK_ADDRESS}
+                    href={`https://solscan.io/account/${BANK_ADDRESS}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className={`p-2 rounded-full transition-colors ${isDarkMode ? "text-budju-pink hover:bg-gray-600" : "text-budju-pink-dark hover:bg-gray-700"}`}
