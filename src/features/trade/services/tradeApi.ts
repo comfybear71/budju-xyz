@@ -376,20 +376,20 @@ export async function fetchLeaderboard(poolValue: number): Promise<LeaderboardEn
   });
 }
 
-/** Fetch transactions from MongoDB */
+/** Fetch transactions from MongoDB — throws on failure so callers can show errors */
 export async function fetchTransactions(
   wallet: string,
 ): Promise<TradeTransaction[]> {
-  return cached(`txns_${wallet}`, 30_000, async () => {
-    try {
-      const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.transactions || [];
-    } catch {
-      return [];
-    }
-  });
+  // Bypass cache so we always get fresh data when the user opens Activity
+  delete cache[`txns_${wallet}`];
+
+  const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(body || `API error ${res.status}`);
+  }
+  const data = await res.json();
+  return data.transactions || [];
 }
 
 /** Fetch pool stats from MongoDB (public - visible to all visitors) */
@@ -725,9 +725,10 @@ export async function recordDeposit(
       return { success: false, error: data.error || "Deposit recording failed" };
     }
 
-    // Invalidate cached stats so next fetch reflects new shares
+    // Invalidate cached stats and transactions so next fetch reflects new data
     delete cache["admin_stats"];
     delete cache[`position_${walletAddress}`];
+    delete cache[`txns_${walletAddress}`];
 
     alog.log(`Deposit recorded: $${amountUsd.toFixed(2)} USD → ${data.shares?.toFixed(2)} shares at NAV $${data.nav?.toFixed(4)}`, "success");
     return { success: true, shares: data.shares, nav: data.nav };
@@ -756,9 +757,10 @@ export async function submitUserDeposit(
       return { success: false, error: data.error || "Deposit recording failed" };
     }
 
-    // Invalidate cached stats
+    // Invalidate cached stats and transactions
     delete cache["admin_stats"];
     delete cache[`position_${walletAddress}`];
+    delete cache[`txns_${walletAddress}`];
 
     alog.log(`User deposit: $${amount.toFixed(2)} USDC → ${data.shares?.toFixed(2)} shares`, "success");
     return { success: true, shares: data.shares, nav: data.nav };
@@ -789,6 +791,12 @@ export async function recordTradeInDB(
         price,
       }),
     });
+    if (res.ok) {
+      // Invalidate transaction cache so Activity page shows new trade
+      for (const key of Object.keys(cache)) {
+        if (key.startsWith("txns_")) delete cache[key];
+      }
+    }
     return res.ok;
   } catch {
     return false;
