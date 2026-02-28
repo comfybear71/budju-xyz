@@ -121,6 +121,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
   const grouped = getGrouped();
   const monitoringCount = Object.values(grouped).reduce((s, g) => s + g.length, 0);
   const tradeLog = state?.autoTradeLog || [];
+  const buyCount = tradeLog.filter((e: any) => e.side?.toLowerCase() !== "sell").length;
+  const sellCount = tradeLog.filter((e: any) => e.side?.toLowerCase() === "sell").length;
   const botActive = state?.autoBotActive ?? false;
 
   // Detect recently traded coins from trade log (within last 60s)
@@ -458,7 +460,19 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                   {/* Trade Log */}
                   <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
                     <div className="px-2.5 py-1.5" style={{ background: "rgba(59,130,246,0.08)" }}>
-                      <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+                        {tradeLog.length > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                              {buyCount} Buy{buyCount !== 1 ? "s" : ""}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
+                              {sellCount} Sell{sellCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div style={{ maxHeight: 200, overflowY: "auto" }}>
                       {tradeLog.length === 0 ? (

@@ -112,6 +112,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
   const tradeLog = snapshot.tradeLog;
+  const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
+  const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
   const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
@@ -682,7 +684,19 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
         {/* ── Trade Log ── */}
         <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
           <div className="px-2.5 py-1.5 flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)" }}>
-            <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+              {tradeLog.length > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                    {buyCount} Buy{buyCount !== 1 ? "s" : ""}
+                  </span>
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
+                    {sellCount} Sell{sellCount !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              )}
+            </div>
             <button
               onClick={handleSyncTrades}
               className="text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
