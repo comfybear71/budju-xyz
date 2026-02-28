@@ -583,8 +583,7 @@ const HoldingsList = ({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -30 }}
             transition={{ duration: 0.25 }}
-            className="space-y-2 max-h-[50vh] overflow-y-auto pr-1"
-            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(148,163,184,0.2) transparent" }}
+            className="space-y-2"
           >
             {sorted.map((asset, index) => {
               const cfg = ASSET_CONFIG[asset.code];
