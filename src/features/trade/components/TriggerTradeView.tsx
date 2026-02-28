@@ -221,7 +221,7 @@ const TriggerTradeView = ({
           trigger: triggerPrice,
           amount: tradeAmount,
           currentPrice,
-          proximity: Math.round(Math.abs(currentPrice - triggerPrice) / currentPrice * 10000) / 100,
+          proximity: currentPrice > 0 ? Math.round(Math.abs(currentPrice - triggerPrice) / currentPrice * 10000) / 100 : 0,
           created: new Date().toISOString(),
           _local: true,
         };
@@ -244,7 +244,8 @@ const TriggerTradeView = ({
           setTimeout(() => loadOrders(), delay);
         }
       } else {
-        setShowError(result.error || "Order failed");
+        const errMsg = result.error || "Order failed";
+        setShowError(typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg));
         setTimeout(() => setShowError(null), 4000);
       }
     } catch (err: any) {

@@ -519,18 +519,28 @@ export async function placeTrade(order: {
       }),
     });
 
-    const data = await res.json();
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
 
     // Validate: HTTP must be OK AND response must contain an orderId/order confirmation
     // AND must not have error fields in the body (Swyftx can return 200 with errors)
-    const hasError = data.error || data.message?.toLowerCase().includes("error") || data.message?.toLowerCase().includes("fail");
+    const msgLower = typeof data.message === "string" ? data.message.toLowerCase() : "";
+    const hasError = data.error || msgLower.includes("error") || msgLower.includes("fail");
     const hasOrderId = !!(data.orderId || data.orderUuid || data.order_id);
     const isSuccess = res.ok && !hasError && hasOrderId;
+
+    // Ensure error is always a string (Swyftx can return error objects that crash React)
+    const rawErr = data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : undefined);
+    const errStr = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr || data);
 
     const result = {
       success: isSuccess,
       orderId: data.orderId || data.orderUuid || data.order_id,
-      error: isSuccess ? undefined : (data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : JSON.stringify(data))),
+      error: isSuccess ? undefined : errStr,
     };
 
     if (isSuccess) {
