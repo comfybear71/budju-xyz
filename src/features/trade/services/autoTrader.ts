@@ -59,6 +59,13 @@ export interface TradeLogEntry {
   amount: number;
 }
 
+export interface RecentTrade {
+  side: "BUY" | "SELL";
+  price: number;
+  amount: number;
+  time: number; // Date.now() when trade executed
+}
+
 export interface AutoTraderSnapshot {
   isActive: boolean;
   tierActive: Record<number, boolean>;
@@ -67,6 +74,7 @@ export interface AutoTraderSnapshot {
   tierSettings: Record<string, TierSettings>;
   tierAssignments: Record<string, number>;
   tradeLog: TradeLogEntry[];
+  recentTrades: Record<string, RecentTrade>;
   isOwner: boolean;
   deviceId: string;
 }
@@ -102,6 +110,7 @@ export class AutoTrader {
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
+  recentTrades: Record<string, RecentTrade> = {};
 
   // Device ownership — persist deviceId so page refreshes keep the same identity
   private _deviceId = (() => {
@@ -640,6 +649,7 @@ export class AutoTrader {
         this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
         this._setCooldown(code);
         this._recordTradeInDB(code, "buy", quantity, currentPrice);
+        this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
         // Move buy target down, keep sell target
         const oldBuy = this.targets[code].buy;
@@ -687,6 +697,7 @@ export class AutoTrader {
         this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
         this._setCooldown(code);
         this._recordTradeInDB(code, "sell", quantity, currentPrice);
+        this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
         // Move sell target up, keep buy target
         const oldSell = this.targets[code].sell;
@@ -868,6 +879,33 @@ export class AutoTrader {
     this._saveTradeLog();
   }
 
+  // ── Recent Trade Tracking (for UI celebrations) ────────
+
+  private _recordRecentTrade(coin: string, side: "BUY" | "SELL", price: number, amount: number) {
+    const tradeTime = Date.now();
+    this.recentTrades[coin] = { side, price, amount, time: tradeTime };
+    this._notifyChange();
+    // Auto-clear after 60 seconds so the celebration badge fades
+    setTimeout(() => {
+      // Only delete if it's still the same trade (not a newer one)
+      if (this.recentTrades[coin]?.time === tradeTime) {
+        delete this.recentTrades[coin];
+        this._notifyChange();
+      }
+    }, 60_000);
+  }
+
+  getRecentTrade(coin: string): RecentTrade | null {
+    const trade = this.recentTrades[coin];
+    if (!trade) return null;
+    // Expire after 60 seconds
+    if (Date.now() - trade.time > 60_000) {
+      delete this.recentTrades[coin];
+      return null;
+    }
+    return trade;
+  }
+
   // ── Record to MongoDB ───────────────────────────────────
 
   private async _recordTradeInDB(coin: string, tradeType: "buy" | "sell", amount: number, price: number) {
@@ -1012,6 +1050,7 @@ export class AutoTrader {
       tierSettings: { ...this.tierSettings },
       tierAssignments: { ...this.tierAssignments },
       tradeLog: [...this.tradeLog],
+      recentTrades: { ...this.recentTrades },
       isOwner: this._isOwner,
       deviceId: this._deviceId,
     };

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB } from "../services/tradeApi";
-import { AutoTrader, TIER_CONFIG } from "../services/autoTrader";
+import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
@@ -78,6 +78,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
         const change = Number(changes[coin]) || 0;
         const target = snapshot.targets[coin];
         const inCooldown = autoTrader._isOnCooldown(coin);
+        const recentTrade = autoTrader.getRecentTrade(coin);
         items.push({
           coin,
           tierNum: t,
@@ -89,6 +90,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
           change24h: change,
           inCooldown,
           hasTarget: !!target,
+          recentTrade,
         });
       }
     }
@@ -460,6 +462,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
+                  const recentTrade: RecentTrade | null = item.recentTrade;
+                  const justTraded = !!recentTrade;
+                  const tradeAge = recentTrade ? (Date.now() - recentTrade.time) / 1000 : 999;
 
                   // Calculate distance to each trigger as a percentage of current price
                   const pctToBuy = item.currentPrice > 0 && item.buyTrigger > 0
@@ -505,34 +510,44 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   const estSellValue = autoTrader.getEstimatedSellValue(item.coin);
                   const estAmount = nearestSide === "buy" ? estBuyAmount : estSellValue;
 
+                  // Celebration colors for just-traded coins
+                  const celebBuy = recentTrade?.side === "BUY";
+                  const celebColor = celebBuy ? "34,197,94" : "239,68,68"; // green or red
+
                   return (
                     <div
                       key={item.coin}
-                      className="rounded-lg p-2.5 transition-all duration-500"
+                      className={`rounded-lg p-2.5 transition-all duration-500${justTraded && tradeAge < 10 ? " animate-pulse" : ""}`}
                       style={{
-                        background: item.inCooldown
-                          ? "rgba(234,179,8,0.05)"
-                          : isCritical && item.hasTarget
-                            ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
-                            : isHot && item.hasTarget
-                              ? "rgba(249,115,22,0.06)"
-                              : "rgba(255,255,255,0.02)",
-                        border: `1px solid ${
-                          item.inCooldown
-                            ? "rgba(234,179,8,0.2)"
+                        background: justTraded
+                          ? `rgba(${celebColor},${tradeAge < 5 ? 0.18 : 0.1})`
+                          : item.inCooldown
+                            ? "rgba(234,179,8,0.05)"
                             : isCritical && item.hasTarget
-                              ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                              ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
                               : isHot && item.hasTarget
-                                ? "rgba(249,115,22,0.3)"
-                                : "rgba(255,255,255,0.04)"
+                                ? "rgba(249,115,22,0.06)"
+                                : "rgba(255,255,255,0.02)",
+                        border: `1px solid ${
+                          justTraded
+                            ? `rgba(${celebColor},0.5)`
+                            : item.inCooldown
+                              ? "rgba(234,179,8,0.2)"
+                              : isCritical && item.hasTarget
+                                ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                                : isHot && item.hasTarget
+                                  ? "rgba(249,115,22,0.3)"
+                                  : "rgba(255,255,255,0.04)"
                         }`,
-                        boxShadow: isCritical && item.hasTarget && !item.inCooldown
-                          ? nearestSide === "buy"
-                            ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
-                            : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
-                          : isHot && item.hasTarget && !item.inCooldown
-                            ? "0 0 8px rgba(249,115,22,0.1)"
-                            : "none",
+                        boxShadow: justTraded
+                          ? `0 0 20px rgba(${celebColor},0.25), inset 0 0 16px rgba(${celebColor},0.08)`
+                          : isCritical && item.hasTarget && !item.inCooldown
+                            ? nearestSide === "buy"
+                              ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
+                              : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
+                            : isHot && item.hasTarget && !item.inCooldown
+                              ? "0 0 8px rgba(249,115,22,0.1)"
+                              : "none",
                       }}
                     >
                       <div className="flex items-center justify-between mb-1.5">
@@ -540,12 +555,23 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                           <span className="text-xs font-bold" style={{ color: cfg.color }}>
                             {item.coin}
                           </span>
-                          {item.inCooldown && (
+                          {/* Celebration badge — takes priority over all other badges */}
+                          {justTraded ? (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded animate-pulse"
+                              style={{
+                                background: `rgba(${celebColor},0.3)`,
+                                color: celebBuy ? "#22c55e" : "#ef4444",
+                                border: `1px solid rgba(${celebColor},0.5)`,
+                              }}
+                            >
+                              {celebBuy ? "BOUGHT!" : "SOLD!"}
+                            </span>
+                          ) : item.inCooldown ? (
                             <span className="text-[9px] text-yellow-500">
                               (cd {autoTrader.getCooldownRemaining(item.coin)})
                             </span>
-                          )}
-                          {item.hasTarget && !item.inCooldown && isNear ? (
+                          ) : item.hasTarget && isNear ? (
                             <span
                               className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}
                               style={{
@@ -560,7 +586,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                                 : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
                                 : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
                             </span>
-                          ) : item.hasTarget && !item.inCooldown ? (
+                          ) : item.hasTarget ? (
                             <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
                               LIVE
                             </span>
@@ -615,8 +641,17 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                         </span>
                       </div>
 
-                      {/* Proximity + estimated trade amount */}
-                      {item.hasTarget && !item.inCooldown && (
+                      {/* Trade execution details (celebration) or proximity info */}
+                      {justTraded && recentTrade ? (
+                        <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: `1px solid rgba(${celebColor},0.15)` }}>
+                          <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
+                            {celebBuy ? "Bought" : "Sold"} @ {formatPrice(recentTrade.price)}
+                          </span>
+                          <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
+                            {formatPrice(recentTrade.amount)} {celebBuy ? "USDC" : "value"}
+                          </span>
+                        </div>
+                      ) : item.hasTarget && !item.inCooldown ? (
                         <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                           <span className="text-[9px] font-mono" style={{
                             color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
@@ -635,7 +670,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                             </span>
                           )}
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}
