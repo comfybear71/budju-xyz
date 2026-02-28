@@ -537,18 +537,6 @@ const HoldingsList = ({
         </div>
       </div>
 
-      {/* Tier Tabs */}
-      {tiers.length > 1 && (
-        <div className="flex justify-center mb-4">
-          <TierTabs
-            tiers={tiers}
-            activeIndex={activeTierIndex}
-            onSelect={goToTier}
-            countByTier={countByTier}
-          />
-        </div>
-      )}
-
       {/* Tier subtotal */}
       <motion.div
         key={currentTier.id + "-value"}
@@ -566,6 +554,18 @@ const HoldingsList = ({
           {formatUsd(tierValue)}
         </span>
       </motion.div>
+
+      {/* Tier Tabs */}
+      {tiers.length > 1 && (
+        <div className="flex justify-center mb-4">
+          <TierTabs
+            tiers={tiers}
+            activeIndex={activeTierIndex}
+            onSelect={goToTier}
+            countByTier={countByTier}
+          />
+        </div>
+      )}
 
       {/* Swipeable Holdings Cards */}
       <motion.div
