@@ -459,7 +459,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
 
                   {/* Trade Log */}
                   <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
-                    <div className="px-2.5 py-1.5" style={{ background: "rgba(59,130,246,0.08)" }}>
+                    <div className="px-2.5 py-1.5 flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)" }}>
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
                         {tradeLog.length > 0 && (
@@ -473,6 +473,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                           </div>
                         )}
                       </div>
+                      {tradeLog.length > 0 && tradeLog[0].time && (
+                        <span className="text-[9px] text-slate-500 font-mono">
+                          {new Date(tradeLog[0].time).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })}{" "}
+                          {new Date(tradeLog[0].time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                        </span>
+                      )}
                     </div>
                     <div style={{ maxHeight: 200, overflowY: "auto" }}>
                       {tradeLog.length === 0 ? (

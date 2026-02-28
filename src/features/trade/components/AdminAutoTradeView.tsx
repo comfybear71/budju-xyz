@@ -697,13 +697,21 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                 </div>
               )}
             </div>
-            <button
-              onClick={handleSyncTrades}
-              className="text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
-              style={{ color: "#3b82f6", background: "rgba(59,130,246,0.1)" }}
-            >
-              <FaSync size={7} /> Sync
-            </button>
+            <div className="flex items-center gap-2">
+              {tradeLog.length > 0 && tradeLog[0].time && (
+                <span className="text-[9px] text-slate-500 font-mono">
+                  {new Date(tradeLog[0].time).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })}{" "}
+                  {new Date(tradeLog[0].time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                </span>
+              )}
+              <button
+                onClick={handleSyncTrades}
+                className="text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                style={{ color: "#3b82f6", background: "rgba(59,130,246,0.1)" }}
+              >
+                <FaSync size={7} /> Sync
+              </button>
+            </div>
           </div>
           {syncStatus && (
             <div className="px-2.5 py-1 text-[9px] font-bold text-center" style={{ background: "rgba(59,130,246,0.05)", color: "#3b82f6" }}>
