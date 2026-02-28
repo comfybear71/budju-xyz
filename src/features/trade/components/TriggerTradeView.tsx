@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   FaTimes,
   FaSync,
@@ -51,6 +51,7 @@ const TriggerTradeView = ({
 
   // UI state
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
@@ -532,9 +533,9 @@ const TriggerTradeView = ({
                 )}
               </div>
 
-              {/* Confirm button */}
+              {/* Confirm button — opens confirmation modal */}
               <button
-                onClick={handleConfirm}
+                onClick={() => setShowConfirm(true)}
                 disabled={amountPct === 0 || isSubmitting}
                 className={`w-full py-3.5 rounded-xl text-sm font-bold transition-all ${
                   amountPct === 0
@@ -547,9 +548,78 @@ const TriggerTradeView = ({
                 {isSubmitting ? (
                   <FaSpinner className="animate-spin mx-auto" size={16} />
                 ) : (
-                  `Confirm ${mode === "buy" ? "Buy" : "Sell"} Trigger`
+                  `${mode === "buy" ? "Buy" : "Sell"} Trigger`
                 )}
               </button>
+
+              {/* Confirmation modal */}
+              <AnimatePresence>
+                {showConfirm && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+                    onClick={() => setShowConfirm(false)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="p-5 rounded-xl border bg-[#0a0a1a] border-white/[0.08] max-w-xs w-full mx-4"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <h3 className="font-bold text-sm mb-3 text-white">
+                        Confirm {mode === "buy" ? "Buy Dip" : "Sell Rise"}
+                      </h3>
+                      <div className="space-y-1.5 text-xs mb-4">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Asset</span>
+                          <span className="text-white font-bold">{selectedCoin}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Current Price</span>
+                          <span className="text-slate-300 font-mono">{formatPrice(currentPrice)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Trigger Price</span>
+                          <span className={`font-bold font-mono ${mode === "buy" ? "text-green-400" : "text-red-400"}`}>
+                            {formatPrice(triggerPrice)} ({offsetPct > 0 ? "+" : ""}{offsetPct}%)
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Amount</span>
+                          <span className="text-white font-bold font-mono">{formatPrice(tradeAmount)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Type</span>
+                          <span className={`font-bold ${mode === "buy" ? "text-green-400" : "text-red-400"}`}>
+                            {mode === "buy"
+                              ? triggerPrice < currentPrice ? "LIMIT BUY" : "STOP BUY"
+                              : triggerPrice > currentPrice ? "LIMIT SELL" : "STOP SELL"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowConfirm(false)}
+                          className="flex-1 py-2.5 rounded-lg text-xs font-bold bg-white/10 text-white"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => { setShowConfirm(false); handleConfirm(); }}
+                          className={`flex-1 py-2.5 rounded-lg text-xs font-bold text-white ${
+                            mode === "buy" ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        >
+                          Confirm
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Success */}
               {showSuccess && (

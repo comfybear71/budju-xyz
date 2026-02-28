@@ -500,13 +500,20 @@ export async function placeTrade(order: {
     }
 
     // Build the Swyftx order payload — matches working FLUB format
+    // Swyftx is AUD-native: trigger prices are evaluated in AUD internally,
+    // even when trading USDC pairs. Convert USD trigger → AUD so the trigger
+    // condition fires at the correct USD-equivalent price.
+    const triggerAud = order.triggerPrice && AUD_TO_USD > 0
+      ? order.triggerPrice / AUD_TO_USD
+      : 0;
+
     const swyftxPayload = {
       primary: "USDC",
       secondary: order.assetCode,
       quantity: String(order.amount),
       assetQuantity: "USDC",
       orderType: swyftxOrderType,
-      trigger: order.triggerPrice ? String(order.triggerPrice) : "",
+      trigger: triggerAud > 0 ? String(triggerAud) : "",
     };
 
     const res = await fetchWithRetry("/api/proxy", {
