@@ -642,6 +642,11 @@ export function clearCache() {
   for (const key of Object.keys(cache)) delete cache[key];
 }
 
+/** Clear specific cache keys (used by AutoTrader to force fresh fetches) */
+export function clearCacheKeys(...keys: string[]) {
+  for (const key of keys) delete cache[key];
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,

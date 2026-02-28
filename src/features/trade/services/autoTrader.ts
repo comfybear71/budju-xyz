@@ -24,6 +24,7 @@ import {
   fetchTraderState,
   saveTraderState,
   placeTrade,
+  clearCacheKeys,
   ASSET_CONFIG,
   type PortfolioAsset,
   type TraderState,
@@ -271,11 +272,19 @@ export class AutoTrader {
         const retryDelay = Math.max(staleness + 5000, 10_000); // at least 10s
         this._scheduleOwnershipRetry(retryDelay);
       } else if (this.isActive) {
-        // Take ownership and resume with warmup (skip first price check
-        // so fresh prices load before any trades execute)
+        // Take ownership and resume monitoring
         this._isOwner = true;
-        this._warmup = true;
-        this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
+
+        // Only warmup if monitoring isn't already running — otherwise a
+        // page refresh or navigation back to /trade would reset warmup
+        // and delay the next trade check by another 3 minutes.
+        if (!this._monitorInterval) {
+          this._warmup = true;
+          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
+        } else {
+          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins`, "success");
+        }
+
         this._saveActiveState();
         this._ensureMonitoring();
       }
@@ -569,6 +578,11 @@ export class AutoTrader {
     this._log("Refreshing prices...", "info");
     await this._refreshData();
 
+    this._log(
+      `Check #${this._checkCount}: USDC $${this._cachedUsdcBalance.toFixed(2)}, monitoring ${Object.keys(this.targets).length} coins`,
+      "info",
+    );
+
     let tradeExecuted = false;
 
     for (const code of Object.keys(this.targets)) {
@@ -581,12 +595,18 @@ export class AutoTrader {
       const currentPrice = this._cachedPrices[code];
       const tgt = this.targets[code];
 
-      if (!tgt || !currentPrice) continue;
+      if (!tgt || !currentPrice) {
+        this._log(`${code}: no target or price data (price=${currentPrice}, target=${!!tgt})`, "error");
+        continue;
+      }
+
+      const pctToBuy = ((currentPrice - tgt.buy) / currentPrice * 100).toFixed(2);
+      const pctToSell = ((tgt.sell - currentPrice) / currentPrice * 100).toFixed(2);
 
       // BUY: price dropped below buy target
       if (currentPrice <= tgt.buy) {
         this._log(
-          `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}) — BUY`,
+          `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
           "success",
         );
         await this._executeBuy(code, currentPrice, settings);
@@ -595,11 +615,17 @@ export class AutoTrader {
       // SELL: price rose above sell target
       else if (currentPrice >= tgt.sell) {
         this._log(
-          `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}) — SELL`,
+          `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
           "success",
         );
         await this._executeSell(code, currentPrice, settings);
         tradeExecuted = true;
+      }
+      else {
+        this._log(
+          `${code}: $${currentPrice.toFixed(2)} — ${pctToBuy}% to buy ($${tgt.buy.toFixed(2)}), ${pctToSell}% to sell ($${tgt.sell.toFixed(2)})`,
+          "info",
+        );
       }
     }
 
@@ -812,6 +838,11 @@ export class AutoTrader {
 
   private async _refreshData() {
     try {
+      // Bust the cache for portfolio, prices, and cash balance so the
+      // trading loop always gets a live fetch — stale cached { usdc: 0 }
+      // from a failed Swyftx call was silently blocking every buy.
+      clearCacheKeys("portfolio", "prices", "cash");
+
       const [assets, prices, cash] = await Promise.all([
         fetchPortfolio(),
         fetchPrices(),
