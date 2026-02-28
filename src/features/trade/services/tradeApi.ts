@@ -464,6 +464,7 @@ export async function placeTrade(order: {
   orderType: "market" | "limit" | "stop";
   triggerPrice?: number;
   currentPrice?: number;
+  swyftxAudRate?: number;
 }): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
     // Validate minimum order size
@@ -501,11 +502,41 @@ export async function placeTrade(order: {
 
     // Build the Swyftx order payload — matches working FLUB format
     // Swyftx is AUD-native: trigger prices are evaluated in AUD internally,
-    // even when trading USDC pairs. Convert USD trigger → AUD so the trigger
-    // condition fires at the correct USD-equivalent price.
-    const triggerAud = order.triggerPrice && AUD_TO_USD > 0
-      ? order.triggerPrice / AUD_TO_USD
-      : 0;
+    // even when trading USDC pairs.  We must send the trigger in AUD.
+    //
+    // IMPORTANT: Use Swyftx's own AUD rate (from /portfolio/) to calculate
+    // the AUD trigger.  CoinGecko's AUD↔USD rate can differ from Swyftx's
+    // internal rate, which caused triggers to sit below the current Swyftx
+    // AUD price and execute immediately.  By scaling the Swyftx AUD rate by
+    // the same percentage offset the user chose, the trigger is always the
+    // correct % above/below the Swyftx current price.
+    let triggerAud = 0;
+    if (
+      order.swyftxAudRate && order.swyftxAudRate > 0 &&
+      order.currentPrice && order.currentPrice > 0 &&
+      order.triggerPrice && order.triggerPrice > 0
+    ) {
+      // Scale Swyftx AUD rate by the same ratio as USDC trigger / current USDC price
+      triggerAud = order.swyftxAudRate * (order.triggerPrice / order.currentPrice);
+      console.log(
+        `[PlaceTrade] AUD trigger via Swyftx rate: audRate=${order.swyftxAudRate.toFixed(4)}, ` +
+        `ratio=${(order.triggerPrice / order.currentPrice).toFixed(4)}, triggerAud=${triggerAud.toFixed(4)}`
+      );
+    } else if (order.triggerPrice && AUD_TO_USD > 0) {
+      // Fallback: convert USDC trigger → AUD using CoinGecko-derived rate
+      triggerAud = order.triggerPrice / AUD_TO_USD;
+      console.log(
+        `[PlaceTrade] AUD trigger via CoinGecko fallback: triggerUSD=${order.triggerPrice}, ` +
+        `AUD_TO_USD=${AUD_TO_USD.toFixed(4)}, triggerAud=${triggerAud.toFixed(4)}`
+      );
+    }
+
+    // Safety guard: NEVER send a limit/stop order with an empty trigger —
+    // Swyftx would execute it as a market order (instant fill).
+    if (order.orderType !== "market" && triggerAud <= 0) {
+      alog.log(`Blocked ${order.side} ${order.assetCode}: trigger price resolved to 0 (AUD_TO_USD=${AUD_TO_USD}, swyftxAudRate=${order.swyftxAudRate})`, "error");
+      return { success: false, error: "Trigger price could not be calculated — please try again" };
+    }
 
     const swyftxPayload = {
       primary: "USDC",
@@ -544,9 +575,11 @@ export async function placeTrade(order: {
     const rawErr = data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : undefined);
     const errStr = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr || data);
 
+    // Prefer orderUuid (UUID format) — this matches how fetchSwyftxOrderHistory
+    // identifies filled orders via swyftxId, ensuring pending↔filled ID matching works.
     const result = {
       success: isSuccess,
-      orderId: data.orderId || data.orderUuid || data.order_id,
+      orderId: data.orderUuid || data.order_uuid || data.orderId || data.order_id,
       error: isSuccess ? undefined : errStr,
     };
 
@@ -812,6 +845,9 @@ export async function fetchSwyftxOrderHistory(
         const coinCode = assetMap[String(o.secondary_asset)] || String(o.secondary_asset ?? "");
         return {
           swyftxId: o.orderUuid ?? o.id ?? "",
+          // Also store numeric orderId (if different from UUID) so filled-order
+          // matching works regardless of which ID format the pending order used.
+          orderId: o.orderId || o.order_id || "",
           type: isBuy ? "buy" : "sell",
           coin: coinCode,
           quantity: parseFloat(o.quantity ?? 0),
@@ -920,10 +956,19 @@ export async function fetchEnrichedPendingOrders(
     const dbOrders = state?.enrichedOrders || [];
     if (dbOrders.length === 0) return [];
 
-    // Filter out orders that have been filled on Swyftx
-    const filledIds = new Set(filledHistory.map((o: any) => o.swyftxId || o.orderId));
-    const getId = (o: any) => o.orderId || o.orderUuid || o.id || "";
-    const active = dbOrders.filter((o: any) => !filledIds.has(getId(o)));
+    // Filter out orders that have been filled on Swyftx.
+    // Include ALL possible IDs from filled orders (numeric orderId + UUID orderUuid)
+    // so matching works regardless of which ID format the pending order stored.
+    const filledIds = new Set<string>();
+    for (const o of filledHistory) {
+      if (o.swyftxId) filledIds.add(o.swyftxId);
+      if (o.orderId) filledIds.add(o.orderId);
+    }
+    const isFilled = (o: any): boolean => {
+      const ids = [o.orderId, o.orderUuid, o.id, o.swyftxId].filter(Boolean);
+      return ids.some((id: string) => filledIds.has(id));
+    };
+    const active = dbOrders.filter((o: any) => !isFilled(o));
 
     return enrichDbOrders(active, prices);
   } catch { /* DB also unavailable */ }

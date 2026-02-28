@@ -108,22 +108,35 @@ const TriggerTradeView = ({
       const dbPending = traderState?.enrichedOrders || [];
       for (const o of dbPending) addOrder(o);
 
-      const filledIds = new Set(history.map((o: any) => o.swyftxId || o.orderId));
+      // Build a comprehensive set of ALL IDs for filled orders.
+      // Swyftx can return different ID formats (numeric orderId vs UUID orderUuid),
+      // so we include every possible ID to ensure matching works.
+      const filledIds = new Set<string>();
+      for (const o of history) {
+        if (o.swyftxId) filledIds.add(o.swyftxId);
+        if (o.orderId) filledIds.add(o.orderId);
+      }
+
+      // Check if ANY of an order's possible IDs appear in the filled set
+      const isFilled = (o: any): boolean => {
+        const ids = [o.orderId, o.orderUuid, o.id, o.swyftxId].filter(Boolean);
+        return ids.some((id) => filledIds.has(id));
+      };
 
       // Remove filled orders from merged list
-      const activeMerged = merged.filter((o) => !filledIds.has(o.orderId));
+      const activeMerged = merged.filter((o) => !isFilled(o));
 
       // Clean up local orders confirmed by API or filled
       setLocalOrders((prev) => {
         const remaining = prev.filter(
-          (lo) => !seenIds.has(lo.orderId) && !filledIds.has(lo.orderId)
+          (lo) => !seenIds.has(lo.orderId) && !isFilled(lo)
         );
         return remaining;
       });
 
       // Clean up filled orders from MongoDB too
       if (isAdmin && walletAddress && dbPending.length > 0) {
-        const dbRemaining = dbPending.filter((o: any) => !filledIds.has(o.orderId));
+        const dbRemaining = dbPending.filter((o: any) => !isFilled(o));
         if (dbRemaining.length < dbPending.length) {
           saveTraderState(walletAddress, { pendingOrders: dbRemaining, enrichedOrders: dbRemaining })
             .catch(() => {});
@@ -133,7 +146,7 @@ const TriggerTradeView = ({
       setOrders((prevOrders) => {
         // Keep in-memory local orders not yet confirmed
         const stillLocal = (prevOrders || []).filter(
-          (o: any) => o._local && !seenIds.has(o.orderId) && !filledIds.has(o.orderId)
+          (o: any) => o._local && !seenIds.has(o.orderId) && !isFilled(o)
         );
         return [...activeMerged, ...stillLocal];
       });
@@ -162,6 +175,12 @@ const TriggerTradeView = ({
   const availableUsdc = usdcBalance;
   const holdingAsset = assets.find((a) => a.code === selectedCoin);
   const holdingValue = holdingAsset ? holdingAsset.balance * currentPrice : 0;
+  // Swyftx AUD rate per coin — derived from Swyftx's own portfolio valuation
+  // Used by placeTrade to calculate the AUD trigger from Swyftx's own rate
+  // (more accurate than CoinGecko-derived AUD conversion)
+  const swyftxAudRate = holdingAsset && holdingAsset.balance > 0
+    ? holdingAsset.audValue / holdingAsset.balance
+    : 0;
   const maxAmount = mode === "buy" ? availableUsdc : holdingValue;
   const tradeAmount = maxAmount * (amountPct / 100);
 
@@ -201,6 +220,7 @@ const TriggerTradeView = ({
         orderType: "limit",
         triggerPrice,
         currentPrice,
+        swyftxAudRate,
       });
 
       if (result.success) {
