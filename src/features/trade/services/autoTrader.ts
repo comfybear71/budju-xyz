@@ -103,10 +103,22 @@ export class AutoTrader {
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
 
-  // Device ownership
-  private _deviceId = Math.random().toString(36).substring(2, 10);
+  // Device ownership — persist deviceId so page refreshes keep the same identity
+  private _deviceId = (() => {
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem("budju_bot_device_id");
+      if (stored) return stored;
+      const id = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem("budju_bot_device_id", id);
+      return id;
+    }
+    return Math.random().toString(36).substring(2, 10);
+  })();
   private _isOwner = false;
   private _checkCount = 0;
+
+  // Retry timer to reclaim ownership when previous heartbeat becomes stale
+  private _ownershipRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Monitoring interval
   private _monitorInterval: ReturnType<typeof setInterval> | null = null;
@@ -244,6 +256,11 @@ export class AutoTrader {
       if (otherDevice && freshHeartbeat) {
         this._isOwner = false;
         this._log("Auto-trading active on another device — viewing only", "info");
+
+        // Schedule a retry to reclaim ownership once the old heartbeat becomes stale
+        const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
+        const retryDelay = Math.max(staleness + 5000, 10_000); // at least 10s
+        this._scheduleOwnershipRetry(retryDelay);
       } else if (this.isActive) {
         // Take ownership and resume with warmup (skip first price check
         // so fresh prices load before any trades execute)
@@ -538,11 +555,10 @@ export class AutoTrader {
       if (!stillOwner) return;
     }
 
-    // Refresh data every 2nd check
-    if (this._checkCount % 2 === 0) {
-      this._log("Refreshing prices...", "info");
-      await this._refreshData();
-    }
+    // Always refresh data before checking prices — stale USDC balance
+    // was causing buys to be skipped ("would break $100 reserve")
+    this._log("Refreshing prices...", "info");
+    await this._refreshData();
 
     let tradeExecuted = false;
 
@@ -601,7 +617,7 @@ export class AutoTrader {
 
     const tradeAmount = (settings.allocation / 100) * usdcBalance;
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
-      this._log(`Skipping ${code} buy — would break $${MIN_USDC_RESERVE} USDC reserve`, "error");
+      this._log(`Skipping ${code} buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve (alloc ${settings.allocation}%)`, "error");
       return;
     }
 
@@ -725,6 +741,59 @@ export class AutoTrader {
       return true;
     } catch {
       return true; // Network error, keep running
+    }
+  }
+
+  // ── Ownership Retry ────────────────────────────────────
+
+  private _scheduleOwnershipRetry(delayMs: number) {
+    this._clearOwnershipRetry();
+    this._log(`Will retry ownership in ${Math.round(delayMs / 1000)}s`, "info");
+    this._ownershipRetryTimer = setTimeout(async () => {
+      this._ownershipRetryTimer = null;
+      if (this._isOwner) return; // Already reclaimed
+      if (!this.isActive) return; // No tiers active
+
+      try {
+        const state = await fetchTraderState();
+        if (!state || !state._rawAutoActive) {
+          // No active state on server — safe to take ownership
+          this._isOwner = true;
+        } else {
+          const autoActive = state._rawAutoActive;
+          const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
+          const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
+
+          if (otherDevice && freshHeartbeat) {
+            // Still active on another device — retry again
+            const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
+            const retryDelay = Math.max(staleness + 5000, 10_000);
+            this._scheduleOwnershipRetry(retryDelay);
+            return;
+          }
+
+          // Heartbeat is stale or same device — reclaim ownership
+          this._isOwner = true;
+        }
+
+        if (this._isOwner) {
+          this._warmup = true;
+          this._log("Ownership reclaimed — resuming auto-trading", "success");
+          this._saveActiveState();
+          this._ensureMonitoring();
+          this._notifyChange();
+        }
+      } catch {
+        // Network error — retry in 30s
+        this._scheduleOwnershipRetry(30_000);
+      }
+    }, delayMs);
+  }
+
+  private _clearOwnershipRetry() {
+    if (this._ownershipRetryTimer) {
+      clearTimeout(this._ownershipRetryTimer);
+      this._ownershipRetryTimer = null;
     }
   }
 
@@ -952,6 +1021,7 @@ export class AutoTrader {
 
   destroy() {
     this._stopMonitoring();
+    this._clearOwnershipRetry();
     this._onStateChange = null;
   }
 }
