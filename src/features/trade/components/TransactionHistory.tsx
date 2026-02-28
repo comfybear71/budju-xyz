@@ -45,7 +45,12 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
   const [filter, setFilter] = useState<FilterType>("all");
 
   useEffect(() => {
-    if (!isOpen || !walletAddress) return;
+    if (!isOpen) return;
+    if (!walletAddress) {
+      setLoading(false);
+      setTransactions([]);
+      return;
+    }
     setLoading(true);
     fetchTransactions(walletAddress)
       .then(setTransactions)
