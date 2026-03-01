@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BUDJU Project Documentation</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@700;800&family=Roboto+Mono:wght@400;500&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --pink: #FF69B4; --pink-light: #FF8EC7; --pink-dark: #D14C92;
+    --blue: #87CEFA; --blue-light: #B2E1FF; --blue-dark: #5AABD8;
+    --yellow: #FFD700; --bg: #0a0a0f; --bg2: #111118; --bg3: #1a1a25;
+    --text: #e0e0e0; --text-muted: #888; --border: #2a2a3a;
+    --success: #22c55e; --warning: #f59e0b; --danger: #ef4444; --info: #3b82f6;
+  }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  a { color: var(--blue); text-decoration: none; transition: color 0.2s; }
+  a:hover { color: var(--pink); }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* Header */
+  .doc-header { background: linear-gradient(135deg, #0d0d15 0%, #1a0a20 50%, #0a1020 100%); border-bottom: 2px solid var(--pink); padding: 60px 0 40px; text-align: center; position: relative; overflow: hidden; }
+  .doc-header::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(ellipse at center, rgba(255,105,180,0.05) 0%, transparent 50%); animation: pulse-bg 8s ease-in-out infinite; }
+  @keyframes pulse-bg { 0%,100%{opacity:0.3} 50%{opacity:0.7} }
+  .doc-header h1 { font-family: 'Montserrat', sans-serif; font-size: 3rem; background: linear-gradient(90deg, var(--pink), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; position: relative; }
+  .doc-header .subtitle { color: var(--text-muted); font-size: 1.1rem; position: relative; }
+  .doc-header .meta { margin-top: 16px; color: var(--text-muted); font-size: 0.85rem; position: relative; }
+
+  /* Navigation */
+  .doc-nav { background: var(--bg2); border-bottom: 1px solid var(--border); padding: 12px 0; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(10px); }
+  .doc-nav .container { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .doc-nav a { padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; color: var(--text-muted); border: 1px solid transparent; transition: all 0.2s; }
+  .doc-nav a:hover { color: var(--pink); border-color: var(--pink); background: rgba(255,105,180,0.08); }
+
+  /* Sections */
+  section { padding: 50px 0; border-bottom: 1px solid var(--border); }
+  section:last-child { border-bottom: none; }
+  h2 { font-family: 'Montserrat', sans-serif; font-size: 1.8rem; margin-bottom: 24px; padding-bottom: 12px; border-bottom: 2px solid var(--pink); display: inline-block; }
+  h3 { font-size: 1.25rem; margin: 24px 0 12px; color: var(--blue); }
+  h4 { font-size: 1.05rem; margin: 16px 0 8px; color: var(--pink-light); }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 8px 0 16px 24px; }
+  li { margin-bottom: 6px; }
+
+  /* Cards */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin: 20px 0; }
+  .card { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 20px; transition: border-color 0.2s, transform 0.2s; }
+  .card:hover { border-color: var(--pink); transform: translateY(-2px); }
+  .card h4 { margin-top: 0; }
+
+  /* Code blocks */
+  pre { background: #0d0d18; border: 1px solid var(--border); border-radius: 8px; padding: 16px; overflow-x: auto; font-family: 'Roboto Mono', monospace; font-size: 0.82rem; line-height: 1.5; margin: 12px 0; }
+  code { font-family: 'Roboto Mono', monospace; font-size: 0.85rem; background: rgba(255,105,180,0.1); padding: 2px 6px; border-radius: 4px; }
+  pre code { background: none; padding: 0; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 0.9rem; }
+  th { background: var(--bg3); text-align: left; padding: 10px 14px; border: 1px solid var(--border); font-weight: 600; color: var(--pink-light); }
+  td { padding: 10px 14px; border: 1px solid var(--border); }
+  tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; margin-right: 6px; }
+  .badge-pink { background: rgba(255,105,180,0.2); color: var(--pink); }
+  .badge-blue { background: rgba(135,206,250,0.2); color: var(--blue); }
+  .badge-green { background: rgba(34,197,94,0.2); color: var(--success); }
+  .badge-yellow { background: rgba(245,158,11,0.2); color: var(--warning); }
+  .badge-red { background: rgba(239,68,68,0.2); color: var(--danger); }
+
+  /* Warning boxes */
+  .alert { border-radius: 8px; padding: 16px 20px; margin: 16px 0; border-left: 4px solid; }
+  .alert-danger { background: rgba(239,68,68,0.08); border-color: var(--danger); }
+  .alert-warning { background: rgba(245,158,11,0.08); border-color: var(--warning); }
+  .alert-info { background: rgba(59,130,246,0.08); border-color: var(--info); }
+  .alert-success { background: rgba(34,197,94,0.08); border-color: var(--success); }
+  .alert strong { display: block; margin-bottom: 4px; }
+
+  /* Stats row */
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; margin: 20px 0; }
+  .stat-box { background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; }
+  .stat-box .number { font-size: 1.8rem; font-weight: 700; color: var(--pink); font-family: 'Montserrat', sans-serif; }
+  .stat-box .label { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+
+  /* Diagram */
+  .arch-diagram { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 20px 0; font-family: 'Roboto Mono', monospace; font-size: 0.8rem; line-height: 1.6; overflow-x: auto; white-space: pre; }
+
+  /* Print / PDF */
+  @media print {
+    body { background: #fff; color: #111; font-size: 11pt; }
+    .doc-nav { display: none; }
+    .doc-header { background: #fff; border-bottom: 2px solid #D14C92; }
+    .doc-header h1 { -webkit-text-fill-color: #D14C92; }
+    section { page-break-inside: avoid; }
+    .card { border: 1px solid #ccc; }
+    pre { border: 1px solid #ddd; background: #f5f5f5; }
+    .alert { border-left: 4px solid; }
+    a { color: #0066cc; }
+    .arch-diagram { background: #f5f5f5; }
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .doc-header h1 { font-size: 2rem; }
+    .card-grid { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* TOC */
+  .toc { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 24px; margin: 24px 0; }
+  .toc h3 { margin-top: 0; color: var(--pink); }
+  .toc ol { counter-reset: toc; list-style: none; margin-left: 0; }
+  .toc > ol > li { counter-increment: toc; margin-bottom: 6px; }
+  .toc > ol > li::before { content: counter(toc) "."; color: var(--pink); font-weight: 600; margin-right: 8px; }
+  .toc a { color: var(--text); }
+  .toc a:hover { color: var(--pink); }
+
+  .file-tree { font-family: 'Roboto Mono', monospace; font-size: 0.82rem; line-height: 1.8; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 16px 0; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<!-- ================= HEADER ================= -->
+<header class="doc-header">
+  <div class="container">
+    <h1>BUDJU Project Documentation</h1>
+    <p class="subtitle">Complete Technical Reference &amp; Architecture Guide</p>
+    <p class="meta">Generated: March 1, 2026 &bull; Version 1.0.0 &bull; Solana Mainnet</p>
+  </div>
+</header>
+
+<!-- ================= NAVIGATION ================= -->
+<nav class="doc-nav">
+  <div class="container">
+    <a href="#overview">Overview</a>
+    <a href="#stats">Stats</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#tech-stack">Tech Stack</a>
+    <a href="#features">Features</a>
+    <a href="#api">API Endpoints</a>
+    <a href="#database">Database</a>
+    <a href="#wallet">Wallet</a>
+    <a href="#trading">Trading Bot</a>
+    <a href="#addresses">Addresses</a>
+    <a href="#integrations">Integrations</a>
+    <a href="#security">Security</a>
+    <a href="#cicd">CI/CD</a>
+    <a href="#config">Configuration</a>
+    <a href="#warnings">Warnings</a>
+    <a href="#future">Future Ideas</a>
+  </div>
+</nav>
+
+<main class="container">
+
+<!-- ================= TABLE OF CONTENTS ================= -->
+<div class="toc">
+  <h3>Table of Contents</h3>
+  <ol>
+    <li><a href="#overview">Project Overview</a></li>
+    <li><a href="#stats">Key Statistics</a></li>
+    <li><a href="#architecture">System Architecture</a></li>
+    <li><a href="#tech-stack">Technology Stack</a></li>
+    <li><a href="#features">Features &amp; Pages (13 Modules)</a></li>
+    <li><a href="#api">API Endpoints (18+ Routes)</a></li>
+    <li><a href="#database">Database Schema (MongoDB)</a></li>
+    <li><a href="#wallet">Wallet Integration</a></li>
+    <li><a href="#trading">Trading Bot Architecture (AutoTrader)</a></li>
+    <li><a href="#addresses">Smart Contract Addresses</a></li>
+    <li><a href="#integrations">External Integrations (7 Services)</a></li>
+    <li><a href="#security">Security &amp; Authentication</a></li>
+    <li><a href="#cicd">CI/CD &amp; Deployment</a></li>
+    <li><a href="#config">Configuration &amp; Environment</a></li>
+    <li><a href="#warnings">Warnings &amp; Security Concerns</a></li>
+    <li><a href="#future">Future Improvement Ideas</a></li>
+  </ol>
+</div>
+
+<!-- ================= 1. OVERVIEW ================= -->
+<section id="overview">
+  <h2>1. Project Overview</h2>
+  <p><strong>BUDJU</strong> is a Solana-based meme coin with an integrated DCA (Dollar Cost Averaging) Trading Bot. It is a full-stack web application built with a React/TypeScript frontend and Python/Node.js serverless backend, deployed on Vercel.</p>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>Token Info</h4>
+      <ul>
+        <li><strong>Name:</strong> BUDJU Coin</li>
+        <li><strong>Tagline:</strong> "it's a lifestyle"</li>
+        <li><strong>Total Supply:</strong> 1,000,000,000 tokens</li>
+        <li><strong>Created:</strong> January 31, 2025</li>
+        <li><strong>Blockchain:</strong> Solana (mainnet-beta)</li>
+        <li><strong>Decimals:</strong> 6</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Application Info</h4>
+      <ul>
+        <li><strong>Type:</strong> Single Page Application (SPA)</li>
+        <li><strong>Frontend:</strong> React 19 + TypeScript 5.7</li>
+        <li><strong>Backend:</strong> Vercel Serverless Functions</li>
+        <li><strong>Database:</strong> MongoDB</li>
+        <li><strong>Hosting:</strong> Vercel</li>
+        <li><strong>CI/CD:</strong> GitHub Actions</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Social Links</h4>
+      <ul>
+        <li>Facebook, Telegram, Instagram</li>
+        <li>X (Twitter), TikTok</li>
+        <li>Pump.fun listing</li>
+        <li>Raydium DEX pools</li>
+        <li>Jupiter swap integration</li>
+        <li>Spreadshirt merchandise store</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Directory Structure</h3>
+  <div class="file-tree">
+BUDJU/
+├── src/                          # Frontend (React/TypeScript)
+│   ├── App.tsx                   # Main app with React Router
+│   ├── main.tsx                  # Entry point
+│   ├── polyfills.js              # Web3 polyfills (Buffer, process)
+│   ├── components/common/        # Shared UI components
+│   │   ├── Layout/               # Navbar, Footer, Layout wrapper
+│   │   ├── WalletConnect/        # Multi-wallet connection UI
+│   │   ├── PriceChart/           # Price charting component
+│   │   ├── TokenStats/           # Token statistics display
+│   │   ├── ScrollingBanner/      # Animated scrolling banner
+│   │   └── CopyToClipboard/     # Copy utility component
+│   ├── features/                 # Feature-based page modules
+│   │   ├── home/                 # Landing page
+│   │   ├── trade/                # Trading bot (DCA engine)
+│   │   ├── bank/                 # Bank of BUDJU
+│   │   ├── nft/                  # NFT collection
+│   │   ├── pool/                 # Raydium liquidity pool
+│   │   ├── swap/                 # Jupiter swap
+│   │   ├── shop/                 # Merchandise store
+│   │   ├── burn/                 # Token burn tracker
+│   │   ├── balance/              # Balance checker
+│   │   ├── tokenomics/           # Charts &amp; analytics
+│   │   ├── how-to-buy/           # Buying guides
+│   │   ├── marketing/            # Marketing assets
+│   │   └── not-found/            # 404 page
+│   ├── hooks/                    # React hooks
+│   │   ├── useWallet.tsx         # Wallet context provider
+│   │   ├── useTrading.ts         # Jupiter swap hook
+│   │   └── useTokenHolders.ts    # Token holder queries
+│   ├── context/                  # React contexts
+│   │   └── ThemeContext.tsx       # Dark/light mode
+│   ├── lib/                      # Libraries &amp; services
+│   │   ├── web3/connection.ts    # Solana wallet adapters
+│   │   └── services/             # API services
+│   │       ├── walletService.ts  # Balance tracking
+│   │       ├── depositService.ts # USDC transfers
+│   │       ├── chartApi.ts       # Price chart data
+│   │       ├── bankApi.ts        # Bank API calls
+│   │       └── tokenRegistry.ts  # Token metadata
+│   ├── constants/                # Application constants
+│   │   ├── addresses.ts          # Contract addresses
+│   │   ├── config.ts             # Feature flags, roadmap
+│   │   └── routes.ts             # Route definitions
+│   ├── types/                    # TypeScript declarations
+│   └── styles/                   # CSS files
+├── api/                          # Backend serverless functions
+│   ├── index.py                  # Python: REST API (18+ endpoints)
+│   ├── database.py               # Python: MongoDB models
+│   ├── proxy.ts                  # Swyftx exchange proxy
+│   ├── rpc.ts                    # Solana RPC proxy
+│   ├── jupiter.ts                # Jupiter DEX proxy
+│   ├── marketing.ts              # Vercel Blob assets
+│   ├── telegram.ts               # Telegram bot webhook
+│   └── telegram-cron.ts          # Scheduled Telegram messages
+├── public/                       # Static assets
+│   ├── images/                   # Logos, icons, products
+│   └── docs/                     # This documentation
+├── .github/workflows/ci.yaml    # CI/CD pipeline
+├── package.json                  # Dependencies &amp; scripts
+├── vite.config.ts                # Vite bundler config
+├── tailwind.config.ts            # TailwindCSS theme
+├── vercel.json                   # Vercel deployment config
+└── requirements.txt              # Python dependencies
+  </div>
+</section>
+
+<!-- ================= 2. STATS ================= -->
+<section id="stats">
+  <h2>2. Key Statistics</h2>
+  <div class="stats-row">
+    <div class="stat-box"><div class="number">13</div><div class="label">Feature Pages</div></div>
+    <div class="stat-box"><div class="number">18+</div><div class="label">API Endpoints</div></div>
+    <div class="stat-box"><div class="number">7</div><div class="label">External Integrations</div></div>
+    <div class="stat-box"><div class="number">6</div><div class="label">MongoDB Collections</div></div>
+    <div class="stat-box"><div class="number">3</div><div class="label">Smart Contracts</div></div>
+    <div class="stat-box"><div class="number">4</div><div class="label">Wallet Adapters</div></div>
+    <div class="stat-box"><div class="number">22</div><div class="label">Crypto Assets Tracked</div></div>
+    <div class="stat-box"><div class="number">1B</div><div class="label">Total Supply</div></div>
+  </div>
+</section>
+
+<!-- ================= 3. ARCHITECTURE ================= -->
+<section id="architecture">
+  <h2>3. System Architecture</h2>
+  <div class="arch-diagram">
+┌──────────────────────────────────────────────────────────────────────┐
+│                         USER'S BROWSER                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │
+│  │ React SPA    │  │ Wallet       │  │ Theme        │               │
+│  │ (13 pages)   │  │ Context      │  │ Context      │               │
+│  └──────┬───────┘  └──────┬───────┘  └──────────────┘               │
+│         │                 │                                          │
+│         │    ┌────────────┴────────────┐                             │
+│         │    │  Phantom / Solflare /   │                             │
+│         │    │  Jupiter Wallet         │                             │
+│         │    └────────────────────────┘                              │
+└─────────┼───────────────────────────────────────────────────────────┘
+          │ HTTPS
+┌─────────┼───────────────────────────────────────────────────────────┐
+│         ▼           VERCEL EDGE NETWORK                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ /api/proxy   │  │ /api/rpc     │  │ /api/jupiter │              │
+│  │ (Swyftx)     │  │ (Solana)     │  │ (DEX Swap)   │              │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘              │
+│         │                 │                  │                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+│  │ /api/index   │  │ /api/telegram│  │/api/marketing│              │
+│  │ (Python REST)│  │ (Bot)        │  │ (Blob Store) │              │
+│  └──────┬───────┘  └──────────────┘  └──────────────┘              │
+└─────────┼───────────────────────────────────────────────────────────┘
+          │
+┌─────────┼───────────────────────────────────────────────────────────┐
+│         ▼           EXTERNAL SERVICES                               │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ MongoDB  │ │ Solana   │ │ Swyftx   │ │CoinGecko │ │ Telegram │ │
+│  │ Atlas    │ │ Mainnet  │ │ Exchange │ │ Prices   │ │ Bot API  │ │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
+  </div>
+
+  <h3>Data Flow Patterns</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>Wallet Balance Flow</h4>
+      <p>Browser &rarr; <code>/api/rpc</code> &rarr; Helius/Solana RPC &rarr; <code>getBalance</code>, <code>getTokenAccountsByOwner</code> &rarr; SOL + BUDJU + USDC balances returned to WalletContext.</p>
+    </div>
+    <div class="card">
+      <h4>Trading Flow</h4>
+      <p>TradePanel &rarr; <code>/api/proxy</code> &rarr; Swyftx API &rarr; Order placed (market/limit/stop) &rarr; Result recorded in MongoDB via <code>/api/trade</code>.</p>
+    </div>
+    <div class="card">
+      <h4>Price Feed Flow</h4>
+      <p><code>/api/proxy</code> &rarr; CoinGecko &rarr; USD + AUD prices &rarr; Live AUD&rarr;USD rate derived from BTC reference &rarr; Cached 25 seconds client-side.</p>
+    </div>
+    <div class="card">
+      <h4>Deposit Flow</h4>
+      <p>User sends USDC on-chain &rarr; <code>depositService.ts</code> builds SPL transfer &rarr; Phantom signs &rarr; tx confirmed &rarr; <code>/api/user-deposit</code> records shares in MongoDB.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 4. TECH STACK ================= -->
+<section id="tech-stack">
+  <h2>4. Technology Stack</h2>
+
+  <h3>Frontend</h3>
+  <table>
+    <tr><th>Category</th><th>Technology</th><th>Version</th></tr>
+    <tr><td>Framework</td><td>React</td><td>19.0</td></tr>
+    <tr><td>Language</td><td>TypeScript</td><td>5.7</td></tr>
+    <tr><td>Bundler</td><td>Vite</td><td>6.2</td></tr>
+    <tr><td>Styling</td><td>TailwindCSS</td><td>4.0</td></tr>
+    <tr><td>Router</td><td>React Router</td><td>7.3</td></tr>
+    <tr><td>Animation</td><td>Motion (Framer Motion)</td><td>12.4</td></tr>
+    <tr><td>Charts</td><td>Chart.js + Lightweight Charts</td><td>4.4</td></tr>
+    <tr><td>Web3</td><td>@solana/web3.js</td><td>1.98</td></tr>
+    <tr><td>Token Tools</td><td>@solana/spl-token</td><td>0.4</td></tr>
+    <tr><td>Icons</td><td>React Icons</td><td>5.5</td></tr>
+    <tr><td>SVG</td><td>vite-plugin-svgr</td><td>4.3</td></tr>
+    <tr><td>Animations</td><td>GSAP</td><td>3.12</td></tr>
+  </table>
+
+  <h3>Backend</h3>
+  <table>
+    <tr><th>Category</th><th>Technology</th><th>Details</th></tr>
+    <tr><td>Serverless</td><td>Vercel Functions</td><td>TypeScript + Python 3.x</td></tr>
+    <tr><td>Database</td><td>MongoDB</td><td>PyMongo 4.6</td></tr>
+    <tr><td>Crypto Signing</td><td>PyNaCl</td><td>Ed25519 signature verification</td></tr>
+    <tr><td>Encoding</td><td>base58</td><td>Solana address encoding</td></tr>
+    <tr><td>Exchange</td><td>Swyftx API</td><td>Server-side auth proxy</td></tr>
+    <tr><td>DEX</td><td>Jupiter API</td><td>Quote + swap proxy</td></tr>
+    <tr><td>RPC</td><td>Helius</td><td>Premium Solana RPC</td></tr>
+    <tr><td>Messaging</td><td>Telegram Bot API</td><td>Webhook + cron</td></tr>
+    <tr><td>Storage</td><td>Vercel Blob</td><td>Marketing assets</td></tr>
+  </table>
+
+  <h3>DevOps</h3>
+  <table>
+    <tr><th>Category</th><th>Technology</th><th>Details</th></tr>
+    <tr><td>CI/CD</td><td>GitHub Actions</td><td>Auto-deploy to Vercel</td></tr>
+    <tr><td>Hosting</td><td>Vercel</td><td>Edge network + serverless</td></tr>
+    <tr><td>Node.js</td><td>v22.14.0</td><td>LTS</td></tr>
+    <tr><td>Linting</td><td>ESLint + Prettier</td><td>TypeScript strict rules</td></tr>
+    <tr><td>Version Control</td><td>Git + GitHub</td><td>Feature branch workflow</td></tr>
+  </table>
+</section>
+
+<!-- ================= 5. FEATURES ================= -->
+<section id="features">
+  <h2>5. Features &amp; Pages</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>Home Page <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/</code></p>
+      <ul>
+        <li>Hero section with brand messaging</li>
+        <li>Ecosystem overview (Bank, Bot, NFT, Shop, Pool, Burn)</li>
+        <li>Roadmap visualization (4 phases)</li>
+        <li>How-to-buy preview cards</li>
+        <li>Social media links</li>
+        <li>Market-maker integration highlight</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Trading Bot (DCA) <span class="badge badge-pink">Core Feature</span></h4>
+      <p><strong>Route:</strong> <code>/trade</code></p>
+      <p><strong>Access:</strong> Requires holding 10,000,000 BUDJU tokens</p>
+      <ul>
+        <li>Manual market/limit/stop order placement</li>
+        <li>AutoTrader with 3-tier system</li>
+        <li>Portfolio chart visualization</li>
+        <li>Leaderboard &amp; activity log</li>
+        <li>Transaction history with P&amp;L</li>
+        <li>Pending orders management</li>
+        <li>Share-based pool accounting (NAV)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Bank of BUDJU <span class="badge badge-blue">Feature</span></h4>
+      <p><strong>Route:</strong> <code>/bank</code></p>
+      <ul>
+        <li>Token deposit interface</li>
+        <li>Holdings visualization &amp; tiers</li>
+        <li>Bank transaction history</li>
+        <li>JLP token tracking</li>
+        <li>Burn statistics</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>NFT Collection <span class="badge badge-yellow">Feature</span></h4>
+      <p><strong>Route:</strong> <code>/nft</code></p>
+      <ul>
+        <li>NFT gallery with image showcase</li>
+        <li>Golden showcase for rare NFTs</li>
+        <li>Minting countdown timer</li>
+        <li>Holder benefits section</li>
+        <li>Target: 1,000 NFT holders</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Liquidity Pool <span class="badge badge-blue">Feature</span></h4>
+      <p><strong>Route:</strong> <code>/pool</code></p>
+      <ul>
+        <li>Raydium pool info (SOL-BUDJU pair)</li>
+        <li>Concentrated liquidity guides</li>
+        <li>Add/remove/harvest/rebalance instructions</li>
+        <li>Pool stats &amp; direct Raydium links</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Jupiter Swap <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/swap</code></p>
+      <ul>
+        <li>Jupiter DEX integration</li>
+        <li>Direct token exchange UI</li>
+        <li>Price quotes with slippage protection</li>
+        <li>Versioned transaction support</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Shop <span class="badge badge-yellow">Feature</span></h4>
+      <p><strong>Route:</strong> <code>/shop</code></p>
+      <ul>
+        <li>Merchandise catalog</li>
+        <li>Product cards &amp; filtering</li>
+        <li>External link to Spreadshirt store</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Tokenomics <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/tokenomics</code></p>
+      <ul>
+        <li>TradingView Lightweight Charts</li>
+        <li>DexScreener integration</li>
+        <li>Supply &amp; 24h change data</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Burn Tracker <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/burn</code></p>
+      <ul>
+        <li>Burn statistics &amp; history</li>
+        <li>Scarcity tracking</li>
+        <li>Burn wallet monitoring</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Balance Checker <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/balance</code></p>
+      <ul>
+        <li>Check wallet BUDJU balance</li>
+        <li>Token holdings summary</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>How to Buy <span class="badge badge-green">Live</span></h4>
+      <p><strong>Route:</strong> <code>/how-to-buy</code></p>
+      <ul>
+        <li>Step-by-step purchasing guide</li>
+        <li>Wallet setup instructions</li>
+        <li>Exchange recommendations &amp; referral links</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Marketing <span class="badge badge-blue">Feature</span></h4>
+      <p><strong>Route:</strong> <code>/marketing</code></p>
+      <ul>
+        <li>Marketing materials repository</li>
+        <li>Downloads from Vercel Blob storage</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Wallet Connect <span class="badge badge-green">Live</span></h4>
+      <p><strong>Component:</strong> WalletConnect Modal</p>
+      <ul>
+        <li>Phantom, Solflare, Jupiter support</li>
+        <li>Quick actions (Swap, Bot, Add Liquidity)</li>
+        <li>Balance display (SOL, BUDJU, JLP, USDC)</li>
+        <li>USDC deposit modal</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Roadmap</h3>
+  <table>
+    <tr><th>Phase</th><th>Goals</th><th>Status</th></tr>
+    <tr><td>Phase 1</td><td>Token creation, holder milestones, bank launch, first burns</td><td><span class="badge badge-green">Complete</span></td></tr>
+    <tr><td>Phase 2</td><td>500 holders, 2nd gen NFTs, 100K market cap, Raydium listing, shop</td><td><span class="badge badge-green">Mostly Complete</span></td></tr>
+    <tr><td>Phase 3</td><td>Merchandise expansion, marketing campaigns, $1M market cap target</td><td><span class="badge badge-yellow">In Progress</span></td></tr>
+    <tr><td>Phase 4</td><td>Villa, competitions, $10M market cap, 10K holders</td><td><span class="badge badge-blue">Future</span></td></tr>
+  </table>
+</section>
+
+<!-- ================= 6. API ENDPOINTS ================= -->
+<section id="api">
+  <h2>6. API Endpoints</h2>
+
+  <h3>Python Backend (<code>/api/index.py</code>)</h3>
+  <h4>Public Endpoints</h4>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/state</code></td><td>Trader state (pending orders, auto config)</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/admin/stats?poolValue={v}</code></td><td>Pool statistics (user count, NAV, P&amp;L)</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/leaderboard?poolValue={v}</code></td><td>User rankings by portfolio value</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/transactions?wallet={addr}</code></td><td>Transaction history (filtered for non-admin)</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/pool/state</code></td><td>Pool state (total shares, init date)</td></tr>
+  </table>
+
+  <h4>User Endpoints</h4>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/user/register</code></td><td>Register wallet address</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/user/position?wallet={addr}&amp;poolValue={v}</code></td><td>User position (shares, NAV, value)</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/user/portfolio?wallet={addr}</code></td><td>User portfolio overview</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/user/deposits?wallet={addr}</code></td><td>Deposit history</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/user-deposit</code></td><td>Self-service USDC deposit recording</td></tr>
+  </table>
+
+  <h4>Admin Endpoints</h4>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/deposit</code></td><td>Admin deposit recording (share issuance)</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/state</code></td><td>Update trader state (partial updates)</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/trade</code></td><td>Record trade in MongoDB</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/trade/sync</code></td><td>Sync Swyftx trades to DB (dedup)</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/pool/initialize</code></td><td>Initialize pool (one-time)</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/admin/recalibrate</code></td><td>Reset NAV to $1.00</td></tr>
+    <tr><td><span class="badge badge-blue">POST</span></td><td><code>/api/admin/import-user</code></td><td>Import user with specified shares</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/users?admin_wallet={addr}</code></td><td>List all users</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/pool/allocations?admin_wallet={addr}</code></td><td>Pool allocation breakdown</td></tr>
+    <tr><td><span class="badge badge-green">GET</span></td><td><code>/api/debug?wallet={addr}</code></td><td>DB debug information</td></tr>
+  </table>
+
+  <h3>TypeScript Serverless Functions</h3>
+  <table>
+    <tr><th>Function</th><th>Purpose</th><th>Key Details</th></tr>
+    <tr><td><code>/api/proxy</code></td><td>Swyftx Exchange Proxy</td><td>Server-side auth, 50-min JWT TTL, endpoint allowlist</td></tr>
+    <tr><td><code>/api/rpc</code></td><td>Solana RPC Proxy</td><td>Read-only method allowlist (18 methods), Helius primary</td></tr>
+    <tr><td><code>/api/jupiter</code></td><td>Jupiter DEX Proxy</td><td>Quote (GET) + Swap (POST), API key hidden</td></tr>
+    <tr><td><code>/api/marketing</code></td><td>Marketing Assets</td><td>Lists files from Vercel Blob storage</td></tr>
+    <tr><td><code>/api/telegram</code></td><td>Telegram Bot</td><td>Webhook handler, auto-moderation, Q&amp;A</td></tr>
+    <tr><td><code>/api/telegram-cron</code></td><td>Scheduled Messages</td><td>4x daily: promo images + price updates</td></tr>
+  </table>
+</section>
+
+<!-- ================= 7. DATABASE ================= -->
+<section id="database">
+  <h2>7. Database Schema (MongoDB)</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>users</h4>
+      <pre><code>{
+  walletAddress: String (unique),
+  shares: Float,
+  allocation: Float,
+  totalDeposited: Float,
+  totalWithdrawn: Float,
+  holdings: Object,
+  joinedDate: DateTime,
+  lastLogin: DateTime,
+  isActive: Boolean
+}</code></pre>
+    </div>
+
+    <div class="card">
+      <h4>deposits</h4>
+      <pre><code>{
+  userId: String (wallet addr),
+  amount: Float,
+  currency: "USDC" | "AUD",
+  txHash: String (unique),
+  shares: Float,
+  nav: Float,
+  timestamp: DateTime,
+  status: "completed",
+  source: String
+}</code></pre>
+    </div>
+
+    <div class="card">
+      <h4>trades</h4>
+      <pre><code>{
+  coin: String,
+  type: "buy" | "sell",
+  amount: Float,
+  price: Float,
+  timestamp: DateTime,
+  swyftxId: String (unique),
+  userAllocations: Object,
+  source: String
+}</code></pre>
+    </div>
+
+    <div class="card">
+      <h4>pool_state</h4>
+      <pre><code>{
+  _id: "pool",
+  totalShares: Float,
+  initialized: DateTime,
+  recalibrated: DateTime
+}</code></pre>
+    </div>
+
+    <div class="card">
+      <h4>trader_state</h4>
+      <pre><code>{
+  _id: "admin_state",
+  pendingOrders: Array,
+  autoTiers: Object,
+  autoTierAssignments: Object,
+  autoBotActive: Boolean,
+  autoActive: Object,
+  autoCooldowns: Object,
+  autoTradeLog: Array
+}</code></pre>
+    </div>
+
+    <div class="card">
+      <h4>withdrawals</h4>
+      <pre><code>{
+  userId: String,
+  amount: Float,
+  currency: String,
+  timestamp: DateTime,
+  status: String
+}</code></pre>
+    </div>
+  </div>
+
+  <h3>NAV (Net Asset Value) Model</h3>
+  <pre><code>NAV = Total Pool Value / Total Shares
+Shares Issued = Deposit Amount / Current NAV
+User Value = User Shares x Current NAV
+User Allocation % = (User Shares / Total Shares) x 100
+
+Example:
+  Pool initialized: $1000 = 1000 shares at NAV $1.00
+  User A deposits $100 -> 100 shares at NAV $1.00
+  Pool grows to $1200 (1100 total shares)
+  New NAV = $1200/1100 = $1.0909
+  User A value = 100 x $1.0909 = $109.09 (9.1% gain)</code></pre>
+</section>
+
+<!-- ================= 8. WALLET ================= -->
+<section id="wallet">
+  <h2>8. Wallet Integration</h2>
+
+  <h3>Supported Wallets</h3>
+  <table>
+    <tr><th>Wallet</th><th>Detection</th><th>Mobile</th><th>Desktop</th></tr>
+    <tr><td>Phantom</td><td><code>window.phantom?.solana</code> or <code>window.solana</code></td><td>In-app browser</td><td>Extension</td></tr>
+    <tr><td>Solflare</td><td><code>window.solflare</code></td><td>In-app browser</td><td>Extension</td></tr>
+    <tr><td>Jupiter</td><td><code>window.jupiter</code></td><td>Mobile wallet</td><td>-</td></tr>
+    <tr><td>Other</td><td><code>window.solana</code> (non-Phantom/Solflare)</td><td>-</td><td>Extension</td></tr>
+  </table>
+
+  <h3>Transaction Types Supported</h3>
+  <ul>
+    <li><strong>Legacy Transactions:</strong> Classic Solana transaction format</li>
+    <li><strong>Versioned Transactions (V0):</strong> Modern format with address lookup tables</li>
+    <li><strong>signAndSendTransaction:</strong> Combined signing + sending (preferred)</li>
+    <li><strong>signTransaction + sendRawTransaction:</strong> Fallback for wallets without combined method</li>
+  </ul>
+
+  <h3>Connection Persistence</h3>
+  <p>Wallet connections are persisted in <code>localStorage</code> with three keys:</p>
+  <pre><code>budjuWalletAddress  - The connected wallet's public key
+budjuWalletName     - "phantom" | "solflare" | "jupiter" | "other"
+budjuWalletConnected - "true"</code></pre>
+  <p>On page reload, the app checks localStorage, waits for the wallet provider to inject (up to 2 seconds), then auto-reconnects. On mobile in-app browsers, it eagerly reconnects even if <code>isConnected</code> is false.</p>
+
+  <h3>Balance Tracking</h3>
+  <p>The <code>walletService</code> polls balances every 30 seconds via the RPC proxy:</p>
+  <ul>
+    <li><strong>SOL:</strong> via <code>getBalance</code></li>
+    <li><strong>BUDJU:</strong> via <code>getTokenAccountsByOwner</code> (mint-specific)</li>
+    <li><strong>USDC:</strong> via <code>getTokenAccountsByOwner</code> (always included)</li>
+    <li>Additional custom tokens configurable</li>
+  </ul>
+</section>
+
+<!-- ================= 9. TRADING BOT ================= -->
+<section id="trading">
+  <h2>9. Trading Bot Architecture (AutoTrader)</h2>
+
+  <div class="alert alert-info">
+    <strong>Access Requirement</strong>
+    Users must hold 10,000,000 BUDJU tokens to unlock the trading bot.
+  </div>
+
+  <h3>Tier System</h3>
+  <table>
+    <tr><th>Tier</th><th>Name</th><th>Default Coins</th><th>Deviation Range</th><th>Allocation Range</th></tr>
+    <tr><td>Tier 1</td><td>Blue Chips</td><td>BTC, ETH, SOL, BNB, XRP</td><td>1-15%</td><td>1-25%</td></tr>
+    <tr><td>Tier 2</td><td>Alts</td><td>User-assigned</td><td>2-20%</td><td>1-20%</td></tr>
+    <tr><td>Tier 3</td><td>Speculative</td><td>User-assigned</td><td>3-30%</td><td>1-15%</td></tr>
+  </table>
+
+  <h3>Trading Logic</h3>
+  <ul>
+    <li>Sets buy/sell targets when a tier starts: <code>buy = price * (1 - deviation%)</code>, <code>sell = price * (1 + deviation%)</code></li>
+    <li>After BUY: buy target moves down, sell target stays</li>
+    <li>After SELL: sell target moves up, buy target stays</li>
+    <li>24-hour cooldown per coin after each trade</li>
+    <li>Always keeps $100 USDC minimum reserve</li>
+    <li>Sells only 83.3% of allocation (accumulation bias)</li>
+    <li>Price checks every 3 minutes</li>
+  </ul>
+
+  <h3>Order Types via Swyftx</h3>
+  <table>
+    <tr><th>Type ID</th><th>Name</th><th>Trigger Condition</th></tr>
+    <tr><td>1</td><td>Market Buy</td><td>Immediate execution</td></tr>
+    <tr><td>2</td><td>Market Sell</td><td>Immediate execution</td></tr>
+    <tr><td>3</td><td>Limit Buy</td><td>Price drops to target</td></tr>
+    <tr><td>4</td><td>Limit Sell</td><td>Price rises to target</td></tr>
+    <tr><td>5</td><td>Stop Buy</td><td>Price rises above target</td></tr>
+    <tr><td>6</td><td>Stop Sell</td><td>Price drops below target</td></tr>
+  </table>
+
+  <h3>Device Ownership</h3>
+  <p>Only one device can run the auto-trader at a time. The system uses a heartbeat mechanism:</p>
+  <ul>
+    <li>Each device gets a unique <code>deviceId</code> stored in localStorage</li>
+    <li>Active device sends heartbeat every 3 minutes</li>
+    <li>Heartbeat is stale after 5 minutes &rarr; other devices can reclaim ownership</li>
+    <li>Ownership verification every 9 minutes (every 3rd check)</li>
+  </ul>
+
+  <h3>Supported Assets (22 Crypto)</h3>
+  <p>BTC, ETH, SOL, XRP, DOGE, ADA, SUI, XAUT, AVAX, DOT, LINK, POL, HBAR, UNI, NEAR, NEO, TRX, BCH, BNB, ENA, NEXO, HYPE, RENDER, FET, TAO, PEPE, LUNA</p>
+</section>
+
+<!-- ================= 10. ADDRESSES ================= -->
+<section id="addresses">
+  <h2>10. Smart Contract &amp; Key Addresses</h2>
+
+  <h3>Core Contracts</h3>
+  <table>
+    <tr><th>Name</th><th>Address</th></tr>
+    <tr><td>BUDJU Token Mint</td><td><code>2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump</code></td></tr>
+    <tr><td>Burn Program</td><td><code>B1opJeR2emYp75spauVHkGXfyxkYSW7GZaN9B3XoUeGK</code></td></tr>
+    <tr><td>Burn Account</td><td><code>9NNvJ9eQwZjWWwzBA5dybi5wgtuZ2FUbwq7jjkRgarJf</code></td></tr>
+    <tr><td>Bank Program</td><td><code>83Tk1BGzRDqG7SmHwWEDyEDtmxVT7oz3Tgqcofi5rnF4</code></td></tr>
+  </table>
+
+  <h3>Liquidity Pool Addresses (Raydium)</h3>
+  <table>
+    <tr><th>Pool</th><th>Address</th></tr>
+    <tr><td>SOL-BUDJU Standard</td><td><code>6PMhvxG7a3wceKBpGJgMVivBG1NUfSz9nA7CaQsJxMEZ</code></td></tr>
+    <tr><td>SOL-BUDJU CLMM</td><td><code>D61kHQmy8UxD6ks9L6dsponk5yexomBLdG5QaFxaHYka</code></td></tr>
+    <tr><td>USDC-BUDJU</td><td><code>HJjgx74kiUK7WnDXppj7DaCu1VmNGRWXb2RakmSRvZXC</code></td></tr>
+  </table>
+
+  <h3>Token Mints</h3>
+  <table>
+    <tr><th>Token</th><th>Address</th></tr>
+    <tr><td>USDC</td><td><code>EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v</code></td></tr>
+    <tr><td>JLP</td><td><code>27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4</code></td></tr>
+  </table>
+
+  <h3>Operational Wallets</h3>
+  <table>
+    <tr><th>Purpose</th><th>Address</th></tr>
+    <tr><td>Pool Wallet (Swyftx deposits)</td><td><code>2DfxgAZ655zkgt16r53e6qZ9Cf2Rse7iCGnypDk3nFhD</code></td></tr>
+  </table>
+</section>
+
+<!-- ================= 11. INTEGRATIONS ================= -->
+<section id="integrations">
+  <h2>11. External Integrations</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>Solana Blockchain</h4>
+      <ul>
+        <li><strong>Primary RPC:</strong> Helius (with API key)</li>
+        <li><strong>Fallback RPC:</strong> api.mainnet-beta.solana.com</li>
+        <li><strong>Used for:</strong> Balance queries, transaction signing, blockhash</li>
+        <li><strong>Proxied via:</strong> <code>/api/rpc</code> (keys hidden)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Swyftx Exchange</h4>
+      <ul>
+        <li><strong>Auth:</strong> API key &rarr; Bearer token (50-min TTL)</li>
+        <li><strong>Features:</strong> Portfolio, orders, asset listing</li>
+        <li><strong>Order types:</strong> Market, limit, stop (buy/sell)</li>
+        <li><strong>Proxied via:</strong> <code>/api/proxy</code> with endpoint allowlist</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Jupiter DEX</h4>
+      <ul>
+        <li><strong>Features:</strong> Quote + swap execution</li>
+        <li><strong>Endpoints:</strong> lite-api (free) or api.jup.ag (with key)</li>
+        <li><strong>Proxied via:</strong> <code>/api/jupiter</code></li>
+        <li><strong>Supports:</strong> Versioned transactions (V0)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>CoinGecko</h4>
+      <ul>
+        <li><strong>Data:</strong> USD prices, 24h changes, AUD rates</li>
+        <li><strong>Derivation:</strong> AUD&rarr;USD rate from BTC reference</li>
+        <li><strong>Cache:</strong> 25-second raw TTL, 30-second client TTL</li>
+        <li><strong>Proxied via:</strong> <code>/api/proxy</code></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Telegram Bot</h4>
+      <ul>
+        <li><strong>Bot:</strong> littlebudju_bot</li>
+        <li><strong>Chat ID:</strong> -1002398835975</li>
+        <li><strong>Features:</strong> Webhook messaging, Q&amp;A, moderation</li>
+        <li><strong>Cron:</strong> 4x daily (promo + price updates)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Vercel Blob Storage</h4>
+      <ul>
+        <li><strong>Purpose:</strong> Marketing materials (images, video, docs)</li>
+        <li><strong>Prefix:</strong> <code>Marketing/</code></li>
+        <li><strong>Used by:</strong> Marketing page, Telegram bot</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Google Analytics</h4>
+      <ul>
+        <li><strong>Config:</strong> Via <code>VITE_ANALYTICS_ID</code></li>
+        <li><strong>Active:</strong> Production only</li>
+        <li><strong>Tracks:</strong> Page views, interactions</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 12. SECURITY ================= -->
+<section id="security">
+  <h2>12. Security &amp; Authentication</h2>
+
+  <h3>Server-Side Security</h3>
+  <div class="card-grid">
+    <div class="card">
+      <h4>API Key Protection</h4>
+      <p>All API keys (Swyftx, Helius, Jupiter, Telegram, MongoDB) are stored as environment variables on Vercel and never exposed to the client browser. All external API calls are proxied through serverless functions.</p>
+    </div>
+    <div class="card">
+      <h4>RPC Method Allowlist</h4>
+      <p>The <code>/api/rpc</code> proxy only allows 18 read-only Solana RPC methods. Write methods like <code>sendTransaction</code> are blocked to prevent abuse.</p>
+      <pre><code>Allowed: getAccountInfo, getBalance,
+getBlock, getBlockHeight,
+getLatestBlockhash, getTransaction,
+getTokenAccountsByOwner, ...</code></pre>
+    </div>
+    <div class="card">
+      <h4>Swyftx Endpoint Allowlist</h4>
+      <p>The proxy only forwards requests to approved Swyftx endpoints matching specific URL patterns. Unauthorized endpoints are rejected with 403.</p>
+    </div>
+    <div class="card">
+      <h4>Admin Authorization</h4>
+      <p>Admin-only endpoints check the wallet address against a comma-separated list in the <code>ADMIN_WALLETS</code> environment variable. Non-admin wallets receive 403 errors.</p>
+    </div>
+  </div>
+
+  <h3>Wallet Signature Verification</h3>
+  <p>The Python backend uses PyNaCl for Ed25519 signature verification, validating that requests come from the claimed wallet owner. Address validation is done via base58 decoding.</p>
+
+  <h3>CORS Configuration</h3>
+  <p>All API endpoints set <code>Access-Control-Allow-Origin: *</code> with support for OPTIONS preflight requests.</p>
+</section>
+
+<!-- ================= 13. CI/CD ================= -->
+<section id="cicd">
+  <h2>13. CI/CD &amp; Deployment</h2>
+
+  <h3>GitHub Actions Workflow</h3>
+  <p>The pipeline triggers on push to <code>master</code>, <code>main</code>, or specific feature branches.</p>
+
+  <table>
+    <tr><th>Step</th><th>Action</th></tr>
+    <tr><td>1</td><td>Checkout code (<code>actions/checkout@v4</code>)</td></tr>
+    <tr><td>2</td><td>Setup Node.js v22.14.0</td></tr>
+    <tr><td>3</td><td>Cache npm dependencies</td></tr>
+    <tr><td>4</td><td>Create <code>.env</code> file from GitHub Secrets</td></tr>
+    <tr><td>5</td><td><code>npm ci</code> (clean install)</td></tr>
+    <tr><td>6</td><td><code>npm run build</code> (Vite production build)</td></tr>
+    <tr><td>7</td><td>Prepare Vercel build output structure</td></tr>
+    <tr><td>8</td><td>Link Vercel project</td></tr>
+    <tr><td>9</td><td><code>vercel deploy --prebuilt --prod</code></td></tr>
+  </table>
+
+  <h3>Vercel Configuration</h3>
+  <ul>
+    <li><strong>Headers:</strong> No-cache for HTML files (prevents stale assets)</li>
+    <li><strong>Rewrites:</strong> Asset path rewriting + SPA fallback</li>
+    <li><strong>Crons:</strong> Telegram cron at <code>0 0,6,12,18 * * *</code> (4x daily UTC)</li>
+  </ul>
+
+  <h3>Build Scripts</h3>
+  <pre><code>npm run dev       # Start Vite dev server (port 5173)
+npm run build     # Production build to dist/
+npm run lint      # Run ESLint
+npm run preview   # Preview production build</code></pre>
+</section>
+
+<!-- ================= 14. CONFIG ================= -->
+<section id="config">
+  <h2>14. Configuration &amp; Environment Variables</h2>
+
+  <h3>Required Environment Variables</h3>
+  <table>
+    <tr><th>Variable</th><th>Used By</th><th>Purpose</th></tr>
+    <tr><td><code>MONGODB_URI</code></td><td>Python backend</td><td>MongoDB connection string</td></tr>
+    <tr><td><code>DB_NAME</code></td><td>Python backend</td><td>Database name</td></tr>
+    <tr><td><code>ADMIN_WALLETS</code></td><td>Python backend</td><td>Comma-separated admin wallet addresses</td></tr>
+    <tr><td><code>SWYFTX_API_KEY</code></td><td><code>/api/proxy</code></td><td>Swyftx exchange authentication</td></tr>
+    <tr><td><code>HELIUS_API_KEY</code></td><td><code>/api/rpc</code></td><td>Premium Solana RPC access</td></tr>
+    <tr><td><code>JUPITER_API_KEY</code></td><td><code>/api/jupiter</code></td><td>Jupiter DEX (optional, has free fallback)</td></tr>
+    <tr><td><code>TELEGRAM_BOT_TOKEN</code></td><td><code>/api/telegram</code></td><td>Telegram bot authentication</td></tr>
+    <tr><td><code>BLOB_READ_WRITE_TOKEN</code></td><td><code>/api/marketing</code></td><td>Vercel Blob storage access</td></tr>
+  </table>
+
+  <h3>Frontend Environment Variables (VITE_*)</h3>
+  <table>
+    <tr><th>Variable</th><th>Purpose</th></tr>
+    <tr><td><code>VITE_TOKEN_ADDRESS</code></td><td>BUDJU token mint address</td></tr>
+    <tr><td><code>VITE_BURN_ADDRESS</code></td><td>Burn program address</td></tr>
+    <tr><td><code>VITE_BANK_ADDRESS</code></td><td>Bank program address</td></tr>
+    <tr><td><code>VITE_ENVIRONMENT</code></td><td>Production/staging flag</td></tr>
+    <tr><td><code>VITE_NFT_TARGET_HOLDERS</code></td><td>NFT holder target number</td></tr>
+    <tr><td><code>VITE_ANALYTICS_ID</code></td><td>Google Analytics ID</td></tr>
+    <tr><td><code>VITE_SHOP_URL</code></td><td>External shop URL</td></tr>
+    <tr><td><code>VITE_SOLANA_RPC_ENDPOINT</code></td><td>Solana RPC endpoint</td></tr>
+    <tr><td><code>VITE_CRYPTOCOMPARE_API_KEY</code></td><td>CryptoCompare API key</td></tr>
+  </table>
+
+  <h3>Feature Flags</h3>
+  <pre><code>FEATURES = {
+  NFT_MINTING: boolean,   // Enable/disable NFT minting UI
+  BANK_STAKING: boolean,  // Enable/disable bank staking
+  SHOP: boolean           // Enable/disable merchandise shop
+}</code></pre>
+</section>
+
+<!-- ================= 15. WARNINGS ================= -->
+<section id="warnings">
+  <h2>15. Warnings &amp; Security Concerns</h2>
+
+  <div class="alert alert-danger">
+    <strong>CRITICAL: CORS Wildcard on All API Endpoints</strong>
+    All serverless functions set <code>Access-Control-Allow-Origin: *</code>. This allows ANY website to make requests to your API. While the proxy pattern protects API keys, the MongoDB endpoints (<code>/api/deposit</code>, <code>/api/trade</code>, <code>/api/state</code>) are accessible from any origin. Consider restricting CORS to your production domain only.
+  </div>
+
+  <div class="alert alert-danger">
+    <strong>CRITICAL: Admin Authorization Is Wallet-Address-Only</strong>
+    Admin endpoints verify the wallet address against <code>ADMIN_WALLETS</code> env var, but this is passed as a query parameter or request body field &mdash; not cryptographically verified on every request. An attacker who knows an admin wallet address could craft requests to admin-only endpoints. Consider requiring Ed25519 signature verification on ALL admin write operations.
+  </div>
+
+  <div class="alert alert-danger">
+    <strong>CRITICAL: No Rate Limiting on API Endpoints</strong>
+    There is no rate limiting on any of the serverless functions. An attacker could flood endpoints like <code>/api/user/register</code>, <code>/api/user-deposit</code>, or <code>/api/trade</code> with requests. Vercel provides basic DDoS protection, but application-level rate limiting should be added.
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>WARNING: Trading PIN Stored in localStorage</strong>
+    The trade PIN (<code>budju_trade_pin</code>) is stored in plain text in localStorage. While this is client-side convenience only, it could be accessed by XSS attacks. Consider using session-based auth or a more secure storage mechanism.
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>WARNING: Console Logging of Sensitive Data</strong>
+    Multiple files contain <code>console.log()</code> statements that output RPC responses, swap transaction data, wallet addresses, and trade details. This data is visible in the browser DevTools to any user. Consider removing or reducing verbose logging in production builds.
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>WARNING: Deposit Service Simulated Function</strong>
+    The <code>executeDeposit</code> function in <code>useTrading.ts</code> returns a mock transaction ID (<code>SimulatedDepositTx...</code>). If this is called from a production path, users may believe a deposit succeeded when it did not. Verify this code path is not reachable in production or replace with real implementation.
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>WARNING: Hardcoded Fallback AUD/USD Rate</strong>
+    The <code>AUD_TO_USD</code> variable defaults to 0.708. If CoinGecko fails to return data, all AUD-denominated calculations (trigger prices, portfolio values) will use a potentially stale rate. Consider adding age tracking and alerts when the rate hasn't been updated.
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>WARNING: No Input Validation on Trade Amounts</strong>
+    While there's a minimum order check ($7 market, $50 limit), there's no maximum check or balance verification before sending the order to Swyftx. Consider adding server-side amount validation against available balances.
+  </div>
+
+  <div class="alert alert-info">
+    <strong>INFO: No Automated Tests</strong>
+    The project has no unit tests, integration tests, or end-to-end tests. Given the financial nature of the application (trading, deposits, withdrawals), this is a significant risk. Critical paths like deposit recording, share calculation, and trade execution should have comprehensive test coverage.
+  </div>
+
+  <div class="alert alert-info">
+    <strong>INFO: CI/CD Only Deploys to Vercel (No Testing Stage)</strong>
+    The GitHub Actions workflow runs <code>npm ci</code>, <code>npm run build</code>, and deploys directly. There are no test, lint, or type-check steps in the pipeline. A failing build is caught, but runtime bugs will reach production.
+  </div>
+
+  <div class="alert alert-info">
+    <strong>INFO: Single Database Region</strong>
+    MongoDB is accessed directly from serverless functions. Consider using MongoDB Atlas with connection pooling and read replicas for better performance and redundancy.
+  </div>
+
+  <div class="alert alert-info">
+    <strong>INFO: Telegram Bot Token Exposure Risk</strong>
+    The Telegram bot token is used in the serverless function. While it's server-side, if the function error-logs the token or it appears in stack traces, it could be exposed. Ensure error logging doesn't include env vars.
+  </div>
+</section>
+
+<!-- ================= 16. FUTURE IDEAS ================= -->
+<section id="future">
+  <h2>16. Future Improvement Ideas</h2>
+
+  <div class="card-grid">
+    <div class="card">
+      <h4>Testing &amp; Quality</h4>
+      <span class="badge badge-red">High Priority</span>
+      <ul>
+        <li>Add Vitest for unit testing (components, hooks, services)</li>
+        <li>Add Playwright or Cypress for end-to-end testing</li>
+        <li>Add NAV calculation tests (critical financial logic)</li>
+        <li>Add CI pipeline test stage before deploy</li>
+        <li>Add TypeScript strict mode checks in CI</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Security Hardening</h4>
+      <span class="badge badge-red">High Priority</span>
+      <ul>
+        <li>Restrict CORS to production domain only</li>
+        <li>Add Ed25519 signature verification on ALL admin endpoints</li>
+        <li>Add rate limiting (Vercel Edge Middleware or Upstash)</li>
+        <li>Remove console.log statements in production</li>
+        <li>Add Content Security Policy (CSP) headers</li>
+        <li>Add CSRF protection for state-changing requests</li>
+        <li>Implement proper session management instead of localStorage PIN</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Performance &amp; Reliability</h4>
+      <span class="badge badge-yellow">Medium Priority</span>
+      <ul>
+        <li>Add error boundary components for graceful failure</li>
+        <li>Implement service worker for offline caching</li>
+        <li>Add WebSocket connection for real-time price updates instead of polling</li>
+        <li>Implement connection pooling for MongoDB</li>
+        <li>Add health check endpoint for monitoring</li>
+        <li>Add Sentry or similar error tracking</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>User Experience</h4>
+      <span class="badge badge-yellow">Medium Priority</span>
+      <ul>
+        <li>Add push notifications for trade executions</li>
+        <li>Add email alerts for large price movements</li>
+        <li>Add portfolio P&amp;L visualization over time</li>
+        <li>Add advanced charting with TradingView widget</li>
+        <li>Add dark/light mode persistence across sessions</li>
+        <li>Add progressive web app (PWA) support for mobile</li>
+        <li>Add multi-language support (i18n)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Trading Bot Enhancements</h4>
+      <span class="badge badge-yellow">Medium Priority</span>
+      <ul>
+        <li>Add trailing stop-loss functionality</li>
+        <li>Add DCA scheduling (buy X every Y hours)</li>
+        <li>Add portfolio rebalancing automation</li>
+        <li>Add backtesting with historical data</li>
+        <li>Add profit-taking rules (auto-sell at X% gain)</li>
+        <li>Add more configurable tiers (4+)</li>
+        <li>Add Telegram notifications for bot trades</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Infrastructure</h4>
+      <span class="badge badge-blue">Lower Priority</span>
+      <ul>
+        <li>Migrate Python API to TypeScript for unified codebase</li>
+        <li>Add Redis caching layer (Upstash) for API responses</li>
+        <li>Implement proper database migrations</li>
+        <li>Add staging environment with separate DB</li>
+        <li>Add automated backups for MongoDB</li>
+        <li>Add API documentation (Swagger/OpenAPI)</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>Community &amp; Growth</h4>
+      <span class="badge badge-blue">Lower Priority</span>
+      <ul>
+        <li>Add referral program with tracking</li>
+        <li>Add governance voting for token holders</li>
+        <li>Add staking rewards mechanism</li>
+        <li>Add social trading (copy trade feature)</li>
+        <li>Add community leaderboard with badges</li>
+        <li>Add Discord bot integration</li>
+        <li>Add on-chain analytics dashboard</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h4>NFT Ecosystem</h4>
+      <span class="badge badge-blue">Lower Priority</span>
+      <ul>
+        <li>Implement on-chain NFT minting with Metaplex</li>
+        <li>Add NFT staking for additional rewards</li>
+        <li>Add NFT marketplace with royalties</li>
+        <li>Add NFT-gated access to premium features</li>
+        <li>Add rarity scoring and trait analytics</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ================= FOOTER ================= -->
+<footer style="background: var(--bg2); border-top: 1px solid var(--border); padding: 30px 0; text-align: center; color: var(--text-muted); font-size: 0.85rem; margin-top: 40px;">
+  <div class="container">
+    <p><strong>BUDJU Project Documentation</strong> &bull; Generated March 1, 2026</p>
+    <p>Built with React 19 + TypeScript + Vite + TailwindCSS + Solana + MongoDB</p>
+    <p style="margin-top: 12px;">
+      <a href="#overview">Back to Top</a> &bull;
+      <a href="budju-report.html">Full Report (PDF-optimized)</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
