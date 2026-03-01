@@ -60,10 +60,12 @@ const BurnStatistics = () => {
         timeoutPromise,
       ])) as [BurnEvent[], { burned: number; price: number }];
 
-      // Use the on-chain burn wallet balance as the source of truth
-      // This is more accurate than summing individual events which could
-      // miss older transactions beyond the signature fetch limit.
-      const burned = metrics.burned;
+      // Calculate total burned from the actual burn events (the amounts shown in the table).
+      // Use the higher of: metrics.burned and the direct sum of events,
+      // ensuring the total always reflects cumulative burns even if tokens
+      // have been moved out of the burn wallet.
+      const eventsTotal = events.reduce((sum: number, e: BurnEvent) => sum + (e.amount || 0), 0);
+      const burned = Math.max(metrics.burned, eventsTotal);
       const price = metrics.price;
       const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
         ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100

@@ -396,15 +396,15 @@ export async function fetchHeliusTokenMetrics(
       : { price: 0, volume24h: 0, priceChange24h: 0, marketCap: 0, fdv: 0 };
     const currentSupply = supplyResult.status === "fulfilled" ? supplyResult.value : 0;
     const totalSupply = INITIAL_MINT_SUPPLY;
-    // Burned = actual on-chain balance of the burn wallet (source of truth).
-    // This is more accurate than summing individual events, which could miss
-    // older transactions beyond the signature fetch limit.
+    // Burned tokens: use the HIGHER of the wallet balance and the sum of burn events.
+    // The wallet balance only shows what's currently sitting in the burn address —
+    // tokens may have been moved out (e.g. to Raydium), so the wallet balance can
+    // be lower than the true total. The event sum tracks all historical transfers
+    // INTO the burn address, which is the real cumulative total.
     const burnBalance = burnBalanceResult.status === "fulfilled" ? burnBalanceResult.value : 0;
     const burnEvts = burnEventsResult.status === "fulfilled" ? burnEventsResult.value : [];
     const burnEvtsTotal = burnEvts.reduce((sum: number, e: any) => sum + (e.amount || 0), 0);
-    // Use the higher of the two: the actual wallet balance is the ground truth,
-    // but fall back to event sum if the balance fetch fails
-    const burned = burnBalance > 0 ? burnBalance : burnEvtsTotal;
+    const burned = Math.max(burnBalance, burnEvtsTotal);
     const heliusHolders = holderResult.status === "fulfilled" ? holderResult.value : 0;
     const jupiterPrice = jupiterResult.status === "fulfilled" ? jupiterResult.value : 0;
     const geckoPrice = geckoResult.status === "fulfilled" ? geckoResult.value : 0;
@@ -579,8 +579,8 @@ export async function fetchBurnEvents(
   try {
     // Use the burn token account (9NNv...) for signatures — this is the actual
     // SPL token account that receives BUDJU, so all token transfers show up here.
-    // Fetch up to 200 signatures with pagination to capture full burn history.
-    const signatures = await fetchAllSignatures(BURN_TOKEN_ACCOUNT, 200);
+    // Fetch up to 1000 signatures with pagination to capture full burn history.
+    const signatures = await fetchAllSignatures(BURN_TOKEN_ACCOUNT, 1000);
     let burnEvents: BurnEvent[] = [];
     if (signatures.length > 0) {
       burnEvents = await processBurnTransactions(signatures, burnAddress, tokenAddress);
@@ -598,7 +598,7 @@ export async function fetchBurnEvents(
 // Fetch ALL signatures for an address using pagination (walks backward through history)
 async function fetchAllSignatures(
   address: string,
-  maxSignatures = 200,
+  maxSignatures = 1000,
 ): Promise<any[]> {
   const allSignatures: any[] = [];
   let before: string | undefined;

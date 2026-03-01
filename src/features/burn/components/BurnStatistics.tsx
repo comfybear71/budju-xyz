@@ -97,10 +97,13 @@ const BurnStatistics = () => {
         fetchHeliusTokenMetrics(TOKEN_ADDRESS, SERVICE_BURN_ADDRESS),
       ]);
 
-      // Use the on-chain burn wallet balance from metrics as the source of truth
-      // for total burned. This is more accurate than summing individual events
-      // which could miss older transactions.
-      const burned = metrics.burned;
+      // Calculate total burned from the actual burn events (the amounts shown in the table).
+      // This is more accurate than the burn wallet balance, which only shows
+      // what's currently sitting there — tokens may have been moved out to Raydium.
+      // Use the higher of: metrics.burned (which already uses max of balance vs events)
+      // and the direct sum of events, ensuring the total always matches the table.
+      const eventsTotal = events.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const burned = Math.max(metrics.burned, eventsTotal);
       const price = metrics.price;
       const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
         ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100
