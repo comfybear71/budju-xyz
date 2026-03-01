@@ -91,14 +91,16 @@ const BurnStatistics = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch burn events (transfers TO burn address) and price
+      // Fetch burn events (transfers TO burn address) and metrics (includes burn wallet balance)
       const [events, metrics] = await Promise.all([
         fetchBurnEvents(),
         fetchHeliusTokenMetrics(TOKEN_ADDRESS, SERVICE_BURN_ADDRESS),
       ]);
 
-      // Total burned = sum of all incoming transfers to the burn address
-      const burned = events.reduce((sum, e) => sum + e.amount, 0);
+      // Use the on-chain burn wallet balance from metrics as the source of truth
+      // for total burned. This is more accurate than summing individual events
+      // which could miss older transactions.
+      const burned = metrics.burned;
       const price = metrics.price;
       const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
         ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100
