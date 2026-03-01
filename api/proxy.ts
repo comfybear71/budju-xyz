@@ -60,15 +60,50 @@ function isAllowedEndpoint(endpoint: string): boolean {
   return ALLOWED_PATTERNS.some((p) => p.test(endpoint));
 }
 
+// ── CORS origin check ─────────────────────────────────────
+const ALLOWED_ORIGINS = [
+  "https://budju.xyz",
+  "https://www.budju.xyz",
+];
+
+function getCorsOrigin(req: VercelRequest): string {
+  const origin = req.headers.origin || "";
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (origin.startsWith("http://localhost:")) return origin;
+  return ALLOWED_ORIGINS[0];
+}
+
+// ── Rate Limiting (in-memory, per warm instance) ──────────
+const _rateLimits = new Map<string, number[]>();
+const RATE_WINDOW = 60_000; // 60 seconds
+const RATE_MAX = 30;        // max requests per window per IP
+
+function checkRateLimit(req: VercelRequest): boolean {
+  const ip = (req.headers["x-forwarded-for"] as string || "0.0.0.0").split(",")[0].trim();
+  const now = Date.now();
+  const timestamps = (_rateLimits.get(ip) || []).filter(t => now - t < RATE_WINDOW);
+  if (timestamps.length >= RATE_MAX) return false;
+  timestamps.push(now);
+  _rateLimits.set(ip, timestamps);
+  return true;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // CORS headers — restricted to allowed origins only
+  const corsOrigin = getCorsOrigin(req);
+  res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
     return res.status(405).json({ error: "POST only" });
+
+  // Rate limit check
+  if (!checkRateLimit(req)) {
+    return res.status(429).json({ error: "Too many requests. Please try again later." });
+  }
 
   const apiKey = process.env.SWYFTX_API_KEY;
   if (!apiKey) {

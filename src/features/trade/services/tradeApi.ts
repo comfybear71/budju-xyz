@@ -122,30 +122,6 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
-// ── PIN Management (for placing trades only) ───────────────
-
-let _pin: string | null = null;
-
-export function setPin(pin: string) {
-  _pin = pin;
-  localStorage.setItem("budju_trade_pin", pin);
-}
-
-export function getPin(): string | null {
-  if (_pin) return _pin;
-  _pin = localStorage.getItem("budju_trade_pin");
-  return _pin;
-}
-
-export function clearPin() {
-  _pin = null;
-  localStorage.removeItem("budju_trade_pin");
-}
-
-export function hasPin(): boolean {
-  return !!getPin();
-}
-
 // ── JWT token management ───────────────────────────────────
 // Tokens are now managed server-side by the proxy. The client
 // no longer needs to fetch or send Swyftx access tokens.

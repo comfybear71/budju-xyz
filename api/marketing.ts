@@ -1,8 +1,20 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { list } from "@vercel/blob";
 
+// ── CORS origin check ─────────────────────────────────────
+const ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"];
+
+function getCorsOrigin(req: VercelRequest): string {
+  const origin = req.headers.origin || "";
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  if (origin.startsWith("http://localhost:")) return origin;
+  return ALLOWED_ORIGINS[0];
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const corsOrigin = getCorsOrigin(req);
+  res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 

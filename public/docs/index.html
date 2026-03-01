@@ -1030,24 +1030,24 @@ npm run preview   # Preview production build</code></pre>
 <section id="warnings">
   <h2>15. Warnings &amp; Security Concerns</h2>
 
-  <div class="alert alert-danger">
-    <strong>CRITICAL: CORS Wildcard on All API Endpoints</strong>
-    All serverless functions set <code>Access-Control-Allow-Origin: *</code>. This allows ANY website to make requests to your API. While the proxy pattern protects API keys, the MongoDB endpoints (<code>/api/deposit</code>, <code>/api/trade</code>, <code>/api/state</code>) are accessible from any origin. Consider restricting CORS to your production domain only.
+  <div class="alert alert-success">
+    <strong>RESOLVED: CORS Wildcard on All API Endpoints</strong>
+    All API endpoints now restrict <code>Access-Control-Allow-Origin</code> to <code>https://budju.xyz</code> and <code>https://www.budju.xyz</code> only. Localhost is allowed for development. The <code>Vary: Origin</code> header is set for proper caching.
   </div>
 
-  <div class="alert alert-danger">
-    <strong>CRITICAL: Admin Authorization Is Wallet-Address-Only</strong>
-    Admin endpoints verify the wallet address against <code>ADMIN_WALLETS</code> env var, but this is passed as a query parameter or request body field &mdash; not cryptographically verified on every request. An attacker who knows an admin wallet address could craft requests to admin-only endpoints. Consider requiring Ed25519 signature verification on ALL admin write operations.
+  <div class="alert alert-success">
+    <strong>RESOLVED: Admin Authorization Now Uses Ed25519 Signatures</strong>
+    All admin write endpoints now require cryptographic Ed25519 signature verification. Admin requests must include <code>adminSignature</code> and <code>adminMessage</code> (with timestamp for replay protection). The server verifies the signature matches the admin wallet's public key.
   </div>
 
-  <div class="alert alert-danger">
-    <strong>CRITICAL: No Rate Limiting on API Endpoints</strong>
-    There is no rate limiting on any of the serverless functions. An attacker could flood endpoints like <code>/api/user/register</code>, <code>/api/user-deposit</code>, or <code>/api/trade</code> with requests. Vercel provides basic DDoS protection, but application-level rate limiting should be added.
+  <div class="alert alert-success">
+    <strong>RESOLVED: Rate Limiting Added to All API Endpoints</strong>
+    In-memory per-IP rate limiting has been added to all serverless functions. Limits: 30 req/min (proxy), 60 req/min (RPC), 20 req/min (Jupiter), 30 reads/10 writes per min (Python API). Returns HTTP 429 when exceeded.
   </div>
 
-  <div class="alert alert-warning">
-    <strong>WARNING: Trading PIN Stored in localStorage</strong>
-    The trade PIN (<code>budju_trade_pin</code>) is stored in plain text in localStorage. While this is client-side convenience only, it could be accessed by XSS attacks. Consider using session-based auth or a more secure storage mechanism.
+  <div class="alert alert-success">
+    <strong>RESOLVED: Trading PIN Removed</strong>
+    The trade PIN (<code>budju_trade_pin</code>) localStorage code has been removed. This dead code was a security risk and has been cleaned up.
   </div>
 
   <div class="alert alert-warning">

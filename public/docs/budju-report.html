@@ -600,9 +600,9 @@ User Allocation % = (User Shares / Total Shares) x 100</code></pre>
   No rate limiting on any serverless function. Endpoints like /api/user/register, /api/user-deposit, /api/trade can be flooded. <strong>Fix:</strong> Add Vercel Edge Middleware rate limiting or use Upstash Redis.
 </div>
 
-<div class="alert alert-warning">
-  <strong>WARNING #4: Trading PIN in localStorage (Plain Text)</strong>
-  The trade PIN (budju_trade_pin) is stored unencrypted in localStorage. Accessible via XSS or browser DevTools. <strong>Fix:</strong> Use session-based authentication or encrypt the PIN.
+<div class="alert alert-info">
+  <strong>RESOLVED #4: Trading PIN Removed</strong>
+  The trade PIN (budju_trade_pin) localStorage code has been removed. This dead code was a security risk and has been cleaned up.
 </div>
 
 <div class="alert alert-warning">

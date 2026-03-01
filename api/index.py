@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import sys
+import time
 
 # Add parent directory for imports
 sys.path.insert(0, os.path.dirname(__file__))
@@ -30,19 +31,110 @@ from database import (
     sync_deposits_from_client,
     sync_trades_from_swyftx,
     admin_import_user,
-    recalibrate_pool
+    recalibrate_pool,
+    verify_wallet_signature
 )
+
+# ── CORS origin check ──────────────────────────────────────────────────
+ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
+
+def get_cors_origin(headers) -> str:
+    origin = headers.get('Origin', '')
+    if origin in ALLOWED_ORIGINS:
+        return origin
+    if origin.startswith('http://localhost:'):
+        return origin
+    return ALLOWED_ORIGINS[0]
+
+
+# ── Rate Limiting (in-memory, per warm instance) ───────────────────────
+# Tracks requests per IP. Resets on cold start (acceptable for serverless).
+_rate_limit_store: dict = {}  # {ip: [timestamp, ...]}
+RATE_LIMIT_WINDOW = 60       # seconds
+RATE_LIMIT_MAX = 30          # max requests per window per IP
+RATE_LIMIT_MAX_WRITE = 10    # max write (POST) requests per window per IP
+
+def _check_rate_limit(ip: str, is_write: bool = False) -> bool:
+    """Returns True if request is allowed, False if rate limited."""
+    now = time.time()
+    key = f"{ip}:{'w' if is_write else 'r'}"
+    max_req = RATE_LIMIT_MAX_WRITE if is_write else RATE_LIMIT_MAX
+
+    if key not in _rate_limit_store:
+        _rate_limit_store[key] = []
+
+    # Prune old entries
+    _rate_limit_store[key] = [t for t in _rate_limit_store[key] if now - t < RATE_LIMIT_WINDOW]
+
+    if len(_rate_limit_store[key]) >= max_req:
+        return False
+
+    _rate_limit_store[key].append(now)
+    return True
+
+def _get_client_ip(handler) -> str:
+    """Extract client IP from headers (Vercel sets x-forwarded-for)."""
+    forwarded = handler.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return handler.headers.get('X-Real-Ip', '0.0.0.0')
+
+
+# ── Admin Signature Verification ───────────────────────────────────────
+def _verify_admin(body: dict, handler) -> tuple:
+    """Verify admin wallet address AND Ed25519 signature.
+    Returns (is_valid: bool, error_message: str or None).
+    Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
+    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
+    """
+    admin_wallet = body.get('adminWallet')
+    if not admin_wallet or not is_admin(admin_wallet):
+        return False, "Admin access required"
+
+    signature = body.get('adminSignature')
+    message = body.get('adminMessage')
+
+    if not signature or not message:
+        return False, "Admin signature and message required for write operations"
+
+    # Verify the Ed25519 signature matches the admin wallet
+    if not verify_wallet_signature(admin_wallet, message, signature):
+        return False, "Invalid admin signature"
+
+    # Verify the message contains a recent timestamp (anti-replay)
+    try:
+        # Message format expected: "BUDJU_ADMIN:<timestamp_ms>"
+        parts = message.split(':')
+        if len(parts) < 2:
+            return False, "Invalid message format"
+        msg_timestamp = int(parts[-1])
+        now_ms = int(time.time() * 1000)
+        # Allow 5-minute window
+        if abs(now_ms - msg_timestamp) > 5 * 60 * 1000:
+            return False, "Message timestamp expired (replay protection)"
+    except (ValueError, IndexError):
+        return False, "Invalid message timestamp"
+
+    return True, None
 
 
 class handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
+        cors_origin = get_cors_origin(self.headers)
         self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', cors_origin)
+        self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
     def do_GET(self):
+        # Rate limit check
+        client_ip = _get_client_ip(self)
+        if not _check_rate_limit(client_ip, is_write=False):
+            self._send_json(429, {"error": "Too many requests. Please try again later."})
+            return
+
         try:
             path = self.path.split('?')[0]
             params = self._parse_query_params()
@@ -147,6 +239,12 @@ class handler(BaseHTTPRequestHandler):
             self._send_json(500, {"error": str(e)})
 
     def do_POST(self):
+        # Rate limit check (stricter for writes)
+        client_ip = _get_client_ip(self)
+        if not _check_rate_limit(client_ip, is_write=True):
+            self._send_json(429, {"error": "Too many requests. Please try again later."})
+            return
+
         try:
             path = self.path.split('?')[0]
             body = self._read_body()
@@ -186,10 +284,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/deposit':
-                # Deposits can only be recorded by admins
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 wallet_address = body.get('walletAddress')
@@ -209,12 +307,13 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/pool/initialize':
-                admin_wallet = body.get('adminWallet')
-                pool_value = body.get('totalPoolValue')
-
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
+
+                pool_value = body.get('totalPoolValue')
                 if not pool_value:
                     self._send_json(400, {"error": "totalPoolValue required"})
                     return
@@ -223,9 +322,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/state':
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 # Accept partial updates — only overwrite keys that are sent
@@ -240,10 +340,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/user/sync':
-                # Share sync can only be performed by admins
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 wallet_address = body.get('walletAddress')
@@ -260,9 +360,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/trade':
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 coin = body.get('coin')
@@ -286,9 +387,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/trade/sync':
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 trades = body.get('trades', [])
@@ -300,9 +402,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/admin/import-user':
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 wallet_address = body.get('walletAddress')
@@ -321,9 +424,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/admin/recalibrate':
-                admin_wallet = body.get('adminWallet')
-                if not admin_wallet or not is_admin(admin_wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Admin-only: requires cryptographic signature verification
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
                     return
 
                 pool_value = body.get('totalPoolValue')
@@ -345,8 +449,10 @@ class handler(BaseHTTPRequestHandler):
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _send_json(self, status_code, data):
+        cors_origin = get_cors_origin(self.headers)
         self.send_response(status_code)
-        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Origin', cors_origin)
+        self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Content-Type', 'application/json')
