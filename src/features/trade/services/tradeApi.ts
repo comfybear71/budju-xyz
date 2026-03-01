@@ -122,9 +122,70 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
-// ── JWT token management ───────────────────────────────────
-// Tokens are now managed server-side by the proxy. The client
-// no longer needs to fetch or send Swyftx access tokens.
+// ── Admin Signature Helper ────────────────────────────────
+// Signs a timestamped message with the connected wallet's Ed25519 key.
+// Cached per session — re-signs when the cached signature is > 50 min old.
+// The backend verifies this signature on all admin write endpoints.
+
+interface AdminAuth {
+  adminWallet: string;
+  adminSignature: number[];
+  adminMessage: string;
+}
+
+let _cachedAdminAuth: AdminAuth | null = null;
+let _cachedAuthTime = 0;
+const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
+
+function _getWalletProvider(): any {
+  return (window as any).phantom?.solana
+    || (window as any).solana
+    || (window as any).solflare
+    || (window as any).jupiter
+    || null;
+}
+
+/**
+ * Get admin auth fields (signature + message) for an admin API request.
+ * Caches the signature so the wallet popup only appears once per ~50 min.
+ * Returns null if the wallet provider doesn't support signMessage.
+ */
+export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
+  // Return cached auth if still valid
+  if (_cachedAdminAuth && _cachedAdminAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_TTL_MS) {
+    return _cachedAdminAuth;
+  }
+
+  const provider = _getWalletProvider();
+  if (!provider || typeof provider.signMessage !== "function") {
+    console.warn("Wallet provider does not support signMessage");
+    return null;
+  }
+
+  const timestamp = Date.now();
+  const message = `BUDJU_ADMIN:${timestamp}`;
+  const encoded = new TextEncoder().encode(message);
+
+  try {
+    const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
+    _cachedAdminAuth = {
+      adminWallet,
+      adminSignature: Array.from(signatureBytes),
+      adminMessage: message,
+    };
+    _cachedAuthTime = Date.now();
+    return _cachedAdminAuth;
+  } catch (err) {
+    console.error("Admin signature request denied:", err);
+    return null;
+  }
+}
+
+/** Clear cached admin auth (call on wallet disconnect) */
+export function clearAdminAuth() {
+  _cachedAdminAuth = null;
+  _cachedAuthTime = 0;
+}
 
 // ── API helpers ────────────────────────────────────────────
 
@@ -643,16 +704,19 @@ export async function fetchTraderState(): Promise<TraderState | null> {
   });
 }
 
-/** Save trader state (admin only — partial updates) */
+/** Save trader state (admin only — partial updates, requires Ed25519 signature) */
 export async function saveTraderState(
   adminWallet: string,
   updates: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const res = await fetchWithRetry("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, ...updates }),
+      body: JSON.stringify({ ...auth, ...updates }),
     });
     const data = await res.json();
     // Invalidate cached trader state so next fetch gets fresh data
@@ -682,12 +746,15 @@ export async function recordDeposit(
   currency: string = "USDC",
 ): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const txHash = `admin_deposit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const res = await fetchWithRetry("/api/deposit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adminWallet,
+        ...auth,
         walletAddress,
         amount: amountUsd,
         txHash,
@@ -747,7 +814,7 @@ export async function submitUserDeposit(
 
 // ── Additional API functions (ported from FLUB) ───────────
 
-/** Record a trade to MongoDB */
+/** Record a trade to MongoDB (requires Ed25519 signature) */
 export async function recordTradeInDB(
   adminWallet: string,
   coin: string,
@@ -756,11 +823,14 @@ export async function recordTradeInDB(
   price: number,
 ): Promise<boolean> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return false;
+
     const res = await fetch("/api/trade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adminWallet,
+        ...auth,
         coin,
         type: tradeType,
         amount: cryptoAmount,
@@ -846,18 +916,21 @@ export async function fetchSwyftxOrderHistory(
   }
 }
 
-/** Sync Swyftx order history to MongoDB (deduplicates by swyftxId) */
+/** Sync Swyftx order history to MongoDB (deduplicates by swyftxId, requires signature) */
 export async function syncSwyftxTradesToDB(
   adminWallet: string,
 ): Promise<{ imported: number; skipped: number } | null> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return null;
+
     const swyftxOrders = await fetchSwyftxOrderHistory(200);
     if (swyftxOrders.length === 0) return { imported: 0, skipped: 0 };
 
     const res = await fetch("/api/trade/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, trades: swyftxOrders }),
+      body: JSON.stringify({ ...auth, trades: swyftxOrders }),
     });
 
     if (res.ok) return await res.json();
@@ -960,16 +1033,19 @@ export async function fetchEnrichedPendingOrders(
   return [];
 }
 
-/** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals */
+/** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals (requires signature) */
 export async function recalibratePool(
   adminWallet: string,
   totalPoolValue: number,
 ): Promise<{ success: boolean; adminCapital?: number; totalUserDeposits?: number; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const res = await fetchWithRetry("/api/admin/recalibrate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, totalPoolValue }),
+      body: JSON.stringify({ ...auth, totalPoolValue }),
     });
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };

@@ -25,6 +25,7 @@ import {
   saveTraderState,
   placeTrade,
   clearCacheKeys,
+  getAdminAuth,
   ASSET_CONFIG,
   type PortfolioAsset,
   type TraderState,
@@ -942,11 +943,14 @@ export class AutoTrader {
   private async _recordTradeInDB(coin: string, tradeType: "buy" | "sell", amount: number, price: number) {
     if (!this._adminWallet) return;
     try {
+      const auth = await getAdminAuth(this._adminWallet);
+      if (!auth) return;
+
       const res = await fetch("/api/trade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          adminWallet: this._adminWallet,
+          ...auth,
           coin,
           type: tradeType,
           amount,

@@ -537,22 +537,32 @@ const HoldingsList = ({
         </div>
       </div>
 
-      {/* Tier subtotal */}
+      {/* Tier subtotal + Portfolio total */}
       <motion.div
         key={currentTier.id + "-value"}
         initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="text-center mb-4"
+        className="flex justify-center items-end gap-6 mb-4"
       >
-        <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
-          {currentTier.label} Value
-        </p>
-        <span
-          className={`text-xl font-black font-mono bg-gradient-to-r ${currentTier.accent} bg-clip-text text-transparent`}
-        >
-          {formatUsd(tierValue)}
-        </span>
+        <div className="text-center">
+          <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
+            {currentTier.label} Value
+          </p>
+          <span
+            className={`text-xl font-black font-mono bg-gradient-to-r ${currentTier.accent} bg-clip-text text-transparent`}
+          >
+            {formatUsd(tierValue)}
+          </span>
+        </div>
+        <div className="text-center">
+          <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
+            Portfolio Total
+          </p>
+          <span className="text-xl font-black font-mono text-white/80">
+            {formatUsd(totalValue)}
+          </span>
+        </div>
       </motion.div>
 
       {/* Tier Tabs */}

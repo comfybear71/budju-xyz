@@ -85,7 +85,7 @@ def _verify_admin(body: dict, handler) -> tuple:
     """Verify admin wallet address AND Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
     Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
+    The adminMessage must contain a recent timestamp (within 60 minutes) to prevent replay attacks.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):
@@ -109,8 +109,9 @@ def _verify_admin(body: dict, handler) -> tuple:
             return False, "Invalid message format"
         msg_timestamp = int(parts[-1])
         now_ms = int(time.time() * 1000)
-        # Allow 5-minute window
-        if abs(now_ms - msg_timestamp) > 5 * 60 * 1000:
+        # Allow 60-minute window (long enough for autotrader sessions,
+        # short enough to limit replay attacks)
+        if abs(now_ms - msg_timestamp) > 60 * 60 * 1000:
             return False, "Message timestamp expired (replay protection)"
     except (ValueError, IndexError):
         return False, "Invalid message timestamp"
