@@ -380,7 +380,7 @@ const BurnStatistics = () => {
                     {burnEvents.map((event, index) => (
                       <tr
                         key={index}
-                        className={`border-b last:border-b-0 ${
+                        className={`border-b ${
                           isDarkMode
                             ? "border-white/[0.04] hover:bg-white/[0.02]"
                             : "border-gray-100 hover:bg-gray-50/50"
@@ -429,6 +429,41 @@ const BurnStatistics = () => {
                         </td>
                       </tr>
                     ))}
+                    {/* Total row */}
+                    <tr
+                      className={`border-t-2 ${
+                        isDarkMode
+                          ? "border-white/[0.1] bg-white/[0.03]"
+                          : "border-gray-200/60 bg-gray-50/30"
+                      }`}
+                    >
+                      <td
+                        className={`py-2.5 px-2 text-xs font-bold ${
+                          isDarkMode ? "text-red-400" : "text-red-600"
+                        }`}
+                      >
+                        Total
+                      </td>
+                      <td
+                        className={`py-2.5 px-2 text-right text-xs font-mono font-bold ${
+                          isDarkMode ? "text-white" : "text-gray-900"
+                        }`}
+                      >
+                        {totalBurned.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-2 text-right text-xs font-mono font-bold text-emerald-400">
+                        ${totalValue.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 px-2">
+                        <span
+                          className={`text-[10px] ${
+                            isDarkMode ? "text-gray-500" : "text-gray-400"
+                          }`}
+                        >
+                          {percentageBurned.toFixed(6)}% of supply
+                        </span>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
