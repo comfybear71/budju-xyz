@@ -43,6 +43,7 @@ TELEGRAM_CHAT_ID = -1002398835975
 # Trading constants (mirrors autoTrader.ts)
 COOLDOWN_HOURS = 24
 MIN_USDC_RESERVE = 100
+MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
 SELL_RATIO = 0.833
 HEARTBEAT_STALE_MS = 5 * 60 * 1000  # 5 minutes
 
@@ -349,6 +350,7 @@ def run_auto_trade_check():
         # ── BUY: price dropped below buy target ──
         if current_price <= buy_target:
             trade_amount = (settings["allocation"] / 100) * usdc_balance
+            trade_amount = max(trade_amount, MIN_ORDER_USDC)
 
             if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                 log.append(f"{code}: BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)")
@@ -416,6 +418,21 @@ def run_auto_trade_check():
                 continue
 
             sell_value = quantity * current_price
+
+            # If below minimum, sell enough to meet it (up to full balance)
+            if sell_value < MIN_ORDER_USDC:
+                min_qty = MIN_ORDER_USDC / current_price
+                if min_qty <= asset_balance:
+                    quantity = round(min_qty, 8)
+                    sell_value = quantity * current_price
+                else:
+                    # Sell entire balance if it meets minimum
+                    quantity = round(asset_balance, 8)
+                    sell_value = quantity * current_price
+                    if sell_value < MIN_ORDER_USDC:
+                        log.append(f"{code}: SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum")
+                        continue
+
             log.append(f"{code}: SELL at ${current_price:.2f} (target ${sell_target:.2f}) — {quantity:.8f} (${sell_value:.2f})")
 
             if code_to_id is None:
