@@ -733,7 +733,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") {
     const action = req.query.action as string | undefined;
 
-    // Set webhook: GET /api/telegram?action=setWebhook&host=budjucoin.com
+    // Set webhook: GET /api/telegram?action=setWebhook&host=budju.xyz
     if (action === "setWebhook") {
       const host = req.query.host || req.headers.host;
       const webhookUrl = `https://${host}/api/telegram`;
@@ -742,6 +742,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
       const data = await result.json();
       return res.status(200).json({ ok: true, webhook: webhookUrl, telegram: data });
+    }
+
+    // Register bot commands with Telegram: GET /api/telegram?action=setCommands
+    if (action === "setCommands") {
+      const commands = [
+        { command: "menu", description: "Interactive button menu" },
+        { command: "price", description: "Current BUDJU price & stats" },
+        { command: "chart", description: "Live chart links" },
+        { command: "buy", description: "How to buy BUDJU" },
+        { command: "contract", description: "Contract address (tap to copy)" },
+        { command: "info", description: "About BUDJU coin" },
+        { command: "tokenomics", description: "Token supply & distribution" },
+        { command: "roadmap", description: "Project roadmap" },
+        { command: "socials", description: "All social media links" },
+        { command: "bot", description: "Trading bot info" },
+        { command: "bank", description: "Bank of BUDJU" },
+        { command: "burn", description: "Token burn info" },
+        { command: "nft", description: "NFT collection" },
+        { command: "shop", description: "Shop of BUDJU's" },
+        { command: "pool", description: "Liquidity pool info" },
+        { command: "promo", description: "See a promotional image" },
+        { command: "website", description: "Visit budjucoin.com" },
+        { command: "help", description: "All commands & help" },
+      ];
+      const result = await fetch(`${TELEGRAM_API}/setMyCommands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commands }),
+      });
+      const data = await result.json();
+      return res.status(200).json({ ok: true, action: "setCommands", telegram: data });
     }
 
     // Send promo: GET /api/telegram?action=promo
