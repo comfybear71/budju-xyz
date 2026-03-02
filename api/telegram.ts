@@ -5,6 +5,7 @@ import { list } from "@vercel/blob";
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_CHAT_ID = -1002398835975;
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const WEBSITE_URL = "https://budju.xyz";
@@ -19,6 +20,35 @@ async function sendMessage(chatId: number, text: string, parseMode = "HTML") {
       text,
       parse_mode: parseMode,
       disable_web_page_preview: false,
+    }),
+  });
+}
+
+async function sendMessageWithKeyboard(
+  chatId: number,
+  text: string,
+  keyboard: { text: string; callback_data: string }[][],
+) {
+  return fetch(`${TELEGRAM_API}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      reply_markup: { inline_keyboard: keyboard },
+    }),
+  });
+}
+
+async function answerCallbackQuery(callbackQueryId: string, text?: string) {
+  return fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      callback_query_id: callbackQueryId,
+      text,
     }),
   });
 }
@@ -138,14 +168,110 @@ function formatCompact(n: number): string {
 }
 
 function changeEmoji(change: number): string {
-  if (change > 5) return "🚀";
-  if (change > 0) return "📈";
-  if (change < -5) return "📉";
-  if (change < 0) return "🔻";
-  return "➡️";
+  if (change > 5) return "\u{1F680}";
+  if (change > 0) return "\u{1F4C8}";
+  if (change < -5) return "\u{1F4C9}";
+  if (change < 0) return "\u{1F53B}";
+  return "\u{27A1}\u{FE0F}";
+}
+
+// ── AI Q&A with Claude ──────────────────────────────────────────────────
+const BUDJU_SYSTEM_PROMPT = `You are the official BUDJU community assistant bot in a Telegram group. You are friendly, helpful, and enthusiastic about the BUDJU project. Always respond in a concise, chat-friendly way (2-4 sentences max).
+
+Key facts about BUDJU:
+- BUDJU is a Solana-based meme coin with real utility
+- Token address: ${TOKEN_ADDRESS}
+- Total supply: 1,000,000,000 BUDJU
+- Created: January 31, 2025
+- Website: ${WEBSITE_URL}
+- Has a built-in automated DCA (Dollar Cost Averaging) Trading Bot
+- Users need to hold 10,000,000 BUDJU to unlock the trading bot
+- Features: Bank of BUDJU (treasury), NFT Collection, Shop of BUDJU's, regular token burns, liquidity pool on Raydium
+- Available on Raydium and Jupiter DEX for swapping SOL to BUDJU
+- Social media: Twitter @budjucoin, TikTok @budjucoin, Instagram @budjucoin
+- Telegram group: t.me/budjucoingroup
+- The project has completed Phase 1 (launch, bonding curve, King of the Hill, Raydium listing) and is working through Phase 2
+- The roadmap goes up to Phase 4 which includes exchange listings, global branding, and $10M market cap goal
+
+Rules:
+- Never give financial advice or make price predictions
+- Never share private keys or ask for them
+- If asked about something you don't know, say you're not sure and direct them to the website or admins
+- Keep responses short and conversational — this is a Telegram chat, not an essay
+- Use HTML formatting (bold with <b>, italic with <i>, code with <code>) — NOT markdown
+- Do not use markdown formatting like ** or __ — only use HTML tags
+- You can use emojis sparingly to keep things fun`;
+
+async function askClaude(question: string): Promise<string | null> {
+  if (!ANTHROPIC_API_KEY) return null;
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        system: BUDJU_SYSTEM_PROMPT,
+        messages: [{ role: "user", content: question }],
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("Claude API error:", res.status, await res.text());
+      return null;
+    }
+
+    const data = await res.json();
+    const text = data?.content?.[0]?.text;
+    return text || null;
+  } catch (e) {
+    console.error("Claude API error:", e);
+    return null;
+  }
 }
 
 // ── Command handlers ────────────────────────────────────────────────────
+
+async function handleMenu(chatId: number) {
+  const msg =
+    `🐸 <b>BUDJU Menu</b>\n\n` +
+    `Tap a button below to explore:`;
+
+  const keyboard = [
+    [
+      { text: "💰 Price", callback_data: "cmd_price" },
+      { text: "📊 Chart", callback_data: "cmd_chart" },
+      { text: "🛒 Buy", callback_data: "cmd_buy" },
+    ],
+    [
+      { text: "🐸 Info", callback_data: "cmd_info" },
+      { text: "📋 Contract", callback_data: "cmd_contract" },
+      { text: "📈 Tokenomics", callback_data: "cmd_tokenomics" },
+    ],
+    [
+      { text: "🤖 Trading Bot", callback_data: "cmd_bot" },
+      { text: "🏦 Bank", callback_data: "cmd_bank" },
+      { text: "🔥 Burns", callback_data: "cmd_burn" },
+    ],
+    [
+      { text: "🖼 NFTs", callback_data: "cmd_nft" },
+      { text: "🛍 Shop", callback_data: "cmd_shop" },
+      { text: "🌊 Pool", callback_data: "cmd_pool" },
+    ],
+    [
+      { text: "🗺 Roadmap", callback_data: "cmd_roadmap" },
+      { text: "📱 Socials", callback_data: "cmd_socials" },
+      { text: "🌐 Website", callback_data: "cmd_website" },
+    ],
+  ];
+
+  await sendMessageWithKeyboard(chatId, msg, keyboard);
+}
 
 async function handlePrice(chatId: number) {
   const data = await fetchPrice();
@@ -169,6 +295,17 @@ async function handlePrice(chatId: number) {
     `💧 <b>Liquidity:</b> ${formatCompact(data.liquidity)}\n\n` +
     `🔗 <a href="https://dexscreener.com/solana/${TOKEN_ADDRESS}">View on DexScreener</a>\n` +
     `🌐 <a href="${WEBSITE_URL}">budjucoin.com</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleChart(chatId: number) {
+  const msg =
+    `📊 <b>BUDJU Charts</b>\n\n` +
+    `📈 <a href="https://dexscreener.com/solana/${TOKEN_ADDRESS}">DexScreener</a>\n` +
+    `🦎 <a href="https://www.geckoterminal.com/solana/pools/${TOKEN_ADDRESS}">GeckoTerminal</a>\n` +
+    `🪐 <a href="https://birdeye.so/token/${TOKEN_ADDRESS}?chain=solana">Birdeye</a>\n\n` +
+    `Tap a link to view live charts!`;
 
   await sendMessage(chatId, msg);
 }
@@ -203,15 +340,30 @@ async function handleInfo(chatId: number) {
 async function handleHelp(chatId: number) {
   const msg =
     `🤖 <b>BUDJU Bot Commands</b>\n\n` +
+    `<b>📌 Quick Access:</b>\n` +
+    `/menu — Interactive button menu\n\n` +
+    `<b>💰 Price & Trading:</b>\n` +
     `/price — Current BUDJU price & stats\n` +
-    `/info — About BUDJU coin\n` +
+    `/chart — Live chart links\n` +
     `/buy — How to buy BUDJU\n` +
-    `/contract — Contract address\n` +
+    `/contract — Contract address (tap to copy)\n\n` +
+    `<b>🐸 Project Info:</b>\n` +
+    `/info — About BUDJU coin\n` +
+    `/tokenomics — Token supply & distribution\n` +
     `/roadmap — Project roadmap\n` +
-    `/website — Visit budjucoin.com\n` +
+    `/socials — All social media links\n\n` +
+    `<b>🏦 Ecosystem:</b>\n` +
+    `/bot — Trading bot info\n` +
+    `/bank — Bank of BUDJU\n` +
+    `/burn — Token burn info\n` +
+    `/nft — NFT collection\n` +
+    `/shop — Shop of BUDJU's\n` +
+    `/pool — Liquidity pool\n\n` +
+    `<b>🎉 Fun:</b>\n` +
     `/promo — See a promotional image\n` +
+    `/website — Visit budjucoin.com\n` +
     `/help — This help message\n\n` +
-    `You can also ask me questions about BUDJU and I'll do my best to answer!`;
+    `💬 You can also ask me <b>any question</b> about BUDJU and I'll answer using AI!`;
 
   await sendMessage(chatId, msg);
 }
@@ -241,6 +393,30 @@ async function handleContract(chatId: number) {
     `👆 Tap to copy!\n\n` +
     `🔍 <a href="https://solscan.io/token/${TOKEN_ADDRESS}">View on Solscan</a>\n` +
     `📊 <a href="https://dexscreener.com/solana/${TOKEN_ADDRESS}">DexScreener</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleTokenomics(chatId: number) {
+  const msg =
+    `📊 <b>BUDJU Tokenomics</b>\n\n` +
+    `<b>Token Details:</b>\n` +
+    `• <b>Name:</b> BUDJU\n` +
+    `• <b>Blockchain:</b> Solana (SPL Token)\n` +
+    `• <b>Total Supply:</b> 1,000,000,000\n` +
+    `• <b>Created:</b> January 31, 2025\n\n` +
+    `<b>Supply Mechanics:</b>\n` +
+    `🔥 Regular token burns — reducing total supply over time\n` +
+    `💧 Liquidity locked on Raydium\n` +
+    `🏦 Bank of BUDJU treasury\n` +
+    `🔒 Developer vault (never sold)\n\n` +
+    `<b>Utility:</b>\n` +
+    `• Hold 10M BUDJU → Unlock DCA Trading Bot\n` +
+    `• NFT Collection access\n` +
+    `• Shop of BUDJU's\n` +
+    `• Ecosystem participation\n\n` +
+    `📋 CA: <code>${TOKEN_ADDRESS}</code>\n` +
+    `🌐 <a href="${WEBSITE_URL}">budjucoin.com</a>`;
 
   await sendMessage(chatId, msg);
 }
@@ -280,6 +456,113 @@ async function handleRoadmap(chatId: number) {
   await sendMessage(chatId, msg);
 }
 
+async function handleSocials(chatId: number) {
+  const msg =
+    `📱 <b>Follow BUDJU Everywhere</b>\n\n` +
+    `🐦 <a href="https://x.com/budjucoin">Twitter / X</a>\n` +
+    `📸 <a href="https://www.instagram.com/budjucoin">Instagram</a>\n` +
+    `🎵 <a href="https://www.tiktok.com/@budjucoin">TikTok</a>\n` +
+    `📘 <a href="https://www.facebook.com/share/g/167RuPUSM1/">Facebook</a>\n` +
+    `💬 <a href="https://t.me/budjucoingroup">Telegram Group</a>\n\n` +
+    `🌐 <a href="${WEBSITE_URL}">budjucoin.com</a>\n\n` +
+    `Follow us for the latest updates, memes, and announcements! 🐸`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleBot(chatId: number) {
+  const msg =
+    `🤖 <b>BUDJU DCA Trading Bot</b>\n\n` +
+    `The BUDJU Trading Bot uses <b>Dollar Cost Averaging (DCA)</b> to trade automatically on your behalf.\n\n` +
+    `<b>How it works:</b>\n` +
+    `1️⃣ Hold <b>10,000,000 BUDJU</b> in your wallet\n` +
+    `2️⃣ Connect your wallet at <a href="${WEBSITE_URL}/trade">budju.xyz/trade</a>\n` +
+    `3️⃣ Deposit funds into the trading pool\n` +
+    `4️⃣ The bot trades automatically — buy low, sell high!\n\n` +
+    `<b>Features:</b>\n` +
+    `• Fully automated — trades 24/7\n` +
+    `• Very low risk DCA strategy\n` +
+    `• Multi-asset support (BTC, ETH, SOL, XRP & more)\n` +
+    `• Real-time trade notifications in this group\n` +
+    `• Transparent — all trades visible on-chain\n\n` +
+    `🚀 <a href="${WEBSITE_URL}/trade">Launch the Trading Bot</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleBank(chatId: number) {
+  const msg =
+    `🏦 <b>Bank of BUDJU</b>\n\n` +
+    `The Bank of BUDJU is the project's treasury and financial backbone.\n\n` +
+    `<b>What it does:</b>\n` +
+    `• Holds project funds securely\n` +
+    `• Supports the BUDJU ecosystem\n` +
+    `• Provides transparency on holdings\n` +
+    `• Funds development and marketing\n\n` +
+    `🌐 <a href="${WEBSITE_URL}/bank">View the Bank</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleBurn(chatId: number) {
+  const msg =
+    `🔥 <b>BUDJU Token Burns</b>\n\n` +
+    `BUDJU regularly <b>burns tokens</b> to permanently reduce the total supply.\n\n` +
+    `<b>Why burns matter:</b>\n` +
+    `• Less supply = more scarcity\n` +
+    `• More scarcity = potential value increase\n` +
+    `• Burns are permanent and verifiable on-chain\n` +
+    `• Shows commitment to long-term value\n\n` +
+    `<b>How to verify:</b>\n` +
+    `Check the burn address on <a href="https://solscan.io/token/${TOKEN_ADDRESS}">Solscan</a>\n\n` +
+    `🔥 <a href="${WEBSITE_URL}/burn">View Burn History</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleNft(chatId: number) {
+  const msg =
+    `🖼 <b>BUDJU NFT Collection</b>\n\n` +
+    `BUDJU has an exclusive <b>NFT collection</b> on Solana!\n\n` +
+    `<b>Collection highlights:</b>\n` +
+    `• Unique BUDJU-themed digital art\n` +
+    `• Collectible & tradeable on Solana\n` +
+    `• 2nd Gen NFTs coming in Phase 2\n` +
+    `• Community-driven artwork\n\n` +
+    `🖼 <a href="${WEBSITE_URL}/nft">Browse the Collection</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handleShop(chatId: number) {
+  const msg =
+    `🛍 <b>Shop of BUDJU's</b>\n\n` +
+    `Rep your favourite meme coin with BUDJU merch!\n\n` +
+    `<b>What's available:</b>\n` +
+    `• BUDJU branded merchandise\n` +
+    `• Community exclusives\n` +
+    `• More items being added regularly\n\n` +
+    `🛍 <a href="${WEBSITE_URL}/shop">Visit the Shop</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
+async function handlePool(chatId: number) {
+  const msg =
+    `🌊 <b>BUDJU Liquidity Pool</b>\n\n` +
+    `BUDJU has an active liquidity pool on <b>Raydium</b>.\n\n` +
+    `<b>Pool details:</b>\n` +
+    `• Pair: BUDJU / SOL\n` +
+    `• DEX: Raydium (Solana)\n` +
+    `• Low slippage trading\n\n` +
+    `<b>Trade here:</b>\n` +
+    `🔄 <a href="https://raydium.io/swap/?inputMint=sol&outputMint=${TOKEN_ADDRESS}">Raydium</a>\n` +
+    `🪐 <a href="https://jup.ag/swap/SOL-${TOKEN_ADDRESS}">Jupiter</a>\n\n` +
+    `🌊 <a href="${WEBSITE_URL}/pool">View Pool Info</a>`;
+
+  await sendMessage(chatId, msg);
+}
+
 async function handleWebsite(chatId: number) {
   const msg =
     `🌐 <b>Visit BUDJU</b>\n\n` +
@@ -308,105 +591,21 @@ async function handlePromo(chatId: number) {
   await sendPhoto(chatId, img.url, caption);
 }
 
-// ── Natural language Q&A ────────────────────────────────────────────────
-function handleQuestion(text: string): string | null {
+// ── Natural language Q&A (keyword fallback) ─────────────────────────────
+function handleQuestionKeyword(text: string): string | null {
   const lower = text.toLowerCase();
 
-  // Price questions
-  if (lower.match(/\b(price|worth|cost|how much)\b/)) return null; // defer to /price handler
+  // Price questions — defer to /price handler
+  if (lower.match(/\b(price|worth|cost|how much)\b/)) return null;
 
-  // What is BUDJU
-  if (lower.match(/\b(what is|what's|explain|tell me about)\b.*\b(budju|token|coin)\b/))
-    return (
-      `🐸 <b>BUDJU</b> is a Solana-based meme coin with real utility!\n\n` +
-      `It features a built-in <b>DCA Trading Bot</b> that trades automatically for you. ` +
-      `Hold 10M BUDJU to unlock the bot. The ecosystem includes a bank, NFTs, a shop, and regular token burns.\n\n` +
-      `🌐 <a href="${WEBSITE_URL}">Learn more at budjucoin.com</a>`
-    );
-
-  // How to buy
-  if (lower.match(/\b(how|where)\b.*\b(buy|get|purchase|swap)\b/))
-    return (
-      `🛒 To buy BUDJU:\n` +
-      `1. Get a Solana wallet (Phantom/Solflare)\n` +
-      `2. Buy SOL and send to your wallet\n` +
-      `3. Swap SOL → BUDJU on Raydium or Jupiter\n\n` +
-      `CA: <code>${TOKEN_ADDRESS}</code>\n` +
-      `📖 <a href="${WEBSITE_URL}/how-to-buy">Full guide</a>`
-    );
-
-  // Contract address
-  if (lower.match(/\b(contract|ca|address|token address)\b/))
-    return `📋 <b>BUDJU CA:</b>\n<code>${TOKEN_ADDRESS}</code>`;
-
-  // Bot / trading bot
-  if (lower.match(/\b(bot|trading|dca|automated|auto trade)\b/))
-    return (
-      `🤖 The <b>BUDJU Trading Bot</b> uses Dollar Cost Averaging (DCA) to trade automatically.\n\n` +
-      `<b>How it works:</b>\n` +
-      `1. Hold 10,000,000 BUDJU in your wallet\n` +
-      `2. Deposit funds into the bot\n` +
-      `3. The bot trades on your behalf — very low risk!\n\n` +
-      `🌐 <a href="${WEBSITE_URL}/trade">Launch the bot</a>`
-    );
-
-  // NFT
-  if (lower.match(/\bnft\b/))
-    return (
-      `🖼 BUDJU has an <b>NFT Collection</b> on Solana!\n\n` +
-      `Browse and explore at <a href="${WEBSITE_URL}/nft">budjucoin.com/nft</a>`
-    );
-
-  // Bank
-  if (lower.match(/\bbank\b/))
-    return (
-      `🏦 The <b>Bank of BUDJU</b> is the project's treasury.\n\n` +
-      `It holds BUDJU tokens and supports the ecosystem.\n` +
-      `🌐 <a href="${WEBSITE_URL}/bank">View the bank</a>`
-    );
-
-  // Burn
-  if (lower.match(/\b(burn|burned|burning|supply)\b/))
-    return (
-      `🔥 BUDJU regularly <b>burns tokens</b> to reduce supply!\n\n` +
-      `Less supply = more scarcity = potential value increase.\n` +
-      `Track burns at <a href="${WEBSITE_URL}/burn">budjucoin.com/burn</a>`
-    );
-
-  // Tokenomics
-  if (lower.match(/\b(tokenomics|supply|allocation)\b/))
-    return (
-      `📊 <b>BUDJU Tokenomics</b>\n\n` +
-      `• Total Supply: 1,000,000,000\n` +
-      `• Regular burns to reduce supply\n` +
-      `• Liquidity on Raydium\n` +
-      `• Bank of BUDJU treasury\n` +
-      `• Developer vault (never sold)\n\n` +
-      `🌐 <a href="${WEBSITE_URL}/tokenomics">Full tokenomics</a>`
-    );
-
-  // Website
-  if (lower.match(/\b(website|site|link|url)\b/))
-    return `🌐 Visit us at <a href="${WEBSITE_URL}">budjucoin.com</a>`;
-
-  // Socials
-  if (lower.match(/\b(social|twitter|x\.com|tiktok|instagram|facebook)\b/))
-    return (
-      `📱 <b>Follow BUDJU:</b>\n\n` +
-      `🐦 <a href="https://x.com/budjucoin">Twitter/X</a>\n` +
-      `📸 <a href="https://www.instagram.com/budjucoin">Instagram</a>\n` +
-      `🎵 <a href="https://www.tiktok.com/@budjucoin">TikTok</a>\n` +
-      `📘 <a href="https://www.facebook.com/share/g/167RuPUSM1/">Facebook</a>`
-    );
-
-  // Roadmap
-  if (lower.match(/\b(roadmap|plan|future|phases?)\b/)) return null; // defer to /roadmap
+  // Roadmap — defer to /roadmap handler
+  if (lower.match(/\b(roadmap|plan|future|phases?)\b/)) return null;
 
   // Greeting
   if (lower.match(/^(hi|hello|hey|gm|good morning|yo|sup|wagmi)\b/))
     return (
       `👋 Hey there! Welcome to <b>BUDJU</b>!\n\n` +
-      `Type /help to see what I can do, or just ask me anything about BUDJU! 🐸`
+      `Type /menu for quick buttons, or just ask me anything about BUDJU! 🐸`
     );
 
   return null;
@@ -506,6 +705,28 @@ const PROMO_MESSAGES = [
   `🌊 <b>Pool of BUDJU</b>\n\nLiquidity is live on Raydium! Trade BUDJU with deep liquidity and low slippage.\n\n🌐 ${WEBSITE_URL}/pool`,
 ];
 
+// ── Callback query dispatcher ───────────────────────────────────────────
+async function handleCallbackQuery(chatId: number, callbackData: string) {
+  switch (callbackData) {
+    case "cmd_price": await handlePrice(chatId); break;
+    case "cmd_chart": await handleChart(chatId); break;
+    case "cmd_buy": await handleBuy(chatId); break;
+    case "cmd_info": await handleInfo(chatId); break;
+    case "cmd_contract": await handleContract(chatId); break;
+    case "cmd_tokenomics": await handleTokenomics(chatId); break;
+    case "cmd_bot": await handleBot(chatId); break;
+    case "cmd_bank": await handleBank(chatId); break;
+    case "cmd_burn": await handleBurn(chatId); break;
+    case "cmd_nft": await handleNft(chatId); break;
+    case "cmd_shop": await handleShop(chatId); break;
+    case "cmd_pool": await handlePool(chatId); break;
+    case "cmd_roadmap": await handleRoadmap(chatId); break;
+    case "cmd_socials": await handleSocials(chatId); break;
+    case "cmd_website": await handleWebsite(chatId); break;
+    case "cmd_menu": await handleMenu(chatId); break;
+  }
+}
+
 // ── Webhook handler ─────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Allow GET for health-check / webhook setup
@@ -555,25 +776,58 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const update = req.body;
 
-    // New member joined
-    if (update.message?.new_chat_members) {
-      for (const member of update.message.new_chat_members) {
-        if (member.is_bot) continue;
-        const name = member.first_name || "friend";
-        const welcome =
-          `🐸 <b>Welcome to BUDJU, ${name}!</b>\n\n` +
-          `We're glad you're here! BUDJU is a Solana meme coin with a built-in DCA Trading Bot.\n\n` +
-          `🤖 Hold 10M BUDJU to unlock automated trading\n` +
-          `🔥 Regular token burns\n` +
-          `🏦 Bank of BUDJU ecosystem\n\n` +
-          `Type /help to see all commands, or just ask me anything!\n\n` +
-          `🌐 <a href="${WEBSITE_URL}">budjucoin.com</a>`;
-        await sendMessage(update.message.chat.id, welcome);
+    // ── Handle callback queries (inline button taps) ──────────────────
+    if (update.callback_query) {
+      const cbq = update.callback_query;
+      const chatId = cbq.message?.chat?.id;
+      const callbackData = cbq.data;
+
+      // Acknowledge the button press immediately
+      await answerCallbackQuery(cbq.id);
+
+      if (chatId && callbackData) {
+        await handleCallbackQuery(chatId, callbackData);
       }
       return res.status(200).json({ ok: true });
     }
 
-    // Handle text messages
+    // ── New member joined ─────────────────────────────────────────────
+    if (update.message?.new_chat_members) {
+      for (const member of update.message.new_chat_members) {
+        if (member.is_bot) continue;
+        const name = member.first_name || "friend";
+        const chatId = update.message.chat.id;
+
+        const welcome =
+          `🐸 <b>Welcome to BUDJU, ${name}!</b>\n\n` +
+          `We're stoked you're here! BUDJU is a Solana meme coin with a built-in DCA Trading Bot.\n\n` +
+          `Here's what we're all about:` +
+          `\n🤖 Automated DCA Trading Bot — hold 10M BUDJU to unlock` +
+          `\n🔥 Regular token burns — deflation is real` +
+          `\n🏦 Bank of BUDJU ecosystem` +
+          `\n🖼 NFT Collection` +
+          `\n🛍 Shop of BUDJU's\n\n` +
+          `👇 Tap the buttons below to explore, or just ask me anything!`;
+
+        const keyboard = [
+          [
+            { text: "🐸 Menu", callback_data: "cmd_menu" },
+            { text: "💰 Price", callback_data: "cmd_price" },
+            { text: "🛒 How to Buy", callback_data: "cmd_buy" },
+          ],
+          [
+            { text: "🤖 Trading Bot", callback_data: "cmd_bot" },
+            { text: "📱 Socials", callback_data: "cmd_socials" },
+            { text: "🗺 Roadmap", callback_data: "cmd_roadmap" },
+          ],
+        ];
+
+        await sendMessageWithKeyboard(chatId, welcome, keyboard);
+      }
+      return res.status(200).json({ ok: true });
+    }
+
+    // ── Handle text messages ──────────────────────────────────────────
     if (update.message?.text) {
       const chatId = update.message.chat.id;
       const text = update.message.text.trim();
@@ -600,8 +854,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           case "/help":
             await handleHelp(chatId);
             break;
+          case "/menu":
+            await handleMenu(chatId);
+            break;
           case "/price":
             await handlePrice(chatId);
+            break;
+          case "/chart":
+            await handleChart(chatId);
             break;
           case "/info":
             await handleInfo(chatId);
@@ -613,8 +873,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           case "/ca":
             await handleContract(chatId);
             break;
+          case "/tokenomics":
+            await handleTokenomics(chatId);
+            break;
           case "/roadmap":
             await handleRoadmap(chatId);
+            break;
+          case "/socials":
+            await handleSocials(chatId);
+            break;
+          case "/bot":
+            await handleBot(chatId);
+            break;
+          case "/bank":
+            await handleBank(chatId);
+            break;
+          case "/burn":
+            await handleBurn(chatId);
+            break;
+          case "/nft":
+            await handleNft(chatId);
+            break;
+          case "/shop":
+            await handleShop(chatId);
+            break;
+          case "/pool":
+            await handlePool(chatId);
             break;
           case "/website":
             await handleWebsite(chatId);
@@ -625,28 +909,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           default:
             await sendMessage(
               chatId,
-              `🤔 Unknown command. Type /help to see available commands!`,
+              `🤔 Unknown command. Type /help to see all commands or /menu for quick buttons!`,
             );
         }
       } else {
-        // Natural language — try to answer
-        const answer = handleQuestion(text);
-        if (answer) {
-          await sendMessage(chatId, answer);
+        // ── Natural language handling ────────────────────────────────
+        // First: check keyword shortcuts
+        const keywordAnswer = handleQuestionKeyword(text);
+        if (keywordAnswer) {
+          await sendMessage(chatId, keywordAnswer);
         }
-        // If no match and it's a private chat, show a helpful nudge
-        else if (update.message.chat.type === "private") {
-          await sendMessage(
-            chatId,
-            `🐸 I'm the BUDJU bot! Type /help to see what I can do, or ask me about BUDJU, price, how to buy, and more!`,
-          );
-        }
-        // In group chats, only respond to price-related questions proactively
+        // Price-related questions → show price
         else if (text.toLowerCase().match(/\b(price|how much|market cap|volume)\b/)) {
           await handlePrice(chatId);
         }
+        // Roadmap questions → show roadmap
         else if (text.toLowerCase().match(/\b(roadmap|plan|phases?)\b/)) {
           await handleRoadmap(chatId);
+        }
+        // AI Q&A: try Claude for everything else
+        else {
+          // In group chats, only respond to messages that mention budju or look like questions
+          const isMentionOrQuestion =
+            text.toLowerCase().includes("budju") ||
+            text.includes("?") ||
+            text.toLowerCase().match(/\b(what|how|where|when|why|who|can|does|is|are|will|should)\b/);
+
+          if (!isGroupChat || isMentionOrQuestion) {
+            const aiAnswer = await askClaude(text);
+            if (aiAnswer) {
+              await sendMessage(chatId, aiAnswer);
+            } else if (!isGroupChat) {
+              // Private chat fallback
+              await sendMessage(
+                chatId,
+                `🐸 I'm the BUDJU bot! Type /menu for quick buttons, /help for all commands, or just ask me anything about BUDJU!`,
+              );
+            }
+          }
         }
       }
     }
