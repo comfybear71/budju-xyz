@@ -14,12 +14,16 @@
 # ==========================================
 
 import os
+import sys
 import json
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+
+# Add current directory for sibling imports (database.py)
+sys.path.insert(0, os.path.dirname(__file__))
 
 from database import (
     get_trader_state,
