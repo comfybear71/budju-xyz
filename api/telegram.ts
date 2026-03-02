@@ -373,10 +373,11 @@ async function handleBuy(chatId: number) {
     `🛒 <b>How to Buy BUDJU</b>\n\n` +
     `<b>Step 1:</b> Get a Solana wallet (Phantom, Solflare, etc.)\n` +
     `<b>Step 2:</b> Buy SOL from an exchange and send it to your wallet\n` +
-    `<b>Step 3:</b> Go to Raydium or Jupiter and swap SOL for BUDJU\n\n` +
+    `<b>Step 3:</b> Swap SOL for BUDJU using one of the links below\n\n` +
     `<b>Contract Address:</b>\n` +
     `<code>${TOKEN_ADDRESS}</code>\n\n` +
-    `<b>Quick Links:</b>\n` +
+    `⭐️ <b><a href="${WEBSITE_URL}/swap">Buy on budju.xyz</a></b> ⭐️\n\n` +
+    `<b>Other exchanges:</b>\n` +
     `🔄 <a href="https://raydium.io/swap/?inputMint=sol&outputMint=${TOKEN_ADDRESS}">Swap on Raydium</a>\n` +
     `🪐 <a href="https://jup.ag/swap/SOL-${TOKEN_ADDRESS}">Swap on Jupiter</a>\n` +
     `💊 <a href="https://pump.fun/coin/${TOKEN_ADDRESS}">View on Pump.fun</a>\n` +
