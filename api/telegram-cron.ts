@@ -113,10 +113,37 @@ const PROMO_MESSAGES = [
   `💰 <b>Why BUDJU?</b>\n\n✅ Automated DCA Trading Bot\n✅ Regular token burns\n✅ NFTs & Merch\n✅ Community-driven\n✅ Built on Solana\n\n🌐 ${WEBSITE_URL}`,
 ];
 
+async function ensureWebhook() {
+  const webhookUrl = `https://budju.xyz/api/telegram`;
+  try {
+    // Check current webhook status
+    const infoRes = await fetch(`${TELEGRAM_API}/getWebhookInfo`);
+    const info = await infoRes.json();
+    const current = (info as any)?.result?.url || "";
+
+    // Re-register if webhook is missing or pointing elsewhere
+    if (current !== webhookUrl) {
+      console.log(`Webhook drift detected: "${current}" → re-registering`);
+      await fetch(
+        `${TELEGRAM_API}/setWebhook?url=${encodeURIComponent(webhookUrl)}`,
+      );
+    }
+  } catch (e) {
+    // Best-effort: force set even if getWebhookInfo failed
+    console.error("Webhook check failed, forcing re-register:", e);
+    await fetch(
+      `${TELEGRAM_API}/setWebhook?url=${encodeURIComponent(webhookUrl)}`,
+    );
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!BOT_TOKEN) {
     return res.status(500).json({ error: "TELEGRAM_BOT_TOKEN not set" });
   }
+
+  // Keep the bot alive: ensure webhook is registered every cron run
+  await ensureWebhook();
 
   // Use the current hour to decide: even hours = promo with image, odd hours = price update
   const hour = new Date().getUTCHours();
