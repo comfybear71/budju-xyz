@@ -543,9 +543,9 @@ const HoldingsList = ({
         initial={{ opacity: 0, y: 5 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="flex justify-center items-end gap-6 mb-4"
+        className="flex justify-between items-end mb-4"
       >
-        <div className="text-center">
+        <div>
           <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
             {currentTier.label} Value
           </p>
@@ -555,9 +555,9 @@ const HoldingsList = ({
             {formatUsd(tierValue)}
           </span>
         </div>
-        <div className="text-center">
+        <div className="text-right">
           <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
-            Portfolio Total
+            Total
           </p>
           <span className="text-xl font-black font-mono text-white/80">
             {formatUsd(totalValue)}

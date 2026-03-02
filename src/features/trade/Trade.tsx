@@ -534,9 +534,6 @@ const Trade = () => {
                           <span className="text-[9px] text-slate-500 font-mono">
                             ${Math.round(cryptoValue).toLocaleString()}
                           </span>
-                          <span className="text-[10px] font-bold text-white/70 font-mono">
-                            Total ${Math.round(totalVal).toLocaleString()}
-                          </span>
                           <span className="text-[9px] text-slate-500 font-mono">
                             ${Math.round(usdcBalance).toLocaleString()}
                           </span>
