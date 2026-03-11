@@ -81,11 +81,18 @@ def _get_client_ip(handler) -> str:
 
 
 # ── Admin Signature Verification ───────────────────────────────────────
+# Nonce cache: prevents exact-replay of the same signed message within the
+# validity window. Keyed by message string, value is expiry timestamp.
+# Resets on cold start (acceptable for serverless — attacker would need a
+# fresh instance AND a valid unexpired signature to replay).
+_used_nonces: dict = {}  # {message: expiry_timestamp}
+_ADMIN_MSG_WINDOW_MS = 5 * 60 * 1000  # 5 minutes (tightened from 60 min)
+
 def _verify_admin(body: dict, handler) -> tuple:
     """Verify admin wallet address AND Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
     Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 60 minutes) to prevent replay attacks.
+    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):
@@ -109,14 +116,25 @@ def _verify_admin(body: dict, handler) -> tuple:
             return False, "Invalid message format"
         msg_timestamp = int(parts[-1])
         now_ms = int(time.time() * 1000)
-        # Allow 60-minute window (long enough for autotrader sessions,
-        # short enough to limit replay attacks)
-        if abs(now_ms - msg_timestamp) > 60 * 60 * 1000:
+        if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
             return False, "Message timestamp expired (replay protection)"
     except (ValueError, IndexError):
         return False, "Invalid message timestamp"
 
+    # Prevent exact replay of the same signed message (nonce check)
+    _prune_expired_nonces(now_ms)
+    if message in _used_nonces:
+        return False, "Message already used (replay protection)"
+    _used_nonces[message] = now_ms + _ADMIN_MSG_WINDOW_MS
+
     return True, None
+
+
+def _prune_expired_nonces(now_ms: int):
+    """Remove expired entries from the nonce cache."""
+    expired = [k for k, v in _used_nonces.items() if v <= now_ms]
+    for k in expired:
+        del _used_nonces[k]
 
 
 class handler(BaseHTTPRequestHandler):

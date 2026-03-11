@@ -34,12 +34,15 @@ withdrawals_collection = db["withdrawals"]
 trader_state_collection = db["trader_state"]
 pool_state_collection = db["pool_state"]
 
-# Create indexes
+# Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
 trades_collection.create_index([("userId", 1), ("timestamp", -1)])
 deposits_collection.create_index([("userId", 1), ("timestamp", -1)])
 deposits_collection.create_index("txHash", unique=True)
 trades_collection.create_index("swyftxId", unique=True, sparse=True)
+withdrawals_collection.create_index([("userId", 1), ("timestamp", -1)])
+trades_collection.create_index([("coin", 1), ("timestamp", -1)])
+users_collection.create_index([("isActive", 1), ("shares", -1)])
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:

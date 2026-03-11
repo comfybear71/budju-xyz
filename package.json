@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "python3 -m pytest tests/ -v",
+    "test:quick": "python3 -m pytest tests/ -q"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",

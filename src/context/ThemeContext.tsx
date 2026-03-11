@@ -7,11 +7,23 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+function getInitialTheme(): boolean {
+  if (typeof localStorage !== "undefined") {
+    const stored = localStorage.getItem("budju_dark_mode");
+    if (stored !== null) return stored === "true";
+  }
+  return true; // Default to dark mode
+}
+
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(getInitialTheme);
 
   const toggleTheme = () => {
-    setIsDarkMode((prev) => !prev);
+    setIsDarkMode((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("budju_dark_mode", String(next)); } catch {}
+      return next;
+    });
   };
 
   return (
