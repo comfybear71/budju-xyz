@@ -91,14 +91,19 @@ const BurnStatistics = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch burn events (transfers TO burn address) and price
+      // Fetch burn events (transfers TO burn address) and metrics (includes burn wallet balance)
       const [events, metrics] = await Promise.all([
         fetchBurnEvents(),
         fetchHeliusTokenMetrics(TOKEN_ADDRESS, SERVICE_BURN_ADDRESS),
       ]);
 
-      // Total burned = sum of all incoming transfers to the burn address
-      const burned = events.reduce((sum, e) => sum + e.amount, 0);
+      // Calculate total burned from the actual burn events (the amounts shown in the table).
+      // This is more accurate than the burn wallet balance, which only shows
+      // what's currently sitting there — tokens may have been moved out to Raydium.
+      // Use the higher of: metrics.burned (which already uses max of balance vs events)
+      // and the direct sum of events, ensuring the total always matches the table.
+      const eventsTotal = events.reduce((sum, e) => sum + (e.amount || 0), 0);
+      const burned = Math.max(metrics.burned, eventsTotal);
       const price = metrics.price;
       const percentage = TOKEN_INFO.TOTAL_SUPPLY > 0
         ? (burned / TOKEN_INFO.TOTAL_SUPPLY) * 100
@@ -378,7 +383,7 @@ const BurnStatistics = () => {
                     {burnEvents.map((event, index) => (
                       <tr
                         key={index}
-                        className={`border-b last:border-b-0 ${
+                        className={`border-b ${
                           isDarkMode
                             ? "border-white/[0.04] hover:bg-white/[0.02]"
                             : "border-gray-100 hover:bg-gray-50/50"
@@ -427,6 +432,41 @@ const BurnStatistics = () => {
                         </td>
                       </tr>
                     ))}
+                    {/* Total row */}
+                    <tr
+                      className={`border-t-2 ${
+                        isDarkMode
+                          ? "border-white/[0.1] bg-white/[0.03]"
+                          : "border-gray-200/60 bg-gray-50/30"
+                      }`}
+                    >
+                      <td
+                        className={`py-2.5 px-2 text-xs font-bold ${
+                          isDarkMode ? "text-red-400" : "text-red-600"
+                        }`}
+                      >
+                        Total
+                      </td>
+                      <td
+                        className={`py-2.5 px-2 text-right text-xs font-mono font-bold ${
+                          isDarkMode ? "text-white" : "text-gray-900"
+                        }`}
+                      >
+                        {totalBurned.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-2 text-right text-xs font-mono font-bold text-emerald-400">
+                        ${totalValue.toFixed(2)}
+                      </td>
+                      <td className="py-2.5 px-2">
+                        <span
+                          className={`text-[10px] ${
+                            isDarkMode ? "text-gray-500" : "text-gray-400"
+                          }`}
+                        >
+                          {percentageBurned.toFixed(6)}% of supply
+                        </span>
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>

@@ -122,33 +122,70 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
-// ── PIN Management (for placing trades only) ───────────────
+// ── Admin Signature Helper ────────────────────────────────
+// Signs a timestamped message with the connected wallet's Ed25519 key.
+// Cached per session — re-signs when the cached signature is > 50 min old.
+// The backend verifies this signature on all admin write endpoints.
 
-let _pin: string | null = null;
-
-export function setPin(pin: string) {
-  _pin = pin;
-  localStorage.setItem("budju_trade_pin", pin);
+interface AdminAuth {
+  adminWallet: string;
+  adminSignature: number[];
+  adminMessage: string;
 }
 
-export function getPin(): string | null {
-  if (_pin) return _pin;
-  _pin = localStorage.getItem("budju_trade_pin");
-  return _pin;
+let _cachedAdminAuth: AdminAuth | null = null;
+let _cachedAuthTime = 0;
+const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
+
+function _getWalletProvider(): any {
+  return (window as any).phantom?.solana
+    || (window as any).solana
+    || (window as any).solflare
+    || (window as any).jupiter
+    || null;
 }
 
-export function clearPin() {
-  _pin = null;
-  localStorage.removeItem("budju_trade_pin");
+/**
+ * Get admin auth fields (signature + message) for an admin API request.
+ * Caches the signature so the wallet popup only appears once per ~50 min.
+ * Returns null if the wallet provider doesn't support signMessage.
+ */
+export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
+  // Return cached auth if still valid
+  if (_cachedAdminAuth && _cachedAdminAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_TTL_MS) {
+    return _cachedAdminAuth;
+  }
+
+  const provider = _getWalletProvider();
+  if (!provider || typeof provider.signMessage !== "function") {
+    console.warn("Wallet provider does not support signMessage");
+    return null;
+  }
+
+  const timestamp = Date.now();
+  const message = `BUDJU_ADMIN:${timestamp}`;
+  const encoded = new TextEncoder().encode(message);
+
+  try {
+    const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
+    _cachedAdminAuth = {
+      adminWallet,
+      adminSignature: Array.from(signatureBytes),
+      adminMessage: message,
+    };
+    _cachedAuthTime = Date.now();
+    return _cachedAdminAuth;
+  } catch (err) {
+    console.error("Admin signature request denied:", err);
+    return null;
+  }
 }
 
-export function hasPin(): boolean {
-  return !!getPin();
+/** Clear cached admin auth (call on wallet disconnect) */
+export function clearAdminAuth() {
+  _cachedAdminAuth = null;
+  _cachedAuthTime = 0;
 }
-
-// ── JWT token management ───────────────────────────────────
-// Tokens are now managed server-side by the proxy. The client
-// no longer needs to fetch or send Swyftx access tokens.
 
 // ── API helpers ────────────────────────────────────────────
 
@@ -376,20 +413,20 @@ export async function fetchLeaderboard(poolValue: number): Promise<LeaderboardEn
   });
 }
 
-/** Fetch transactions from MongoDB */
+/** Fetch transactions from MongoDB — throws on failure so callers can show errors */
 export async function fetchTransactions(
   wallet: string,
 ): Promise<TradeTransaction[]> {
-  return cached(`txns_${wallet}`, 30_000, async () => {
-    try {
-      const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return data.transactions || [];
-    } catch {
-      return [];
-    }
-  });
+  // Bypass cache so we always get fresh data when the user opens Activity
+  delete cache[`txns_${wallet}`];
+
+  const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(body || `API error ${res.status}`);
+  }
+  const data = await res.json();
+  return data.transactions || [];
 }
 
 /** Fetch pool stats from MongoDB (public - visible to all visitors) */
@@ -464,6 +501,7 @@ export async function placeTrade(order: {
   orderType: "market" | "limit" | "stop";
   triggerPrice?: number;
   currentPrice?: number;
+  swyftxAudRate?: number;
 }): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
     // Validate minimum order size
@@ -500,13 +538,50 @@ export async function placeTrade(order: {
     }
 
     // Build the Swyftx order payload — matches working FLUB format
+    // Swyftx is AUD-native: trigger prices are evaluated in AUD internally,
+    // even when trading USDC pairs.  We must send the trigger in AUD.
+    //
+    // IMPORTANT: Use Swyftx's own AUD rate (from /portfolio/) to calculate
+    // the AUD trigger.  CoinGecko's AUD↔USD rate can differ from Swyftx's
+    // internal rate, which caused triggers to sit below the current Swyftx
+    // AUD price and execute immediately.  By scaling the Swyftx AUD rate by
+    // the same percentage offset the user chose, the trigger is always the
+    // correct % above/below the Swyftx current price.
+    let triggerAud = 0;
+    if (
+      order.swyftxAudRate && order.swyftxAudRate > 0 &&
+      order.currentPrice && order.currentPrice > 0 &&
+      order.triggerPrice && order.triggerPrice > 0
+    ) {
+      // Scale Swyftx AUD rate by the same ratio as USDC trigger / current USDC price
+      triggerAud = order.swyftxAudRate * (order.triggerPrice / order.currentPrice);
+      console.log(
+        `[PlaceTrade] AUD trigger via Swyftx rate: audRate=${order.swyftxAudRate.toFixed(4)}, ` +
+        `ratio=${(order.triggerPrice / order.currentPrice).toFixed(4)}, triggerAud=${triggerAud.toFixed(4)}`
+      );
+    } else if (order.triggerPrice && AUD_TO_USD > 0) {
+      // Fallback: convert USDC trigger → AUD using CoinGecko-derived rate
+      triggerAud = order.triggerPrice / AUD_TO_USD;
+      console.log(
+        `[PlaceTrade] AUD trigger via CoinGecko fallback: triggerUSD=${order.triggerPrice}, ` +
+        `AUD_TO_USD=${AUD_TO_USD.toFixed(4)}, triggerAud=${triggerAud.toFixed(4)}`
+      );
+    }
+
+    // Safety guard: NEVER send a limit/stop order with an empty trigger —
+    // Swyftx would execute it as a market order (instant fill).
+    if (order.orderType !== "market" && triggerAud <= 0) {
+      alog.log(`Blocked ${order.side} ${order.assetCode}: trigger price resolved to 0 (AUD_TO_USD=${AUD_TO_USD}, swyftxAudRate=${order.swyftxAudRate})`, "error");
+      return { success: false, error: "Trigger price could not be calculated — please try again" };
+    }
+
     const swyftxPayload = {
       primary: "USDC",
       secondary: order.assetCode,
       quantity: String(order.amount),
       assetQuantity: "USDC",
       orderType: swyftxOrderType,
-      trigger: order.triggerPrice ? String(order.triggerPrice) : "",
+      trigger: triggerAud > 0 ? String(triggerAud) : "",
     };
 
     const res = await fetchWithRetry("/api/proxy", {
@@ -519,18 +594,30 @@ export async function placeTrade(order: {
       }),
     });
 
-    const data = await res.json();
+    let data: any;
+    try {
+      data = await res.json();
+    } catch {
+      data = {};
+    }
 
     // Validate: HTTP must be OK AND response must contain an orderId/order confirmation
     // AND must not have error fields in the body (Swyftx can return 200 with errors)
-    const hasError = data.error || data.message?.toLowerCase().includes("error") || data.message?.toLowerCase().includes("fail");
+    const msgLower = typeof data.message === "string" ? data.message.toLowerCase() : "";
+    const hasError = data.error || msgLower.includes("error") || msgLower.includes("fail");
     const hasOrderId = !!(data.orderId || data.orderUuid || data.order_id);
     const isSuccess = res.ok && !hasError && hasOrderId;
 
+    // Ensure error is always a string (Swyftx can return error objects that crash React)
+    const rawErr = data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : undefined);
+    const errStr = typeof rawErr === "string" ? rawErr : JSON.stringify(rawErr || data);
+
+    // Prefer orderUuid (UUID format) — this matches how fetchSwyftxOrderHistory
+    // identifies filled orders via swyftxId, ensuring pending↔filled ID matching works.
     const result = {
       success: isSuccess,
-      orderId: data.orderId || data.orderUuid || data.order_id,
-      error: isSuccess ? undefined : (data.error || data.message || (!hasOrderId && res.ok ? "No order confirmation received from exchange" : JSON.stringify(data))),
+      orderId: data.orderUuid || data.order_uuid || data.orderId || data.order_id,
+      error: isSuccess ? undefined : errStr,
     };
 
     if (isSuccess) {
@@ -617,16 +704,19 @@ export async function fetchTraderState(): Promise<TraderState | null> {
   });
 }
 
-/** Save trader state (admin only — partial updates) */
+/** Save trader state (admin only — partial updates, requires Ed25519 signature) */
 export async function saveTraderState(
   adminWallet: string,
   updates: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const res = await fetchWithRetry("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, ...updates }),
+      body: JSON.stringify({ ...auth, ...updates }),
     });
     const data = await res.json();
     // Invalidate cached trader state so next fetch gets fresh data
@@ -642,6 +732,11 @@ export function clearCache() {
   for (const key of Object.keys(cache)) delete cache[key];
 }
 
+/** Clear specific cache keys (used by AutoTrader to force fresh fetches) */
+export function clearCacheKeys(...keys: string[]) {
+  for (const key of keys) delete cache[key];
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,
@@ -651,12 +746,15 @@ export async function recordDeposit(
   currency: string = "USDC",
 ): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const txHash = `admin_deposit_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const res = await fetchWithRetry("/api/deposit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adminWallet,
+        ...auth,
         walletAddress,
         amount: amountUsd,
         txHash,
@@ -670,9 +768,10 @@ export async function recordDeposit(
       return { success: false, error: data.error || "Deposit recording failed" };
     }
 
-    // Invalidate cached stats so next fetch reflects new shares
+    // Invalidate cached stats and transactions so next fetch reflects new data
     delete cache["admin_stats"];
     delete cache[`position_${walletAddress}`];
+    delete cache[`txns_${walletAddress}`];
 
     alog.log(`Deposit recorded: $${amountUsd.toFixed(2)} USD → ${data.shares?.toFixed(2)} shares at NAV $${data.nav?.toFixed(4)}`, "success");
     return { success: true, shares: data.shares, nav: data.nav };
@@ -701,9 +800,10 @@ export async function submitUserDeposit(
       return { success: false, error: data.error || "Deposit recording failed" };
     }
 
-    // Invalidate cached stats
+    // Invalidate cached stats and transactions
     delete cache["admin_stats"];
     delete cache[`position_${walletAddress}`];
+    delete cache[`txns_${walletAddress}`];
 
     alog.log(`User deposit: $${amount.toFixed(2)} USDC → ${data.shares?.toFixed(2)} shares`, "success");
     return { success: true, shares: data.shares, nav: data.nav };
@@ -714,7 +814,7 @@ export async function submitUserDeposit(
 
 // ── Additional API functions (ported from FLUB) ───────────
 
-/** Record a trade to MongoDB */
+/** Record a trade to MongoDB (requires Ed25519 signature) */
 export async function recordTradeInDB(
   adminWallet: string,
   coin: string,
@@ -723,17 +823,26 @@ export async function recordTradeInDB(
   price: number,
 ): Promise<boolean> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return false;
+
     const res = await fetch("/api/trade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        adminWallet,
+        ...auth,
         coin,
         type: tradeType,
         amount: cryptoAmount,
         price,
       }),
     });
+    if (res.ok) {
+      // Invalidate transaction cache so Activity page shows new trade
+      for (const key of Object.keys(cache)) {
+        if (key.startsWith("txns_")) delete cache[key];
+      }
+    }
     return res.ok;
   } catch {
     return false;
@@ -790,6 +899,9 @@ export async function fetchSwyftxOrderHistory(
         const coinCode = assetMap[String(o.secondary_asset)] || String(o.secondary_asset ?? "");
         return {
           swyftxId: o.orderUuid ?? o.id ?? "",
+          // Also store numeric orderId (if different from UUID) so filled-order
+          // matching works regardless of which ID format the pending order used.
+          orderId: o.orderId || o.order_id || "",
           type: isBuy ? "buy" : "sell",
           coin: coinCode,
           quantity: parseFloat(o.quantity ?? 0),
@@ -804,18 +916,21 @@ export async function fetchSwyftxOrderHistory(
   }
 }
 
-/** Sync Swyftx order history to MongoDB (deduplicates by swyftxId) */
+/** Sync Swyftx order history to MongoDB (deduplicates by swyftxId, requires signature) */
 export async function syncSwyftxTradesToDB(
   adminWallet: string,
 ): Promise<{ imported: number; skipped: number } | null> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return null;
+
     const swyftxOrders = await fetchSwyftxOrderHistory(200);
     if (swyftxOrders.length === 0) return { imported: 0, skipped: 0 };
 
     const res = await fetch("/api/trade/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, trades: swyftxOrders }),
+      body: JSON.stringify({ ...auth, trades: swyftxOrders }),
     });
 
     if (res.ok) return await res.json();
@@ -898,10 +1013,19 @@ export async function fetchEnrichedPendingOrders(
     const dbOrders = state?.enrichedOrders || [];
     if (dbOrders.length === 0) return [];
 
-    // Filter out orders that have been filled on Swyftx
-    const filledIds = new Set(filledHistory.map((o: any) => o.swyftxId || o.orderId));
-    const getId = (o: any) => o.orderId || o.orderUuid || o.id || "";
-    const active = dbOrders.filter((o: any) => !filledIds.has(getId(o)));
+    // Filter out orders that have been filled on Swyftx.
+    // Include ALL possible IDs from filled orders (numeric orderId + UUID orderUuid)
+    // so matching works regardless of which ID format the pending order stored.
+    const filledIds = new Set<string>();
+    for (const o of filledHistory) {
+      if (o.swyftxId) filledIds.add(o.swyftxId);
+      if (o.orderId) filledIds.add(o.orderId);
+    }
+    const isFilled = (o: any): boolean => {
+      const ids = [o.orderId, o.orderUuid, o.id, o.swyftxId].filter(Boolean);
+      return ids.some((id: string) => filledIds.has(id));
+    };
+    const active = dbOrders.filter((o: any) => !isFilled(o));
 
     return enrichDbOrders(active, prices);
   } catch { /* DB also unavailable */ }
@@ -909,16 +1033,19 @@ export async function fetchEnrichedPendingOrders(
   return [];
 }
 
-/** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals */
+/** Recalibrate pool: reset NAV to $1 and user shares to their deposit totals (requires signature) */
 export async function recalibratePool(
   adminWallet: string,
   totalPoolValue: number,
 ): Promise<{ success: boolean; adminCapital?: number; totalUserDeposits?: number; error?: string }> {
   try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
     const res = await fetchWithRetry("/api/admin/recalibrate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ adminWallet, totalPoolValue }),
+      body: JSON.stringify({ ...auth, totalPoolValue }),
     });
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };

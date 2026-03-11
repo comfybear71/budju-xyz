@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence, useMotionValue } from "motion/react";
 import {
   FaSortAmountDown,
   FaArrowUp,
@@ -19,6 +19,57 @@ interface HoldingsListProps {
   userAllocation: number;
   viewMode: "mine" | "pool";
   onToggleView?: (mode: "mine" | "pool") => void;
+}
+
+// ── Tier categorization ─────────────────────────────────
+type HoldingsTier = "top10" | "innovation" | "wildcards";
+
+interface TierConfig {
+  id: HoldingsTier;
+  label: string;
+  description: string;
+  accent: string;
+  accentHex: string;
+}
+
+const TIER_CONFIGS: TierConfig[] = [
+  {
+    id: "top10",
+    label: "Top 10",
+    description: "Major coins by market cap",
+    accent: "from-blue-400 to-cyan-400",
+    accentHex: "#60a5fa",
+  },
+  {
+    id: "innovation",
+    label: "Innovation",
+    description: "AI, compute & next-gen projects",
+    accent: "from-purple-400 to-pink-400",
+    accentHex: "#c084fc",
+  },
+  {
+    id: "wildcards",
+    label: "Wildcards",
+    description: "Alts, commodities & high conviction",
+    accent: "from-amber-400 to-orange-400",
+    accentHex: "#fbbf24",
+  },
+];
+
+// Top 10 by market cap
+const TOP_10_COINS = new Set([
+  "BTC", "ETH", "XRP", "BNB", "SOL", "DOGE", "ADA", "TRX", "LINK", "AVAX",
+]);
+
+// AI, compute, next-gen L1s
+const INNOVATION_COINS = new Set([
+  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT",
+]);
+
+function getTier(code: string): HoldingsTier {
+  if (TOP_10_COINS.has(code)) return "top10";
+  if (INNOVATION_COINS.has(code)) return "innovation";
+  return "wildcards";
 }
 
 /* ── Animated number that "spins up" when value changes ── */
@@ -152,6 +203,111 @@ const RefreshClock = ({ prices }: { prices: Record<string, number> }) => {
   );
 };
 
+/* ── Tier Tab Bar ─────────────────────────────────────── */
+const TierTabs = ({
+  tiers,
+  activeIndex,
+  onSelect,
+  countByTier,
+}: {
+  tiers: TierConfig[];
+  activeIndex: number;
+  onSelect: (i: number) => void;
+  countByTier: Record<HoldingsTier, number>;
+}) => {
+  const tabsRef = useRef<HTMLDivElement>(null);
+  const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 });
+
+  useEffect(() => {
+    if (!tabsRef.current) return;
+    const buttons = tabsRef.current.querySelectorAll<HTMLButtonElement>("[data-tier-tab]");
+    const btn = buttons[activeIndex];
+    if (btn) {
+      setIndicatorStyle({
+        left: btn.offsetLeft,
+        width: btn.offsetWidth,
+      });
+    }
+  }, [activeIndex]);
+
+  return (
+    <div
+      ref={tabsRef}
+      className="relative inline-flex rounded-xl p-1 bg-white/[0.04] border border-white/[0.06]"
+    >
+      {/* Sliding indicator */}
+      <motion.div
+        className="absolute top-1 bottom-1 rounded-lg bg-white/[0.08]"
+        animate={{
+          left: indicatorStyle.left,
+          width: indicatorStyle.width,
+        }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      />
+
+      {tiers.map((tier, i) => {
+        const count = countByTier[tier.id] || 0;
+        const isActive = i === activeIndex;
+        return (
+          <button
+            key={tier.id}
+            data-tier-tab
+            onClick={() => onSelect(i)}
+            className={`relative z-10 flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-bold transition-colors duration-200 whitespace-nowrap ${
+              isActive
+                ? "text-white"
+                : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full bg-gradient-to-r ${tier.accent} transition-opacity duration-200 ${
+                isActive ? "opacity-100" : "opacity-40"
+              }`}
+            />
+            {tier.label}
+            {count > 0 && (
+              <span
+                className={`text-[9px] font-mono px-1 py-0.5 rounded-md transition-colors duration-200 ${
+                  isActive
+                    ? "bg-white/10 text-white/80"
+                    : "bg-white/[0.04] text-gray-600"
+                }`}
+              >
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+/* ── Dot Indicators (mobile) ─────────────────────────── */
+const DotIndicators = ({
+  count,
+  activeIndex,
+  tiers,
+}: {
+  count: number;
+  activeIndex: number;
+  tiers: TierConfig[];
+}) => (
+  <div className="flex justify-center gap-2 mt-3">
+    {Array.from({ length: count }).map((_, i) => (
+      <motion.div
+        key={i}
+        className={`h-1.5 rounded-full bg-gradient-to-r ${tiers[i].accent}`}
+        animate={{
+          width: i === activeIndex ? 20 : 6,
+          opacity: i === activeIndex ? 1 : 0.3,
+        }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      />
+    ))}
+  </div>
+);
+
 const HoldingsList = ({
   assets,
   prices,
@@ -164,6 +320,8 @@ const HoldingsList = ({
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortAsc, setSortAsc] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
+  const [activeTierIndex, setActiveTierIndex] = useState(0);
+  const dragX = useMotionValue(0);
 
   // Track previous prices to determine up/down direction
   const prevPricesRef = useRef<Record<string, number>>({});
@@ -200,8 +358,38 @@ const HoldingsList = ({
 
   const totalValue = assets.reduce((s, a) => s + a.usdValue, 0);
 
+  // Group assets by tier
+  const assetsByTier = useMemo(() => {
+    const grouped: Record<HoldingsTier, PortfolioAsset[]> = {
+      top10: [],
+      innovation: [],
+      wildcards: [],
+    };
+    for (const a of assets) {
+      grouped[getTier(a.code)].push(a);
+    }
+    return grouped;
+  }, [assets]);
+
+  // Count per tier
+  const countByTier: Record<HoldingsTier, number> = {
+    top10: assetsByTier.top10.length,
+    innovation: assetsByTier.innovation.length,
+    wildcards: assetsByTier.wildcards.length,
+  };
+
+  // Only show tiers that have holdings
+  const activeTiers = TIER_CONFIGS.filter((t) => assetsByTier[t.id].length > 0);
+  const tiers = activeTiers.length > 0 ? activeTiers : TIER_CONFIGS;
+  const currentTier = tiers[activeTierIndex] || tiers[0];
+  const currentAssets = assetsByTier[currentTier.id] || [];
+
+  // Tier subtotal
+  const tierValue = currentAssets.reduce((s, a) => s + a.usdValue, 0);
+
+  // Sort current tier's assets
   const sorted = useMemo(() => {
-    const arr = [...assets];
+    const arr = [...currentAssets];
     arr.sort((a, b) => {
       let cmp = 0;
       switch (sortKey) {
@@ -221,7 +409,35 @@ const HoldingsList = ({
       return sortAsc ? cmp : -cmp;
     });
     return arr;
-  }, [assets, sortKey, sortAsc]);
+  }, [currentAssets, sortKey, sortAsc]);
+
+  const goToTier = useCallback(
+    (index: number) => {
+      setActiveTierIndex(Math.max(0, Math.min(index, tiers.length - 1)));
+    },
+    [tiers.length],
+  );
+
+  // Swipe handling
+  const handleDragEnd = useCallback(
+    (_: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
+      const swipeThreshold = 50;
+      const velocityThreshold = 300;
+
+      if (
+        info.offset.x < -swipeThreshold ||
+        info.velocity.x < -velocityThreshold
+      ) {
+        goToTier(activeTierIndex + 1);
+      } else if (
+        info.offset.x > swipeThreshold ||
+        info.velocity.x > velocityThreshold
+      ) {
+        goToTier(activeTierIndex - 1);
+      }
+    },
+    [activeTierIndex, goToTier],
+  );
 
   const handleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -260,7 +476,7 @@ const HoldingsList = ({
 
   return (
     <div>
-      {/* Header */}
+      {/* Header with tier tabs */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center">
           <h3 className="text-sm font-bold text-slate-300">
@@ -321,134 +537,211 @@ const HoldingsList = ({
         </div>
       </div>
 
-      {/* Holdings Cards — scrollable when list is long */}
-      <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(148,163,184,0.2) transparent" }}>
-        {sorted.map((asset, index) => {
-          const cfg = ASSET_CONFIG[asset.code];
-          const isSelected = selectedAsset === asset.code;
-          const allocation =
-            totalValue > 0 ? (asset.usdValue / totalValue) * 100 : 0;
-          const changeColor =
-            asset.change24h > 0
-              ? "text-green-400"
-              : asset.change24h < 0
-                ? "text-red-400"
-                : "text-slate-500";
+      {/* Tier subtotal + Portfolio total */}
+      <motion.div
+        key={currentTier.id + "-value"}
+        initial={{ opacity: 0, y: 5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="flex justify-between items-end mb-4"
+      >
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
+            {currentTier.label} Value
+          </p>
+          <span
+            className={`text-xl font-black font-mono bg-gradient-to-r ${currentTier.accent} bg-clip-text text-transparent`}
+          >
+            {formatUsd(tierValue)}
+          </span>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] uppercase tracking-[0.15em] font-bold text-gray-600 mb-0.5">
+            Total
+          </p>
+          <span className="text-xl font-black font-mono text-white/80">
+            {formatUsd(totalValue)}
+          </span>
+        </div>
+      </motion.div>
 
-          const dir = priceDirection[asset.code];
-          const borderColor =
-            dir === "up"
-              ? "border-green-500/60"
-              : dir === "down"
-                ? "border-red-500/60"
-                : isSelected
-                  ? "border-blue-500/20"
-                  : "border-transparent";
+      {/* Tier Tabs */}
+      {tiers.length > 1 && (
+        <div className="flex justify-center mb-4">
+          <TierTabs
+            tiers={tiers}
+            activeIndex={activeTierIndex}
+            onSelect={goToTier}
+            countByTier={countByTier}
+          />
+        </div>
+      )}
 
-          const glowShadow =
-            dir === "up"
-              ? "shadow-[0_0_12px_rgba(34,197,94,0.15)]"
-              : dir === "down"
-                ? "shadow-[0_0_12px_rgba(239,68,68,0.15)]"
-                : "";
+      {/* Swipeable Holdings Cards */}
+      <motion.div
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={0.15}
+        onDragEnd={handleDragEnd}
+        style={{ x: dragX, touchAction: "pan-y" }}
+        className="cursor-grab active:cursor-grabbing"
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentTier.id}
+            initial={{ opacity: 0, x: 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -30 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-2"
+          >
+            {sorted.map((asset, index) => {
+              const cfg = ASSET_CONFIG[asset.code];
+              const isSelected = selectedAsset === asset.code;
+              const allocation =
+                totalValue > 0 ? (asset.usdValue / totalValue) * 100 : 0;
+              const changeColor =
+                asset.change24h > 0
+                  ? "text-green-400"
+                  : asset.change24h < 0
+                    ? "text-red-400"
+                    : "text-slate-500";
 
-          const flashColor =
-            dir === "up" ? ("green" as const)
-              : dir === "down" ? ("red" as const)
-              : null;
+              const dir = priceDirection[asset.code];
+              const borderColor =
+                dir === "up"
+                  ? "border-green-500/60"
+                  : dir === "down"
+                    ? "border-red-500/60"
+                    : isSelected
+                      ? "border-blue-500/20"
+                      : "border-transparent";
 
-          return (
-            <motion.div
-              key={asset.code}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2, delay: index * 0.03 }}
-              onClick={isAdmin ? () => onSelectAsset(asset.code) : undefined}
-              className={`relative rounded-xl p-3.5 transition-all duration-300 border ${borderColor} ${glowShadow} ${
-                isAdmin
-                  ? isSelected
-                    ? "bg-blue-500/[0.08] cursor-pointer"
-                    : "bg-slate-800/30 hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"
-                  : "bg-slate-800/30"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                {/* Coin icon */}
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
-                  style={{
-                    backgroundColor: `${cfg?.color || "#64748b"}15`,
-                    color: cfg?.color || "#64748b",
-                  }}
+              const glowShadow =
+                dir === "up"
+                  ? "shadow-[0_0_12px_rgba(34,197,94,0.15)]"
+                  : dir === "down"
+                    ? "shadow-[0_0_12px_rgba(239,68,68,0.15)]"
+                    : "";
+
+              const flashColor =
+                dir === "up" ? ("green" as const)
+                  : dir === "down" ? ("red" as const)
+                  : null;
+
+              return (
+                <motion.div
+                  key={asset.code}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: index * 0.03 }}
+                  onClick={isAdmin ? () => onSelectAsset(asset.code) : undefined}
+                  className={`relative rounded-xl p-3.5 transition-all duration-300 border ${borderColor} ${glowShadow} ${
+                    isAdmin
+                      ? isSelected
+                        ? "bg-blue-500/[0.08] cursor-pointer"
+                        : "bg-slate-800/30 hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"
+                      : "bg-slate-800/30"
+                  }`}
                 >
-                  {cfg?.icon || asset.code.charAt(0)}
-                </div>
-
-                {/* Coin info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-bold text-white">
-                        {asset.code}
-                      </span>
-                      <span className="text-[11px] text-slate-500 ml-1.5">
-                        {asset.name}
-                      </span>
-                    </div>
-                    <div className="text-right">
-                      <SpinNumber
-                        value={asset.usdValue}
-                        formatter={formatUsd}
-                        className="text-sm font-bold text-white font-mono"
-                        flashColor={flashColor}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between mt-1">
-                    <span className="text-[11px] text-slate-500 font-mono">
-                      {formatBalance(
-                        viewMode === "mine" && !isAdmin
-                          ? asset.balance * (userAllocation / 100)
-                          : asset.balance,
-                      )}
-                    </span>
-                    <div className={`flex items-center gap-1 ${changeColor}`}>
-                      {asset.change24h > 0 ? (
-                        <FaArrowUp size={8} />
-                      ) : asset.change24h < 0 ? (
-                        <FaArrowDown size={8} />
-                      ) : null}
-                      <SpinNumber
-                        value={asset.change24h}
-                        formatter={(n) =>
-                          `${n > 0 ? "+" : ""}${n.toFixed(1)}%`
-                        }
-                        className="text-[11px] font-bold font-mono"
-                        flashColor={flashColor}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Allocation bar */}
-                  <div className="mt-2 h-1 rounded-full bg-slate-800/60 overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(allocation, 100)}%` }}
-                      transition={{ duration: 0.5, delay: index * 0.05 }}
-                      className="h-full rounded-full"
+                  <div className="flex items-center gap-3">
+                    {/* Coin icon */}
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"
                       style={{
-                        backgroundColor: cfg?.color || "#64748b",
-                        opacity: 0.6,
+                        backgroundColor: `${cfg?.color || "#64748b"}15`,
+                        color: cfg?.color || "#64748b",
                       }}
-                    />
+                    >
+                      {cfg?.icon || asset.code.charAt(0)}
+                    </div>
+
+                    {/* Coin info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm font-bold text-white">
+                            {asset.code}
+                          </span>
+                          <span className="text-[11px] text-slate-500 ml-1.5">
+                            {asset.name}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <SpinNumber
+                            value={asset.usdValue}
+                            formatter={formatUsd}
+                            className="text-sm font-bold text-white font-mono"
+                            flashColor={flashColor}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {formatBalance(
+                            viewMode === "mine" && !isAdmin
+                              ? asset.balance * (userAllocation / 100)
+                              : asset.balance,
+                          )}
+                        </span>
+                        <div className={`flex items-center gap-1 ${changeColor}`}>
+                          {asset.change24h > 0 ? (
+                            <FaArrowUp size={8} />
+                          ) : asset.change24h < 0 ? (
+                            <FaArrowDown size={8} />
+                          ) : null}
+                          <SpinNumber
+                            value={asset.change24h}
+                            formatter={(n) =>
+                              `${n > 0 ? "+" : ""}${n.toFixed(1)}%`
+                            }
+                            className="text-[11px] font-bold font-mono"
+                            flashColor={flashColor}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Allocation bar */}
+                      <div className="mt-2 h-1 rounded-full bg-slate-800/60 overflow-hidden">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${Math.min(allocation, 100)}%` }}
+                          transition={{ duration: 0.5, delay: index * 0.05 }}
+                          className="h-full rounded-full"
+                          style={{
+                            backgroundColor: cfg?.color || "#64748b",
+                            opacity: 0.6,
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </motion.div>
+              );
+            })}
+
+            {/* Empty tier state */}
+            {sorted.length === 0 && (
+              <div className="text-center py-10 rounded-xl border border-white/[0.04] bg-white/[0.02]">
+                <p className="text-sm font-medium text-gray-600">No {currentTier.label} holdings</p>
+                <p className="text-xs mt-1 text-gray-700">
+                  Holdings in this category will appear here
+                </p>
               </div>
-            </motion.div>
-          );
-        })}
-      </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Dot indicators */}
+      {tiers.length > 1 && (
+        <DotIndicators
+          count={tiers.length}
+          activeIndex={activeTierIndex}
+          tiers={tiers}
+        />
+      )}
     </div>
   );
 };

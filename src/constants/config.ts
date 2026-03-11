@@ -3,7 +3,7 @@ export const APP_NAME = "BUDJU";
 export const APP_DESCRIPTION =
   "The BUDJU Trading Bot — Automated DeFi on Solana";
 export const APP_URL =
-  import.meta.env.VITE_PUBLIC_URL || "https://budjucoin.com";
+  import.meta.env.VITE_PUBLIC_URL || "https://budju.xyz";
 
 // Social media links
 export const SOCIAL_LINKS = [

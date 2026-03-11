@@ -24,6 +24,8 @@ import {
   fetchTraderState,
   saveTraderState,
   placeTrade,
+  clearCacheKeys,
+  getAdminAuth,
   ASSET_CONFIG,
   type PortfolioAsset,
   type TraderState,
@@ -59,6 +61,13 @@ export interface TradeLogEntry {
   amount: number;
 }
 
+export interface RecentTrade {
+  side: "BUY" | "SELL";
+  price: number;
+  amount: number;
+  time: number; // Date.now() when trade executed
+}
+
 export interface AutoTraderSnapshot {
   isActive: boolean;
   tierActive: Record<number, boolean>;
@@ -67,6 +76,7 @@ export interface AutoTraderSnapshot {
   tierSettings: Record<string, TierSettings>;
   tierAssignments: Record<string, number>;
   tradeLog: TradeLogEntry[];
+  recentTrades: Record<string, RecentTrade>;
   isOwner: boolean;
   deviceId: string;
 }
@@ -102,11 +112,24 @@ export class AutoTrader {
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
+  recentTrades: Record<string, RecentTrade> = {};
 
-  // Device ownership
-  private _deviceId = Math.random().toString(36).substring(2, 10);
+  // Device ownership — persist deviceId so page refreshes keep the same identity
+  private _deviceId = (() => {
+    if (typeof localStorage !== "undefined") {
+      const stored = localStorage.getItem("budju_bot_device_id");
+      if (stored) return stored;
+      const id = Math.random().toString(36).substring(2, 10);
+      localStorage.setItem("budju_bot_device_id", id);
+      return id;
+    }
+    return Math.random().toString(36).substring(2, 10);
+  })();
   private _isOwner = false;
   private _checkCount = 0;
+
+  // Retry timer to reclaim ownership when previous heartbeat becomes stale
+  private _ownershipRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Monitoring interval
   private _monitorInterval: ReturnType<typeof setInterval> | null = null;
@@ -244,12 +267,25 @@ export class AutoTrader {
       if (otherDevice && freshHeartbeat) {
         this._isOwner = false;
         this._log("Auto-trading active on another device — viewing only", "info");
+
+        // Schedule a retry to reclaim ownership once the old heartbeat becomes stale
+        const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
+        const retryDelay = Math.max(staleness + 5000, 10_000); // at least 10s
+        this._scheduleOwnershipRetry(retryDelay);
       } else if (this.isActive) {
-        // Take ownership and resume with warmup (skip first price check
-        // so fresh prices load before any trades execute)
+        // Take ownership and resume monitoring
         this._isOwner = true;
-        this._warmup = true;
-        this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
+
+        // Only warmup if monitoring isn't already running — otherwise a
+        // page refresh or navigation back to /trade would reset warmup
+        // and delay the next trade check by another 3 minutes.
+        if (!this._monitorInterval) {
+          this._warmup = true;
+          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
+        } else {
+          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins`, "success");
+        }
+
         this._saveActiveState();
         this._ensureMonitoring();
       }
@@ -538,11 +574,15 @@ export class AutoTrader {
       if (!stillOwner) return;
     }
 
-    // Refresh data every 2nd check
-    if (this._checkCount % 2 === 0) {
-      this._log("Refreshing prices...", "info");
-      await this._refreshData();
-    }
+    // Always refresh data before checking prices — stale USDC balance
+    // was causing buys to be skipped ("would break $100 reserve")
+    this._log("Refreshing prices...", "info");
+    await this._refreshData();
+
+    this._log(
+      `Check #${this._checkCount}: USDC $${this._cachedUsdcBalance.toFixed(2)}, monitoring ${Object.keys(this.targets).length} coins`,
+      "info",
+    );
 
     let tradeExecuted = false;
 
@@ -556,12 +596,18 @@ export class AutoTrader {
       const currentPrice = this._cachedPrices[code];
       const tgt = this.targets[code];
 
-      if (!tgt || !currentPrice) continue;
+      if (!tgt || !currentPrice) {
+        this._log(`${code}: no target or price data (price=${currentPrice}, target=${!!tgt})`, "error");
+        continue;
+      }
+
+      const pctToBuy = ((currentPrice - tgt.buy) / currentPrice * 100).toFixed(2);
+      const pctToSell = ((tgt.sell - currentPrice) / currentPrice * 100).toFixed(2);
 
       // BUY: price dropped below buy target
       if (currentPrice <= tgt.buy) {
         this._log(
-          `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}) — BUY`,
+          `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
           "success",
         );
         await this._executeBuy(code, currentPrice, settings);
@@ -570,11 +616,17 @@ export class AutoTrader {
       // SELL: price rose above sell target
       else if (currentPrice >= tgt.sell) {
         this._log(
-          `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}) — SELL`,
+          `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
           "success",
         );
         await this._executeSell(code, currentPrice, settings);
         tradeExecuted = true;
+      }
+      else {
+        this._log(
+          `${code}: $${currentPrice.toFixed(2)} — ${pctToBuy}% to buy ($${tgt.buy.toFixed(2)}), ${pctToSell}% to sell ($${tgt.sell.toFixed(2)})`,
+          "info",
+        );
       }
     }
 
@@ -601,7 +653,7 @@ export class AutoTrader {
 
     const tradeAmount = (settings.allocation / 100) * usdcBalance;
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
-      this._log(`Skipping ${code} buy — would break $${MIN_USDC_RESERVE} USDC reserve`, "error");
+      this._log(`Skipping ${code} buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve (alloc ${settings.allocation}%)`, "error");
       return;
     }
 
@@ -624,6 +676,7 @@ export class AutoTrader {
         this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
         this._setCooldown(code);
         this._recordTradeInDB(code, "buy", quantity, currentPrice);
+        this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
         // Move buy target down, keep sell target
         const oldBuy = this.targets[code].buy;
@@ -671,6 +724,7 @@ export class AutoTrader {
         this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
         this._setCooldown(code);
         this._recordTradeInDB(code, "sell", quantity, currentPrice);
+        this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
         // Move sell target up, keep buy target
         const oldSell = this.targets[code].sell;
@@ -728,10 +782,68 @@ export class AutoTrader {
     }
   }
 
+  // ── Ownership Retry ────────────────────────────────────
+
+  private _scheduleOwnershipRetry(delayMs: number) {
+    this._clearOwnershipRetry();
+    this._log(`Will retry ownership in ${Math.round(delayMs / 1000)}s`, "info");
+    this._ownershipRetryTimer = setTimeout(async () => {
+      this._ownershipRetryTimer = null;
+      if (this._isOwner) return; // Already reclaimed
+      if (!this.isActive) return; // No tiers active
+
+      try {
+        const state = await fetchTraderState();
+        if (!state || !state._rawAutoActive) {
+          // No active state on server — safe to take ownership
+          this._isOwner = true;
+        } else {
+          const autoActive = state._rawAutoActive;
+          const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
+          const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
+
+          if (otherDevice && freshHeartbeat) {
+            // Still active on another device — retry again
+            const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
+            const retryDelay = Math.max(staleness + 5000, 10_000);
+            this._scheduleOwnershipRetry(retryDelay);
+            return;
+          }
+
+          // Heartbeat is stale or same device — reclaim ownership
+          this._isOwner = true;
+        }
+
+        if (this._isOwner) {
+          this._warmup = true;
+          this._log("Ownership reclaimed — resuming auto-trading", "success");
+          this._saveActiveState();
+          this._ensureMonitoring();
+          this._notifyChange();
+        }
+      } catch {
+        // Network error — retry in 30s
+        this._scheduleOwnershipRetry(30_000);
+      }
+    }, delayMs);
+  }
+
+  private _clearOwnershipRetry() {
+    if (this._ownershipRetryTimer) {
+      clearTimeout(this._ownershipRetryTimer);
+      this._ownershipRetryTimer = null;
+    }
+  }
+
   // ── Data Refresh ────────────────────────────────────────
 
   private async _refreshData() {
     try {
+      // Bust the cache for portfolio, prices, and cash balance so the
+      // trading loop always gets a live fetch — stale cached { usdc: 0 }
+      // from a failed Swyftx call was silently blocking every buy.
+      clearCacheKeys("portfolio", "prices", "cash");
+
       const [assets, prices, cash] = await Promise.all([
         fetchPortfolio(),
         fetchPrices(),
@@ -799,16 +911,46 @@ export class AutoTrader {
     this._saveTradeLog();
   }
 
+  // ── Recent Trade Tracking (for UI celebrations) ────────
+
+  private _recordRecentTrade(coin: string, side: "BUY" | "SELL", price: number, amount: number) {
+    const tradeTime = Date.now();
+    this.recentTrades[coin] = { side, price, amount, time: tradeTime };
+    this._notifyChange();
+    // Auto-clear after 60 seconds so the celebration badge fades
+    setTimeout(() => {
+      // Only delete if it's still the same trade (not a newer one)
+      if (this.recentTrades[coin]?.time === tradeTime) {
+        delete this.recentTrades[coin];
+        this._notifyChange();
+      }
+    }, 60_000);
+  }
+
+  getRecentTrade(coin: string): RecentTrade | null {
+    const trade = this.recentTrades[coin];
+    if (!trade) return null;
+    // Expire after 60 seconds
+    if (Date.now() - trade.time > 60_000) {
+      delete this.recentTrades[coin];
+      return null;
+    }
+    return trade;
+  }
+
   // ── Record to MongoDB ───────────────────────────────────
 
   private async _recordTradeInDB(coin: string, tradeType: "buy" | "sell", amount: number, price: number) {
     if (!this._adminWallet) return;
     try {
+      const auth = await getAdminAuth(this._adminWallet);
+      if (!auth) return;
+
       const res = await fetch("/api/trade", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          adminWallet: this._adminWallet,
+          ...auth,
           coin,
           type: tradeType,
           amount,
@@ -943,6 +1085,7 @@ export class AutoTrader {
       tierSettings: { ...this.tierSettings },
       tierAssignments: { ...this.tierAssignments },
       tradeLog: [...this.tradeLog],
+      recentTrades: { ...this.recentTrades },
       isOwner: this._isOwner,
       deviceId: this._deviceId,
     };
@@ -952,6 +1095,7 @@ export class AutoTrader {
 
   destroy() {
     this._stopMonitoring();
+    this._clearOwnershipRetry();
     this._onStateChange = null;
   }
 }

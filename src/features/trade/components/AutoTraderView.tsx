@@ -121,7 +121,24 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
   const grouped = getGrouped();
   const monitoringCount = Object.values(grouped).reduce((s, g) => s + g.length, 0);
   const tradeLog = state?.autoTradeLog || [];
+  const buyCount = tradeLog.filter((e: any) => e.side?.toLowerCase() !== "sell").length;
+  const sellCount = tradeLog.filter((e: any) => e.side?.toLowerCase() === "sell").length;
   const botActive = state?.autoBotActive ?? false;
+
+  // Detect recently traded coins from trade log (within last 60s)
+  const recentTradeMap: Record<string, { side: string; price: number; amount: number }> = {};
+  const now = Date.now();
+  for (const entry of tradeLog) {
+    if (!entry.timestamp) continue;
+    const tradeTime = new Date(entry.timestamp).getTime();
+    if (now - tradeTime < 60_000) {
+      recentTradeMap[entry.coin] = {
+        side: entry.side,
+        price: entry.price,
+        amount: (entry.qty || 0) * (entry.price || 0),
+      };
+    }
+  }
 
   const formatPrice = (n: number) => {
     if (!n || isNaN(n)) return "$0.00";
@@ -240,6 +257,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
+                            const recent = recentTradeMap[item.coin];
+                            const justTraded = !!recent;
+                            const celebBuy = recent?.side === "buy";
+                            const celebColor = celebBuy ? "34,197,94" : "239,68,68";
 
                             // Calculate distance to each trigger
                             const pctToBuy = item.currentPrice > 0 && item.buyTrigger > 0
@@ -268,39 +289,50 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                             const isHot = progress >= 0.85;
                             const isCritical = progress >= 0.95;
 
-                            let barColor = "#3b82f6";
-                            if (isCritical) barColor = "#ef4444";
-                            else if (isHot) barColor = "#f97316";
-                            else if (isNear) barColor = "#eab308";
+                            // Bi-directional bar: green left (buy), red right (sell)
+                            // direction: -1 = toward buy (left), +1 = toward sell (right)
+                            let direction = 0;
+                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
+                              const mid = (item.buyTrigger + item.sellTrigger) / 2;
+                              direction = item.currentPrice >= mid ? 1 : -1;
+                            }
+                            const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
+                            const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
 
                             return (
                               <div
                                 key={item.coin}
-                                className="rounded-lg p-2.5 transition-all duration-500"
+                                className={`rounded-lg p-2.5 transition-all duration-500${justTraded ? " animate-pulse" : ""}`}
                                 style={{
-                                  background: item.inCooldown
-                                    ? "rgba(234,179,8,0.05)"
-                                    : isCritical && item.hasLiveTarget
-                                      ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
-                                      : isHot && item.hasLiveTarget
-                                        ? "rgba(249,115,22,0.06)"
-                                        : "rgba(255,255,255,0.02)",
-                                  border: `1px solid ${
-                                    item.inCooldown
-                                      ? "rgba(234,179,8,0.2)"
+                                  background: justTraded
+                                    ? `rgba(${celebColor},0.15)`
+                                    : item.inCooldown
+                                      ? "rgba(234,179,8,0.05)"
                                       : isCritical && item.hasLiveTarget
-                                        ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                                        ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
                                         : isHot && item.hasLiveTarget
-                                          ? "rgba(249,115,22,0.3)"
-                                          : "rgba(255,255,255,0.04)"
+                                          ? "rgba(249,115,22,0.06)"
+                                          : "rgba(255,255,255,0.02)",
+                                  border: `1px solid ${
+                                    justTraded
+                                      ? `rgba(${celebColor},0.5)`
+                                      : item.inCooldown
+                                        ? "rgba(234,179,8,0.2)"
+                                        : isCritical && item.hasLiveTarget
+                                          ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
+                                          : isHot && item.hasLiveTarget
+                                            ? "rgba(249,115,22,0.3)"
+                                            : "rgba(255,255,255,0.04)"
                                   }`,
-                                  boxShadow: isCritical && item.hasLiveTarget && !item.inCooldown
-                                    ? nearestSide === "buy"
-                                      ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
-                                      : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
-                                    : isHot && item.hasLiveTarget && !item.inCooldown
-                                      ? "0 0 8px rgba(249,115,22,0.1)"
-                                      : "none",
+                                  boxShadow: justTraded
+                                    ? `0 0 20px rgba(${celebColor},0.25), inset 0 0 16px rgba(${celebColor},0.08)`
+                                    : isCritical && item.hasLiveTarget && !item.inCooldown
+                                      ? nearestSide === "buy"
+                                        ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
+                                        : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
+                                      : isHot && item.hasLiveTarget && !item.inCooldown
+                                        ? "0 0 8px rgba(249,115,22,0.1)"
+                                        : "none",
                                 }}
                               >
                                 {/* Coin name + status badge + change */}
@@ -309,8 +341,20 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                     <span className="text-xs font-bold" style={{ color: cfg.color }}>
                                       {item.coin}
                                     </span>
-                                    {item.inCooldown && <span className="text-[9px] text-yellow-500">(cooldown)</span>}
-                                    {item.hasLiveTarget && !item.inCooldown && isNear ? (
+                                    {justTraded ? (
+                                      <span
+                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded animate-pulse"
+                                        style={{
+                                          background: `rgba(${celebColor},0.3)`,
+                                          color: celebBuy ? "#22c55e" : "#ef4444",
+                                          border: `1px solid rgba(${celebColor},0.5)`,
+                                        }}
+                                      >
+                                        {celebBuy ? "BOUGHT!" : "SOLD!"}
+                                      </span>
+                                    ) : item.inCooldown ? (
+                                      <span className="text-[9px] text-yellow-500">(cooldown)</span>
+                                    ) : item.hasLiveTarget && isNear ? (
                                       <span
                                         className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}
                                         style={{
@@ -325,7 +369,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                           : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
                                           : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
                                       </span>
-                                    ) : item.hasLiveTarget && !item.inCooldown ? (
+                                    ) : item.hasLiveTarget ? (
                                       <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
                                         LIVE
                                       </span>
@@ -342,16 +386,35 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </div>
                                 </div>
 
-                                {/* Progress bar showing proximity to buy/sell trigger */}
-                                <div className="w-full h-1.5 rounded-full mb-1.5" style={{ background: "rgba(255,255,255,0.06)" }}>
-                                  <div
-                                    className="h-full rounded-full transition-all duration-700"
-                                    style={{
-                                      background: barColor,
-                                      width: `${(progress * 100).toFixed(0)}%`,
-                                      opacity: isCritical ? 1 : 0.8,
-                                    }}
-                                  />
+                                {/* Bi-directional progress bar: green left (buy) ← center → red right (sell) */}
+                                <div className="w-full h-2 rounded-full mb-1.5 relative overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                                  {/* Center tick mark */}
+                                  <div className="absolute top-0 bottom-0 w-px" style={{ left: "50%", background: "rgba(255,255,255,0.25)", zIndex: 2 }} />
+                                  {direction <= 0 ? (
+                                    /* Buy side: bar grows LEFT from center */
+                                    <div
+                                      className="absolute top-0 bottom-0 rounded-l-full transition-all duration-700"
+                                      style={{
+                                        right: "50%",
+                                        width: `${(progress * 50).toFixed(1)}%`,
+                                        background: barColorBuy,
+                                        opacity: isCritical ? 1 : 0.8,
+                                        boxShadow: isCritical ? `0 0 8px ${barColorBuy}` : "none",
+                                      }}
+                                    />
+                                  ) : (
+                                    /* Sell side: bar grows RIGHT from center */
+                                    <div
+                                      className="absolute top-0 bottom-0 rounded-r-full transition-all duration-700"
+                                      style={{
+                                        left: "50%",
+                                        width: `${(progress * 50).toFixed(1)}%`,
+                                        background: barColorSell,
+                                        opacity: isCritical ? 1 : 0.8,
+                                        boxShadow: isCritical ? `0 0 8px ${barColorSell}` : "none",
+                                      }}
+                                    />
+                                  )}
                                 </div>
 
                                 {/* Buy / Current / Sell row */}
@@ -365,8 +428,17 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </span>
                                 </div>
 
-                                {/* Proximity percentage */}
-                                {item.hasLiveTarget && !item.inCooldown && (
+                                {/* Trade execution details or proximity percentage */}
+                                {justTraded && recent ? (
+                                  <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: `1px solid rgba(${celebColor},0.15)` }}>
+                                    <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
+                                      {celebBuy ? "Bought" : "Sold"} @ {formatPrice(recent.price)}
+                                    </span>
+                                    <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
+                                      {formatPrice(recent.amount)} {celebBuy ? "USDC" : "value"}
+                                    </span>
+                                  </div>
+                                ) : item.hasLiveTarget && !item.inCooldown ? (
                                   <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                                     <span className="text-[9px] font-mono" style={{
                                       color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
@@ -376,7 +448,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                       {nearestPct.toFixed(1)}% to {nearestSide}
                                     </span>
                                   </div>
-                                )}
+                                ) : null}
                               </div>
                             );
                           })}
@@ -387,8 +459,26 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
 
                   {/* Trade Log */}
                   <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
-                    <div className="px-2.5 py-1.5" style={{ background: "rgba(59,130,246,0.08)" }}>
-                      <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+                    <div className="px-2.5 py-1.5 flex items-center justify-between" style={{ background: "rgba(59,130,246,0.08)" }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold" style={{ color: "#3b82f6" }}>Trade Log</span>
+                        {tradeLog.length > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
+                              {buyCount} Buy{buyCount !== 1 ? "s" : ""}
+                            </span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
+                              {sellCount} Sell{sellCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {tradeLog.length > 0 && tradeLog[0].time && (
+                        <span className="text-[9px] text-slate-500 font-mono">
+                          {new Date(tradeLog[0].time).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })}{" "}
+                          {new Date(tradeLog[0].time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                        </span>
+                      )}
                     </div>
                     <div style={{ maxHeight: 200, overflowY: "auto" }}>
                       {tradeLog.length === 0 ? (

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaTimes,
@@ -7,6 +7,7 @@ import {
   FaShoppingCart,
   FaExchangeAlt,
   FaHistory,
+  FaSync,
 } from "react-icons/fa";
 import {
   fetchTransactions,
@@ -42,16 +43,34 @@ interface Props {
 const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
   const [transactions, setTransactions] = useState<TradeTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>("all");
 
-  useEffect(() => {
-    if (!isOpen || !walletAddress) return;
+  const loadTransactions = useCallback(async () => {
+    if (!walletAddress) {
+      setLoading(false);
+      setTransactions([]);
+      setError(null);
+      return;
+    }
     setLoading(true);
-    fetchTransactions(walletAddress)
-      .then(setTransactions)
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, [isOpen, walletAddress]);
+    setError(null);
+    try {
+      const txns = await fetchTransactions(walletAddress);
+      setTransactions(txns);
+    } catch (err: any) {
+      console.error("Failed to load transactions:", err);
+      setError(err?.message || "Failed to load transactions");
+      setTransactions([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [walletAddress]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    loadTransactions();
+  }, [isOpen, loadTransactions]);
 
   const filtered = useMemo(
     () =>
@@ -91,12 +110,21 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
               <FaHistory className="text-blue-400" size={14} />
               <h2 className="text-base font-bold text-white">Activity</h2>
             </div>
-            <button
-              onClick={onClose}
-              className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors"
-            >
-              <FaTimes size={16} />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadTransactions}
+                disabled={loading}
+                className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors disabled:opacity-30"
+              >
+                <FaSync size={12} className={loading ? "animate-spin" : ""} />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-full hover:bg-white/10 text-slate-400 transition-colors"
+              >
+                <FaTimes size={16} />
+              </button>
+            </div>
           </div>
 
           <div className="flex gap-1.5 px-4 py-3 border-b border-white/[0.06] overflow-x-auto no-scrollbar">
@@ -120,6 +148,17 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-8 h-8 rounded-full border-2 border-blue-400 border-t-transparent animate-spin mb-3" />
                 <span className="text-sm text-slate-500">Loading transactions...</span>
+              </div>
+            ) : error ? (
+              <div className="text-center py-20">
+                <FaHistory className="mx-auto mb-3 text-red-500/50" size={28} />
+                <p className="text-sm text-red-400 mb-3">Failed to load transactions</p>
+                <button
+                  onClick={loadTransactions}
+                  className="px-4 py-2 rounded-lg bg-blue-500/10 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
             ) : filtered.length === 0 ? (
               <div className="text-center py-20">

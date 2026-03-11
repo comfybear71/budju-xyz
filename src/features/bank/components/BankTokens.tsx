@@ -1,16 +1,15 @@
 import { useRef, useEffect, useState } from "react";
 import { motion } from "motion/react";
-import { gsap } from "gsap";
 import { useTheme } from "@/context/ThemeContext";
 import {
   fetchBankHoldings,
   type TokenHolding,
 } from "../services/bankHoldings";
+import HoldingsTierSelector from "./HoldingsTierSelector";
 
 const BankTokens = () => {
   const { isDarkMode } = useTheme();
   const sectionRef = useRef<HTMLDivElement>(null);
-  const cardsRef = useRef<HTMLDivElement>(null);
   const [tokenHoldings, setTokenHoldings] = useState<TokenHolding[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,24 +32,6 @@ const BankTokens = () => {
     };
     load();
   }, []);
-
-  useEffect(() => {
-    if (sectionRef.current && cardsRef.current && tokenHoldings.length > 0) {
-      const cards = cardsRef.current.querySelectorAll(".token-card");
-      gsap.fromTo(
-        cards,
-        { opacity: 0, y: 20, scale: 0.95 },
-        {
-          opacity: 1,
-          y: 0,
-          scale: 1,
-          stagger: 0.1,
-          duration: 0.6,
-          ease: "power2.out",
-        },
-      );
-    }
-  }, [tokenHoldings]);
 
   const totalBankValue = tokenHoldings.reduce(
     (sum, token) => sum + token.value,
@@ -166,108 +147,12 @@ const BankTokens = () => {
           </div>
         )}
 
-        {/* Token Cards */}
+        {/* Tiered Holdings */}
         {!loading && !error && tokenHoldings.length > 0 && (
-          <div
-            ref={cardsRef}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-          >
-            {tokenHoldings.map((token, index) => (
-              <motion.div
-                key={token.symbol + token.name}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: index * 0.08 }}
-                className={`token-card rounded-xl border p-5 ${
-                  isDarkMode
-                    ? "bg-[#0c0c20]/60 border-white/[0.06] hover:border-white/[0.12]"
-                    : "bg-white/60 border-gray-200/40 hover:border-gray-300/60"
-                } backdrop-blur-sm transition-all duration-300`}
-              >
-                <div className="flex items-center gap-3 mb-4">
-                  <img
-                    src={token.logo}
-                    alt={token.name}
-                    className="w-10 h-10 rounded-full"
-                    onError={(e) => {
-                      e.currentTarget.src = "/images/tokens/default.svg";
-                    }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div
-                      className={`font-bold text-sm truncate ${
-                        isDarkMode ? "text-white" : "text-gray-900"
-                      }`}
-                    >
-                      {token.name}
-                    </div>
-                    <div
-                      className={`text-xs ${
-                        isDarkMode ? "text-gray-500" : "text-gray-500"
-                      }`}
-                    >
-                      {token.symbol}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div
-                      className={`text-sm font-bold ${
-                        isDarkMode ? "text-amber-400" : "text-amber-600"
-                      }`}
-                    >
-                      $
-                      {token.value.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </div>
-                    <div
-                      className={`text-xs ${
-                        isDarkMode ? "text-gray-500" : "text-gray-500"
-                      }`}
-                    >
-                      {totalBankValue > 0
-                        ? `${((token.value / totalBankValue) * 100).toFixed(1)}%`
-                        : "—"}
-                    </div>
-                  </div>
-                </div>
-                <div
-                  className={`flex items-center justify-between text-xs mb-2 ${
-                    isDarkMode ? "text-gray-500" : "text-gray-500"
-                  }`}
-                >
-                  <span>Amount</span>
-                  <span
-                    className={`font-mono ${
-                      isDarkMode ? "text-gray-300" : "text-gray-700"
-                    }`}
-                  >
-                    {token.amount.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 4,
-                    })}
-                  </span>
-                </div>
-                <div
-                  className={`h-1.5 rounded-full overflow-hidden ${
-                    isDarkMode ? "bg-white/[0.06]" : "bg-gray-200/60"
-                  }`}
-                >
-                  <div
-                    className="h-full bg-gradient-to-r from-amber-400 to-budju-pink rounded-full transition-all duration-700"
-                    style={{
-                      width:
-                        totalBankValue > 0
-                          ? `${(token.value / totalBankValue) * 100}%`
-                          : "0%",
-                    }}
-                  />
-                </div>
-              </motion.div>
-            ))}
-          </div>
+          <HoldingsTierSelector
+            holdings={tokenHoldings}
+            totalBankValue={totalBankValue}
+          />
         )}
 
         {!loading && !error && tokenHoldings.length === 0 && (

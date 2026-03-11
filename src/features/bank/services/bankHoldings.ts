@@ -20,6 +20,40 @@ const connection = new Connection(RPC_ENDPOINT, {
 });
 
 // ── Types ───────────────────────────────────────────────
+export type HoldingTier = "bluechip" | "defi" | "budju";
+
+export interface TierConfig {
+  id: HoldingTier;
+  label: string;
+  description: string;
+  accent: string;         // tailwind gradient / color token
+  accentHex: string;      // hex for inline styles
+}
+
+export const TIER_CONFIGS: TierConfig[] = [
+  {
+    id: "bluechip",
+    label: "Blue Chip",
+    description: "Established, high market-cap assets",
+    accent: "from-blue-400 to-cyan-400",
+    accentHex: "#60a5fa",
+  },
+  {
+    id: "defi",
+    label: "DeFi",
+    description: "Solana DeFi ecosystem tokens",
+    accent: "from-emerald-400 to-teal-400",
+    accentHex: "#34d399",
+  },
+  {
+    id: "budju",
+    label: "BUDJU",
+    description: "BUDJU ecosystem holdings",
+    accent: "from-amber-400 to-pink-400",
+    accentHex: "#fbbf24",
+  },
+];
+
 export interface TokenHolding {
   name: string;
   symbol: string;
@@ -27,6 +61,7 @@ export interface TokenHolding {
   amount: number;
   value: number;
   color: string;
+  tier: HoldingTier;
 }
 
 // ── Cache ───────────────────────────────────────────────
@@ -83,49 +118,56 @@ async function retryFetch(
 // ── Known tokens (instant metadata, no API call) ────────
 const KNOWN_TOKENS: Record<
   string,
-  { name: string; symbol: string; logo: string; color: string }
+  { name: string; symbol: string; logo: string; color: string; tier: HoldingTier }
 > = {
   "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump": {
     name: "BUDJU",
     symbol: "BUDJU",
     logo: "/images/tokens/budju.png",
     color: "bg-pink-500",
+    tier: "budju",
   },
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: {
     name: "USD Coin",
     symbol: "USDC",
     logo: "/images/tokens/usdc.png",
     color: "bg-blue-500",
+    tier: "bluechip",
   },
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: {
     name: "Tether USD",
     symbol: "USDT",
     logo: "/images/tokens/usdt.png",
     color: "bg-green-500",
+    tier: "bluechip",
   },
   JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN: {
     name: "Jupiter",
     symbol: "JUP",
     logo: "/images/tokens/jup.svg",
     color: "bg-emerald-500",
+    tier: "defi",
   },
   "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh": {
     name: "Wrapped BTC",
     symbol: "wBTC",
     logo: "/images/tokens/btc.svg",
     color: "bg-orange-500",
+    tier: "bluechip",
   },
   "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R": {
     name: "Raydium",
     symbol: "RAY",
     logo: "/images/tokens/ray.svg",
     color: "bg-purple-500",
+    tier: "defi",
   },
   "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4": {
     name: "Jupiter Perps LP",
     symbol: "JLP",
     logo: "/images/tokens/jlp.svg",
     color: "bg-emerald-500",
+    tier: "defi",
   },
 };
 
@@ -134,6 +176,7 @@ const SOL_METADATA = {
   symbol: "SOL",
   logo: "/images/tokens/sol.png",
   color: "bg-violet-500",
+  tier: "bluechip" as HoldingTier,
 };
 
 // ── Price fetch (DexScreener → Jupiter v3 → GeckoTerminal) ──
@@ -225,7 +268,7 @@ async function fetchTokenPrice(mintAddress: string): Promise<number> {
 // ── Metadata fetch ──────────────────────────────────────
 async function fetchTokenMetadata(
   mintAddress: string,
-): Promise<{ name: string; symbol: string; logo: string; color: string }> {
+): Promise<{ name: string; symbol: string; logo: string; color: string; tier: HoldingTier }> {
   if (KNOWN_TOKENS[mintAddress]) return KNOWN_TOKENS[mintAddress];
 
   const cacheKey = `meta_${mintAddress}`;
@@ -253,6 +296,7 @@ async function fetchTokenMetadata(
         logo:
           data.result?.content?.links?.image || "/images/tokens/default.svg",
         color: "bg-gray-500",
+        tier: "defi" as HoldingTier,
       };
       setCache(cacheKey, meta, 60 * 60 * 1000);
       return meta;
@@ -266,6 +310,7 @@ async function fetchTokenMetadata(
     symbol: "???",
     logo: "/images/tokens/default.svg",
     color: "bg-gray-500",
+    tier: "defi" as HoldingTier,
   };
 }
 
