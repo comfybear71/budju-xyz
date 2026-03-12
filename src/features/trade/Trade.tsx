@@ -34,6 +34,7 @@ import {
   recalibratePool,
   clearCache,
   getAdminAuth,
+  clearAdminAuth,
   AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
@@ -766,6 +767,7 @@ const Trade = () => {
                   <HighRiskDashboard
                     onClose={() => setShowHighRisk(false)}
                     signAdminMessage={async () => {
+                      clearAdminAuth(); // Fresh signature each time (nonce replay protection)
                       const auth = await getAdminAuth(walletAddress);
                       if (!auth) throw new Error("Admin signature required");
                       return { wallet: auth.adminWallet, signature: auth.adminSignature, message: auth.adminMessage };
