@@ -200,6 +200,127 @@ export class BinancePriceStream {
   }
 }
 
+// ── Export the code-to-binance mapping for other consumers ──
+
+export { CODE_TO_BINANCE, BINANCE_TO_CODE };
+
+// ── Kline (Candlestick) Stream ──────────────────────────────
+// Separate per-symbol WebSocket for real-time 1m kline data.
+// Used by the TradingChart component for live candlestick updates.
+
+export interface KlineBar {
+  time: number; // Unix seconds
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  isFinal: boolean; // true when candle closed
+}
+
+type KlineCallback = (bar: KlineBar) => void;
+
+export class BinanceKlineStream {
+  private _ws: WebSocket | null = null;
+  private _callbacks = new Set<KlineCallback>();
+  private _reconnectAttempt = 0;
+  private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private _destroyed = false;
+  private _connected = false;
+  private _symbol: string; // e.g. "btcusdt"
+  private _interval: string; // e.g. "1m"
+
+  constructor(symbol: string, interval = "1m") {
+    this._symbol = symbol.toLowerCase();
+    this._interval = interval;
+  }
+
+  get connected() {
+    return this._connected;
+  }
+
+  connect() {
+    if (this._ws || this._destroyed) return;
+
+    const url = `${WS_BASE}/${this._symbol}@kline_${this._interval}`;
+
+    try {
+      this._ws = new WebSocket(url);
+    } catch {
+      this._scheduleReconnect();
+      return;
+    }
+
+    this._ws.onopen = () => {
+      this._connected = true;
+      this._reconnectAttempt = 0;
+    };
+
+    this._ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        // Kline event: { e: "kline", k: { t: openTime, o, h, l, c, v, x: isFinal } }
+        if (msg.e === "kline" && msg.k) {
+          const k = msg.k;
+          const bar: KlineBar = {
+            time: Math.floor(k.t / 1000), // ms → seconds
+            open: parseFloat(k.o),
+            high: parseFloat(k.h),
+            low: parseFloat(k.l),
+            close: parseFloat(k.c),
+            volume: parseFloat(k.v),
+            isFinal: k.x,
+          };
+          for (const cb of this._callbacks) {
+            try { cb(bar); } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+    };
+
+    this._ws.onclose = () => {
+      this._ws = null;
+      this._connected = false;
+      if (!this._destroyed) this._scheduleReconnect();
+    };
+
+    this._ws.onerror = () => {
+      this._ws?.close();
+    };
+  }
+
+  disconnect() {
+    this._destroyed = true;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    if (this._ws) {
+      this._ws.close();
+      this._ws = null;
+    }
+    this._connected = false;
+    this._callbacks.clear();
+  }
+
+  onBar(cb: KlineCallback): () => void {
+    this._callbacks.add(cb);
+    return () => this._callbacks.delete(cb);
+  }
+
+  private _scheduleReconnect() {
+    if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+    const delay = RECONNECT_DELAYS[
+      Math.min(this._reconnectAttempt, RECONNECT_DELAYS.length - 1)
+    ];
+    this._reconnectAttempt++;
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+}
+
 // ── Singleton ────────────────────────────────────────────────
 
 let _instance: BinancePriceStream | null = null;

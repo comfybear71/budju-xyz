@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { useWallet } from "@hooks/useWallet";
+import { useLivePrices } from "@hooks/useLivePrices";
 import PerpAccountSummary from "./PerpAccountSummary";
 import PerpPositionsList from "./PerpPositionsList";
 import PerpOrderForm from "./PerpOrderForm";
 import PerpMetricsPanel from "./PerpMetricsPanel";
 import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
+import DashboardCharts from "./DashboardCharts";
 import {
   fetchPerpAccount,
   fetchPerpPositions,
@@ -32,7 +34,7 @@ interface Props {
   signAdminMessage: () => Promise<{ wallet: string; signature: number[]; message: string }>;
 }
 
-type Tab = "positions" | "order" | "history" | "metrics" | "equity";
+type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity";
 
 const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   const { connection } = useWallet();
@@ -46,13 +48,28 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("order");
+  const [activeTab, setActiveTab] = useState<Tab>("charts");
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
   const [modifyTrail, setModifyTrail] = useState("");
 
   const wallet = connection.wallet?.address;
+
+  // Real-time Binance WS prices for order form (replaces CoinGecko polling for supported coins)
+  const { prices: wsPrices } = useLivePrices(1000);
+
+  // Merge WS prices into perp prices (map base asset → symbol format)
+  useEffect(() => {
+    if (Object.keys(wsPrices).length === 0 || markets.length === 0) return;
+    const merged: Record<string, number> = {};
+    for (const m of markets) {
+      if (wsPrices[m.base_asset]) merged[m.symbol] = wsPrices[m.base_asset];
+    }
+    if (Object.keys(merged).length > 0) {
+      setPrices((prev) => ({ ...prev, ...merged }));
+    }
+  }, [wsPrices, markets]);
 
   // Fallback markets when API hasn't loaded yet
   const DEFAULT_MARKETS: PerpMarket[] = [
@@ -224,9 +241,10 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   };
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
+    { key: "charts", label: "Charts", icon: "📈" },
     { key: "positions", label: "Positions", icon: "📍" },
     { key: "order", label: "New Order", icon: "📝" },
-    { key: "equity", label: "Equity", icon: "📈" },
+    { key: "equity", label: "Equity", icon: "💹" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
   ];
@@ -334,6 +352,15 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
         </div>
 
         {/* Tab content */}
+        {activeTab === "charts" && (
+          <DashboardCharts
+            positions={positions}
+            trades={trades}
+            metrics={account?.metrics}
+            onClose={() => setActiveTab("order")}
+          />
+        )}
+
         {activeTab === "positions" && (
           <PerpPositionsList
             positions={positions}
