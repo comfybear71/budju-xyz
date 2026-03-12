@@ -17,6 +17,7 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
+import HighRiskDashboard from "./components/perps/HighRiskDashboard";
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -32,6 +33,7 @@ import {
   registerWallet,
   recalibratePool,
   clearCache,
+  getAdminAuth,
   AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
@@ -758,27 +760,17 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── High Risk View (admin only — placeholder) ─── */}
+              {/* ─── High Risk View (admin only — paper trading perps) ─── */}
               <AnimatePresence>
                 {showHighRisk && isAdmin && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm p-6 text-center"
-                  >
-                    <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-3">
-                      <span className="text-2xl">🔥</span>
-                    </div>
-                    <h3 className="text-base font-bold text-red-400 mb-1">High Risk</h3>
-                    <p className="text-xs text-slate-500">Coming soon — high-risk leveraged strategies and volatile asset plays.</p>
-                    <button
-                      onClick={() => setShowHighRisk(false)}
-                      className="mt-4 px-4 py-2 rounded-lg text-xs font-bold text-slate-400 bg-white/[0.04] hover:text-white transition-colors"
-                    >
-                      Close
-                    </button>
-                  </motion.div>
+                  <HighRiskDashboard
+                    onClose={() => setShowHighRisk(false)}
+                    signAdminMessage={async () => {
+                      const auth = await getAdminAuth(walletAddress);
+                      if (!auth) throw new Error("Admin signature required");
+                      return { wallet: auth.adminWallet, signature: auth.adminSignature, message: auth.adminMessage };
+                    }}
+                  />
                 )}
               </AnimatePresence>
 

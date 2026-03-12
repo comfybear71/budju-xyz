@@ -35,6 +35,20 @@ from database import (
     verify_wallet_signature
 )
 
+from perp_engine import (
+    get_or_create_account,
+    reset_account,
+    open_position,
+    close_position,
+    modify_position,
+    get_open_positions,
+    get_trade_history,
+    get_equity_curve,
+    get_markets_info,
+    calculate_metrics,
+    MARKETS,
+)
+
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
 
@@ -251,6 +265,55 @@ class handler(BaseHTTPRequestHandler):
                 debug_info = get_db_debug()
                 self._send_json(200, debug_info)
 
+            # ── Perp Paper Trading GET endpoints ─────────────────────
+            elif path == '/api/perp/account':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                account = get_or_create_account(wallet)
+                metrics = calculate_metrics(wallet)
+                self._send_json(200, {**account, "metrics": metrics})
+
+            elif path == '/api/perp/positions':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                positions = get_open_positions(wallet)
+                self._send_json(200, {"positions": positions, "count": len(positions)})
+
+            elif path == '/api/perp/trades':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                symbol = params.get('symbol')
+                limit = int(params.get('limit', '50'))
+                trades = get_trade_history(wallet, limit=limit, symbol=symbol)
+                self._send_json(200, {"trades": trades, "count": len(trades)})
+
+            elif path == '/api/perp/equity':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                period = params.get('period', 'all')
+                curve = get_equity_curve(wallet, period=period)
+                self._send_json(200, {"equity": curve, "count": len(curve)})
+
+            elif path == '/api/perp/markets':
+                markets = get_markets_info()
+                self._send_json(200, {"markets": markets})
+
+            elif path == '/api/perp/metrics':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                metrics = calculate_metrics(wallet)
+                self._send_json(200, metrics)
+
             else:
                 self._send_json(404, {"error": "Not found"})
 
@@ -455,6 +518,79 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = recalibrate_pool(float(pool_value))
+                self._send_json(200, result)
+
+            # ── Perp Paper Trading POST endpoints ────────────────────
+            elif path == '/api/perp/order':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                wallet = body.get('adminWallet')
+                symbol = body.get('symbol')
+                direction = body.get('direction')
+                leverage = int(body.get('leverage', 5))
+                size_usd = float(body.get('sizeUsd', 0))
+                entry_price = float(body.get('entryPrice', 0))
+                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
+                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
+                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
+                entry_reason = body.get('entryReason', '')
+
+                if not all([symbol, direction, size_usd, entry_price]):
+                    self._send_json(400, {"error": "symbol, direction, sizeUsd, and entryPrice required"})
+                    return
+
+                result = open_position(
+                    wallet, symbol, direction, leverage, size_usd,
+                    entry_price, stop_loss, take_profit, trailing_stop, entry_reason
+                )
+                self._send_json(200, result)
+
+            elif path == '/api/perp/close':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                position_id = body.get('positionId')
+                exit_price = float(body.get('exitPrice', 0))
+                exit_reason = body.get('exitReason', 'manual')
+
+                if not position_id or not exit_price:
+                    self._send_json(400, {"error": "positionId and exitPrice required"})
+                    return
+
+                result = close_position(position_id, exit_price, "manual", exit_reason)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/modify':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                position_id = body.get('positionId')
+                if not position_id:
+                    self._send_json(400, {"error": "positionId required"})
+                    return
+
+                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
+                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
+                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
+
+                result = modify_position(position_id, stop_loss, take_profit, trailing_stop)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/account/reset':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                wallet = body.get('adminWallet')
+                result = reset_account(wallet)
                 self._send_json(200, result)
 
             else:
