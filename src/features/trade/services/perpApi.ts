@@ -184,28 +184,20 @@ export async function fetchStrategySignals(
 
 export async function toggleAutoTrading(
   enabled: boolean,
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<unknown> {
   return postJson(`${API_BASE}/strategy/toggle`, {
+    wallet,
     enabled,
-    adminWallet,
-    adminSignature,
-    adminMessage,
   });
 }
 
 export async function updateStrategyConfig(
   updates: Record<string, unknown>,
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<unknown> {
   return postJson(`${API_BASE}/strategy/config`, {
+    wallet,
     updates,
-    adminWallet,
-    adminSignature,
-    adminMessage,
   });
 }

@@ -618,23 +618,23 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/perp/strategy/toggle':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                # Paper trading — just check wallet is admin, no signature needed
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
-                wallet = body.get('adminWallet')
                 enabled = body.get('enabled', False)
                 result = toggle_auto_trading(wallet, enabled)
                 self._send_json(200, result)
 
             elif path == '/api/perp/strategy/config':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                # Paper trading — just check wallet is admin, no signature needed
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
-                wallet = body.get('adminWallet')
                 updates = body.get('updates', {})
                 result = update_strategy_config(wallet, updates)
                 self._send_json(200, result)

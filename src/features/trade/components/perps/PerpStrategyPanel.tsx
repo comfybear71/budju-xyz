@@ -9,7 +9,7 @@ import {
 
 interface Props {
   wallet: string;
-  signAdminMessage: () => Promise<{ wallet: string; signature: number[]; message: string }>;
+  signAdminMessage?: () => Promise<{ wallet: string; signature: number[]; message: string }>;
 }
 
 const STRATEGY_INFO: Record<string, { name: string; desc: string; icon: string }> = {
@@ -58,8 +58,7 @@ const PerpStrategyPanel = ({ wallet, signAdminMessage }: Props) => {
     try {
       setToggling(true);
       setError(null);
-      const { wallet: w, signature, message } = await signAdminMessage();
-      await toggleAutoTrading(!status.auto_trading_enabled, w, signature, message);
+      await toggleAutoTrading(!status.auto_trading_enabled, wallet);
       await loadStatus();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to toggle");
@@ -73,12 +72,9 @@ const PerpStrategyPanel = ({ wallet, signAdminMessage }: Props) => {
     try {
       setError(null);
       const strat = status.strategies[stratName];
-      const { wallet: w, signature, message } = await signAdminMessage();
       await updateStrategyConfig(
         { [`strategies.${stratName}.enabled`]: !strat.enabled },
-        w,
-        signature,
-        message,
+        wallet,
       );
       await loadStatus();
     } catch (err) {
