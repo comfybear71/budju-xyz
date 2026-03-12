@@ -507,6 +507,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </span>
                                 </div>
                                 <div className="text-right">
+                                  {entry.time && (
+                                    <div className="text-[9px] text-slate-600 font-mono">
+                                      {new Date(entry.time).toLocaleDateString(undefined, { day: "2-digit", month: "short" })}{" "}
+                                      {new Date(entry.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                    </div>
+                                  )}
                                   <div className="text-[10px] text-slate-500 font-mono">
                                     {qty.toFixed(4)} @ {formatPrice(price)}
                                   </div>
