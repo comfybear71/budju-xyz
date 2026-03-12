@@ -44,8 +44,9 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   const [equity, setEquity] = useState<PerpEquitySnapshot[]>([]);
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("positions");
+  const [activeTab, setActiveTab] = useState<Tab>("order");
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
@@ -53,32 +54,67 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
 
   const wallet = connection.wallet?.address;
 
+  // Fallback markets when API hasn't loaded yet
+  const DEFAULT_MARKETS: PerpMarket[] = [
+    { symbol: "SOL-PERP", base_asset: "SOL", max_leverage: 50, tick_size: 0.01, coingecko_id: "solana" },
+    { symbol: "BTC-PERP", base_asset: "BTC", max_leverage: 50, tick_size: 0.1, coingecko_id: "bitcoin" },
+    { symbol: "ETH-PERP", base_asset: "ETH", max_leverage: 50, tick_size: 0.01, coingecko_id: "ethereum" },
+    { symbol: "DOGE-PERP", base_asset: "DOGE", max_leverage: 20, tick_size: 0.00001, coingecko_id: "dogecoin" },
+    { symbol: "AVAX-PERP", base_asset: "AVAX", max_leverage: 20, tick_size: 0.01, coingecko_id: "avalanche-2" },
+    { symbol: "LINK-PERP", base_asset: "LINK", max_leverage: 20, tick_size: 0.001, coingecko_id: "chainlink" },
+    { symbol: "SUI-PERP", base_asset: "SUI", max_leverage: 20, tick_size: 0.001, coingecko_id: "sui" },
+    { symbol: "JUP-PERP", base_asset: "JUP", max_leverage: 10, tick_size: 0.0001, coingecko_id: "jupiter-exchange-solana" },
+    { symbol: "WIF-PERP", base_asset: "WIF", max_leverage: 10, tick_size: 0.0001, coingecko_id: "dogwifcoin" },
+    { symbol: "BONK-PERP", base_asset: "BONK", max_leverage: 10, tick_size: 0.00000001, coingecko_id: "bonk" },
+  ];
+
   const loadData = useCallback(async () => {
     if (!wallet) return;
     try {
-      const [acc, pos, hist, mkts, eq] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchPerpAccount(wallet),
         fetchPerpPositions(wallet),
         fetchPerpTrades(wallet),
         fetchPerpMarkets(),
         fetchPerpEquity(wallet, "all"),
       ]);
-      setAccount(acc);
-      setPositions(pos.positions);
-      setTrades(hist.trades);
-      setMarkets(mkts.markets);
-      setEquity(eq.equity);
+
+      if (results[0].status === "fulfilled") setAccount(results[0].value);
+      if (results[1].status === "fulfilled") setPositions(results[1].value.positions);
+      if (results[2].status === "fulfilled") setTrades(results[2].value.trades);
+      if (results[3].status === "fulfilled" && results[3].value.markets.length > 0) {
+        setMarkets(results[3].value.markets);
+      } else if (markets.length === 0) {
+        setMarkets(DEFAULT_MARKETS);
+      }
+      if (results[4].status === "fulfilled") setEquity(results[4].value.equity);
 
       // Extract prices from positions' mark prices
       const p: Record<string, number> = {};
-      pos.positions.forEach((position) => {
-        if (position.mark_price > 0) p[position.symbol] = position.mark_price;
+      if (results[1].status === "fulfilled") {
+        results[1].value.positions.forEach((position: PerpPosition) => {
+          if (position.mark_price > 0) p[position.symbol] = position.mark_price;
+        });
+      }
+      setPrices((prev) => ({ ...prev, ...p }));
+
+      // Log any errors for debugging
+      results.forEach((r, i) => {
+        if (r.status === "rejected") {
+          console.warn(`[HighRisk] API call ${i} failed:`, r.reason);
+        }
       });
-      setPrices(p);
     } catch (err) {
       console.error("Failed to load perp data:", err);
+    } finally {
+      setInitialLoading(false);
     }
   }, [wallet]);
+
+  // Set default markets immediately so the UI is usable before API loads
+  useEffect(() => {
+    if (markets.length === 0) setMarkets(DEFAULT_MARKETS);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -243,8 +279,31 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
       </div>
 
       <div className="p-4 space-y-3">
+        {/* Loading state */}
+        {initialLoading && (
+          <div className="text-center py-4">
+            <div className="animate-pulse text-sm text-slate-400">Loading paper trading account...</div>
+          </div>
+        )}
+
         {/* Account summary */}
         {account && <PerpAccountSummary account={account} />}
+        {!account && !initialLoading && (
+          <PerpAccountSummary account={{
+            wallet: wallet || "", balance: 10000, equity: 10000,
+            unrealized_pnl: 0, realized_pnl: 0, total_funding_paid: 0,
+            total_fees_paid: 0, total_trades: 0, winning_trades: 0,
+            losing_trades: 0, max_drawdown: 0, peak_equity: 10000,
+            daily_pnl: 0, trading_paused: false,
+            created_at: "", updated_at: "",
+            metrics: { total_trades: 0, winning_trades: 0, losing_trades: 0,
+              win_rate: 0, profit_factor: 0, avg_rr_ratio: 0, sharpe_ratio: 0,
+              sortino_ratio: 0, max_drawdown: 0, expectancy: 0, kelly_criterion: 0,
+              avg_holding_period: "0h", total_pnl: 0, total_fees: 0, total_funding: 0,
+              best_trade: 0, worst_trade: 0, avg_win: 0, avg_loss: 0,
+              consecutive_wins: 0, consecutive_losses: 0 },
+          }} />
+        )}
 
         {/* Error */}
         {error && (
@@ -304,8 +363,15 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
           />
         )}
 
-        {activeTab === "metrics" && account?.metrics && (
-          <PerpMetricsPanel metrics={account.metrics} />
+        {activeTab === "metrics" && (
+          <PerpMetricsPanel metrics={account?.metrics || {
+            total_trades: 0, winning_trades: 0, losing_trades: 0,
+            win_rate: 0, profit_factor: 0, avg_rr_ratio: 0, sharpe_ratio: 0,
+            sortino_ratio: 0, max_drawdown: 0, expectancy: 0, kelly_criterion: 0,
+            avg_holding_period: "0h", total_pnl: 0, total_fees: 0, total_funding: 0,
+            best_trade: 0, worst_trade: 0, avg_win: 0, avg_loss: 0,
+            consecutive_wins: 0, consecutive_losses: 0,
+          }} />
         )}
 
         {activeTab === "history" && (
