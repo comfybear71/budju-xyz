@@ -3,11 +3,13 @@
 # ==========================================
 # Runs every minute via Vercel cron to:
 #   1. Fetch live prices from CoinGecko
-#   2. Update all open positions with mark prices
-#   3. Check liquidation, SL, TP, trailing stops
-#   4. Auto-close triggered positions
-#   5. Snapshot equity for all active accounts
-#   6. Send Telegram alerts for triggered events
+#   2. Store price history for indicator calculations
+#   3. Update all open positions with mark prices
+#   4. Check liquidation, SL, TP, trailing stops
+#   5. Auto-close triggered positions
+#   6. Run automated trading strategies
+#   7. Snapshot equity for all active accounts
+#   8. Send Telegram alerts for triggered events
 # ==========================================
 
 import os
@@ -29,6 +31,7 @@ from perp_engine import (
     MARKETS,
     COINGECKO_IDS,
 )
+from perp_strategies import store_price, run_auto_trader
 
 # ── Config ────────────────────────────────────────────────────────────
 
@@ -110,10 +113,15 @@ def run_perp_monitor() -> dict:
 
     print(f"[perp-cron] Got prices for {len(prices)} markets")
 
-    # 2. Get all open positions
+    # 2. Store prices for strategy indicator calculations
+    for symbol, price in prices.items():
+        try:
+            store_price(symbol, price)
+        except Exception as e:
+            print(f"[perp-cron] Price store error for {symbol}: {e}")
+
+    # 3. Get all open positions (continue even if none — auto-trader may open new ones)
     open_positions = list(perp_positions.find({"status": "open"}))
-    if not open_positions:
-        return {"status": "ok", "positions": 0, "prices": len(prices)}
 
     print(f"[perp-cron] Monitoring {len(open_positions)} open positions")
 
@@ -167,17 +175,36 @@ def run_perp_monitor() -> dict:
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
 
-    # 4. Snapshot equity for all active accounts
-    active_wallets = set(p["account_id"] for p in open_positions)
-    # Also include accounts that may have just had positions closed
+    # 5. Run automated trading strategies for all accounts
     all_accounts = list(perp_accounts.find({}))
+    auto_trade_actions = []
+    for acc in all_accounts:
+        try:
+            actions = run_auto_trader(acc["wallet"], prices)
+            for action in actions:
+                if action.get("action") == "opened":
+                    auto_trade_actions.append(action)
+                    # Send Telegram notification for auto trades
+                    direction = action["direction"].upper()
+                    msg = (
+                        f"🤖 <b>AUTO TRADE OPENED</b>\n"
+                        f"📍 {action['symbol']} {direction} {action['leverage']}x\n"
+                        f"💵 Size: ${action['size_usd']:.0f} @ ${action['entry_price']:.4f}\n"
+                        f"🛑 SL: ${action['stop_loss']:.4f} | 🎯 TP: ${action['take_profit']:.4f}\n"
+                        f"📊 Strategy: {action['strategy']} ({action['signal']})"
+                    )
+                    send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
+
+    # 6. Snapshot equity for all active accounts
     for acc in all_accounts:
         try:
             snapshot_equity(acc["wallet"])
         except Exception as e:
             print(f"[perp-cron] Equity snapshot error for {acc['wallet'][:8]}: {e}")
 
-    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events")
+    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades")
 
     return {
         "status": "ok",
@@ -186,5 +213,6 @@ def run_perp_monitor() -> dict:
         "positions_monitored": positions_updated,
         "positions_closed": positions_closed,
         "events": events,
+        "auto_trades": auto_trade_actions,
         "accounts_snapshotted": len(all_accounts),
     }

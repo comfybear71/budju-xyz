@@ -48,6 +48,13 @@ from perp_engine import (
     calculate_metrics,
     MARKETS,
 )
+from perp_strategies import (
+    get_strategy_config,
+    update_strategy_config,
+    toggle_auto_trading,
+    get_strategy_status,
+    get_recent_signals,
+)
 
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
@@ -313,6 +320,23 @@ class handler(BaseHTTPRequestHandler):
                     return
                 metrics = calculate_metrics(wallet)
                 self._send_json(200, metrics)
+
+            elif path == '/api/perp/strategy/status':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                status = get_strategy_status(wallet)
+                self._send_json(200, status)
+
+            elif path == '/api/perp/strategy/signals':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                limit = int(params.get('limit', '50'))
+                signals = get_recent_signals(wallet, limit)
+                self._send_json(200, {"signals": signals, "count": len(signals)})
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -591,6 +615,28 @@ class handler(BaseHTTPRequestHandler):
 
                 wallet = body.get('adminWallet')
                 result = reset_account(wallet)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/strategy/toggle':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                wallet = body.get('adminWallet')
+                enabled = body.get('enabled', False)
+                result = toggle_auto_trading(wallet, enabled)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/strategy/config':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                wallet = body.get('adminWallet')
+                updates = body.get('updates', {})
+                result = update_strategy_config(wallet, updates)
                 self._send_json(200, result)
 
             else:

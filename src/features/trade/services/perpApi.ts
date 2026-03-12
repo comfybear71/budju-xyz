@@ -130,3 +130,82 @@ export async function resetPerpAccount(
     adminMessage,
   });
 }
+
+// ── Strategy Endpoints ──────────────────────────────────────────────────
+
+export interface StrategyStatus {
+  auto_trading_enabled: boolean;
+  strategies: Record<string, StrategyConfig>;
+  global_settings: {
+    max_total_positions: number;
+    max_equity_risk_pct: number;
+    cooldown_minutes: number;
+    min_candles: number;
+  };
+  candle_counts: Record<string, number>;
+  min_candles_required: number;
+  recent_signals: StrategySignal[];
+  strategy_positions: Record<string, { symbol: string; direction: string; pnl: number }[]>;
+  trading_paused: boolean;
+}
+
+export interface StrategyConfig {
+  enabled: boolean;
+  leverage: number;
+  max_positions: number;
+  markets: string[];
+  sl_atr_mult: number;
+  tp_atr_mult: number;
+  trailing_stop_pct: number;
+  [key: string]: unknown;
+}
+
+export interface StrategySignal {
+  strategy: string;
+  symbol: string;
+  direction: string;
+  signal_type: string;
+  indicators: Record<string, number>;
+  acted: boolean;
+  reason: string;
+  timestamp: string;
+}
+
+export async function fetchStrategyStatus(wallet: string): Promise<StrategyStatus> {
+  return fetchJson(`${API_BASE}/strategy/status?wallet=${wallet}`);
+}
+
+export async function fetchStrategySignals(
+  wallet: string,
+  limit = 50,
+): Promise<{ signals: StrategySignal[]; count: number }> {
+  return fetchJson(`${API_BASE}/strategy/signals?wallet=${wallet}&limit=${limit}`);
+}
+
+export async function toggleAutoTrading(
+  enabled: boolean,
+  adminWallet: string,
+  adminSignature: number[],
+  adminMessage: string,
+): Promise<unknown> {
+  return postJson(`${API_BASE}/strategy/toggle`, {
+    enabled,
+    adminWallet,
+    adminSignature,
+    adminMessage,
+  });
+}
+
+export async function updateStrategyConfig(
+  updates: Record<string, unknown>,
+  adminWallet: string,
+  adminSignature: number[],
+  adminMessage: string,
+): Promise<unknown> {
+  return postJson(`${API_BASE}/strategy/config`, {
+    updates,
+    adminWallet,
+    adminSignature,
+    adminMessage,
+  });
+}

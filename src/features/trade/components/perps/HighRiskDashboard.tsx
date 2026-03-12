@@ -7,6 +7,7 @@ import PerpOrderForm from "./PerpOrderForm";
 import PerpMetricsPanel from "./PerpMetricsPanel";
 import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
+import PerpStrategyPanel from "./PerpStrategyPanel";
 import {
   fetchPerpAccount,
   fetchPerpPositions,
@@ -32,7 +33,7 @@ interface Props {
   signAdminMessage: () => Promise<{ wallet: string; signature: number[]; message: string }>;
 }
 
-type Tab = "positions" | "order" | "history" | "metrics" | "equity";
+type Tab = "positions" | "order" | "history" | "metrics" | "equity" | "strategy";
 
 const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   const { connection } = useWallet();
@@ -46,7 +47,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("order");
+  const [activeTab, setActiveTab] = useState<Tab>("strategy");
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
@@ -224,8 +225,9 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   };
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
+    { key: "strategy", label: "Auto-Trade", icon: "🤖" },
     { key: "positions", label: "Positions", icon: "📍" },
-    { key: "order", label: "New Order", icon: "📝" },
+    { key: "order", label: "Manual", icon: "📝" },
     { key: "equity", label: "Equity", icon: "📈" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
@@ -334,6 +336,13 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
         </div>
 
         {/* Tab content */}
+        {activeTab === "strategy" && wallet && (
+          <PerpStrategyPanel
+            wallet={wallet}
+            signAdminMessage={signAdminMessage}
+          />
+        )}
+
         {activeTab === "positions" && (
           <PerpPositionsList
             positions={positions}
