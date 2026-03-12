@@ -1,9 +1,20 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "@components/common/Layout";
+import ErrorBoundary from "@components/common/ErrorBoundary";
 import { WalletProvider } from "@hooks/useWallet";
 import Web3Background from "./components/common/Web3Background";
 import { ThemeProvider } from "@/context/ThemeContext";
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 // Lazy-loaded pages for better performance
 const Home = lazy(() => import("@features/home/Home"));
@@ -55,9 +66,11 @@ const App = () => {
   }, []);
 
   return (
+    <QueryClientProvider client={queryClient}>
     <BrowserRouter>
       <ThemeProvider>
         <WalletProvider>
+          <ErrorBoundary>
           <Suspense fallback={<LoadingFallback />}>
             <Layout>
               <Routes>
@@ -78,9 +91,11 @@ const App = () => {
               </Routes>
             </Layout>
           </Suspense>
+          </ErrorBoundary>
         </WalletProvider>
       </ThemeProvider>
     </BrowserRouter>
+    </QueryClientProvider>
   );
 };
 
