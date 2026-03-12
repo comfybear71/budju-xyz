@@ -15,18 +15,38 @@ interface Props {
 const STRATEGY_INFO: Record<string, { name: string; desc: string; icon: string }> = {
   trend_following: {
     name: "Trend Following",
-    desc: "EMA crossover + RSI confirmation. Rides trends with trailing stops.",
+    desc: "EMA crossover + ADX strength + RSI confirmation. Rides strong directional moves with trailing stops. Best in trending markets.",
     icon: "📈",
+  },
+  scalping: {
+    name: "Scalping",
+    desc: "High-frequency 0.1-0.5% captures on 1-5min charts. RSI divergence + VWAP + tight stops. Best in volatile sessions.",
+    icon: "⚡",
+  },
+  swing_trading: {
+    name: "Swing Trading",
+    desc: "Multi-day holds at support/resistance + Fibonacci + RSI 30/70. Targets 5-20% swings. Best balance for most conditions.",
+    icon: "🔄",
   },
   mean_reversion: {
     name: "Mean Reversion",
-    desc: "Bollinger Band bounce + RSI extremes. Fades overextensions.",
-    icon: "🔄",
+    desc: "Bollinger Band bounce + RSI extremes. Fades overextensions back to the mean.",
+    icon: "🎯",
   },
   momentum: {
     name: "Momentum Breakout",
-    desc: "Price breakout from range with volume. Catches strong moves.",
+    desc: "Price breakout from range with volume confirmation. Catches strong directional moves early.",
     icon: "🚀",
+  },
+  grid_bot: {
+    name: "Grid / Futures Grid",
+    desc: "Automated buy-low/sell-high within a price range. 20-100 grid levels, neutral or directional bias. Best in sideways/choppy markets.",
+    icon: "📊",
+  },
+  funding_arb: {
+    name: "Funding Rate Arb",
+    desc: "Exploits funding rate inefficiencies. Short when funding positive, long when negative. Near risk-free carry trade (10-30% APR).",
+    icon: "💰",
   },
 };
 

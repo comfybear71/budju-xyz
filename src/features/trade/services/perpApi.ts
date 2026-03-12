@@ -130,3 +130,56 @@ export async function resetPerpAccount(
     adminMessage,
   });
 }
+
+// ── Strategy Types ───────────────────────────────────────────────────────
+
+export interface StrategyConfig {
+  enabled: boolean;
+  leverage: number;
+  sl_atr_mult: number;
+  tp_atr_mult: number;
+  trailing_stop_pct: number;
+  max_positions: number;
+  markets: string[];
+}
+
+export interface StrategySignal {
+  strategy: string;
+  symbol: string;
+  direction: "long" | "short";
+  acted: boolean;
+  timestamp?: string;
+}
+
+export interface StrategyPosition {
+  symbol: string;
+  direction: "long" | "short";
+  pnl: number;
+}
+
+export interface StrategyStatus {
+  auto_trading_enabled: boolean;
+  trading_paused: boolean;
+  strategies: Record<string, StrategyConfig>;
+  strategy_positions: Record<string, StrategyPosition[]>;
+  recent_signals: StrategySignal[];
+  candle_counts: Record<string, number>;
+  min_candles_required: number;
+}
+
+// ── Strategy Endpoints ──────────────────────────────────────────────────
+
+export async function fetchStrategyStatus(wallet: string): Promise<StrategyStatus> {
+  return fetchJson(`${API_BASE}/strategy/status?wallet=${wallet}`);
+}
+
+export async function toggleAutoTrading(enabled: boolean, wallet: string): Promise<{ success: boolean }> {
+  return postJson(`${API_BASE}/strategy/toggle`, { enabled, wallet });
+}
+
+export async function updateStrategyConfig(
+  updates: Record<string, unknown>,
+  wallet: string,
+): Promise<{ success: boolean }> {
+  return postJson(`${API_BASE}/strategy/config`, { updates, wallet });
+}

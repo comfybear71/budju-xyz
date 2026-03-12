@@ -43,6 +43,7 @@ import {
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
+import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
 
 const Trade = () => {
@@ -100,6 +101,31 @@ const Trade = () => {
       if (data?.role) setUserRole(data.role);
     });
   }, [isConnected, walletAddress]);
+
+  // ── Real-time Binance WebSocket prices ──
+  const { prices: wsPrices, wsState } = useLivePrices(1000);
+
+  // Merge WS prices into assets & prices state whenever they update
+  useEffect(() => {
+    if (Object.keys(wsPrices).length === 0) return;
+
+    // Update prices state (WS overrides CoinGecko for speed)
+    setPrices((prev) => ({ ...prev, ...wsPrices }));
+
+    // Update asset USD values with live prices
+    setAssets((prev) =>
+      prev.map((a) => {
+        const livePrice = wsPrices[a.code];
+        if (livePrice && a.balance > 0) {
+          return { ...a, priceUsd: livePrice, usdValue: a.balance * livePrice };
+        }
+        return a;
+      }),
+    );
+
+    // Feed to AutoTrader
+    autoTrader.updatePrices(wsPrices);
+  }, [wsPrices, autoTrader]);
 
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
@@ -205,29 +231,45 @@ const Trade = () => {
     loadData();
   }, [loadData, refreshKey]);
 
-  // Auto-refresh prices every 30s
+  // CoinGecko fallback: refresh 24h changes & coins not on Binance every 60s
   useEffect(() => {
     const interval = setInterval(() => {
       Promise.all([fetchPrices(), fetchChanges()]).then(([p, c]) => {
-        setPrices(p);
+        // Only update prices for coins NOT covered by WebSocket
+        setPrices((prev) => {
+          const merged = { ...prev };
+          for (const [code, price] of Object.entries(p)) {
+            if (!wsPrices[code]) merged[code] = price;
+          }
+          return merged;
+        });
         setChanges(c);
         setAssets((prev) =>
           prev.map((a) => ({
             ...a,
-            priceUsd: p[a.code] || a.priceUsd,
             change24h: c[a.code] || a.change24h,
-            usdValue:
-              p[a.code] && a.balance > 0
-                ? a.balance * p[a.code]
-                : a.usdValue,
+            // Only update price from CoinGecko if WS doesn't cover this coin
+            ...(wsPrices[a.code]
+              ? {}
+              : {
+                  priceUsd: p[a.code] || a.priceUsd,
+                  usdValue:
+                    p[a.code] && a.balance > 0
+                      ? a.balance * p[a.code]
+                      : a.usdValue,
+                }),
           })),
         );
-        // Feed fresh prices to AutoTrader
-        autoTrader.updatePrices(p);
+        // Feed non-WS prices to AutoTrader
+        const nonWs: Record<string, number> = {};
+        for (const [code, price] of Object.entries(p)) {
+          if (!wsPrices[code]) nonWs[code] = price;
+        }
+        if (Object.keys(nonWs).length > 0) autoTrader.updatePrices(nonWs);
       });
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(interval);
-  }, [autoTrader]);
+  }, [autoTrader, wsPrices]);
 
   // Initialize AutoTrader for admin users
   useEffect(() => {
@@ -316,6 +358,11 @@ const Trade = () => {
                   ? "Connecting..."
                   : "Disconnected"}
             </span>
+            {wsState.connected && (
+              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono border border-emerald-500/20">
+                WS LIVE
+              </span>
+            )}
             {isAdmin && (
               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
                 ADMIN
