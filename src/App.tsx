@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Analytics } from "@vercel/analytics/react";
 import Layout from "@components/common/Layout";
 import ErrorBoundary from "@components/common/ErrorBoundary";
 import { WalletProvider } from "@hooks/useWallet";
@@ -66,6 +67,7 @@ const App = () => {
   }, []);
 
   return (
+    <>
     <QueryClientProvider client={queryClient}>
     <BrowserRouter>
       <ThemeProvider>
@@ -96,6 +98,8 @@ const App = () => {
       </ThemeProvider>
     </BrowserRouter>
     </QueryClientProvider>
+    <Analytics />
+    </>
   );
 };
 
