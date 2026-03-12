@@ -767,10 +767,14 @@ const Trade = () => {
                   <HighRiskDashboard
                     onClose={() => setShowHighRisk(false)}
                     signAdminMessage={async () => {
-                      clearAdminAuth(); // Fresh signature each time (nonce replay protection)
-                      const auth = await getAdminAuth(walletAddress);
-                      if (!auth) throw new Error("Admin signature required");
-                      return { wallet: auth.adminWallet, signature: auth.adminSignature, message: auth.adminMessage };
+                      // Sign directly — bypass cache entirely to avoid nonce replay
+                      const provider = (window as any).phantom?.solana || (window as any).solana;
+                      if (!provider?.signMessage) throw new Error("Wallet does not support signing");
+                      const timestamp = Date.now();
+                      const message = `BUDJU_ADMIN:${timestamp}`;
+                      const encoded = new TextEncoder().encode(message);
+                      const sigBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
+                      return { wallet: walletAddress, signature: Array.from(sigBytes), message };
                     }}
                   />
                 )}
