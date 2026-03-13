@@ -3,7 +3,7 @@
 # ==========================================
 # Supports two modes:
 #   - "paper": Simulated trading with $10K virtual balance (default)
-#   - "live":  Real trading via Hyperliquid exchange
+#   - "live":  Real trading via Drift Protocol on Solana
 #
 # Paper fee model mirrors Jupiter Perps:
 #   - Open/close: 0.06% of position size
@@ -11,7 +11,7 @@
 #   - Slippage: 0.05-0.15% based on size
 #
 # Live mode:
-#   - Routes orders to Hyperliquid via perp_exchange.py
+#   - Routes orders to Drift Protocol via perp_exchange.py
 #   - Real fees/slippage handled by exchange
 #   - Local DB still tracks positions for monitoring, metrics, alerts
 #   - Safety: kill switch, max exposure limits, position reconciliation
@@ -146,7 +146,7 @@ def set_trading_mode(wallet: str, mode: str) -> Dict:
         )
 
     if mode == "live":
-        # Verify Hyperliquid is configured
+        # Verify Drift is configured
         from perp_exchange import is_live_ready
         status = is_live_ready()
         if not status["ready"]:
@@ -331,7 +331,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     if not is_live and margin > account["balance"]:
         raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
 
-    # ── LIVE MODE: Execute on Hyperliquid ─────────────────────────
+    # ── LIVE MODE: Execute on Drift ─────────────────────────────
     exchange_oid = None
     if is_live:
         from perp_exchange import open_market_position, validate_before_trade, place_tp_sl_orders
@@ -482,7 +482,7 @@ def close_position(position_id: str, exit_price: float,
     direction = pos["direction"]
     is_live = pos.get("trading_mode") == "live"
 
-    # ── LIVE MODE: Close on Hyperliquid ───────────────────────────
+    # ── LIVE MODE: Close on Drift ─────────────────────────────────
     if is_live and exit_type != "kill_switch":
         from perp_exchange import close_market_position
 

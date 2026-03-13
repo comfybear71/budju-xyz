@@ -307,11 +307,11 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     if (newMode === "live") {
       if (!confirm(
         "⚠️ SWITCH TO LIVE TRADING ⚠️\n\n" +
-        "This will use REAL FUNDS on Hyperliquid.\n" +
+        "This will use REAL FUNDS on Drift Protocol (Solana).\n" +
         "Make sure you have:\n" +
-        "• HYPERLIQUID_PRIVATE_KEY set\n" +
-        "• HYPERLIQUID_ACCOUNT set\n" +
-        "• Funds deposited on Hyperliquid\n\n" +
+        "• DRIFT_PRIVATE_KEY set\n" +
+        "• Solana RPC configured (HELIUS_API_KEY)\n" +
+        "• USDC deposited on Drift + SOL for gas\n\n" +
         "Are you absolutely sure?"
       )) return;
     }
@@ -400,7 +400,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
               {effectiveReadOnly
                 ? "Real-time charts with AI predictions • Read only"
                 : isLive
-                  ? "Real funds on Hyperliquid • Trades use real money"
+                  ? "Real funds on Drift Protocol • Trades use real money"
                   : "Simulated perpetual futures • No real funds at risk"}
             </p>
           </div>
@@ -481,7 +481,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
         <div className="mx-4 mt-3 p-2 rounded-lg bg-red-900/30 border border-red-500/30 flex items-center gap-2">
           <span className="text-sm">⚠️</span>
           <span className="text-[11px] text-red-300 font-medium">
-            LIVE TRADING ACTIVE — Real funds at risk on Hyperliquid
+            LIVE TRADING ACTIVE — Real funds at risk on Drift Protocol
           </span>
         </div>
       )}
