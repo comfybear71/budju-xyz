@@ -93,18 +93,18 @@ DEFAULT_STRATEGIES = {
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
     },
     "scalping": {
-        "enabled": True,
+        "enabled": False,          # Disabled — 1-min data is pure noise for scalping
         "fast_ema": 5,
         "rsi_period": 7,
-        "rsi_oversold": 35,       # Enter long when RSI < 35 + EMA rising
-        "rsi_overbought": 65,     # Enter short when RSI > 65 + EMA falling
+        "rsi_oversold": 30,        # Tighter: was 35
+        "rsi_overbought": 70,      # Tighter: was 65
         "atr_period": 10,
-        "sl_atr_mult": 1.5,       # Tight SL for scalps (~0.5-1%)
-        "tp_atr_mult": 2.5,       # Quick TP at 2.5x ATR (~1-1.5%)
-        "trailing_stop_pct": 0.8,  # 0.8% trailing stop — lock profit fast
-        "leverage": 5,
-        "max_positions": 3,        # More concurrent scalp positions
-        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+        "sl_atr_mult": 1.5,
+        "tp_atr_mult": 2.5,
+        "trailing_stop_pct": 1.5,  # Was 0.8% — too tight, exits at breakeven
+        "leverage": 3,             # Was 5x — reduced
+        "max_positions": 2,        # Was 3 — reduced
+        "markets": ["SOL-PERP", "BTC-PERP"],
     },
 }
 
@@ -113,7 +113,14 @@ MIN_CANDLES = 30
 # Max position size as pct of equity
 MAX_POSITION_PCT = 0.10  # 10% per auto trade (conservative)
 # Minimum minutes between trades on same market
-COOLDOWN_MINUTES = 30
+COOLDOWN_MINUTES = 120  # 2 hours — prevents re-entering the same chop
+# Correlated assets — max 1 position across each group
+CORRELATION_GROUPS = [
+    {"BTC-PERP", "ETH-PERP", "SOL-PERP"},  # Major caps move together
+]
+# Drawdown protection
+DRAWDOWN_HALF_SIZE_PCT = 5.0   # Half position size at 5% drawdown
+DRAWDOWN_STOP_PCT = 10.0       # Stop trading at 10% drawdown
 
 # ── Binance symbol mapping for historical candle seeding ────────────────
 BINANCE_SYMBOLS = {
@@ -591,26 +598,27 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
     }
 
     # Price at or below lower band + RSI oversold → LONG
+    # NOTE: No trend filter for mean reversion — the whole point is to fade
+    # overextensions. The trend filter blocks the exact trades this strategy
+    # is designed to take (buying dips below EMA).
     if curr_price <= curr_lower and curr_rsi <= rsi_os:
-        if trend_filter(prices, "long"):
-            return {
-                "direction": "long",
-                "signal": "bb_lower_bounce",
-                "indicators": indicators,
-                "atr": curr_atr,
-                "tp_override": curr_middle,  # Target middle band
-            }
+        return {
+            "direction": "long",
+            "signal": "bb_lower_bounce",
+            "indicators": indicators,
+            "atr": curr_atr,
+            "tp_override": curr_middle,  # Target middle band
+        }
 
     # Price at or above upper band + RSI overbought → SHORT
     if curr_price >= curr_upper and curr_rsi >= rsi_ob:
-        if trend_filter(prices, "short"):
-            return {
-                "direction": "short",
-                "signal": "bb_upper_bounce",
-                "indicators": indicators,
-                "atr": curr_atr,
-                "tp_override": curr_middle,
-            }
+        return {
+            "direction": "short",
+            "signal": "bb_upper_bounce",
+            "indicators": indicators,
+            "atr": curr_atr,
+            "tp_override": curr_middle,
+        }
 
     return None
 
@@ -785,6 +793,35 @@ STRATEGY_FUNCS = {
 }
 
 
+def _check_correlation(symbol: str, open_symbols: set) -> bool:
+    """Check if opening a position in symbol would violate correlation limits.
+    Returns True if the trade is allowed, False if blocked.
+    """
+    for group in CORRELATION_GROUPS:
+        if symbol in group:
+            # Check if any correlated symbol already has a position
+            if open_symbols & group:
+                return False
+    return True
+
+
+def _get_drawdown_multiplier(account: Dict) -> float:
+    """Get position size multiplier based on current drawdown.
+    Returns 1.0 (full size), 0.5 (half size), or 0.0 (stop trading).
+    """
+    peak = account.get("peak_equity", INITIAL_BALANCE)
+    equity = account.get("equity", INITIAL_BALANCE)
+    if peak <= 0:
+        return 1.0
+    drawdown_pct = ((peak - equity) / peak) * 100
+
+    if drawdown_pct >= DRAWDOWN_STOP_PCT:
+        return 0.0
+    elif drawdown_pct >= DRAWDOWN_HALF_SIZE_PCT:
+        return 0.5
+    return 1.0
+
+
 def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     """
     Run all enabled strategies for an account.
@@ -802,6 +839,11 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
     if account.get("trading_paused"):
         return [{"action": "skipped", "reason": "Trading paused — daily loss limit"}]
+
+    # Drawdown protection
+    dd_mult = _get_drawdown_multiplier(account)
+    if dd_mult <= 0:
+        return [{"action": "skipped", "reason": f"Drawdown protection: >{DRAWDOWN_STOP_PCT}% drawdown, trading halted"}]
 
     equity = account.get("equity", INITIAL_BALANCE)
     balance = account.get("balance", 0)
@@ -844,6 +886,10 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if symbol in open_symbols:
                 continue
 
+            # Correlation guard — max 1 position across correlated groups
+            if not _check_correlation(symbol, open_symbols):
+                continue
+
             # Check total position limit
             if open_count >= global_settings.get("max_total_positions", MAX_OPEN_POSITIONS):
                 break
@@ -869,10 +915,12 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             atr_value = signal.get("atr", 0)
             curr_price = prices[symbol]
 
-            # Calculate position size
+            # Calculate position size (with drawdown protection)
             size_usd = calculate_position_size(
                 equity, atr_value, curr_price, strat_leverage, sl_mult
             )
+            if dd_mult < 1.0:
+                size_usd = round(size_usd * dd_mult, 2)
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,

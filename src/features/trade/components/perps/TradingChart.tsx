@@ -695,7 +695,7 @@ const TradingChart = ({
       )}
 
       {/* Chart container */}
-      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" />
+      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (

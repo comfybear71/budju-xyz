@@ -8,6 +8,10 @@ import type {
   PerpMarket,
   PerpEquitySnapshot,
   PerpOrderRequest,
+  PerpPendingOrder,
+  ReentryCandidate,
+  FundingSummary,
+  PositionSummary,
 } from "../types/perps";
 
 const API_BASE = "/api/perp";
@@ -223,4 +227,103 @@ export interface LiveStatus {
 
 export async function fetchLiveStatus(wallet: string): Promise<LiveStatus> {
   return postJson(`${API_BASE}/live/status`, { wallet });
+}
+
+// ── Pending Orders ──────────────────────────────────────────────────────
+
+export async function fetchPendingOrders(
+  wallet: string,
+): Promise<{ orders: PerpPendingOrder[]; count: number }> {
+  return fetchJson(`${API_BASE}/pending-orders?wallet=${wallet}`);
+}
+
+export async function createPendingOrder(
+  params: {
+    symbol: string;
+    direction: "long" | "short";
+    leverage: number;
+    sizeUsd: number;
+    orderType: "limit" | "stop";
+    triggerPrice: number;
+    stopLoss?: number;
+    takeProfit?: number;
+    trailingStopPct?: number;
+    entryReason?: string;
+    expiryHours?: number;
+  },
+  wallet: string,
+): Promise<PerpPendingOrder> {
+  return postJson(`${API_BASE}/pending-order`, { ...params, wallet });
+}
+
+export async function cancelPendingOrder(
+  orderId: string,
+  wallet: string,
+): Promise<PerpPendingOrder> {
+  return postJson(`${API_BASE}/pending-order/cancel`, { orderId, wallet });
+}
+
+// ── Advanced Position Management ────────────────────────────────────────
+
+export async function partialClosePosition(
+  positionId: string,
+  exitPrice: number,
+  closePct: number,
+  wallet: string,
+): Promise<PerpTrade> {
+  return postJson(`${API_BASE}/partial-close`, {
+    positionId, exitPrice, closePct, wallet,
+  });
+}
+
+export async function pyramidPosition(
+  positionId: string,
+  addSizeUsd: number,
+  entryPrice: number,
+  wallet: string,
+): Promise<PerpPosition> {
+  return postJson(`${API_BASE}/pyramid`, {
+    positionId, addSizeUsd, entryPrice, wallet,
+  });
+}
+
+export async function flipPosition(
+  positionId: string,
+  exitPrice: number,
+  wallet: string,
+  newSizeUsd?: number,
+): Promise<{ closed_trade: PerpTrade; new_position: PerpPosition }> {
+  return postJson(`${API_BASE}/flip`, {
+    positionId, exitPrice, newSizeUsd, wallet,
+  });
+}
+
+export async function setPositionType(
+  positionId: string,
+  positionType: "core" | "satellite",
+  wallet: string,
+): Promise<PerpPosition> {
+  return postJson(`${API_BASE}/position-type`, {
+    positionId, positionType, wallet,
+  });
+}
+
+// ── Analytics ───────────────────────────────────────────────────────────
+
+export async function fetchPositionSummary(
+  wallet: string,
+): Promise<PositionSummary> {
+  return fetchJson(`${API_BASE}/position-summary?wallet=${wallet}`);
+}
+
+export async function fetchFundingSummary(
+  wallet: string,
+): Promise<FundingSummary> {
+  return fetchJson(`${API_BASE}/funding-summary?wallet=${wallet}`);
+}
+
+export async function fetchReentryCandidates(
+  wallet: string,
+): Promise<{ candidates: ReentryCandidate[]; count: number }> {
+  return fetchJson(`${API_BASE}/reentry-candidates?wallet=${wallet}`);
 }

@@ -26,6 +26,8 @@ export interface PerpAccount {
   metrics: PerpMetrics;
 }
 
+export type PositionType = "core" | "satellite";
+
 export interface PerpPosition {
   _id: string;
   account_id: string;
@@ -55,6 +57,11 @@ export interface PerpPosition {
   status: "open" | "closed";
   opened_at: string;
   last_updated: string;
+  // Pyramiding
+  parent_position_id?: string;
+  pyramid_level?: number;
+  // Core/Satellite
+  position_type?: PositionType;
 }
 
 export interface PerpTrade {
@@ -135,4 +142,77 @@ export interface PerpOrderRequest {
   takeProfit?: number;
   trailingStopPct?: number;
   entryReason?: string;
+}
+
+// ── Pending Orders ──────────────────────────────────────────────────────
+
+export interface PerpPendingOrder {
+  _id: string;
+  account_id: string;
+  symbol: string;
+  direction: "long" | "short";
+  leverage: number;
+  size_usd: number;
+  order_type: "limit" | "stop";
+  trigger_price: number;
+  stop_loss: number | null;
+  take_profit: number | null;
+  trailing_stop_pct: number | null;
+  entry_reason: string;
+  status: "pending" | "filled" | "cancelled" | "expired" | "failed";
+  expires_at: string;
+  created_at: string;
+  filled_at?: string;
+  filled_price?: number;
+}
+
+// ── Re-entry Candidate ─────────────────────────────────────────────────
+
+export interface ReentryCandidate {
+  symbol: string;
+  direction: "long" | "short";
+  original_entry: number;
+  exit_price: number;
+  current_price: number;
+  pullback_pct: number;
+  original_pnl: number;
+  original_strategy: string;
+  exit_time: string;
+  suggested_size_usd: number;
+  leverage: number;
+}
+
+// ── Funding Summary ────────────────────────────────────────────────────
+
+export interface FundingSummary {
+  total_funding_paid: number;
+  borrow_rate_per_hour: number;
+  positions: {
+    position_id: string;
+    symbol: string;
+    direction: "long" | "short";
+    size_usd: number;
+    cumulative_funding: number;
+    hours_open: number;
+    hourly_cost: number;
+    daily_cost: number;
+    funding_pct_of_pnl: number;
+  }[];
+}
+
+// ── Position Summary (Core/Satellite) ──────────────────────────────────
+
+export interface PositionSummary {
+  core: {
+    count: number;
+    total_size_usd: number;
+    unrealized_pnl: number;
+    positions: PerpPosition[];
+  };
+  satellite: {
+    count: number;
+    total_size_usd: number;
+    unrealized_pnl: number;
+    positions: PerpPosition[];
+  };
 }

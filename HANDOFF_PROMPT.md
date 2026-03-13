@@ -328,33 +328,53 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  FRONTEND: HighRiskDashboard                            │
-│  Real-time Binance WebSocket prices + TradingView chart │
+│  Real-time Binance WebSocket prices                     │
+│  Desktop: TradingView (lightweight-charts)              │
+│  Mobile: SVG MobileAreaChart (iOS Safari compatible)    │
 │  Tabs: Chart, Positions, Orders, Trades, Strategy, AI   │
 ├─────────────────────────────────────────────────────────┤
 │  API: api/index.py (perp endpoints)                     │
 │  POST /api/perp/order — Open position                   │
 │  POST /api/perp/close — Close position                  │
 │  POST /api/perp/modify — Modify SL/TP/trailing          │
+│  POST /api/perp/partial-close — Partial close (1-99%)   │
+│  POST /api/perp/pyramid — Add to winning position       │
+│  POST /api/perp/flip — Close + reverse direction        │
+│  POST /api/perp/position-type — Set core/satellite      │
+│  POST /api/perp/pending-order — Create limit/stop order │
+│  POST /api/perp/pending-order/cancel — Cancel order     │
 │  GET  /api/perp/positions — Open positions               │
 │  GET  /api/perp/account — Account info + equity          │
+│  GET  /api/perp/pending-orders — Pending orders          │
+│  GET  /api/perp/position-summary — Core/satellite stats  │
+│  GET  /api/perp/funding-summary — Funding rate analysis  │
+│  GET  /api/perp/reentry-candidates — Re-entry signals    │
 ├─────────────────────────────────────────────────────────┤
 │  ENGINE: api/perp_engine.py                              │
-│  Position lifecycle, PnL, liquidation, fees, equity      │
+│  Position lifecycle, PnL, liquidation, fees, equity,     │
+│  pending orders, pyramiding, partial close, flip,        │
+│  position types, funding analysis, re-entry candidates   │
 ├─────────────────────────────────────────────────────────┤
 │  CRON: api/perp-cron.py (every 1 minute)                │
-│  Fetch CoinGecko prices → update positions →             │
-│  check SL/TP/liquidation/trailing → auto-close →         │
-│  run auto-trader strategies → snapshot equity            │
+│  Fetch CoinGecko prices → check pending orders →         │
+│  update positions → check SL/TP/liquidation/trailing →   │
+│  auto-close → run auto-trader strategies → equity snap   │
 ├─────────────────────────────────────────────────────────┤
 │  STRATEGIES: api/perp_strategies.py                      │
 │  4 strategies: Trend Following, Mean Reversion,          │
-│  Momentum Breakout, Scalping                             │
-│  ATR-based SL/TP, Kelly position sizing                  │
+│  Momentum Breakout, Scalping (disabled by default)       │
+│  ATR-based SL/TP, Kelly sizing, correlation guard,       │
+│  drawdown protection, 2hr cooldown                       │
+├─────────────────────────────────────────────────────────┤
+│  ADVANCED STRATEGIES (standalone):                       │
+│  api/perp_ninja_strategy.py — Ninja Ambush (confluence)  │
+│  api/perp_grid_strategy.py — Grid Trading (ATR-based)    │
+│  api/perp_backtest.py — Backtesting engine                │
 ├─────────────────────────────────────────────────────────┤
 │  DB Collections: perp_accounts, perp_positions,          │
 │  perp_orders, perp_trades, perp_equity, perp_funding,    │
 │  perp_price_history, perp_strategy_config,               │
-│  perp_strategy_signals                                   │
+│  perp_strategy_signals, perp_pending_orders              │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -377,20 +397,37 @@ DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
 ```
 
 ### Auto-Trader Strategies (perp_strategies.py)
-| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop |
-|----------|--------|----------|---------------|---------------|---------------|
-| Trend Following | EMA 9/21 crossover + RSI | 5x | 2.0 | 8.0 | 1.5% |
-| Mean Reversion | Bollinger Band bounce + RSI | 3x | 1.5 | 3.0 | 1.0% |
-| Momentum | Price breakout above/below range | 5x | 2.5 | 10.0 | 2.0% |
-| Scalping | RSI extremes + EMA slope | 5x | 1.5 | 2.5 | 0.8% |
+| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop | Default |
+|----------|--------|----------|---------------|---------------|---------------|---------|
+| Trend Following | EMA 9/21 crossover + RSI 30/70 | 3x | 2.0 | 8.0 | 1.5% | Enabled |
+| Mean Reversion | Bollinger Band bounce + RSI 30/70 | 3x | 1.5 | 3.0 | 1.0% | Enabled |
+| Momentum | Price breakout above/below range | 3x | 2.5 | 10.0 | 2.0% | Enabled |
+| Scalping | RSI extremes + EMA slope | 3x | 1.5 | 2.5 | 0.8% | **Disabled** |
 
 - ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR (wider stops that survive normal price noise)
-- **50-period EMA trend filter** on all strategies — longs require price above 50 EMA, shorts require price below. Prevents trading against the trend.
+- **50-period EMA trend filter** on trend following, momentum, scalping — longs require price above 50 EMA, shorts below. **Mean reversion has NO trend filter** (it contradicted the strategy by blocking buying dips).
 - **Profit-activated trailing stops** — trail does NOT start from entry. It activates only after price moves favorably by the trailing %. E.g. 1.5% trail on a long activates at +1.5% profit, then ratchets up from there. Until activation, only the fixed SL protects the downside.
 - Trend following and momentum use wide TP (8-10x ATR) so the trailing stop is the primary exit, letting winners run.
 - Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
-- Cooldown: 30 min per market between auto trades
+- **Cooldown: 2 hours** per market between auto trades (was 30 min — overtrading was destroying returns)
+- **Correlation guard:** Max 1 position across correlated group (BTC, ETH, SOL)
+- **Drawdown protection:** Half-size at 5% drawdown, stop trading at 10% drawdown
+- RSI thresholds tightened to 30/70 (was 35/65) to reduce false signals
 - Historical candles seeded from Binance public API (eliminates cold-start)
+
+### Advanced Position Management (perp_engine.py)
+- **Partial Close** — Close 1-99% of a position; updates remaining size/margin, credits account
+- **Pyramiding** — Add to winning positions (positive P&L required, max 3 levels, each level 50% of previous size)
+- **Position Flipping** — Close position and immediately open opposite direction, mirroring SL/TP distances
+- **Core/Satellite Tracking** — Tag positions as "core" (long-term conviction) or "satellite" (tactical), with separate P&L summary
+- **Pending Orders** — Limit and stop orders with trigger price, SL/TP, optional expiry. Checked every minute by cron, executed automatically when trigger price is hit.
+- **Funding Rate Analysis** — Per-position funding cost breakdown (hourly/daily, % of P&L)
+- **Re-entry Candidates** — Finds recent profitable trailing stop exits with 0.5-3% pullback from exit price
+
+### Advanced Strategy Files (standalone, not yet integrated into cron)
+- **perp_ninja_strategy.py** — Ninja Ambush strategy: swing high/low detection, Bollinger Band extremes, session levels, round numbers, liquidity sweeps, confluence scoring
+- **perp_grid_strategy.py** — Grid Trading: ATR-based grid spacing, optional martingale position sizing, auto-rebalancing
+- **perp_backtest.py** — Backtesting engine: historical simulation with realistic fees, calculates Sharpe ratio, profit factor, max drawdown, win rate
 
 ### Trigger Execution (perp-cron.py → perp_engine.py)
 Checked every minute in priority order (independent checks, not elif):
@@ -410,6 +447,7 @@ Checked every minute in priority order (independent checks, not elif):
 
 ## 12. Recent Changes (as of March 13, 2026)
 
+### Core Trading System (earlier)
 - **Full perpetual paper trading system** — 10 markets, 4 auto-trading strategies, real-time Binance WebSocket charts
 - **Critical bug fix: TP never triggered when SL was set** — `elif` chain in trigger checks meant a set-but-not-hit SL blocked TP evaluation entirely. Changed to independent `if not action` checks.
 - **Critical bug fix: Liquidation formula broken for >20x leverage** — 5% maintenance margin exceeded initial margin at high leverage (e.g., 50x long had liq price ABOVE entry → immediate liquidation). Fixed with scaled maintenance margin: `min(5%, 50%/leverage)`.
@@ -425,6 +463,38 @@ Checked every minute in priority order (independent checks, not elif):
 - Added date/time stamps to trade log entries
 - Added Dependabot, ErrorBoundary, TanStack Query caching
 - Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
+
+### Strategy Overhaul (latest session)
+- **Cooldown increased to 2 hours** (was 30 min) — overtrading with no edge was destroying returns
+- **Scalping disabled by default** — 1-min candle noise made it unprofitable
+- **RSI thresholds tightened to 30/70** (was 35/65) — fewer but higher quality signals
+- **Leverage reduced to 3x** across all strategies (was 5x) — lower risk
+- **Trailing stop widened to 1.5%** on trend following (was 0.8%) — stop clipping winners
+- **Mean reversion trend filter REMOVED** — it was blocking the strategy from buying dips below EMA (contradicted the whole point of mean reversion)
+- **Correlation guard added** — max 1 position across BTC/ETH/SOL group to prevent correlated exposure
+- **Drawdown protection** — half-size at 5% drawdown from equity peak, stop trading at 10% drawdown
+
+### Advanced Position Management (latest session)
+- **Partial close** — Close 1-99% of a position, updates remaining size/margin
+- **Pyramiding** — Add to winning positions (max 3 levels, 50% size decrease per level)
+- **Position flipping** — Close + reverse direction in one operation, mirrors SL/TP distances
+- **Core/satellite position types** — Tag positions with type, get separate P&L summary
+- **Pending orders (limit/stop)** — Full order system with trigger prices, SL/TP, expiry. Cron checks every minute. Full UI in PerpPendingOrders.tsx component.
+- **Funding rate analysis** — Per-position funding cost breakdown
+- **Re-entry candidates** — Detects recent profitable trailing stop exits with 0.5-3% pullback
+
+### Mobile Charts Fix (latest session)
+- **MobileAreaChart.tsx** — Pure SVG area chart for iOS Safari (lightweight-charts canvas fails on mobile due to height collapse + WebGL issues)
+- **DashboardCharts.tsx** — Auto-detects mobile via user agent + viewport width, switches between TradingChart (desktop) and MobileAreaChart (mobile)
+- **TradingChart.tsx** — Added explicit `height` + `minHeight` style to prevent iOS container collapse
+
+### Strategy Documentation UI
+- **PerpStrategyPanel.tsx** — Each strategy card has expandable "How?" section showing: how it works, entry signal, exit strategy, risk management, best market conditions
+
+### Restored Strategy Files
+- **perp_ninja_strategy.py** — Ninja Ambush strategy (confluence-based entries)
+- **perp_grid_strategy.py** — ATR-based grid trading with optional martingale
+- **perp_backtest.py** — Backtesting engine with Sharpe ratio, profit factor, max drawdown
 
 ---
 
@@ -444,6 +514,8 @@ Checked every minute in priority order (independent checks, not elif):
 12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture.
 13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
 14. **Trailing stop activation stored as price level** — `trailing_stop_activation` field on position doc. Existing positions opened before this change won't have it (they'll have `trailing_stop_price` set from entry — old behavior still works, just not profit-gated).
+15. **Ninja/Grid/Backtest strategies not integrated into cron** — Standalone files restored from previous branch but not yet wired into `perp-cron.py` or the strategy config UI. Need integration work to enable via the strategy panel.
+16. **Pending orders UI lacks real-time price updates for all markets** — Uses Binance WebSocket for the selected symbol only. Other orders show stale distance calculations until their symbol is selected.
 
 ---
 

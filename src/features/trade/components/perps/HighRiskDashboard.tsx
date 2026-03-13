@@ -5,6 +5,7 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import PerpAccountSummary from "./PerpAccountSummary";
 import PerpPositionsList from "./PerpPositionsList";
 import PerpOrderForm from "./PerpOrderForm";
+import PerpPendingOrders from "./PerpPendingOrders";
 import PerpMetricsPanel from "./PerpMetricsPanel";
 import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
@@ -41,7 +42,7 @@ interface Props {
   readOnly?: boolean;
 }
 
-type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai" | "strategy";
+type Tab = "charts" | "positions" | "order" | "pending" | "history" | "metrics" | "equity" | "ai" | "strategy";
 
 const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const { connection } = useWallet();
@@ -357,13 +358,14 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     { key: "strategy", label: "Bot", icon: "⚡" },
     { key: "positions", label: "Positions", icon: "📍" },
     { key: "order", label: "New Order", icon: "📝" },
+    { key: "pending", label: "Orders", icon: "📋" },
     { key: "equity", label: "Equity", icon: "💹" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
     { key: "ai", label: "AI", icon: "🤖" },
   ];
   // Read-only users see everything except New Order and Strategy (admin-only)
-  const readOnlyExclude: Tab[] = ["order", "strategy"];
+  const readOnlyExclude: Tab[] = ["order", "pending", "strategy"];
   const tabs = effectiveReadOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
 
   if (!wallet && !effectiveReadOnly) {
@@ -568,6 +570,10 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             onSubmit={handlePlaceOrder}
             loading={loading}
           />
+        )}
+
+        {activeTab === "pending" && wallet && (
+          <PerpPendingOrders wallet={wallet} readOnly={effectiveReadOnly} />
         )}
 
         {activeTab === "equity" && (

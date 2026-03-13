@@ -10,8 +10,16 @@
 
 import { useState, useMemo } from "react";
 import TradingChart from "./TradingChart";
+import MobileAreaChart from "./MobileAreaChart";
 import { useLivePrices } from "@hooks/useLivePrices";
 import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
+
+// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
+const isMobile = (): boolean => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return /iPhone|iPad|iPod|Android/i.test(ua) || (window.innerWidth < 768);
+};
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -77,6 +85,10 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
   }, [positions]);
 
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
+  const mobile = useMemo(() => isMobile(), []);
+
+  // Render chart component based on device
+  const Chart = mobile ? MobileAreaChart : TradingChart;
 
   return (
     <div className="space-y-3">
@@ -192,12 +204,12 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
 
           {/* Single focused chart */}
           <div className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-3">
-            <TradingChart
+            <Chart
               symbol={focusMarket.symbol}
               baseAsset={focusMarket.base}
               positions={positions}
-              trades={trades}
-              height={350}
+              trades={mobile ? undefined : trades}
+              height={mobile ? 250 : 350}
             />
           </div>
         </>
@@ -213,12 +225,12 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 setViewMode("focus");
               }}
             >
-              <TradingChart
+              <Chart
                 symbol={m.symbol}
                 baseAsset={m.base}
                 positions={positions}
-                trades={trades}
-                height={180}
+                trades={mobile ? undefined : trades}
+                height={mobile ? 140 : 180}
                 compact
               />
             </div>

@@ -48,6 +48,16 @@ from perp_engine import (
     get_equity_curve,
     get_markets_info,
     calculate_metrics,
+    partial_close_position,
+    pyramid_position,
+    flip_position,
+    set_position_type,
+    get_position_summary,
+    get_funding_summary,
+    get_reentry_candidates,
+    create_pending_order,
+    cancel_pending_order,
+    get_pending_orders,
     MARKETS,
 )
 from database import ADMIN_WALLETS
@@ -349,6 +359,45 @@ class handler(BaseHTTPRequestHandler):
                     return
                 status = get_strategy_status(wallet)
                 self._send_json(200, status)
+
+            elif path == '/api/perp/pending-orders':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                orders = get_pending_orders(wallet)
+                self._send_json(200, {"orders": orders, "count": len(orders)})
+
+            elif path == '/api/perp/position-summary':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                summary = get_position_summary(wallet)
+                self._send_json(200, summary)
+
+            elif path == '/api/perp/funding-summary':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                summary = get_funding_summary(wallet)
+                self._send_json(200, summary)
+
+            elif path == '/api/perp/reentry-candidates':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                # Need live prices for re-entry analysis
+                from perp_engine import perp_positions as _pp
+                open_pos = list(_pp.find({"account_id": wallet, "status": "open"}))
+                price_map = {}
+                for p in open_pos:
+                    if p.get("mark_price"):
+                        price_map[p["symbol"]] = p["mark_price"]
+                candidates = get_reentry_candidates(wallet, price_map)
+                self._send_json(200, {"candidates": candidates, "count": len(candidates)})
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -684,11 +733,94 @@ class handler(BaseHTTPRequestHandler):
                 if live_status["ready"]:
                     live_status["exchange_balance"] = get_exchange_balance()
                     live_status["exchange_positions"] = get_exchange_positions()
-                    # Reconcile with local DB
                     local_positions = list(get_open_positions(wallet))
                     live_pos = [p for p in local_positions if p.get("trading_mode") == "live"]
                     live_status["reconciliation"] = reconcile_positions(live_pos)
                 self._send_json(200, live_status)
+
+            # ── Partial Close ──────────────────────────────────────────
+            elif path == '/api/perp/partial-close':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = partial_close_position(
+                    position_id=body.get('positionId'),
+                    exit_price=float(body.get('exitPrice', 0)),
+                    close_pct=float(body.get('closePct', 50)),
+                    exit_reason=body.get('exitReason', 'partial_tp'),
+                )
+                self._send_json(200, result)
+
+            # ── Pending Orders ─────────────────────────────────────────
+            elif path == '/api/perp/pending-order':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                order = create_pending_order(
+                    wallet=wallet,
+                    symbol=body.get('symbol'),
+                    direction=body.get('direction'),
+                    leverage=int(body.get('leverage', 5)),
+                    size_usd=float(body.get('sizeUsd', 0)),
+                    order_type=body.get('orderType', 'limit'),
+                    trigger_price=float(body.get('triggerPrice', 0)),
+                    stop_loss=float(body['stopLoss']) if body.get('stopLoss') else None,
+                    take_profit=float(body['takeProfit']) if body.get('takeProfit') else None,
+                    trailing_stop_pct=float(body['trailingStopPct']) if body.get('trailingStopPct') else None,
+                    entry_reason=body.get('entryReason', ''),
+                    expiry_hours=float(body.get('expiryHours', 24)),
+                )
+                self._send_json(200, order)
+
+            elif path == '/api/perp/pending-order/cancel':
+                wallet = body.get('wallet')
+                order_id = body.get('orderId')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = cancel_pending_order(order_id, wallet)
+                self._send_json(200, result)
+
+            # ── Pyramiding ─────────────────────────────────────────────
+            elif path == '/api/perp/pyramid':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = pyramid_position(
+                    wallet=wallet,
+                    position_id=body.get('positionId'),
+                    add_size_usd=float(body.get('addSizeUsd', 0)),
+                    entry_price=float(body.get('entryPrice', 0)),
+                )
+                self._send_json(200, result)
+
+            # ── Position Flipping ──────────────────────────────────────
+            elif path == '/api/perp/flip':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = flip_position(
+                    position_id=body.get('positionId'),
+                    exit_price=float(body.get('exitPrice', 0)),
+                    new_size_usd=float(body['newSizeUsd']) if body.get('newSizeUsd') else None,
+                )
+                self._send_json(200, result)
+
+            # ── Core/Satellite Position Type ───────────────────────────
+            elif path == '/api/perp/position-type':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_position_type(
+                    position_id=body.get('positionId'),
+                    position_type=body.get('positionType', 'core'),
+                )
+                self._send_json(200, result)
 
             else:
                 self._send_json(404, {"error": "Not found"})

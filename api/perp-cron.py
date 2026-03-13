@@ -29,6 +29,7 @@ from perp_engine import (
     update_position_price,
     close_position,
     snapshot_equity,
+    check_pending_orders,
     MARKETS,
     COINGECKO_IDS,
 )
@@ -185,8 +186,26 @@ def run_perp_monitor() -> dict:
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
 
-    # 5. Run automated trading strategies for all accounts
+    # 5. Check pending orders for all accounts
     all_accounts = list(perp_accounts.find({}))
+    pending_filled = 0
+    for acc in all_accounts:
+        try:
+            triggered = check_pending_orders(acc["wallet"], prices)
+            for t in triggered:
+                pending_filled += 1
+                pos = t["position"]
+                direction = pos.get("direction", "?").upper()
+                msg = (
+                    f"📋 <b>PENDING ORDER FILLED</b>\n"
+                    f"📍 {pos['symbol']} {direction} {pos['leverage']}x\n"
+                    f"💵 Size: ${pos['size_usd']:.0f} @ ${pos['entry_price']:.4f}"
+                )
+                send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Pending order check error for {acc['wallet'][:8]}: {e}")
+
+    # 6. Run automated trading strategies
     auto_trade_actions = []
     for acc in all_accounts:
         # Skip auto-trading if kill switch is active
@@ -216,14 +235,14 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 
-    # 6. Snapshot equity for all active accounts
+    # 7. Snapshot equity for all active accounts
     for acc in all_accounts:
         try:
             snapshot_equity(acc["wallet"])
         except Exception as e:
             print(f"[perp-cron] Equity snapshot error for {acc['wallet'][:8]}: {e}")
 
-    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades")
+    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades, {pending_filled} pending filled")
 
     return {
         "status": "ok",
@@ -233,5 +252,6 @@ def run_perp_monitor() -> dict:
         "positions_closed": positions_closed,
         "events": events,
         "auto_trades": auto_trade_actions,
+        "pending_orders_filled": pending_filled,
         "accounts_snapshotted": len(all_accounts),
     }
