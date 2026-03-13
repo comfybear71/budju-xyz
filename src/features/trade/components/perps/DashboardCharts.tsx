@@ -16,9 +16,14 @@ import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
 
 // Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
 const isMobile = (): boolean => {
-  if (typeof navigator === "undefined") return false;
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  return /iPhone|iPad|iPod|Android/i.test(ua) || (window.innerWidth < 768);
+  // Check UA for mobile devices + screen width as fallback
+  const isMobileUA = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
+  // Also detect iPad in desktop mode (reports as Mac but has touch)
+  const isIPadDesktopMode = /Macintosh/i.test(ua) && "ontouchend" in document;
+  const isSmallScreen = window.innerWidth < 768;
+  return isMobileUA || isIPadDesktopMode || isSmallScreen;
 };
 
 // ── Types ────────────────────────────────────────────────────

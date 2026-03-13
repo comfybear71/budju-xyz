@@ -2,10 +2,10 @@
 // MobileAreaChart — Lightweight SVG area chart for iOS/mobile
 // Replaces heavyweight lightweight-charts on mobile Safari where
 // canvas rendering fails (height collapse, WebGL context issues).
-// Uses pure SVG with Binance WebSocket data.
+// Uses Binance REST API for historical data + optional WebSocket.
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState } from "react";
 import {
   BinanceKlineStream,
   CODE_TO_BINANCE,
@@ -30,21 +30,17 @@ const BINANCE_REST = "https://api.binance.com/api/v3/klines";
 
 async function fetchHistoricalPrices(
   binanceSymbol: string,
-  limit = 120,
+  limit = 60,
 ): Promise<PricePoint[]> {
   const symbol = binanceSymbol.toUpperCase();
   const url = `${BINANCE_REST}?symbol=${symbol}&interval=1m&limit=${limit}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.map((k: any[]) => ({
-      time: Math.floor(k[0] / 1000),
-      price: parseFloat(k[4]), // close price
-    }));
-  } catch {
-    return [];
-  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data.map((k: any[]) => ({
+    time: Math.floor(k[0] / 1000),
+    price: parseFloat(k[4]), // close price
+  }));
 }
 
 function formatPrice(price: number): string {
@@ -66,84 +62,96 @@ const MobileAreaChart = ({
   const [priceChange, setPriceChange] = useState(0);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const streamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<PricePoint[]>([]);
+  const mountedRef = useRef(true);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
   useEffect(() => {
-    let wsCleanup: (() => void) | null = null;
+    mountedRef.current = true;
+    let stream: BinanceKlineStream | null = null;
+    let unsub: (() => void) | null = null;
 
-    (async () => {
+    const init = async () => {
       setLoading(true);
-      const historical = await fetchHistoricalPrices(binanceSymbol, 120);
-      dataRef.current = historical;
-      setData(historical);
+      setFetchError(false);
 
-      if (historical.length > 0) {
-        const last = historical[historical.length - 1];
-        const first = historical[0];
-        setLivePrice(last.price);
-        setPriceChange(((last.price - first.price) / first.price) * 100);
+      try {
+        const historical = await fetchHistoricalPrices(binanceSymbol, 60);
+        if (!mountedRef.current) return;
+
+        dataRef.current = historical;
+        setData(historical);
+
+        if (historical.length > 0) {
+          const last = historical[historical.length - 1];
+          const first = historical[0];
+          setLivePrice(last.price);
+          setPriceChange(((last.price - first.price) / first.price) * 100);
+        }
+        setLoading(false);
+      } catch {
+        if (!mountedRef.current) return;
+        setFetchError(true);
+        setLoading(false);
+        return; // Don't start WebSocket if REST failed
       }
 
-      setLoading(false);
+      // Only start WebSocket in focus mode (not compact/grid) to limit connections
+      if (compact) return;
 
-      // Start WebSocket
-      const stream = new BinanceKlineStream(binanceSymbol, "1m");
-      streamRef.current = stream;
-      stream.connect();
+      try {
+        stream = new BinanceKlineStream(binanceSymbol, "1m");
+        streamRef.current = stream;
+        stream.connect();
 
-      const unsub = stream.onBar((bar: KlineBar) => {
-        setConnected(true);
-        setLivePrice(bar.close);
+        unsub = stream.onBar((bar: KlineBar) => {
+          if (!mountedRef.current) return;
+          setConnected(true);
+          setLivePrice(bar.close);
 
-        const point: PricePoint = { time: bar.time, price: bar.close };
+          const point: PricePoint = { time: bar.time, price: bar.close };
+          const current = [...dataRef.current];
 
-        // Update last point or append
-        const current = [...dataRef.current];
-        if (current.length > 0 && current[current.length - 1].time === bar.time) {
-          current[current.length - 1] = point;
-        } else if (bar.isFinal) {
-          current.push(point);
-          // Keep last 120 points
-          if (current.length > 120) current.shift();
-        } else {
-          // Update in-progress candle
-          if (current.length > 0) {
+          if (current.length > 0 && current[current.length - 1].time === bar.time) {
+            current[current.length - 1] = point;
+          } else if (bar.isFinal) {
+            current.push(point);
+            if (current.length > 60) current.shift();
+          } else if (current.length > 0) {
             current[current.length - 1] = point;
           }
-        }
 
-        dataRef.current = current;
-        setData([...current]);
+          dataRef.current = current;
+          setData([...current]);
 
-        if (current.length > 0) {
-          const first = current[0];
-          setPriceChange(((bar.close - first.price) / first.price) * 100);
-        }
-      });
-
-      wsCleanup = () => {
-        unsub();
-        stream.disconnect();
-      };
-    })();
-
-    return () => {
-      wsCleanup?.();
-      if (streamRef.current) {
-        streamRef.current.disconnect();
-        streamRef.current = null;
+          if (current.length > 0) {
+            setPriceChange(((bar.close - current[0].price) / current[0].price) * 100);
+          }
+        });
+      } catch {
+        // WebSocket failed, chart still shows REST data — that's fine
       }
     };
-  }, [binanceSymbol]);
+
+    init();
+
+    return () => {
+      mountedRef.current = false;
+      unsub?.();
+      if (stream) {
+        stream.disconnect();
+      }
+      streamRef.current = null;
+    };
+  }, [binanceSymbol, compact]);
 
   // Build SVG path
   const svgWidth = 400;
-  const svgHeight = height - (compact ? 24 : 40);
+  const svgHeight = Math.max(height - (compact ? 24 : 40), 40);
   const padding = { top: 8, right: 4, bottom: 4, left: 4 };
-
   const chartWidth = svgWidth - padding.left - padding.right;
   const chartHeight = svgHeight - padding.top - padding.bottom;
 
@@ -157,7 +165,6 @@ const MobileAreaChart = ({
     const maxPrice = Math.max(...prices);
     const range = maxPrice - minPrice || 1;
 
-    // Determine color based on trend
     const isUp = prices[prices.length - 1] >= prices[0];
     gradientColor = isUp ? "#22c55e" : "#ef4444";
 
@@ -169,15 +176,13 @@ const MobileAreaChart = ({
 
     pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
     areaD = pathD + ` L ${points[points.length - 1].x.toFixed(1)} ${svgHeight} L ${points[0].x.toFixed(1)} ${svgHeight} Z`;
-
-    // Draw position lines
   }
 
   const isPositive = priceChange >= 0;
   const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ minHeight: compact ? 80 : 120 }}>
       {/* Header */}
       <div className={`${compact ? "mb-0.5" : "mb-1"}`}>
         <div className="flex items-center justify-between">
@@ -212,23 +217,33 @@ const MobileAreaChart = ({
         </div>
       )}
 
+      {/* Error state */}
+      {!loading && fetchError && (
+        <div
+          className="flex items-center justify-center bg-slate-900/50 rounded-lg"
+          style={{ height: svgHeight }}
+        >
+          <div className="text-xs text-slate-500">Chart unavailable</div>
+        </div>
+      )}
+
       {/* SVG Area Chart */}
-      {!loading && data.length >= 2 && (
+      {!loading && !fetchError && data.length >= 2 && (
         <svg
           viewBox={`0 0 ${svgWidth} ${svgHeight}`}
           className="w-full rounded-lg"
-          style={{ height: svgHeight }}
+          style={{ height: svgHeight, display: "block" }}
           preserveAspectRatio="none"
         >
           <defs>
-            <linearGradient id={`grad-${symbol}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`grad-${baseAsset}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor={gradientColor} stopOpacity="0.3" />
               <stop offset="100%" stopColor={gradientColor} stopOpacity="0.02" />
             </linearGradient>
           </defs>
 
           {/* Area fill */}
-          <path d={areaD} fill={`url(#grad-${symbol})`} />
+          <path d={areaD} fill={`url(#grad-${baseAsset})`} />
 
           {/* Line */}
           <path d={pathD} fill="none" stroke={gradientColor} strokeWidth="1.5" />
@@ -258,6 +273,16 @@ const MobileAreaChart = ({
             );
           })}
         </svg>
+      )}
+
+      {/* No data state */}
+      {!loading && !fetchError && data.length < 2 && (
+        <div
+          className="flex items-center justify-center bg-slate-900/50 rounded-lg"
+          style={{ height: svgHeight }}
+        >
+          <div className="text-xs text-slate-500">No price data</div>
+        </div>
       )}
 
       {/* Position badges */}
