@@ -80,19 +80,15 @@ export async function fetchPerpMetrics(wallet: string): Promise<PerpMetrics> {
   return fetchJson(`${API_BASE}/metrics?wallet=${wallet}`);
 }
 
-// ── POST Endpoints (admin-signed) ───────────────────────────────────────
+// ── POST Endpoints (admin wallet check only — paper trading) ─────────────
 
 export async function placePerpOrder(
   order: PerpOrderRequest,
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<PerpPosition> {
   return postJson(`${API_BASE}/order`, {
     ...order,
-    adminWallet,
-    adminSignature,
-    adminMessage,
+    wallet,
   });
 }
 
@@ -100,45 +96,33 @@ export async function closePerpPosition(
   positionId: string,
   exitPrice: number,
   exitReason: string,
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<PerpTrade> {
   return postJson(`${API_BASE}/close`, {
     positionId,
     exitPrice,
     exitReason,
-    adminWallet,
-    adminSignature,
-    adminMessage,
+    wallet,
   });
 }
 
 export async function modifyPerpPosition(
   positionId: string,
   mods: { stopLoss?: number; takeProfit?: number; trailingStopPct?: number },
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<PerpPosition> {
   return postJson(`${API_BASE}/modify`, {
     positionId,
     ...mods,
-    adminWallet,
-    adminSignature,
-    adminMessage,
+    wallet,
   });
 }
 
 export async function resetPerpAccount(
-  adminWallet: string,
-  adminSignature: number[],
-  adminMessage: string,
+  wallet: string,
 ): Promise<PerpAccount> {
   return postJson(`${API_BASE}/account/reset`, {
-    adminWallet,
-    adminSignature,
-    adminMessage,
+    wallet,
   });
 }
 

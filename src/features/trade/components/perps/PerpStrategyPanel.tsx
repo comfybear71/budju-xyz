@@ -9,7 +9,6 @@ import {
 
 interface Props {
   wallet: string;
-  signAdminMessage?: () => Promise<{ wallet: string; signature: number[]; message: string }>;
 }
 
 const STRATEGY_INFO: Record<string, { name: string; desc: string; icon: string }> = {
@@ -50,7 +49,7 @@ const STRATEGY_INFO: Record<string, { name: string; desc: string; icon: string }
   },
 };
 
-const PerpStrategyPanel = ({ wallet, signAdminMessage }: Props) => {
+const PerpStrategyPanel = ({ wallet }: Props) => {
   const [status, setStatus] = useState<StrategyStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [toggling, setToggling] = useState(false);

@@ -33,7 +33,6 @@ import {
   registerWallet,
   recalibratePool,
   clearCache,
-  getAdminAuth,
   AUD_TO_USD,
   type PortfolioAsset,
   type AdminStats,
@@ -836,18 +835,12 @@ const Trade = () => {
                 {showHighRisk && isAdmin && (
                   <HighRiskDashboard
                     onClose={() => setShowHighRisk(false)}
-                    signAdminMessage={async () => {
-                      const auth = await getAdminAuth(walletAddress);
-                      if (!auth) throw new Error("Admin signature required");
-                      return { wallet: auth.adminWallet, signature: auth.adminSignature, message: auth.adminMessage };
-                    }}
                   />
                 )}
                 {showHighRisk && !isAdmin && (
                   <HighRiskDashboard
                     readOnly
                     onClose={() => setShowHighRisk(false)}
-                    signAdminMessage={async () => { throw new Error("Read-only mode"); }}
                   />
                 )}
               </AnimatePresence>

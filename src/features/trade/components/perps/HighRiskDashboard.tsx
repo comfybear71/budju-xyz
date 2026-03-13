@@ -36,13 +36,12 @@ import type {
 
 interface Props {
   onClose: () => void;
-  signAdminMessage: () => Promise<{ wallet: string; signature: number[]; message: string }>;
   readOnly?: boolean;
 }
 
 type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai" | "strategy";
 
-const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Props) => {
+const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const { connection } = useWallet();
 
   const [account, setAccount] = useState<PerpAccount | null>(null);
@@ -221,11 +220,11 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   }, [markets]);
 
   const handlePlaceOrder = async (order: PerpOrderRequest) => {
+    if (!wallet) { setError("Wallet not connected"); return; }
     try {
       setLoading(true);
       setError(null);
-      const { wallet: w, signature, message } = await signAdminMessage();
-      await placePerpOrder(order, w, signature, message);
+      await placePerpOrder(order, wallet);
       await loadData();
       setActiveTab("positions");
     } catch (err) {
@@ -236,11 +235,11 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   };
 
   const handleClosePosition = async (positionId: string, exitPrice: number) => {
+    if (!wallet) { setError("Wallet not connected"); return; }
     try {
       setLoading(true);
       setError(null);
-      const { wallet: w, signature, message } = await signAdminMessage();
-      await closePerpPosition(positionId, exitPrice, "manual", w, signature, message);
+      await closePerpPosition(positionId, exitPrice, "manual", wallet);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to close position");
@@ -251,10 +250,10 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
   const handleModifyPosition = async (positionId: string) => {
     if (modifyingId === positionId) {
+      if (!wallet) { setError("Wallet not connected"); return; }
       // Submit modification
       try {
         setLoading(true);
-        const { wallet: w, signature, message } = await signAdminMessage();
         await modifyPerpPosition(
           positionId,
           {
@@ -262,9 +261,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
             takeProfit: modifyTP ? parseFloat(modifyTP) : undefined,
             trailingStopPct: modifyTrail ? parseFloat(modifyTrail) : undefined,
           },
-          w,
-          signature,
-          message,
+          wallet,
         );
         setModifyingId(null);
         await loadData();
@@ -284,11 +281,11 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   };
 
   const handleReset = async () => {
+    if (!wallet) { setError("Wallet not connected"); return; }
     if (!confirm("Reset paper trading account to $10,000? All positions and history will be deleted.")) return;
     try {
       setLoading(true);
-      const { wallet: w, signature, message } = await signAdminMessage();
-      await resetPerpAccount(w, signature, message);
+      await resetPerpAccount(wallet);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reset");
@@ -496,7 +493,6 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
         {activeTab === "strategy" && wallet && (
           <PerpStrategyPanel
             wallet={wallet}
-            signAdminMessage={signAdminMessage}
           />
         )}
       </div>

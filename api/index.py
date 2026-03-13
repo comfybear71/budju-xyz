@@ -556,12 +556,10 @@ class handler(BaseHTTPRequestHandler):
 
             # ── Perp Paper Trading POST endpoints ────────────────────
             elif path == '/api/perp/order':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
-
-                wallet = body.get('adminWallet')
                 symbol = body.get('symbol')
                 direction = body.get('direction')
                 leverage = int(body.get('leverage', 5))
@@ -583,9 +581,9 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/perp/close':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
                 position_id = body.get('positionId')
@@ -600,9 +598,9 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/perp/modify':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
                 position_id = body.get('positionId')
@@ -618,12 +616,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/perp/account/reset':
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
-
-                wallet = body.get('adminWallet')
                 result = reset_account(wallet)
                 self._send_json(200, result)
 
