@@ -259,9 +259,9 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
   ];
-  // Read-only users only see charts
-  const readOnlyTabs: Tab[] = ["charts"];
-  const tabs = readOnly ? allTabs.filter((t) => readOnlyTabs.includes(t.key)) : allTabs;
+  // Read-only users see everything except New Order
+  const readOnlyExclude: Tab[] = ["order"];
+  const tabs = readOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
 
   if (!wallet && !readOnly) {
     return (
@@ -324,9 +324,9 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
           </div>
         )}
 
-        {/* Account summary — hidden in read-only mode */}
-        {!readOnly && account && <PerpAccountSummary account={account} />}
-        {!readOnly && !account && !initialLoading && (
+        {/* Account summary — visible to all (shows equity, balance, P&L) */}
+        {account && <PerpAccountSummary account={account} />}
+        {!account && !initialLoading && !readOnly && (
           <PerpAccountSummary account={{
             wallet: wallet || "", balance: 10000, equity: 10000,
             unrealized_pnl: 0, realized_pnl: 0, total_funding_paid: 0,
@@ -377,7 +377,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
             positions={positions}
             trades={trades}
             metrics={account?.metrics}
-            onClose={() => setActiveTab("order")}
+            onClose={() => setActiveTab(readOnly ? "positions" : "order")}
           />
         )}
 
@@ -386,6 +386,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
             positions={positions}
             onClose={handleClosePosition}
             onModify={handleModifyPosition}
+            readOnly={readOnly}
           />
         )}
 

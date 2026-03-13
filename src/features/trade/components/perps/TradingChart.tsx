@@ -87,9 +87,17 @@ interface Prediction {
   signal: Signal;
   confidence: number; // 0-100
   targetPrice: number;
+  strategies?: StrategyBreakdown;
 }
 
-function computePrediction(candles: CandleData[], lookback = 60, futureCandles = 10): Prediction | null {
+interface StrategyBreakdown {
+  trend: { direction: "up" | "down" | "flat"; strength: number; slope: number };
+  momentum: { rsi: number; bias: "bullish" | "bearish" | "neutral" };
+  ema: { ema8: number; ema21: number; cross: "bullish" | "bearish" | "neutral" };
+  volatility: { value: number; level: "low" | "medium" | "high" };
+}
+
+function computePrediction(candles: CandleData[], lookback = 60, futureCandles = 2): Prediction | null {
   if (candles.length < lookback) return null;
 
   const recent = candles.slice(-lookback);
@@ -109,9 +117,8 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   const denom = sumW * sumWXX - sumWX * sumWX;
   if (Math.abs(denom) < 1e-10) return null;
   const slope = (sumW * sumWXY - sumWX * sumWY) / denom;
-  const intercept = (sumWY - slope * sumWX) / sumW;
 
-  // 2. Momentum (RSI-like) — ratio of up moves vs down moves in recent candles
+  // 2. Momentum (RSI-like)
   const shortPeriod = Math.min(14, Math.floor(n / 3));
   const recentCloses = closes.slice(-shortPeriod);
   let gains = 0, losses = 0;
@@ -125,7 +132,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   const rsi = 100 - 100 / (1 + avgGain / avgLoss);
 
   // 3. Volatility (standard deviation of returns)
-  const returns = [];
+  const returns: number[] = [];
   for (let i = 1; i < closes.length; i++) {
     returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
   }
@@ -142,31 +149,32 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   };
   const ema8 = ema(closes.slice(-21), 8);
   const ema21 = ema(closes.slice(-21), 21);
-  const emaCrossSignal = (ema8 - ema21) / closes[n - 1]; // Normalized
+  const emaCrossSignal = (ema8 - ema21) / closes[n - 1]; // Very small normalized value
 
-  // 5. Generate prediction points
+  // 5. Generate prediction — just 1-2 candles ahead, tightly clamped
   const lastCandle = candles[candles.length - 1];
   const lastTime = lastCandle.time as number;
   const currentPrice = lastCandle.close;
 
-  // Combine signals: trend (slope) + momentum (RSI) + EMA cross
-  const slopePerCandle = slope;
-  const momentumBias = (rsi - 50) / 50; // -1 to +1
-  const emaBias = emaCrossSignal * 100; // Normalized crossover
+  // Normalized per-candle rate from trend
+  const trendRate = slope / currentPrice;
+  // Momentum nudge: RSI 70+ = slight bullish, RSI 30- = slight bearish
+  const momentumNudge = ((rsi - 50) / 50) * volatility * 0.1;
+  // EMA nudge: very small
+  const emaNudge = emaCrossSignal * 0.5;
 
-  // Blended projection rate per candle
-  const trendRate = slopePerCandle / currentPrice; // Normalized slope
-  const blendedRate = trendRate * 0.5 + momentumBias * volatility * 0.3 + emaBias * 0.2;
+  // Blend and CLAMP to prevent wild projections (max ±0.3% per candle)
+  const rawRate = trendRate * 0.6 + momentumNudge * 0.25 + emaNudge * 0.15;
+  const maxRatePerCandle = 0.003; // ±0.3% max per candle
+  const clampedRate = Math.max(-maxRatePerCandle, Math.min(maxRatePerCandle, rawRate));
 
   const points: { time: Time; value: number }[] = [
     { time: lastTime as Time, value: currentPrice },
   ];
 
   for (let i = 1; i <= futureCandles; i++) {
-    const futureTime = (lastTime + i * 60) as Time; // 1m candles = 60s each
-    // Add slight decay to prediction confidence over time
-    const decay = 1 - (i / futureCandles) * 0.3;
-    const projected = currentPrice * (1 + blendedRate * i * decay);
+    const futureTime = (lastTime + i * 60) as Time; // 1m candles
+    const projected = currentPrice * (1 + clampedRate * i);
     points.push({ time: futureTime, value: projected });
   }
 
@@ -176,20 +184,42 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   // 6. Determine signal
   let signal: Signal;
   const absMove = Math.abs(pctMove);
-  if (absMove < 0.02) {
+  if (absMove < 0.01) {
     signal = "HOLD";
   } else if (pctMove > 0) {
-    signal = absMove > 0.1 ? "LONG" : "SCALP LONG";
+    signal = absMove > 0.15 ? "LONG" : "SCALP LONG";
   } else {
-    signal = absMove > 0.1 ? "SHORT" : "SCALP SHORT";
+    signal = absMove > 0.15 ? "SHORT" : "SCALP SHORT";
   }
 
-  // 7. Confidence: based on trend strength + volatility alignment
-  const trendStrength = Math.min(Math.abs(trendRate) / volatility, 1) * 100;
-  const rsiConfidence = Math.abs(rsi - 50) * 2; // 0-100
-  const confidence = Math.min(Math.round(trendStrength * 0.5 + rsiConfidence * 0.3 + Math.abs(emaCrossSignal) * 2000 * 0.2), 95);
+  // 7. Confidence
+  const trendStrength = Math.min(Math.abs(trendRate) / (volatility || 0.001), 1) * 100;
+  const rsiConfidence = Math.abs(rsi - 50) * 2;
+  const confidence = Math.min(Math.round(trendStrength * 0.5 + rsiConfidence * 0.3 + Math.min(Math.abs(emaCrossSignal) * 500, 30) * 0.2), 95);
 
-  return { points, signal, confidence: Math.max(confidence, 10), targetPrice };
+  // 8. Strategy breakdown for info panel
+  const strategies: StrategyBreakdown = {
+    trend: {
+      direction: Math.abs(trendRate) < 0.0001 ? "flat" : trendRate > 0 ? "up" : "down",
+      strength: Math.min(Math.abs(trendRate) / (volatility || 0.001), 1) * 100,
+      slope,
+    },
+    momentum: {
+      rsi,
+      bias: rsi > 60 ? "bullish" : rsi < 40 ? "bearish" : "neutral",
+    },
+    ema: {
+      ema8,
+      ema21,
+      cross: ema8 > ema21 * 1.0002 ? "bullish" : ema8 < ema21 * 0.9998 ? "bearish" : "neutral",
+    },
+    volatility: {
+      value: volatility * 100,
+      level: volatility > 0.003 ? "high" : volatility > 0.001 ? "medium" : "low",
+    },
+  };
+
+  return { points, signal, confidence: Math.max(confidence, 10), targetPrice, strategies };
 }
 
 // ── Component ────────────────────────────────────────────────
@@ -218,6 +248,7 @@ const TradingChart = ({
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
+  const [showStrategyInfo, setShowStrategyInfo] = useState(false);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -567,19 +598,21 @@ const TradingChart = ({
               </span>
             </>
           )}
-          {/* Signal badge */}
+          {/* Signal badge — click for strategy breakdown */}
           {showPrediction && prediction && !compact && (
-            <span
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+            <button
+              onClick={() => setShowStrategyInfo(!showStrategyInfo)}
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
                 prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
                   : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                    ? "bg-red-500/15 text-red-400 border-red-500/30"
-                    : "bg-slate-500/15 text-slate-400 border-slate-500/30"
+                    ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
+                    : "bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25"
               }`}
+              title="Click for strategy breakdown"
             >
               {prediction.signal} {prediction.confidence}%
-            </span>
+            </button>
           )}
           {/* Compact signal dot */}
           {showPrediction && prediction && compact && (
@@ -664,6 +697,92 @@ const TradingChart = ({
 
       {/* Chart container */}
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" />
+
+      {/* Strategy Breakdown Panel */}
+      {showStrategyInfo && prediction?.strategies && !compact && (
+        <div className="mt-2 rounded-lg border border-blue-500/20 bg-slate-900/80 backdrop-blur-sm p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">AI Strategy Breakdown</span>
+            <button onClick={() => setShowStrategyInfo(false)} className="text-[9px] text-slate-500 hover:text-white">✕</button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5">
+            {/* Trend */}
+            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
+              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Trend (WLR)</div>
+              <div className="flex items-center gap-1">
+                <span className={`text-[10px] font-bold ${
+                  prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
+                  prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
+                }`}>
+                  {prediction.strategies.trend.direction === "up" ? "Bullish" :
+                   prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
+                </span>
+                <span className="text-[8px] text-slate-500">
+                  {prediction.strategies.trend.strength.toFixed(0)}%
+                </span>
+              </div>
+              <div className="text-[7px] text-slate-600 mt-0.5">Weighted Linear Regression (60 bars)</div>
+            </div>
+
+            {/* Momentum */}
+            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
+              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Momentum (RSI)</div>
+              <div className="flex items-center gap-1">
+                <span className={`text-[10px] font-bold ${
+                  prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
+                  prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
+                }`}>
+                  {prediction.strategies.momentum.rsi.toFixed(1)}
+                </span>
+                <span className={`text-[8px] ${
+                  prediction.strategies.momentum.bias === "bullish" ? "text-emerald-500/70" :
+                  prediction.strategies.momentum.bias === "bearish" ? "text-red-500/70" : "text-slate-500"
+                }`}>
+                  {prediction.strategies.momentum.bias}
+                </span>
+              </div>
+              <div className="text-[7px] text-slate-600 mt-0.5">14-period RSI momentum</div>
+            </div>
+
+            {/* EMA Cross */}
+            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
+              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">EMA Cross</div>
+              <div className="flex items-center gap-1">
+                <span className={`text-[10px] font-bold ${
+                  prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
+                  prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
+                }`}>
+                  {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
+                   prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
+                </span>
+              </div>
+              <div className="text-[7px] text-slate-600 mt-0.5">EMA(8) vs EMA(21) crossover</div>
+            </div>
+
+            {/* Volatility */}
+            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
+              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Volatility</div>
+              <div className="flex items-center gap-1">
+                <span className={`text-[10px] font-bold ${
+                  prediction.strategies.volatility.level === "high" ? "text-amber-400" :
+                  prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
+                }`}>
+                  {prediction.strategies.volatility.value.toFixed(3)}%
+                </span>
+                <span className="text-[8px] text-slate-500">
+                  {prediction.strategies.volatility.level}
+                </span>
+              </div>
+              <div className="text-[7px] text-slate-600 mt-0.5">Std dev of returns (60 bars)</div>
+            </div>
+          </div>
+
+          <div className="text-[7px] text-slate-600 leading-relaxed border-t border-white/[0.04] pt-1.5">
+            AI blends 4 strategies: <span className="text-blue-400/70">60% trend</span> (weighted linear regression favoring recent candles), <span className="text-blue-400/70">25% momentum</span> (RSI divergence from neutral), <span className="text-blue-400/70">15% EMA cross</span> (8/21 crossover direction). Prediction clamped to ±0.3%/candle max.
+          </div>
+        </div>
+      )}
     </div>
   );
 };

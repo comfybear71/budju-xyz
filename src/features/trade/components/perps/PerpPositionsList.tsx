@@ -5,9 +5,10 @@ interface Props {
   positions: PerpPosition[];
   onClose: (positionId: string, exitPrice: number) => void;
   onModify: (positionId: string) => void;
+  readOnly?: boolean;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: Props) => {
   if (positions.length === 0) {
     return (
       <div className="text-center py-8 text-slate-500 text-xs">
@@ -89,21 +90,23 @@ const PerpPositionsList = ({ positions, onClose, onModify }: Props) => {
               </div>
             )}
 
-            {/* Actions */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => onModify(pos._id)}
-                className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
-              >
-                Modify
-              </button>
-              <button
-                onClick={() => onClose(pos._id, pos.mark_price)}
-                className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
-              >
-                Close Position
-              </button>
-            </div>
+            {/* Actions — hidden in read-only mode */}
+            {!readOnly && (
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onModify(pos._id)}
+                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
+                >
+                  Modify
+                </button>
+                <button
+                  onClick={() => onClose(pos._id, pos.mark_price)}
+                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
+                >
+                  Close Position
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
