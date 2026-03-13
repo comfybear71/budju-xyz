@@ -424,7 +424,7 @@ Checked every minute in priority order (independent checks, not elif):
 - **Cron prices switched from CoinGecko to Binance** — Chart shows Binance WebSocket prices but cron used CoinGecko, causing TP/SL triggers to miss when prices differed. Now uses Binance REST API (matches chart) with CoinGecko as fallback.
 - **Trade markers fixed to correct chart positions** — Markers were bunched at the start because trade timestamps fell outside the chart's ~8hr candle range. Now snaps to nearest candle via binary search and skips out-of-range trades entirely.
 - **AI Trading Genius entry zones on chart** — Two dashed price lines show where the AI auto-trader would execute its next LONG (green, lower BB/EMA50 support) and SHORT (red, upper BB/EMA50 resistance) entries. Lines are condition-aware: bright with "READY" badge when RSI + EMA50 trend filter align, dimmed with "BLOCKED" + reason when conditions prevent execution. Lines update live every completed candle. Below-chart panel shows exact prices, distance from current price, and BB/EMA50 reference levels.
-- **Chart default zoom improved** — Charts now default to showing ~200 candles (~3.3 hrs) with `barSpacing: 4` for better overview instead of being zoomed too close.
+- **Chart default zoom improved** — Charts now default to showing ~200 candles (~3.3 hrs) with `barSpacing: 4` for better overview instead of being zoomed too close. `rightOffset: 20` adds empty space after the last candle so price action isn't pressed against the right edge.
 - **Fixed Binance price fetch in cron** — `fetch_prices_binance()` was passing a JSON array in the URL without encoding, likely causing 400 errors and falling back to CoinGecko. Now fetches all Binance tickers and filters, which is simpler and reliable.
 - **Relaxed strategy conditions** — Strategies were too restrictive for 1-min data and rarely fired:
   - Trend following: no longer requires exact EMA crossover candle — now fires while fast EMA is above/below slow AND accelerating
@@ -432,6 +432,7 @@ Checked every minute in priority order (independent checks, not elif):
   - Momentum: removed `breakout_mult` candle-size requirement — just price breaking recent high/low with RSI confirmation
   - Scalping: added pullback entry signals (RSI dipping in uptrend / elevated in downtrend), relaxed AND to OR on conditions
   - Cooldown reduced from 30 to 15 minutes
+- **AI entry zones cached across re-renders** — `lastEntryZonesRef` persists computed entry zones so they survive chart re-initialization. Minimum candle requirement lowered to 20 (BB period) with EMA50 adapting to available data. Fallback re-applies cached zones if prediction can't recompute.
 - **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
 - Added Vercel Analytics (`@vercel/analytics/react`)
 - Added date/time stamps to trade log entries

@@ -368,7 +368,7 @@ const TradingChart = ({
         timeVisible: true,
         secondsVisible: false,
         borderColor: "transparent",
-        rightOffset: 8,
+        rightOffset: 20,
         barSpacing: 4,
       },
       crosshair: {
