@@ -240,7 +240,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   const ema50Period = 50;
 
   let entryZones: AIEntryZone | undefined;
-  if (closes.length >= ema50Period) {
+  if (closes.length >= bbPeriod) {  // Only need 20 candles (BB period), EMA50 adapts
     // Bollinger Bands
     const bbSlice = closes.slice(-bbPeriod);
     const bbMean = bbSlice.reduce((s, v) => s + v, 0) / bbPeriod;
@@ -249,10 +249,11 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     const bbUpper = bbMean + bbStd * bbStdDev;
     const bbLower = bbMean - bbStd * bbStdDev;
 
-    // EMA 50 (trend filter) — server requires price above for longs, below for shorts
-    const ema50Slice = closes.slice(-ema50Period);
+    // EMA 50 (trend filter) — adapts to available data, min 20 candles
+    const emaLen = Math.min(ema50Period, closes.length);
+    const ema50Slice = closes.slice(-emaLen);
     let ema50Val = ema50Slice[0];
-    const k50 = 2 / (ema50Period + 1);
+    const k50 = 2 / (emaLen + 1);
     for (let i = 1; i < ema50Slice.length; i++) {
       ema50Val = ema50Slice[i] * k50 + ema50Val * (1 - k50);
     }
@@ -335,6 +336,7 @@ const TradingChart = ({
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
+  const lastEntryZonesRef = useRef<AIEntryZone | null>(null);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -486,13 +488,16 @@ const TradingChart = ({
       addPositionLines();
 
       // Compute initial prediction + AI entry zones
-      if (showPrediction && historical.length >= 60) {
-        const pred = computePrediction(historical);
+      if (showPrediction && historical.length >= 50) {
+        const pred = computePrediction(historical, Math.min(60, historical.length - 1));
         if (pred && predictionSeriesRef.current) {
           predictionSeriesRef.current.setData(pred.points);
           setPrediction(pred);
           if (pred.entryZones) addAIEntryZones(pred.entryZones);
         }
+      } else if (showPrediction && lastEntryZonesRef.current) {
+        // Re-apply cached AI zones (e.g., after chart re-init)
+        addAIEntryZones(lastEntryZonesRef.current);
       }
 
       setLoading(false);
@@ -692,6 +697,7 @@ const TradingChart = ({
 
   const addAIEntryZones = useCallback((zones: AIEntryZone) => {
     if (!candleSeriesRef.current) return;
+    lastEntryZonesRef.current = zones;
 
     // Remove previous AI lines
     for (const line of aiLinesRef.current) {
