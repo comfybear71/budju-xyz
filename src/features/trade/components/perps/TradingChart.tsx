@@ -896,15 +896,28 @@ const TradingChart = ({
         </div>
       )}
 
-      {/* Chart container */}
+      {/* Chart container — explicit height is critical for iOS Safari where
+           the absolutely-positioned canvas inside lightweight-charts doesn't
+           contribute to the parent's layout, causing the container to collapse
+           to 0px height and the chart to be invisible. */}
       <style>{`
         .trading-chart-wrap [class*="pane"] div[style*="position: absolute"][style*="z-index"],
         .trading-chart-wrap td[style*="padding"] > div > div[style*="position: absolute"] {
           border-radius: 4px !important;
           opacity: 0.85 !important;
         }
+        /* Ensure lightweight-charts internal table fills the container on iOS */
+        .trading-chart-wrap table {
+          width: 100% !important;
+        }
       `}</style>
-      <div ref={containerRef} className="trading-chart-wrap w-full rounded-lg overflow-hidden" />
+      <div
+        ref={wrapperRef}
+        className="trading-chart-wrap w-full rounded-lg overflow-hidden relative"
+        style={{ height: `${height}px`, minHeight: `${height}px` }}
+      >
+        <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      </div>
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (

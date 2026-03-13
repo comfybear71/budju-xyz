@@ -8,7 +8,7 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
 import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
@@ -54,6 +54,91 @@ function getHourlyWinRate(trades: PerpTrade[]): Record<number, { wins: number; t
   return hours;
 }
 
+// ── Lazy Chart Wrapper ────────────────────────────────────────
+// Uses IntersectionObserver to only mount TradingChart (and its WebSocket)
+// when the container scrolls into view. This prevents iOS Safari from
+// hitting the ~6 concurrent WebSocket limit when all 6 grid charts
+// try to connect simultaneously.
+
+const LazyChart = ({
+  symbol,
+  base,
+  positions,
+  trades,
+  height,
+  compact,
+}: {
+  symbol: string;
+  base: string;
+  positions: PerpPosition[];
+  trades: PerpTrade[];
+  height: number;
+  compact: boolean;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    // On browsers without IntersectionObserver (rare), just render immediately
+    if (typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect(); // Only need to trigger once
+        }
+      },
+      { rootMargin: "100px" }, // Start loading slightly before visible
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref}>
+      {isVisible ? (
+        <TradingChart
+          symbol={symbol}
+          baseAsset={base}
+          positions={positions}
+          trades={trades}
+          height={height}
+          compact={compact}
+        />
+      ) : (
+        <div
+          style={{ height: `${height}px` }}
+          className="flex items-center justify-center text-xs text-slate-600 animate-pulse"
+        >
+          Loading {base} chart...
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Detect mobile/small screen for limiting concurrent charts
+function useIsMobile(breakpoint = 768): boolean {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
 // ── Component ────────────────────────────────────────────────
 
 const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
@@ -76,7 +161,12 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
     return map;
   }, [positions]);
 
+  const isMobile = useIsMobile();
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
+
+  // On mobile, limit grid to 4 charts to stay within iOS Safari's
+  // WebSocket connection limit (~6 total, minus the shared price stream).
+  const gridMarkets = isMobile ? MARKETS.slice(0, 4) : MARKETS;
 
   return (
     <div className="space-y-3">
@@ -202,9 +292,11 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
           </div>
         </>
       ) : (
-        /* Grid view — 2 columns on desktop, 1 on mobile */
+        /* Grid view — 2 columns on desktop, 1 on mobile.
+           Uses LazyChart to defer WebSocket connections until visible,
+           preventing iOS Safari from exceeding its connection limit. */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {MARKETS.map((m) => (
+          {gridMarkets.map((m) => (
             <div
               key={m.symbol}
               className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-2 cursor-pointer hover:border-blue-500/20 transition-colors"
@@ -213,9 +305,9 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 setViewMode("focus");
               }}
             >
-              <TradingChart
+              <LazyChart
                 symbol={m.symbol}
-                baseAsset={m.base}
+                base={m.base}
                 positions={positions}
                 trades={trades}
                 height={180}
