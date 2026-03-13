@@ -323,6 +323,7 @@ const TradingChart = ({
   height = 300,
   compact = false,
 }: Props) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -355,8 +356,15 @@ const TradingChart = ({
       chartRef.current = null;
     }
 
+    // On iOS Safari, clientWidth can be 0 if the element hasn't been laid out yet.
+    // Fall back to the wrapper's width or a sensible default to prevent a 0-width canvas.
+    const containerWidth = containerRef.current.clientWidth
+      || wrapperRef.current?.clientWidth
+      || containerRef.current.getBoundingClientRect().width
+      || 300;
+
     const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
+      width: containerWidth,
       height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
@@ -436,15 +444,26 @@ const TradingChart = ({
     volumeSeriesRef.current = volumeSeries;
     predictionSeriesRef.current = predictionSeries;
 
-    // Resize handler
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
-      }
+    // Resize handler — debounced for iOS Safari which fires rapidly during
+    // orientation changes and scroll bouncing. Guards against 0-width which
+    // causes lightweight-charts to render an invisible canvas on iOS.
+    let resizeRafId: number | null = null;
+    const ro = new ResizeObserver((entries) => {
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null;
+        if (!containerRef.current || !chartRef.current) return;
+        const entry = entries[0];
+        const newWidth = entry?.contentRect?.width || containerRef.current.clientWidth;
+        if (newWidth > 0) {
+          chartRef.current.applyOptions({ width: newWidth });
+        }
+      });
     });
     ro.observe(containerRef.current);
 
     return () => {
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
