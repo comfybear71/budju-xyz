@@ -377,14 +377,17 @@ DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
 ```
 
 ### Auto-Trader Strategies (perp_strategies.py)
-| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) |
-|----------|--------|----------|---------------|---------------|
-| Trend Following | EMA 9/21 crossover + RSI | 5x | 2.0 | 4.0 |
-| Mean Reversion | Bollinger Band bounce + RSI | 3x | 1.5 | 3.0 |
-| Momentum | Price breakout above/below range | 5x | 2.5 | 5.0 |
-| Scalping | RSI extremes + EMA slope | 5x | 1.5 | 2.5 |
+| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop |
+|----------|--------|----------|---------------|---------------|---------------|
+| Trend Following | EMA 9/21 crossover + RSI | 5x | 2.0 | 8.0 | 1.5% |
+| Mean Reversion | Bollinger Band bounce + RSI | 3x | 1.5 | 3.0 | 1.0% |
+| Momentum | Price breakout above/below range | 5x | 2.5 | 10.0 | 2.0% |
+| Scalping | RSI extremes + EMA slope | 5x | 1.5 | 2.5 | 0.8% |
 
-- ATR is 1-minute data scaled by `sqrt(15)` to approximate 15-min ATR
+- ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR (wider stops that survive normal price noise)
+- **50-period EMA trend filter** on all strategies — longs require price above 50 EMA, shorts require price below. Prevents trading against the trend.
+- **Profit-activated trailing stops** — trail does NOT start from entry. It activates only after price moves favorably by the trailing %. E.g. 1.5% trail on a long activates at +1.5% profit, then ratchets up from there. Until activation, only the fixed SL protects the downside.
+- Trend following and momentum use wide TP (8-10x ATR) so the trailing stop is the primary exit, letting winners run.
 - Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
 - Cooldown: 30 min per market between auto trades
 - Historical candles seeded from Binance public API (eliminates cold-start)
@@ -412,6 +415,11 @@ Checked every minute in priority order (independent checks, not elif):
 - **Critical bug fix: Liquidation formula broken for >20x leverage** — 5% maintenance margin exceeded initial margin at high leverage (e.g., 50x long had liq price ABOVE entry → immediate liquidation). Fixed with scaled maintenance margin: `min(5%, 50%/leverage)`.
 - **SL/TP validation added** — `open_position()` and `modify_position()` now reject invalid SL/TP (e.g., long SL above entry, short TP above entry).
 - **Daily loss limit now scales with equity** — was fixed at 20% of $10K regardless of account growth.
+- **ATR scaling widened from sqrt(15) to sqrt(60)** — 1-min ATR was too small (~0.4% SL), causing every trade to stop out on normal noise. Now approximates 1-hour ATR for meaningful stop distances.
+- **50-period EMA trend filter added** — All 4 strategies now check that trade direction aligns with the higher-timeframe trend. Prevents shorting into rallies and longing into dumps.
+- **Profit-activated trailing stops** — Trailing stop no longer starts from entry (which made it a tighter SL than the ATR-based one). Now activates only after price moves favorably by the trailing %, then ratchets from the high-water mark. This lets winners run while locking in profit.
+- **TP widened for trailing stop strategies** — Trend following TP: 4x→8x ATR. Momentum TP: 5x→10x ATR. The trailing stop is now the primary exit for these strategies, with TP as a distant backstop.
+- **Mean reversion gets trailing stop** — Added 1.0% trailing to lock in Bollinger Band bounce profits.
 - **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
 - Added Vercel Analytics (`@vercel/analytics/react`)
 - Added date/time stamps to trade log entries
@@ -435,6 +443,7 @@ Checked every minute in priority order (independent checks, not elif):
 11. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra (VM, Railway, or split Vercel functions).
 12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture.
 13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
+14. **Trailing stop activation stored as price level** — `trailing_stop_activation` field on position doc. Existing positions opened before this change won't have it (they'll have `trailing_stop_price` set from entry — old behavior still works, just not profit-gated).
 
 ---
 
