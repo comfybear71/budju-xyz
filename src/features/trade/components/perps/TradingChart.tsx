@@ -644,49 +644,49 @@ const TradingChart = ({
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
-      // Entry price line — slightly transparent
+      // Entry price line — transparent, no axis label
       const dirLabel = pos.direction === "long" ? "L" : "S";
       candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
-        color: pos.direction === "long" ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
+        color: pos.direction === "long" ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: `${dirLabel} ${pos.leverage}x`,
       });
 
-      // Stop loss line — slightly transparent
+      // Stop loss line — transparent, no axis label
       if (pos.stop_loss) {
         candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
-          color: "rgba(245,158,11,0.6)",
+          color: "rgba(245,158,11,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: "",
         });
       }
 
-      // Take profit line — slightly transparent
+      // Take profit line — transparent, no axis label
       if (pos.take_profit) {
         candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
-          color: "rgba(168,85,247,0.6)",
+          color: "rgba(168,85,247,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: "",
         });
       }
 
-      // Liquidation line — slightly transparent
+      // Liquidation line — transparent, no axis label
       if (pos.liquidation_price) {
         candleSeriesRef.current.createPriceLine({
           price: pos.liquidation_price,
-          color: "rgba(220,38,38,0.6)",
+          color: "rgba(220,38,38,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: true,
+          axisLabelVisible: false,
           title: "",
         });
       }
