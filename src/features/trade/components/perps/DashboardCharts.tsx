@@ -8,7 +8,7 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
 import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
