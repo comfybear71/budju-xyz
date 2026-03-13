@@ -258,10 +258,14 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
       ema50Val = ema50Slice[i] * k50 + ema50Val * (1 - k50);
     }
 
-    // Long entry: lower BB (mean reversion) or EMA50 support
-    const longEntry = Math.max(bbLower, Math.min(ema50Val, currentPrice * 0.998));
-    // Short entry: upper BB (mean reversion) or EMA50 resistance
-    const shortEntry = Math.min(bbUpper, Math.max(ema50Val, currentPrice * 1.002));
+    // Long entry: blend of lower BB, EMA support, and current price — moves dynamically
+    const longBB = bbLower;
+    const longEMA = Math.min(ema50Val, currentPrice * 0.998);
+    const longEntry = longBB * 0.4 + longEMA * 0.3 + currentPrice * 0.997 * 0.3;
+    // Short entry: blend of upper BB, EMA resistance, and current price — moves dynamically
+    const shortBB = bbUpper;
+    const shortEMA = Math.max(ema50Val, currentPrice * 1.002);
+    const shortEntry = shortBB * 0.4 + shortEMA * 0.3 + currentPrice * 1.003 * 0.3;
 
     // Check if conditions are met (matching server-side perp_strategies.py logic)
     // Long requires: price above EMA50 (trend filter) + RSI not overbought
