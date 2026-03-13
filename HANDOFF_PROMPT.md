@@ -422,6 +422,8 @@ Checked every minute in priority order (independent checks, not elif):
 - **TP widened for trailing stop strategies** — Trend following TP: 4x→8x ATR. Momentum TP: 5x→10x ATR. The trailing stop is now the primary exit for these strategies, with TP as a distant backstop.
 - **Mean reversion gets trailing stop** — Added 1.0% trailing to lock in Bollinger Band bounce profits.
 - **Cron prices switched from CoinGecko to Binance** — Chart shows Binance WebSocket prices but cron used CoinGecko, causing TP/SL triggers to miss when prices differed. Now uses Binance REST API (matches chart) with CoinGecko as fallback.
+- **Trade markers fixed to correct chart positions** — Markers were bunched at the start because trade timestamps fell outside the chart's ~8hr candle range. Now snaps to nearest candle via binary search and skips out-of-range trades entirely.
+- **AI Trading Genius entry zones on chart** — Two dashed price lines show where the AI auto-trader would execute its next LONG (green, lower BB/EMA50 support) and SHORT (red, upper BB/EMA50 resistance) entries. Lines update live every completed candle. Below-chart panel shows exact prices, distance from current price, and BB/EMA50 reference levels.
 - **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
 - Added Vercel Analytics (`@vercel/analytics/react`)
 - Added date/time stamps to trade log entries
