@@ -56,6 +56,13 @@ from perp_strategies import (
     toggle_auto_trading,
     update_strategy_config,
 )
+from perp_pending_orders import (
+    place_pending_order,
+    get_pending_orders,
+    cancel_pending_order,
+    cancel_all_pending_orders,
+    get_pending_order_count,
+)
 
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
@@ -165,7 +172,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
@@ -349,6 +356,17 @@ class handler(BaseHTTPRequestHandler):
                     return
                 status = get_strategy_status(wallet)
                 self._send_json(200, status)
+
+            elif path == '/api/perp/orders/pending':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                symbol = params.get('symbol')
+                status = params.get('status', 'pending')
+                orders = get_pending_orders(wallet, symbol=symbol, status=status)
+                count = get_pending_order_count(wallet)
+                self._send_json(200, {"orders": orders, "count": len(orders), "pending_count": count})
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -690,6 +708,73 @@ class handler(BaseHTTPRequestHandler):
                     live_status["reconciliation"] = reconcile_positions(live_pos)
                 self._send_json(200, live_status)
 
+            # ── Pending Limit/Stop Orders ─────────────────────────────
+            elif path == '/api/perp/orders/pending':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                symbol = body.get('symbol')
+                order_type = body.get('orderType')
+                trigger_price = body.get('triggerPrice')
+                size_usd = body.get('sizeUsd')
+                leverage = int(body.get('leverage', 5))
+                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
+                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
+                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
+                entry_reason = body.get('entryReason', '')
+                expiry_hours = int(body.get('expiryHours', 24))
+
+                if not all([symbol, order_type, trigger_price, size_usd]):
+                    self._send_json(400, {"error": "symbol, orderType, triggerPrice, and sizeUsd required"})
+                    return
+
+                result = place_pending_order(
+                    wallet, symbol, order_type, float(trigger_price),
+                    float(size_usd), leverage, stop_loss, take_profit,
+                    trailing_stop, entry_reason, expiry_hours
+                )
+                self._send_json(200, result)
+
+            else:
+                self._send_json(404, {"error": "Not found"})
+
+        except ValueError as e:
+            self._send_json(400, {"error": str(e)})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    def do_DELETE(self):
+        # Rate limit check (stricter for writes)
+        client_ip = _get_client_ip(self)
+        if not _check_rate_limit(client_ip, is_write=True):
+            self._send_json(429, {"error": "Too many requests. Please try again later."})
+            return
+
+        try:
+            path = self.path.split('?')[0]
+            body = self._read_body()
+
+            if path == '/api/perp/orders/pending':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                order_id = body.get('orderId')
+                cancel_all = body.get('cancelAll', False)
+                symbol = body.get('symbol')
+
+                if cancel_all:
+                    result = cancel_all_pending_orders(wallet, symbol=symbol)
+                    self._send_json(200, result)
+                elif order_id:
+                    result = cancel_pending_order(order_id, reason="manual")
+                    self._send_json(200, result)
+                else:
+                    self._send_json(400, {"error": "orderId or cancelAll required"})
+
             else:
                 self._send_json(404, {"error": "Not found"})
 
@@ -705,7 +790,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Content-Type', 'application/json')
         self.end_headers()

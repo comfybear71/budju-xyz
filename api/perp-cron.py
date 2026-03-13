@@ -34,6 +34,7 @@ from perp_engine import (
     COINGECKO_IDS,
 )
 from perp_strategies import store_price, run_auto_trader, seed_all_markets
+from perp_pending_orders import check_and_execute_pending_orders, expire_stale_orders
 
 # ── Config ────────────────────────────────────────────────────────────
 
@@ -219,6 +220,37 @@ def run_perp_monitor() -> dict:
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
 
+    # 4b. Check and execute pending limit/stop orders
+    pending_fills = []
+    for symbol, price in prices.items():
+        try:
+            fills = check_and_execute_pending_orders(symbol, price)
+            if fills:
+                pending_fills.extend(fills)
+                for fill in fills:
+                    wallet_short = fill["account_id"][:4] + "..." + fill["account_id"][-4:]
+                    direction = fill["direction"].upper()
+                    msg = (
+                        f"📋 <b>PENDING ORDER FILLED</b>\n"
+                        f"📍 {fill['symbol']} {direction} ({fill['order_type']})\n"
+                        f"💵 Trigger: ${fill['trigger_price']:.4f} | Fill: ${fill.get('filled_price', price):.4f}\n"
+                        f"👤 {wallet_short}"
+                    )
+                    send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Pending order check error for {symbol}: {e}")
+
+    if pending_fills:
+        print(f"[perp-cron] Filled {len(pending_fills)} pending orders")
+
+    # 4c. Expire stale pending orders
+    try:
+        expired_count = expire_stale_orders()
+        if expired_count > 0:
+            print(f"[perp-cron] Expired {expired_count} stale pending orders")
+    except Exception as e:
+        print(f"[perp-cron] Expire orders error: {e}")
+
     # 5. Run automated trading strategies for all accounts
     all_accounts = list(perp_accounts.find({}))
     auto_trade_actions = []
@@ -261,7 +293,7 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Equity snapshot error for {acc['wallet'][:8]}: {e}")
 
-    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades")
+    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades, {len(pending_fills)} pending fills")
 
     return {
         "status": "ok",
@@ -271,5 +303,6 @@ def run_perp_monitor() -> dict:
         "positions_closed": positions_closed,
         "events": events,
         "auto_trades": auto_trade_actions,
+        "pending_fills": pending_fills,
         "accounts_snapshotted": len(all_accounts),
     }
