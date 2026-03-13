@@ -253,13 +253,23 @@ def calculate_borrow_fee(size_usd: float, hours: float) -> float:
 
 # ── Liquidation ──────────────────────────────────────────────────────────
 
+def calculate_maintenance_margin(leverage: int) -> float:
+    """Scale maintenance margin with leverage like real exchanges.
+    Higher leverage gets lower maintenance margin to prevent
+    liquidation price being above entry (which happens when
+    maintenance_margin > 1/leverage, i.e. leverage > 20 at 5%).
+    """
+    return min(MAINTENANCE_MARGIN_PCT, 0.5 / leverage)
+
+
 def calculate_liquidation_price(entry_price: float, leverage: int,
                                  direction: str) -> float:
     """Calculate liquidation price for a position."""
+    mm = calculate_maintenance_margin(leverage)
     if direction == "long":
-        return entry_price * (1 - 1 / leverage + MAINTENANCE_MARGIN_PCT)
+        return entry_price * (1 - 1 / leverage + mm)
     else:
-        return entry_price * (1 + 1 / leverage - MAINTENANCE_MARGIN_PCT)
+        return entry_price * (1 + 1 / leverage - mm)
 
 
 def check_liquidation(position: Dict, mark_price: float) -> bool:
@@ -330,6 +340,19 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     margin = size_usd / leverage
     if not is_live and margin > account["balance"]:
         raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
+
+    # Validate SL/TP relative to entry and direction
+    if stop_loss is not None:
+        if direction == "long" and stop_loss >= entry_price:
+            raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry_price})")
+        if direction == "short" and stop_loss <= entry_price:
+            raise ValueError(f"Short stop loss (${stop_loss}) must be above entry (${entry_price})")
+
+    if take_profit is not None:
+        if direction == "long" and take_profit <= entry_price:
+            raise ValueError(f"Long take profit (${take_profit}) must be above entry (${entry_price})")
+        if direction == "short" and take_profit >= entry_price:
+            raise ValueError(f"Short take profit (${take_profit}) must be below entry (${entry_price})")
 
     # ── LIVE MODE: Execute on Drift ─────────────────────────────
     exchange_oid = None
@@ -405,7 +428,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         "mark_price": fill_price,
         "liquidation_price": liq_price,
         "margin": margin,
-        "maintenance_margin": size_usd * MAINTENANCE_MARGIN_PCT,
+        "maintenance_margin": size_usd * calculate_maintenance_margin(leverage),
         "unrealized_pnl": 0.0,
         "unrealized_pnl_pct": 0.0,
         "stop_loss": stop_loss,
@@ -608,6 +631,22 @@ def modify_position(position_id: str, stop_loss: float = None,
     if not pos:
         raise ValueError("Position not found or already closed")
 
+    direction = pos["direction"]
+    entry = pos["entry_price"]
+
+    # Validate SL/TP relative to entry and direction
+    if stop_loss is not None:
+        if direction == "long" and stop_loss >= entry:
+            raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry})")
+        if direction == "short" and stop_loss <= entry:
+            raise ValueError(f"Short stop loss (${stop_loss}) must be above entry (${entry})")
+
+    if take_profit is not None:
+        if direction == "long" and take_profit <= entry:
+            raise ValueError(f"Long take profit (${take_profit}) must be above entry (${entry})")
+        if direction == "short" and take_profit >= entry:
+            raise ValueError(f"Short take profit (${take_profit}) must be below entry (${entry})")
+
     update = {"last_updated": datetime.utcnow()}
     if stop_loss is not None:
         update["stop_loss"] = stop_loss
@@ -784,7 +823,7 @@ def snapshot_equity(wallet: str) -> Dict:
             {"wallet": wallet},
             {"$set": {"daily_pnl": 0, "daily_pnl_reset": datetime.utcnow(), "trading_paused": False}}
         )
-    elif daily_pnl < -(INITIAL_BALANCE * DAILY_LOSS_LIMIT_PCT):
+    elif daily_pnl < -(equity * DAILY_LOSS_LIMIT_PCT):
         perp_accounts.update_one(
             {"wallet": wallet},
             {"$set": {"trading_paused": True}}
