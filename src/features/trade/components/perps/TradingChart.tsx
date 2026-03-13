@@ -267,34 +267,11 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     const shortEMA = Math.max(ema50Val, currentPrice * 1.002);
     const shortEntry = shortBB * 0.4 + shortEMA * 0.3 + currentPrice * 1.003 * 0.3;
 
-    // Check if conditions are met (matching server-side perp_strategies.py logic)
-    // Long requires: price above EMA50 (trend filter) + RSI not overbought
-    const trendAllowsLong = currentPrice > ema50Val;
-    const rsiAllowsLong = rsi < 70; // Not overbought
-    const longReady = trendAllowsLong && rsiAllowsLong;
-    let longReason = "";
-    if (longReady) {
-      longReason = "Trend + RSI aligned";
-    } else {
-      const blocks: string[] = [];
-      if (!trendAllowsLong) blocks.push("price below EMA50");
-      if (!rsiAllowsLong) blocks.push(`RSI overbought (${rsi.toFixed(0)})`);
-      longReason = `Blocked: ${blocks.join(", ")}`;
-    }
-
-    // Short requires: price below EMA50 (trend filter) + RSI not oversold
-    const trendAllowsShort = currentPrice < ema50Val;
-    const rsiAllowsShort = rsi > 30; // Not oversold
-    const shortReady = trendAllowsShort && rsiAllowsShort;
-    let shortReason = "";
-    if (shortReady) {
-      shortReason = "Trend + RSI aligned";
-    } else {
-      const blocks: string[] = [];
-      if (!trendAllowsShort) blocks.push("price above EMA50");
-      if (!rsiAllowsShort) blocks.push(`RSI oversold (${rsi.toFixed(0)})`);
-      shortReason = `Blocked: ${blocks.join(", ")}`;
-    }
+    // Trend context — informational only, never blocks display
+    const trendBias = currentPrice > ema50Val ? "Uptrend" : "Downtrend";
+    const rsiLabel = rsi > 70 ? "Overbought" : rsi < 30 ? "Oversold" : "Neutral";
+    const longReason = `${trendBias} · RSI ${rsi.toFixed(0)} (${rsiLabel})`;
+    const shortReason = `${trendBias} · RSI ${rsi.toFixed(0)} (${rsiLabel})`;
 
     entryZones = {
       longEntry,
@@ -303,8 +280,8 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
       bbLower,
       bbMiddle: bbMean,
       ema50: ema50Val,
-      longReady,
-      shortReady,
+      longReady: true,
+      shortReady: true,
       longReason,
       shortReason,
     };
@@ -1077,11 +1054,6 @@ const TradingChart = ({
                     <span className="text-[9px] font-bold text-emerald-400">
                       LONG ENTRY
                     </span>
-                    {prediction.entryZones.longReady ? (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold animate-pulse">READY</span>
-                    ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-bold">WAITING</span>
-                    )}
                   </div>
                   <div className="text-[13px] font-bold font-mono text-emerald-300">
                     ${formatPrice(prediction.entryZones.longEntry)}
@@ -1089,10 +1061,10 @@ const TradingChart = ({
                   <div className="text-[8px] text-slate-500 mt-0.5">
                     {(() => {
                       const dist = ((livePrice - prediction.entryZones.longEntry) / livePrice) * 100;
-                      return `${dist.toFixed(2)}% below current`;
+                      return `${dist.toFixed(2)}% away`;
                     })()}
                   </div>
-                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.longReady ? "text-emerald-500/70" : "text-amber-500/60"}`}>
+                  <div className="text-[7px] mt-0.5 text-emerald-500/70">
                     {prediction.entryZones.longReason}
                   </div>
                 </div>
@@ -1103,11 +1075,6 @@ const TradingChart = ({
                     <span className="text-[9px] font-bold text-red-400">
                       SHORT ENTRY
                     </span>
-                    {prediction.entryZones.shortReady ? (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-red-500/20 text-red-300 font-bold animate-pulse">READY</span>
-                    ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-bold">WAITING</span>
-                    )}
                   </div>
                   <div className="text-[13px] font-bold font-mono text-red-300">
                     ${formatPrice(prediction.entryZones.shortEntry)}
@@ -1115,10 +1082,10 @@ const TradingChart = ({
                   <div className="text-[8px] text-slate-500 mt-0.5">
                     {(() => {
                       const dist = ((prediction.entryZones.shortEntry - livePrice) / livePrice) * 100;
-                      return `${dist.toFixed(2)}% above current`;
+                      return `${dist.toFixed(2)}% away`;
                     })()}
                   </div>
-                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.shortReady ? "text-red-500/70" : "text-amber-500/60"}`}>
+                  <div className="text-[7px] mt-0.5 text-red-500/70">
                     {prediction.entryZones.shortReason}
                   </div>
                 </div>
