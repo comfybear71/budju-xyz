@@ -20,6 +20,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -45,16 +46,14 @@ CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 def fetch_prices_binance() -> dict:
     """Fetch live USD prices from Binance — matches the WebSocket prices shown on the chart."""
-    # Build Binance symbol list: SOL → SOLUSDT
-    binance_symbols = []
-    symbol_map = {}  # SOLUSDT → SOL-PERP
+    # Build symbol map: SOLUSDT → SOL-PERP
+    symbol_map = {}
     for market_key, info in MARKETS.items():
         bsym = info["symbol"] + "USDT"
-        binance_symbols.append(bsym)
         symbol_map[bsym] = market_key
 
-    url = f'{BINANCE_URL}?symbols={json.dumps(binance_symbols)}'
-    req = Request(url, headers={"Accept": "application/json"})
+    # Fetch ALL Binance ticker prices (avoids URL-encoding issues with symbols param)
+    req = Request(BINANCE_URL, headers={"Accept": "application/json"})
     try:
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
@@ -223,13 +222,17 @@ def run_perp_monitor() -> dict:
     # 5. Run automated trading strategies for all accounts
     all_accounts = list(perp_accounts.find({}))
     auto_trade_actions = []
+    print(f"[perp-cron] Running auto-trader for {len(all_accounts)} accounts")
     for acc in all_accounts:
         # Skip auto-trading if kill switch is active
         if acc.get("kill_switch"):
+            print(f"[perp-cron] Skipping {acc['wallet'][:8]}: kill switch")
             continue
         try:
             mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
             actions = run_auto_trader(acc["wallet"], prices)
+            if actions:
+                print(f"[perp-cron] Auto-trader {acc['wallet'][:8]}: {len(actions)} actions: {actions}")
             for action in actions:
                 if action.get("action") == "opened":
                     auto_trade_actions.append(action)

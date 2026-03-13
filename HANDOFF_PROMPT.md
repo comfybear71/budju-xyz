@@ -380,17 +380,17 @@ DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
 ### Auto-Trader Strategies (perp_strategies.py)
 | Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop |
 |----------|--------|----------|---------------|---------------|---------------|
-| Trend Following | EMA 9/21 crossover + RSI | 5x | 2.0 | 8.0 | 1.5% |
-| Mean Reversion | Bollinger Band bounce + RSI | 3x | 1.5 | 3.0 | 1.0% |
-| Momentum | Price breakout above/below range | 5x | 2.5 | 10.0 | 2.0% |
-| Scalping | RSI extremes + EMA slope | 5x | 1.5 | 2.5 | 0.8% |
+| Trend Following | EMA 9 above/below 21 + accelerating + RSI | 5x | 2.0 | 8.0 | 1.5% |
+| Mean Reversion | Price near BB band (20% tolerance) + RSI leaning | 3x | 1.5 | 3.0 | 1.0% |
+| Momentum | Price breaks 20-candle high/low + RSI confirms | 5x | 2.5 | 10.0 | 2.0% |
+| Scalping | RSI extremes/pullbacks + EMA slope | 5x | 1.5 | 2.5 | 0.8% |
 
 - ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR (wider stops that survive normal price noise)
 - **50-period EMA trend filter** on all strategies — longs require price above 50 EMA, shorts require price below. Prevents trading against the trend.
 - **Profit-activated trailing stops** — trail does NOT start from entry. It activates only after price moves favorably by the trailing %. E.g. 1.5% trail on a long activates at +1.5% profit, then ratchets up from there. Until activation, only the fixed SL protects the downside.
 - Trend following and momentum use wide TP (8-10x ATR) so the trailing stop is the primary exit, letting winners run.
 - Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
-- Cooldown: 30 min per market between auto trades
+- Cooldown: 15 min per market between auto trades
 - Historical candles seeded from Binance public API (eliminates cold-start)
 
 ### Trigger Execution (perp-cron.py → perp_engine.py)
@@ -425,6 +425,13 @@ Checked every minute in priority order (independent checks, not elif):
 - **Trade markers fixed to correct chart positions** — Markers were bunched at the start because trade timestamps fell outside the chart's ~8hr candle range. Now snaps to nearest candle via binary search and skips out-of-range trades entirely.
 - **AI Trading Genius entry zones on chart** — Two dashed price lines show where the AI auto-trader would execute its next LONG (green, lower BB/EMA50 support) and SHORT (red, upper BB/EMA50 resistance) entries. Lines are condition-aware: bright with "READY" badge when RSI + EMA50 trend filter align, dimmed with "BLOCKED" + reason when conditions prevent execution. Lines update live every completed candle. Below-chart panel shows exact prices, distance from current price, and BB/EMA50 reference levels.
 - **Chart default zoom improved** — Charts now default to showing ~200 candles (~3.3 hrs) with `barSpacing: 4` for better overview instead of being zoomed too close.
+- **Fixed Binance price fetch in cron** — `fetch_prices_binance()` was passing a JSON array in the URL without encoding, likely causing 400 errors and falling back to CoinGecko. Now fetches all Binance tickers and filters, which is simpler and reliable.
+- **Relaxed strategy conditions** — Strategies were too restrictive for 1-min data and rarely fired:
+  - Trend following: no longer requires exact EMA crossover candle — now fires while fast EMA is above/below slow AND accelerating
+  - Mean reversion: price within 20% of BB width from the band (not AT the band), RSI threshold +10 tolerance
+  - Momentum: removed `breakout_mult` candle-size requirement — just price breaking recent high/low with RSI confirmation
+  - Scalping: added pullback entry signals (RSI dipping in uptrend / elevated in downtrend), relaxed AND to OR on conditions
+  - Cooldown reduced from 30 to 15 minutes
 - **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
 - Added Vercel Analytics (`@vercel/analytics/react`)
 - Added date/time stamps to trade log entries
