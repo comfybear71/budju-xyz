@@ -18,6 +18,8 @@ import {
   fetchPerpEquity,
   fetchPerpMarkets,
   fetchPublicPerpData,
+  fetchStrategyStatus,
+  toggleAutoTrading,
   placePerpOrder,
   closePerpPosition,
   modifyPerpPosition,
@@ -57,8 +59,13 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
   const [modifyTrail, setModifyTrail] = useState("");
+  const [autoTradingEnabled, setAutoTradingEnabled] = useState<boolean | null>(null);
+  const [togglingBot, setTogglingBot] = useState(false);
 
   const wallet = connection.wallet?.address;
+  // Auto-detect admin: if wallet is connected, treat as full access (not read-only)
+  const isWalletConnected = !!wallet;
+  const effectiveReadOnly = readOnly && !isWalletConnected;
 
   // Real-time Binance WS prices for order form (replaces CoinGecko polling for supported coins)
   const { prices: wsPrices } = useLivePrices(1000);
@@ -90,7 +97,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   ];
 
   const loadData = useCallback(async () => {
-    if (!wallet && !readOnly) return;
+    if (!wallet && !effectiveReadOnly) return;
     // In read-only mode without wallet, fetch public data (admin paper trading)
     if (!wallet) {
       try {
@@ -147,7 +154,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
     } finally {
       setInitialLoading(false);
     }
-  }, [wallet, readOnly]);
+  }, [wallet, effectiveReadOnly]);
 
   // Set default markets immediately so the UI is usable before API loads
   useEffect(() => {
@@ -159,6 +166,35 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
     const interval = setInterval(loadData, 30_000); // Refresh every 30s
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Fetch auto-trading status
+  useEffect(() => {
+    if (!wallet) return;
+    const loadBotStatus = async () => {
+      try {
+        const status = await fetchStrategyStatus(wallet);
+        setAutoTradingEnabled(status.auto_trading_enabled);
+      } catch {
+        // Strategy endpoint may not be available yet
+      }
+    };
+    loadBotStatus();
+    const interval = setInterval(loadBotStatus, 30_000);
+    return () => clearInterval(interval);
+  }, [wallet]);
+
+  const handleToggleBot = async () => {
+    if (!wallet || autoTradingEnabled === null) return;
+    try {
+      setTogglingBot(true);
+      await toggleAutoTrading(!autoTradingEnabled, wallet);
+      setAutoTradingEnabled(!autoTradingEnabled);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to toggle bot");
+    } finally {
+      setTogglingBot(false);
+    }
+  };
 
   // Fetch live prices for order form
   useEffect(() => {
@@ -273,9 +309,9 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
   ];
   // Read-only users see everything except New Order and Strategy (admin-only)
   const readOnlyExclude: Tab[] = ["order", "strategy"];
-  const tabs = readOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
+  const tabs = effectiveReadOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
 
-  if (!wallet && !readOnly) {
+  if (!wallet && !effectiveReadOnly) {
     return (
       <div className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm p-6 text-center">
         <span className="text-2xl">🔒</span>
@@ -297,20 +333,35 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
           <span className="text-lg">🔥</span>
           <div>
             <h3 className="text-sm font-bold text-red-400">
-              {readOnly ? "LIVE CHARTS" : "HIGH RISK — PAPER TRADING"}
+              {effectiveReadOnly ? "LIVE CHARTS" : "HIGH RISK — PAPER TRADING"}
             </h3>
             <p className="text-[10px] text-slate-500">
-              {readOnly ? "Real-time charts with AI predictions • Read only" : "Simulated perpetual futures • No real funds at risk"}
+              {effectiveReadOnly ? "Real-time charts with AI predictions • Read only" : "Simulated perpetual futures • No real funds at risk"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {!readOnly && account?.trading_paused && (
+          {/* Auto-trading START/STOP — always visible when wallet connected */}
+          {!effectiveReadOnly && wallet && autoTradingEnabled !== null && (
+            <button
+              onClick={handleToggleBot}
+              disabled={togglingBot}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                autoTradingEnabled
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
+                  : "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
+              } disabled:opacity-40`}
+              title={autoTradingEnabled ? "Click to STOP auto-trading" : "Click to START auto-trading"}
+            >
+              {togglingBot ? "..." : autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
+            </button>
+          )}
+          {!effectiveReadOnly && account?.trading_paused && (
             <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
               PAUSED
             </span>
           )}
-          {!readOnly && (
+          {!effectiveReadOnly && (
             <button
               onClick={handleReset}
               className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors"
@@ -330,7 +381,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
       <div className="p-4 space-y-3">
         {/* Loading state */}
-        {initialLoading && !readOnly && (
+        {initialLoading && !effectiveReadOnly && (
           <div className="text-center py-4">
             <div className="animate-pulse text-sm text-slate-400">Loading paper trading account...</div>
           </div>
@@ -338,7 +389,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
         {/* Account summary — visible to all (shows equity, balance, P&L) */}
         {account && <PerpAccountSummary account={account} />}
-        {!account && !initialLoading && !readOnly && (
+        {!account && !initialLoading && !effectiveReadOnly && (
           <PerpAccountSummary account={{
             wallet: wallet || "", balance: 10000, equity: 10000,
             unrealized_pnl: 0, realized_pnl: 0, total_funding_paid: 0,
@@ -389,7 +440,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
             positions={positions}
             trades={trades}
             metrics={account?.metrics}
-            onClose={() => setActiveTab(readOnly ? "positions" : "order")}
+            onClose={() => setActiveTab(effectiveReadOnly ? "positions" : "order")}
           />
         )}
 
@@ -398,7 +449,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
             positions={positions}
             onClose={handleClosePosition}
             onModify={handleModifyPosition}
-            readOnly={readOnly}
+            readOnly={effectiveReadOnly}
           />
         )}
 
