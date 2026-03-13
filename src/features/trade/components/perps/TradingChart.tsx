@@ -475,10 +475,12 @@ const TradingChart = ({
         }
 
         // Default zoom: show last ~200 candles (~3.3 hrs) for good overview
+        // Use scrollToRealTime() which respects rightOffset for right-side padding
         if (chartRef.current && historical.length > 200) {
           const fromTime = historical[historical.length - 200].time;
-          const toTime = (last.time as number + 8 * 60) as Time; // 8 min right padding
+          const toTime = historical[historical.length - 1].time;
           chartRef.current.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+          chartRef.current.timeScale().scrollToRealTime();
         }
       }
 
@@ -705,27 +707,27 @@ const TradingChart = ({
     }
     aiLinesRef.current = [];
 
-    // AI Long entry target — bright green when READY, dim when blocked
+    // AI Long entry target — bright green when READY, visible green when blocked
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.longEntry,
-        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.25)",
-        lineWidth: zones.longReady ? 2 : 1,
+        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.55)",
+        lineWidth: 2,
         lineStyle: zones.longReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: zones.longReady ? "\u2191 BUY" : "\u2191 buy",
+        title: "\u2191 BUY",
       })
     );
 
-    // AI Short entry target — bright red when READY, dim when blocked
+    // AI Short entry target — bright red when READY, visible red when blocked
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.shortEntry,
-        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.25)",
-        lineWidth: zones.shortReady ? 2 : 1,
+        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.55)",
+        lineWidth: 2,
         lineStyle: zones.shortReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: zones.shortReady ? "\u2193 SELL" : "\u2193 sell",
+        title: "\u2193 SELL",
       })
     );
   }, []);
