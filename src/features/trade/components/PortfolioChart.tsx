@@ -27,6 +27,8 @@ const PortfolioChart = ({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
   const lastUpdateRef = useRef(0);
+  const totalValueRef = useRef(totalValue);
+  totalValueRef.current = totalValue;
 
   // Throttled chart data — only recalculates every 5 minutes
   const [throttledAssets, setThrottledAssets] = useState(assets);
@@ -93,9 +95,10 @@ const PortfolioChart = ({
             callbacks: {
               label: (ctx) => {
                 const val = ctx.parsed;
+                const tv = totalValueRef.current;
                 const pct =
-                  totalValue > 0
-                    ? ((val / totalValue) * 100).toFixed(1)
+                  tv > 0
+                    ? ((val / tv) * 100).toFixed(1)
                     : "0";
                 return ` ${ctx.label}: $${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${pct}%)`;
               },
@@ -116,7 +119,7 @@ const PortfolioChart = ({
     return () => {
       chartRef.current?.destroy();
     };
-  }, [chartData, totalValue]);
+  }, [chartData]);
 
   return (
     <motion.div

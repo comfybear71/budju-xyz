@@ -65,6 +65,17 @@ export async function fetchPerpMarkets(): Promise<{ markets: PerpMarket[] }> {
   return fetchJson(`${API_BASE}/markets`);
 }
 
+// Public read-only data (no wallet needed) — returns admin paper trading data
+export async function fetchPublicPerpData(): Promise<{
+  account: PerpAccount;
+  positions: PerpPosition[];
+  trades: PerpTrade[];
+  equity: PerpEquitySnapshot[];
+  markets: PerpMarket[];
+}> {
+  return fetchJson(`${API_BASE}/public`);
+}
+
 export async function fetchPerpMetrics(wallet: string): Promise<PerpMetrics> {
   return fetchJson(`${API_BASE}/metrics?wallet=${wallet}`);
 }

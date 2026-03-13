@@ -48,6 +48,7 @@ from perp_engine import (
     calculate_metrics,
     MARKETS,
 )
+from database import ADMIN_WALLETS
 
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
@@ -305,6 +306,26 @@ class handler(BaseHTTPRequestHandler):
             elif path == '/api/perp/markets':
                 markets = get_markets_info()
                 self._send_json(200, {"markets": markets})
+
+            elif path == '/api/perp/public':
+                # Public read-only view of admin paper trading data
+                if not ADMIN_WALLETS:
+                    self._send_json(404, {"error": "No admin configured"})
+                    return
+                admin_wallet = ADMIN_WALLETS[0]
+                account = get_or_create_account(admin_wallet)
+                metrics = calculate_metrics(admin_wallet)
+                positions = get_open_positions(admin_wallet)
+                trades = get_trade_history(admin_wallet, limit=50)
+                equity_curve = get_equity_curve(admin_wallet, period="all")
+                markets = get_markets_info()
+                self._send_json(200, {
+                    "account": {**account, "metrics": metrics},
+                    "positions": positions,
+                    "trades": trades,
+                    "equity": equity_curve,
+                    "markets": markets,
+                })
 
             elif path == '/api/perp/metrics':
                 wallet = params.get('wallet')

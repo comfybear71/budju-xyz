@@ -97,7 +97,7 @@ interface StrategyBreakdown {
   volatility: { value: number; level: "low" | "medium" | "high" };
 }
 
-function computePrediction(candles: CandleData[], lookback = 60, futureCandles = 2): Prediction | null {
+function computePrediction(candles: CandleData[], lookback = 60, futureCandles = 5): Prediction | null {
   if (candles.length < lookback) return null;
 
   const recent = candles.slice(-lookback);
@@ -575,29 +575,27 @@ const TradingChart = ({
   return (
     <div className="relative">
       {/* Header */}
-      <div className={`flex items-center justify-between ${compact ? "mb-1" : "mb-2"}`}>
-        <div className="flex items-center gap-2">
-          <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white`}>
-            {baseAsset}/USDT
-          </span>
-          {connected && (
-            <span className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[9px] text-emerald-400/70 font-mono">LIVE</span>
+      <div className={`${compact ? "mb-1" : "mb-2"}`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+              {baseAsset}/USDT
             </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {livePrice > 0 && (
-            <>
-              <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white`}>
-                ${formatPrice(livePrice)}
-              </span>
-              <span className={`text-[10px] font-bold ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
-                {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
-              </span>
-            </>
-          )}
+            {connected && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+            )}
+            {livePrice > 0 && (
+              <>
+                <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+                  ${formatPrice(livePrice)}
+                </span>
+                <span className={`text-[10px] font-bold whitespace-nowrap ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
+                  {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0 ml-1">
           {/* Signal badge — click for strategy breakdown */}
           {showPrediction && prediction && !compact && (
             <button
@@ -663,6 +661,7 @@ const TradingChart = ({
             AI
           </button>
         </div>
+      </div>
       </div>
 
       {/* Loading overlay */}

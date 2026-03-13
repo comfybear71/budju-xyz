@@ -9,12 +9,14 @@ import PerpMetricsPanel from "./PerpMetricsPanel";
 import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
 import DashboardCharts from "./DashboardCharts";
+import AIAnalysisPanel from "./AIAnalysisPanel";
 import {
   fetchPerpAccount,
   fetchPerpPositions,
   fetchPerpTrades,
   fetchPerpEquity,
   fetchPerpMarkets,
+  fetchPublicPerpData,
   placePerpOrder,
   closePerpPosition,
   modifyPerpPosition,
@@ -35,7 +37,7 @@ interface Props {
   readOnly?: boolean;
 }
 
-type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity";
+type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai";
 
 const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Props) => {
   const { connection } = useWallet();
@@ -88,13 +90,20 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
   const loadData = useCallback(async () => {
     if (!wallet && !readOnly) return;
-    // In read-only mode without wallet, just load markets and skip account-specific data
+    // In read-only mode without wallet, fetch public data (admin paper trading)
     if (!wallet) {
       try {
-        const mkts = await fetchPerpMarkets();
-        if (mkts.markets.length > 0) setMarkets(mkts.markets);
+        const data = await fetchPublicPerpData();
+        setAccount(data.account);
+        setPositions(data.positions);
+        setTrades(data.trades);
+        setEquity(data.equity);
+        if (data.markets.length > 0) setMarkets(data.markets);
         else if (markets.length === 0) setMarkets(DEFAULT_MARKETS);
-      } catch { if (markets.length === 0) setMarkets(DEFAULT_MARKETS); }
+      } catch (err) {
+        console.warn("[HighRisk] Public data fetch failed:", err);
+        if (markets.length === 0) setMarkets(DEFAULT_MARKETS);
+      }
       setInitialLoading(false);
       return;
     }
@@ -258,6 +267,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
     { key: "equity", label: "Equity", icon: "💹" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
+    { key: "ai", label: "AI", icon: "🤖" },
   ];
   // Read-only users see everything except New Order
   const readOnlyExclude: Tab[] = ["order"];
@@ -424,6 +434,10 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
         {activeTab === "history" && (
           <PerpTradeHistory trades={trades} />
+        )}
+
+        {activeTab === "ai" && (
+          <AIAnalysisPanel />
         )}
       </div>
     </motion.div>
