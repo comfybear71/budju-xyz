@@ -408,9 +408,11 @@ const TradingChart = ({
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
+      lastValueVisible: false,
     });
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.85, bottom: 0 },
+      drawTicks: false,
     });
 
     // ML Prediction line — blue dashed projection
@@ -715,7 +717,7 @@ const TradingChart = ({
         lineWidth: 2,
         lineStyle: LineStyle.LargeDashed,
         axisLabelVisible: false,
-        title: "\u2191",
+        title: "",
       })
     );
 
@@ -727,7 +729,7 @@ const TradingChart = ({
         lineWidth: 2,
         lineStyle: LineStyle.LargeDashed,
         axisLabelVisible: false,
-        title: "\u2193",
+        title: "",
       })
     );
   }, []);
@@ -872,7 +874,14 @@ const TradingChart = ({
       )}
 
       {/* Chart container */}
-      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" />
+      <style>{`
+        .trading-chart-wrap [class*="pane"] div[style*="position: absolute"][style*="z-index"],
+        .trading-chart-wrap td[style*="padding"] > div > div[style*="position: absolute"] {
+          border-radius: 4px !important;
+          opacity: 0.85 !important;
+        }
+      `}</style>
+      <div ref={containerRef} className="trading-chart-wrap w-full rounded-lg overflow-hidden" />
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
