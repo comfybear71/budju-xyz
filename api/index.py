@@ -35,6 +35,28 @@ from database import (
     verify_wallet_signature
 )
 
+from perp_engine import (
+    get_or_create_account,
+    reset_account,
+    set_trading_mode,
+    set_kill_switch,
+    open_position,
+    close_position,
+    modify_position,
+    get_open_positions,
+    get_trade_history,
+    get_equity_curve,
+    get_markets_info,
+    calculate_metrics,
+    MARKETS,
+)
+from database import ADMIN_WALLETS
+from perp_strategies import (
+    get_strategy_status,
+    toggle_auto_trading,
+    update_strategy_config,
+)
+
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
 
@@ -81,11 +103,18 @@ def _get_client_ip(handler) -> str:
 
 
 # ── Admin Signature Verification ───────────────────────────────────────
+# Nonce cache: prevents exact-replay of the same signed message within the
+# validity window. Keyed by message string, value is expiry timestamp.
+# Resets on cold start (acceptable for serverless — attacker would need a
+# fresh instance AND a valid unexpired signature to replay).
+_used_nonces: dict = {}  # {message: expiry_timestamp}
+_ADMIN_MSG_WINDOW_MS = 5 * 60 * 1000  # 5 minutes (tightened from 60 min)
+
 def _verify_admin(body: dict, handler) -> tuple:
     """Verify admin wallet address AND Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
     Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 60 minutes) to prevent replay attacks.
+    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):
@@ -109,14 +138,25 @@ def _verify_admin(body: dict, handler) -> tuple:
             return False, "Invalid message format"
         msg_timestamp = int(parts[-1])
         now_ms = int(time.time() * 1000)
-        # Allow 60-minute window (long enough for autotrader sessions,
-        # short enough to limit replay attacks)
-        if abs(now_ms - msg_timestamp) > 60 * 60 * 1000:
+        if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
             return False, "Message timestamp expired (replay protection)"
     except (ValueError, IndexError):
         return False, "Invalid message timestamp"
 
+    # Prevent exact replay of the same signed message (nonce check)
+    _prune_expired_nonces(now_ms)
+    if message in _used_nonces:
+        return False, "Message already used (replay protection)"
+    _used_nonces[message] = now_ms + _ADMIN_MSG_WINDOW_MS
+
     return True, None
+
+
+def _prune_expired_nonces(now_ms: int):
+    """Remove expired entries from the nonce cache."""
+    expired = [k for k, v in _used_nonces.items() if v <= now_ms]
+    for k in expired:
+        del _used_nonces[k]
 
 
 class handler(BaseHTTPRequestHandler):
@@ -232,6 +272,83 @@ class handler(BaseHTTPRequestHandler):
                     return
                 debug_info = get_db_debug()
                 self._send_json(200, debug_info)
+
+            # ── Perp Paper Trading GET endpoints ─────────────────────
+            elif path == '/api/perp/account':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                account = get_or_create_account(wallet)
+                metrics = calculate_metrics(wallet)
+                self._send_json(200, {**account, "metrics": metrics})
+
+            elif path == '/api/perp/positions':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                positions = get_open_positions(wallet)
+                self._send_json(200, {"positions": positions, "count": len(positions)})
+
+            elif path == '/api/perp/trades':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                symbol = params.get('symbol')
+                limit = int(params.get('limit', '50'))
+                trades = get_trade_history(wallet, limit=limit, symbol=symbol)
+                self._send_json(200, {"trades": trades, "count": len(trades)})
+
+            elif path == '/api/perp/equity':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                period = params.get('period', 'all')
+                curve = get_equity_curve(wallet, period=period)
+                self._send_json(200, {"equity": curve, "count": len(curve)})
+
+            elif path == '/api/perp/markets':
+                markets = get_markets_info()
+                self._send_json(200, {"markets": markets})
+
+            elif path == '/api/perp/public':
+                # Public read-only view of admin paper trading data
+                if not ADMIN_WALLETS:
+                    self._send_json(404, {"error": "No admin configured"})
+                    return
+                admin_wallet = ADMIN_WALLETS[0]
+                account = get_or_create_account(admin_wallet)
+                metrics = calculate_metrics(admin_wallet)
+                positions = get_open_positions(admin_wallet)
+                trades = get_trade_history(admin_wallet, limit=50)
+                equity_curve = get_equity_curve(admin_wallet, period="all")
+                markets = get_markets_info()
+                self._send_json(200, {
+                    "account": {**account, "metrics": metrics},
+                    "positions": positions,
+                    "trades": trades,
+                    "equity": equity_curve,
+                    "markets": markets,
+                })
+
+            elif path == '/api/perp/metrics':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                metrics = calculate_metrics(wallet)
+                self._send_json(200, metrics)
+
+            elif path == '/api/perp/strategy/status':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                status = get_strategy_status(wallet)
+                self._send_json(200, status)
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -438,6 +555,140 @@ class handler(BaseHTTPRequestHandler):
 
                 result = recalibrate_pool(float(pool_value))
                 self._send_json(200, result)
+
+            # ── Perp Paper Trading POST endpoints ────────────────────
+            elif path == '/api/perp/order':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                symbol = body.get('symbol')
+                direction = body.get('direction')
+                leverage = int(body.get('leverage', 5))
+                size_usd = float(body.get('sizeUsd', 0))
+                entry_price = float(body.get('entryPrice', 0))
+                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
+                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
+                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
+                entry_reason = body.get('entryReason', '')
+
+                if not all([symbol, direction, size_usd, entry_price]):
+                    self._send_json(400, {"error": "symbol, direction, sizeUsd, and entryPrice required"})
+                    return
+
+                result = open_position(
+                    wallet, symbol, direction, leverage, size_usd,
+                    entry_price, stop_loss, take_profit, trailing_stop, entry_reason
+                )
+                self._send_json(200, result)
+
+            elif path == '/api/perp/close':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                position_id = body.get('positionId')
+                exit_price = float(body.get('exitPrice', 0))
+                exit_reason = body.get('exitReason', 'manual')
+
+                if not position_id or not exit_price:
+                    self._send_json(400, {"error": "positionId and exitPrice required"})
+                    return
+
+                result = close_position(position_id, exit_price, "manual", exit_reason)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/modify':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                position_id = body.get('positionId')
+                if not position_id:
+                    self._send_json(400, {"error": "positionId required"})
+                    return
+
+                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
+                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
+                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
+
+                result = modify_position(position_id, stop_loss, take_profit, trailing_stop)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/account/reset':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = reset_account(wallet)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/strategy/toggle':
+                wallet = body.get('wallet')
+                enabled = body.get('enabled')
+                if not wallet or enabled is None:
+                    self._send_json(400, {"error": "wallet and enabled required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                toggle_auto_trading(wallet, bool(enabled))
+                self._send_json(200, {"success": True})
+
+            elif path == '/api/perp/strategy/config':
+                wallet = body.get('wallet')
+                updates = body.get('updates')
+                if not wallet or not updates:
+                    self._send_json(400, {"error": "wallet and updates required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                update_strategy_config(wallet, updates)
+                self._send_json(200, {"success": True})
+
+            # ── Trading Mode & Kill Switch ─────────────────────────────
+            elif path == '/api/perp/mode':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                mode = body.get('mode')
+                if not wallet or not mode:
+                    self._send_json(400, {"error": "wallet and mode required"})
+                    return
+                if not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_trading_mode(wallet, mode)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/killswitch':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                active = body.get('active')
+                if not wallet or active is None:
+                    self._send_json(400, {"error": "wallet and active required"})
+                    return
+                if not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_kill_switch(wallet, bool(active))
+                self._send_json(200, result)
+
+            elif path == '/api/perp/live/status':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                from perp_exchange import is_live_ready, get_exchange_positions, get_exchange_balance, reconcile_positions
+                live_status = is_live_ready()
+                if live_status["ready"]:
+                    live_status["exchange_balance"] = get_exchange_balance()
+                    live_status["exchange_positions"] = get_exchange_positions()
+                    # Reconcile with local DB
+                    local_positions = list(get_open_positions(wallet))
+                    live_pos = [p for p in local_positions if p.get("trading_mode") == "live"]
+                    live_status["reconciliation"] = reconcile_positions(live_pos)
+                self._send_json(200, live_status)
 
             else:
                 self._send_json(404, {"error": "Not found"})

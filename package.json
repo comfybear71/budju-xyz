@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "python3 -m pytest tests/ -v",
+    "test:quick": "python3 -m pytest tests/ -q"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.0",
@@ -22,6 +24,8 @@
     "@solana/web3.js": "^1.98.0",
     "@tailwindcss/postcss": "^4.0.9",
     "@tailwindcss/vite": "^4.0.9",
+    "@tanstack/react-query": "^5.90.21",
+    "@vercel/analytics": "^2.0.0",
     "@vercel/blob": "^2.3.0",
     "autoprefixer": "^10.4.20",
     "buffer": "^6.0.3",

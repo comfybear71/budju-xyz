@@ -1,0 +1,1036 @@
+# ==========================================
+# Perpetual Trading Engine (Paper + Live)
+# ==========================================
+# Supports two modes:
+#   - "paper": Simulated trading with $10K virtual balance (default)
+#   - "live":  Real trading via Drift Protocol on Solana
+#
+# Paper fee model mirrors Jupiter Perps:
+#   - Open/close: 0.06% of position size
+#   - Borrow fee: 0.01%/hr base (simplified from utilization-based)
+#   - Slippage: 0.05-0.15% based on size
+#
+# Live mode:
+#   - Routes orders to Drift Protocol via perp_exchange.py
+#   - Real fees/slippage handled by exchange
+#   - Local DB still tracks positions for monitoring, metrics, alerts
+#   - Safety: kill switch, max exposure limits, position reconciliation
+#
+# Liquidation (paper):
+#   Long:  liq = entry * (1 - 1/leverage + mm)
+#   Short: liq = entry * (1 + 1/leverage - mm)
+#   Maintenance margin: min(5%, 50%/leverage) — scales with leverage
+#   to prevent liq price being above entry at high leverage
+# ==========================================
+
+import os
+import sys
+import math
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List, Tuple
+from bson import ObjectId
+
+sys.path.insert(0, os.path.dirname(__file__))
+from database import db, is_admin, ADMIN_WALLETS
+
+# ── Collections ──────────────────────────────────────────────────────────
+
+perp_accounts = db["perp_accounts"]
+perp_positions = db["perp_positions"]
+perp_orders = db["perp_orders"]
+perp_trades = db["perp_trades"]
+perp_equity = db["perp_equity"]
+perp_funding = db["perp_funding"]
+
+# Indexes (idempotent)
+perp_accounts.create_index("wallet", unique=True)
+perp_positions.create_index([("account_id", 1), ("status", 1)])
+perp_positions.create_index([("status", 1), ("symbol", 1)])
+perp_orders.create_index([("account_id", 1), ("created_at", -1)])
+perp_trades.create_index([("account_id", 1), ("exit_time", -1)])
+perp_trades.create_index([("account_id", 1), ("symbol", 1)])
+perp_equity.create_index([("account_id", 1), ("timestamp", -1)])
+perp_funding.create_index([("position_id", 1), ("timestamp", -1)])
+
+# ── Constants ────────────────────────────────────────────────────────────
+
+INITIAL_BALANCE = 10_000.0       # $10K USDC starting balance
+OPEN_CLOSE_FEE_PCT = 0.0006     # 0.06% (mirrors Jupiter)
+BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr base borrow fee
+MAINTENANCE_MARGIN_PCT = 0.05   # 5% maintenance margin
+MAX_LEVERAGE = 50                # Max 50x
+MIN_LEVERAGE = 2                 # Min 2x
+MAX_OPEN_POSITIONS = 5           # Max concurrent positions
+MAX_POSITION_PCT = 0.50          # Max 50% of equity per position
+DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause
+
+# ── Live Trading Safety Limits ─────────────────────────────────────────
+LIVE_MAX_TOTAL_EXPOSURE = 50_000.0   # Max total notional across all positions
+LIVE_MAX_SINGLE_POSITION = 10_000.0  # Max single position size
+LIVE_MAX_LEVERAGE = 20               # Cap leverage for live (conservative)
+LIVE_MAX_OPEN_POSITIONS = 3          # Fewer concurrent positions for live
+
+# Supported markets
+MARKETS = {
+    "SOL-PERP":  {"base": "solana",   "symbol": "SOL",  "max_leverage": 50, "tick": 0.01},
+    "BTC-PERP":  {"base": "bitcoin",  "symbol": "BTC",  "max_leverage": 50, "tick": 0.1},
+    "ETH-PERP":  {"base": "ethereum", "symbol": "ETH",  "max_leverage": 50, "tick": 0.01},
+    "DOGE-PERP": {"base": "dogecoin", "symbol": "DOGE", "max_leverage": 20, "tick": 0.00001},
+    "AVAX-PERP": {"base": "avalanche-2", "symbol": "AVAX", "max_leverage": 20, "tick": 0.01},
+    "LINK-PERP": {"base": "chainlink", "symbol": "LINK", "max_leverage": 20, "tick": 0.001},
+    "SUI-PERP":  {"base": "sui",      "symbol": "SUI",  "max_leverage": 20, "tick": 0.001},
+    "JUP-PERP":  {"base": "jupiter-exchange-solana", "symbol": "JUP", "max_leverage": 10, "tick": 0.0001},
+    "WIF-PERP":  {"base": "dogwifcoin", "symbol": "WIF", "max_leverage": 10, "tick": 0.0001},
+    "BONK-PERP": {"base": "bonk",     "symbol": "BONK", "max_leverage": 10, "tick": 0.00000001},
+}
+
+# CoinGecko IDs for batch price fetch
+COINGECKO_IDS = ",".join(m["base"] for m in MARKETS.values())
+
+
+# ── Account Management ───────────────────────────────────────────────────
+
+def get_or_create_account(wallet: str) -> Dict:
+    """Get existing account or create one with $10K paper balance."""
+    account = perp_accounts.find_one({"wallet": wallet})
+    if account:
+        # Migration: ensure trading_mode field exists
+        if "trading_mode" not in account:
+            perp_accounts.update_one(
+                {"wallet": wallet},
+                {"$set": {"trading_mode": "paper", "kill_switch": False}}
+            )
+            account["trading_mode"] = "paper"
+            account["kill_switch"] = False
+        return _format_account(account)
+
+    account = {
+        "wallet": wallet,
+        "balance": INITIAL_BALANCE,
+        "equity": INITIAL_BALANCE,
+        "unrealized_pnl": 0.0,
+        "realized_pnl": 0.0,
+        "total_funding_paid": 0.0,
+        "total_fees_paid": 0.0,
+        "total_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "max_drawdown": 0.0,
+        "peak_equity": INITIAL_BALANCE,
+        "daily_pnl": 0.0,
+        "daily_pnl_reset": datetime.utcnow(),
+        "trading_paused": False,
+        "trading_mode": "paper",       # "paper" or "live"
+        "kill_switch": False,           # Emergency stop all trading
+        "live_max_exposure": LIVE_MAX_TOTAL_EXPOSURE,
+        "live_max_position": LIVE_MAX_SINGLE_POSITION,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+    perp_accounts.insert_one(account)
+    return _format_account(account)
+
+
+def set_trading_mode(wallet: str, mode: str) -> Dict:
+    """Switch between 'paper' and 'live' trading mode."""
+    if mode not in ("paper", "live"):
+        raise ValueError("Mode must be 'paper' or 'live'")
+
+    account = get_or_create_account(wallet)
+
+    # Safety: check for open positions before switching modes
+    open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
+    if open_count > 0:
+        raise ValueError(
+            f"Cannot switch modes with {open_count} open positions. "
+            "Close all positions first."
+        )
+
+    if mode == "live":
+        # Verify Drift is configured
+        from perp_exchange import is_live_ready
+        status = is_live_ready()
+        if not status["ready"]:
+            raise ValueError(
+                f"Live trading not ready: {', '.join(status['issues'])}"
+            )
+
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$set": {"trading_mode": mode, "updated_at": datetime.utcnow()}}
+    )
+
+    return get_or_create_account(wallet)
+
+
+def set_kill_switch(wallet: str, active: bool) -> Dict:
+    """Activate or deactivate the kill switch.
+    When active: closes all live positions immediately and pauses trading.
+    """
+    account = get_or_create_account(wallet)
+
+    if active and account.get("trading_mode") == "live":
+        # Close all exchange positions immediately
+        try:
+            from perp_exchange import emergency_close_all
+            close_result = emergency_close_all()
+        except Exception as e:
+            close_result = {"error": str(e)}
+
+        # Also close all local DB positions
+        open_positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+        for pos in open_positions:
+            try:
+                close_position(str(pos["_id"]), pos.get("mark_price", pos["entry_price"]),
+                              "kill_switch", "Emergency kill switch activated")
+            except Exception:
+                pass
+
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$set": {
+                "kill_switch": True,
+                "trading_paused": True,
+                "updated_at": datetime.utcnow(),
+            }}
+        )
+
+        return {**get_or_create_account(wallet), "exchange_close_result": close_result}
+
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$set": {
+            "kill_switch": active,
+            "trading_paused": active,
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+    return get_or_create_account(wallet)
+
+
+def reset_account(wallet: str) -> Dict:
+    """Reset paper account to initial state."""
+    perp_positions.delete_many({"account_id": wallet})
+    perp_orders.delete_many({"account_id": wallet})
+    perp_trades.delete_many({"account_id": wallet})
+    perp_equity.delete_many({"account_id": wallet})
+    perp_funding.delete_many({"account_id": wallet})
+    perp_accounts.delete_one({"wallet": wallet})
+    return get_or_create_account(wallet)
+
+
+def _format_account(acc: Dict) -> Dict:
+    """Format account for API response."""
+    a = dict(acc)
+    a.pop("_id", None)
+    for key in ("created_at", "updated_at", "daily_pnl_reset"):
+        if key in a and isinstance(a[key], datetime):
+            a[key] = a[key].isoformat()
+    return a
+
+
+# ── Fee & Slippage Simulation ────────────────────────────────────────────
+
+def calculate_fees(size_usd: float) -> float:
+    """Opening or closing fee: 0.06% of notional size."""
+    return size_usd * OPEN_CLOSE_FEE_PCT
+
+
+def simulate_slippage(size_usd: float, price: float) -> float:
+    """Simulate slippage based on position size. Returns adjusted price."""
+    if size_usd < 1000:
+        slip = 0.0005  # 0.05%
+    elif size_usd < 5000:
+        slip = 0.001   # 0.1%
+    else:
+        slip = 0.0015  # 0.15%
+    return slip
+
+
+def calculate_borrow_fee(size_usd: float, hours: float) -> float:
+    """Hourly borrow fee (simplified — real Jupiter uses utilization)."""
+    return size_usd * BORROW_FEE_PCT_HR * hours
+
+
+# ── Liquidation ──────────────────────────────────────────────────────────
+
+def calculate_maintenance_margin(leverage: int) -> float:
+    """Scale maintenance margin with leverage like real exchanges.
+    Higher leverage gets lower maintenance margin to prevent
+    liquidation price being above entry (which happens when
+    maintenance_margin > 1/leverage, i.e. leverage > 20 at 5%).
+    """
+    return min(MAINTENANCE_MARGIN_PCT, 0.5 / leverage)
+
+
+def calculate_liquidation_price(entry_price: float, leverage: int,
+                                 direction: str) -> float:
+    """Calculate liquidation price for a position."""
+    mm = calculate_maintenance_margin(leverage)
+    if direction == "long":
+        return entry_price * (1 - 1 / leverage + mm)
+    else:
+        return entry_price * (1 + 1 / leverage - mm)
+
+
+def check_liquidation(position: Dict, mark_price: float) -> bool:
+    """Check if position should be liquidated at current price."""
+    liq_price = position.get("liquidation_price", 0)
+    if position["direction"] == "long":
+        return mark_price <= liq_price
+    else:
+        return mark_price >= liq_price
+
+
+# ── P&L Calculation ─────────────────────────────────────────────────────
+
+def calculate_pnl(entry_price: float, mark_price: float,
+                  size_usd: float, direction: str) -> Tuple[float, float]:
+    """Calculate unrealized P&L and P&L percentage."""
+    if direction == "long":
+        pnl_pct = (mark_price - entry_price) / entry_price
+    else:
+        pnl_pct = (entry_price - mark_price) / entry_price
+
+    pnl_usd = size_usd * pnl_pct
+    return pnl_usd, pnl_pct * 100
+
+
+# ── Position Management ─────────────────────────────────────────────────
+
+def open_position(wallet: str, symbol: str, direction: str, leverage: int,
+                  size_usd: float, entry_price: float,
+                  stop_loss: float = None, take_profit: float = None,
+                  trailing_stop_pct: float = None,
+                  entry_reason: str = "") -> Dict:
+    """Open a new position (paper or live depending on account mode)."""
+    account = get_or_create_account(wallet)
+    is_live = account.get("trading_mode") == "live"
+
+    # Validations
+    if account.get("kill_switch"):
+        raise ValueError("Kill switch is active. Deactivate it before trading.")
+    if account.get("trading_paused"):
+        raise ValueError("Trading paused — daily loss limit reached. Reset or wait until tomorrow.")
+
+    market = MARKETS.get(symbol)
+    if not market:
+        raise ValueError(f"Unsupported market: {symbol}. Available: {list(MARKETS.keys())}")
+
+    if direction not in ("long", "short"):
+        raise ValueError("Direction must be 'long' or 'short'")
+
+    # Apply different limits for live vs paper
+    max_lev = LIVE_MAX_LEVERAGE if is_live else market["max_leverage"]
+    max_positions = LIVE_MAX_OPEN_POSITIONS if is_live else MAX_OPEN_POSITIONS
+    leverage = max(MIN_LEVERAGE, min(leverage, max_lev))
+
+    open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
+    if open_count >= max_positions:
+        raise ValueError(f"Max {max_positions} open positions allowed" +
+                         (" (live mode limit)" if is_live else ""))
+
+    equity = account["equity"]
+    max_size = equity * MAX_POSITION_PCT
+    if is_live:
+        max_size = min(max_size, account.get("live_max_position", LIVE_MAX_SINGLE_POSITION))
+    if size_usd > max_size:
+        raise ValueError(f"Max position size is ${max_size:.2f}" +
+                         (" (live safety limit)" if is_live else ""))
+
+    margin = size_usd / leverage
+    if not is_live and margin > account["balance"]:
+        raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
+
+    # Validate SL/TP relative to entry and direction
+    if stop_loss is not None:
+        if direction == "long" and stop_loss >= entry_price:
+            raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry_price})")
+        if direction == "short" and stop_loss <= entry_price:
+            raise ValueError(f"Short stop loss (${stop_loss}) must be above entry (${entry_price})")
+
+    if take_profit is not None:
+        if direction == "long" and take_profit <= entry_price:
+            raise ValueError(f"Long take profit (${take_profit}) must be above entry (${entry_price})")
+        if direction == "short" and take_profit >= entry_price:
+            raise ValueError(f"Short take profit (${take_profit}) must be below entry (${entry_price})")
+
+    # ── LIVE MODE: Execute on Drift ─────────────────────────────
+    exchange_oid = None
+    if is_live:
+        from perp_exchange import open_market_position, validate_before_trade, place_tp_sl_orders
+
+        # Pre-trade safety check
+        safety = validate_before_trade(
+            symbol, size_usd,
+            max_total_exposure=account.get("live_max_exposure", LIVE_MAX_TOTAL_EXPOSURE),
+            max_single_position=account.get("live_max_position", LIVE_MAX_SINGLE_POSITION),
+        )
+        if not safety["safe"]:
+            raise ValueError(f"Live safety check failed: {safety['reason']}")
+
+        # Execute on exchange
+        exchange_result = open_market_position(
+            symbol=symbol,
+            direction=direction,
+            size_usd=size_usd,
+            current_price=entry_price,
+            leverage=leverage,
+        )
+
+        if exchange_result["status"] not in ("filled", "resting"):
+            raise RuntimeError(f"Exchange order failed: {exchange_result}")
+
+        # Use real fill price from exchange
+        fill_price = exchange_result["filled_price"]
+        quantity = exchange_result["filled_size"]
+        exchange_oid = exchange_result.get("exchange_oid")
+        open_fee = 0  # Exchange handles fees
+        slippage_pct = 0
+
+        # Place TP/SL on exchange
+        if stop_loss or take_profit:
+            try:
+                place_tp_sl_orders(symbol, direction, quantity, stop_loss, take_profit)
+            except Exception as e:
+                print(f"[perp-engine] Warning: TP/SL placement failed: {e}")
+
+    else:
+        # ── PAPER MODE: Simulate slippage and fees ────────────────
+        slippage_pct = simulate_slippage(size_usd, entry_price)
+        if direction == "long":
+            fill_price = entry_price * (1 + slippage_pct)
+        else:
+            fill_price = entry_price * (1 - slippage_pct)
+        open_fee = calculate_fees(size_usd)
+        quantity = size_usd / fill_price
+
+    # Calculate derived values
+    liq_price = calculate_liquidation_price(fill_price, leverage, direction)
+
+    # Trailing stop setup — trail is NOT active at entry.
+    # It activates only after price moves favorably past the activation
+    # threshold (trailing_stop_activation, stored as a price level).
+    # Until then, the fixed SL protects the downside.
+    trailing_stop_distance = None
+    trailing_stop_price = None
+    trailing_stop_activation = None
+    if trailing_stop_pct and trailing_stop_pct > 0:
+        trailing_stop_distance = trailing_stop_pct
+        # Don't set trailing_stop_price yet — it starts as None
+        # and only gets set once the activation price is reached.
+        # Activation default: 1x ATR favorable move from entry.
+        # Caller can override via trailing_stop_activation_price param.
+        # For now, we store the activation level so the cron can check it.
+        if direction == "long":
+            trailing_stop_activation = fill_price * (1 + trailing_stop_pct / 100)
+        else:
+            trailing_stop_activation = fill_price * (1 - trailing_stop_pct / 100)
+
+    position = {
+        "account_id": wallet,
+        "symbol": symbol,
+        "direction": direction,
+        "leverage": leverage,
+        "size_usd": size_usd,
+        "quantity": quantity,
+        "entry_price": fill_price,
+        "mark_price": fill_price,
+        "liquidation_price": liq_price,
+        "margin": margin,
+        "maintenance_margin": size_usd * calculate_maintenance_margin(leverage),
+        "unrealized_pnl": 0.0,
+        "unrealized_pnl_pct": 0.0,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "trailing_stop_distance": trailing_stop_distance,
+        "trailing_stop_price": trailing_stop_price,
+        "trailing_stop_activation": trailing_stop_activation,
+        "cumulative_funding": 0.0,
+        "total_fees": open_fee,
+        "slippage_cost": abs(fill_price - entry_price) * quantity,
+        "max_favorable_excursion": 0.0,
+        "max_adverse_excursion": 0.0,
+        "last_borrow_charge": datetime.utcnow(),
+        "entry_reason": entry_reason,
+        "trading_mode": "live" if is_live else "paper",
+        "exchange_oid": exchange_oid,
+        "status": "open",
+        "opened_at": datetime.utcnow(),
+        "last_updated": datetime.utcnow(),
+    }
+
+    result = perp_positions.insert_one(position)
+    position_id = str(result.inserted_id)
+
+    # Deduct margin + fees from balance
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {
+            "$inc": {
+                "balance": -(margin + open_fee),
+                "total_fees_paid": open_fee,
+            },
+            "$set": {"updated_at": datetime.utcnow()},
+        }
+    )
+
+    # Record order
+    order = {
+        "account_id": wallet,
+        "position_id": position_id,
+        "symbol": symbol,
+        "side": "buy" if direction == "long" else "sell",
+        "order_type": "market",
+        "direction": direction,
+        "leverage": leverage,
+        "quantity": quantity,
+        "size_usd": size_usd,
+        "price": entry_price,
+        "filled_price": fill_price,
+        "slippage_bps": round(slippage_pct * 10000),
+        "fees": open_fee,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "trailing_stop": trailing_stop_pct,
+        "status": "filled",
+        "created_at": datetime.utcnow(),
+        "filled_at": datetime.utcnow(),
+    }
+    perp_orders.insert_one(order)
+
+    position["_id"] = position_id
+    return _format_position(position)
+
+
+def close_position(position_id: str, exit_price: float,
+                   exit_type: str = "manual",
+                   exit_reason: str = "") -> Dict:
+    """Close an open position and record the trade."""
+    pos = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not pos:
+        raise ValueError("Position not found or already closed")
+
+    wallet = pos["account_id"]
+    size_usd = pos["size_usd"]
+    direction = pos["direction"]
+    is_live = pos.get("trading_mode") == "live"
+
+    # ── LIVE MODE: Close on Drift ─────────────────────────────────
+    if is_live and exit_type != "kill_switch":
+        from perp_exchange import close_market_position
+
+        exchange_result = close_market_position(
+            symbol=pos["symbol"],
+            size=pos["quantity"],
+            current_price=exit_price,
+        )
+
+        if exchange_result["status"] == "filled":
+            fill_price = exchange_result["filled_price"]
+        else:
+            # Fallback to requested price if exchange response unclear
+            fill_price = exit_price
+        close_fee = 0  # Exchange handles fees
+        slippage_pct = 0
+    else:
+        # ── PAPER MODE: Simulate slippage ─────────────────────────
+        slippage_pct = simulate_slippage(size_usd, exit_price)
+        if direction == "long":
+            fill_price = exit_price * (1 - slippage_pct)
+        else:
+            fill_price = exit_price * (1 + slippage_pct)
+        close_fee = calculate_fees(size_usd)
+
+    # Calculate final P&L
+    pnl_usd, pnl_pct = calculate_pnl(pos["entry_price"], fill_price, size_usd, direction)
+    total_fees = pos.get("total_fees", 0) + close_fee
+    cumulative_funding = pos.get("cumulative_funding", 0)
+    net_pnl = pnl_usd - total_fees - cumulative_funding
+
+    # Record closed trade
+    now = datetime.utcnow()
+    opened_at = pos.get("opened_at", now)
+    holding_ms = int((now - opened_at).total_seconds() * 1000) if isinstance(opened_at, datetime) else 0
+
+    trade = {
+        "account_id": wallet,
+        "position_id": position_id,
+        "symbol": pos["symbol"],
+        "direction": direction,
+        "leverage": pos["leverage"],
+        "entry_price": pos["entry_price"],
+        "exit_price": fill_price,
+        "quantity": pos["quantity"],
+        "size_usd": size_usd,
+        "entry_time": opened_at,
+        "exit_time": now,
+        "holding_period_ms": holding_ms,
+        "exit_type": exit_type,
+        "realized_pnl": round(net_pnl, 4),
+        "realized_pnl_pct": round(pnl_pct, 4),
+        "total_funding_paid": cumulative_funding,
+        "total_fees": total_fees,
+        "slippage_cost": pos.get("slippage_cost", 0) + abs(fill_price - exit_price) * pos["quantity"],
+        "max_favorable_excursion": pos.get("max_favorable_excursion", 0),
+        "max_adverse_excursion": pos.get("max_adverse_excursion", 0),
+        "entry_reason": pos.get("entry_reason", ""),
+        "exit_reason": exit_reason,
+    }
+    perp_trades.insert_one(trade)
+
+    # Update position status
+    perp_positions.update_one(
+        {"_id": ObjectId(position_id)},
+        {"$set": {
+            "status": "closed",
+            "mark_price": fill_price,
+            "unrealized_pnl": 0,
+            "unrealized_pnl_pct": 0,
+            "last_updated": now,
+        }}
+    )
+
+    # Return margin + P&L to balance
+    margin_return = pos["margin"] + pnl_usd - close_fee
+    is_win = net_pnl > 0
+
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {
+            "$inc": {
+                "balance": margin_return,
+                "realized_pnl": net_pnl,
+                "total_fees_paid": close_fee,
+                "total_trades": 1,
+                "winning_trades": 1 if is_win else 0,
+                "losing_trades": 0 if is_win else 1,
+                "daily_pnl": net_pnl,
+            },
+            "$set": {"updated_at": now},
+        }
+    )
+
+    # Record closing order
+    perp_orders.insert_one({
+        "account_id": wallet,
+        "position_id": position_id,
+        "symbol": pos["symbol"],
+        "side": "sell" if direction == "long" else "buy",
+        "order_type": exit_type,
+        "direction": direction,
+        "leverage": pos["leverage"],
+        "quantity": pos["quantity"],
+        "size_usd": size_usd,
+        "price": exit_price,
+        "filled_price": fill_price,
+        "slippage_bps": round(slippage_pct * 10000),
+        "fees": close_fee,
+        "status": "filled",
+        "created_at": now,
+        "filled_at": now,
+    })
+
+    return _format_trade(trade)
+
+
+def modify_position(position_id: str, stop_loss: float = None,
+                    take_profit: float = None,
+                    trailing_stop_pct: float = None) -> Dict:
+    """Modify SL/TP/trailing stop on an open position."""
+    pos = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not pos:
+        raise ValueError("Position not found or already closed")
+
+    direction = pos["direction"]
+    entry = pos["entry_price"]
+
+    # Validate SL/TP relative to entry and direction
+    if stop_loss is not None:
+        if direction == "long" and stop_loss >= entry:
+            raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry})")
+        if direction == "short" and stop_loss <= entry:
+            raise ValueError(f"Short stop loss (${stop_loss}) must be above entry (${entry})")
+
+    if take_profit is not None:
+        if direction == "long" and take_profit <= entry:
+            raise ValueError(f"Long take profit (${take_profit}) must be above entry (${entry})")
+        if direction == "short" and take_profit >= entry:
+            raise ValueError(f"Short take profit (${take_profit}) must be below entry (${entry})")
+
+    update = {"last_updated": datetime.utcnow()}
+    if stop_loss is not None:
+        update["stop_loss"] = stop_loss
+    if take_profit is not None:
+        update["take_profit"] = take_profit
+    if trailing_stop_pct is not None:
+        update["trailing_stop_distance"] = trailing_stop_pct
+        mark = pos.get("mark_price", pos["entry_price"])
+        if pos["direction"] == "long":
+            update["trailing_stop_price"] = mark * (1 - trailing_stop_pct / 100)
+        else:
+            update["trailing_stop_price"] = mark * (1 + trailing_stop_pct / 100)
+
+    perp_positions.update_one({"_id": ObjectId(position_id)}, {"$set": update})
+
+    pos.update(update)
+    return _format_position(pos)
+
+
+# ── Position Update (called by cron) ────────────────────────────────────
+
+def update_position_price(position: Dict, mark_price: float) -> Dict:
+    """Update a position with the latest mark price. Returns action taken."""
+    pos_id = position["_id"]
+    direction = position["direction"]
+    entry = position["entry_price"]
+    size_usd = position["size_usd"]
+    wallet = position["account_id"]
+
+    # Calculate P&L
+    pnl_usd, pnl_pct = calculate_pnl(entry, mark_price, size_usd, direction)
+
+    # Update MFE/MAE
+    mfe = position.get("max_favorable_excursion", 0)
+    mae = position.get("max_adverse_excursion", 0)
+    if pnl_usd > mfe:
+        mfe = pnl_usd
+    if pnl_usd < mae:
+        mae = pnl_usd
+
+    # Borrow fee (charge hourly)
+    last_charge = position.get("last_borrow_charge", datetime.utcnow())
+    if isinstance(last_charge, str):
+        last_charge = datetime.fromisoformat(last_charge)
+    hours_since = (datetime.utcnow() - last_charge).total_seconds() / 3600
+    borrow_fee = 0.0
+    new_last_charge = last_charge
+    if hours_since >= 1.0:
+        whole_hours = int(hours_since)
+        borrow_fee = calculate_borrow_fee(size_usd, whole_hours)
+        new_last_charge = datetime.utcnow()
+
+    cumulative_funding = position.get("cumulative_funding", 0) + borrow_fee
+
+    update = {
+        "mark_price": mark_price,
+        "unrealized_pnl": round(pnl_usd, 4),
+        "unrealized_pnl_pct": round(pnl_pct, 4),
+        "max_favorable_excursion": round(mfe, 4),
+        "max_adverse_excursion": round(mae, 4),
+        "cumulative_funding": round(cumulative_funding, 4),
+        "last_updated": datetime.utcnow(),
+    }
+    if borrow_fee > 0:
+        update["last_borrow_charge"] = new_last_charge
+        update["total_fees"] = position.get("total_fees", 0) + borrow_fee
+
+        # Record funding event
+        perp_funding.insert_one({
+            "position_id": str(pos_id),
+            "account_id": wallet,
+            "symbol": position["symbol"],
+            "timestamp": datetime.utcnow(),
+            "funding_rate": BORROW_FEE_PCT_HR,
+            "payment_amount": borrow_fee,
+            "direction": "paid",
+        })
+
+        # Deduct from account balance
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$inc": {"total_funding_paid": borrow_fee, "balance": -borrow_fee}}
+        )
+
+    # Update trailing stop — only activates after price reaches activation level
+    trailing_dist = position.get("trailing_stop_distance")
+    trailing_price = position.get("trailing_stop_price")
+    activation_price = position.get("trailing_stop_activation")
+    if trailing_dist and trailing_dist > 0:
+        # Check if trailing is activated yet
+        activated = trailing_price is not None  # Already activated previously
+        if not activated and activation_price:
+            if direction == "long" and mark_price >= activation_price:
+                activated = True
+            elif direction == "short" and mark_price <= activation_price:
+                activated = True
+
+        if activated:
+            if direction == "long":
+                new_trail = mark_price * (1 - trailing_dist / 100)
+                if trailing_price is None or new_trail > trailing_price:
+                    update["trailing_stop_price"] = new_trail
+                    trailing_price = new_trail
+            else:
+                new_trail = mark_price * (1 + trailing_dist / 100)
+                if trailing_price is None or new_trail < trailing_price:
+                    update["trailing_stop_price"] = new_trail
+                    trailing_price = new_trail
+
+    perp_positions.update_one({"_id": pos_id}, {"$set": update})
+
+    # Check triggers — each checked independently (not elif)
+    # so a set-but-not-triggered SL doesn't block TP evaluation
+    action = None
+
+    # 1. Liquidation (highest priority)
+    if check_liquidation(position, mark_price):
+        action = "liquidation"
+
+    # 2. Stop loss
+    if not action and position.get("stop_loss"):
+        sl = position["stop_loss"]
+        if direction == "long" and mark_price <= sl:
+            action = "stop_loss"
+        elif direction == "short" and mark_price >= sl:
+            action = "stop_loss"
+
+    # 3. Take profit
+    if not action and position.get("take_profit"):
+        tp = position["take_profit"]
+        if direction == "long" and mark_price >= tp:
+            action = "take_profit"
+        elif direction == "short" and mark_price <= tp:
+            action = "take_profit"
+
+    # 4. Trailing stop
+    if not action and trailing_price:
+        if direction == "long" and mark_price <= trailing_price:
+            action = "trailing_stop"
+        elif direction == "short" and mark_price >= trailing_price:
+            action = "trailing_stop"
+
+    return {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
+
+
+# ── Equity & Metrics ────────────────────────────────────────────────────
+
+def snapshot_equity(wallet: str) -> Dict:
+    """Take an equity snapshot for the account."""
+    account = perp_accounts.find_one({"wallet": wallet})
+    if not account:
+        return {}
+
+    # Sum unrealized P&L from open positions
+    open_positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+    total_unrealized = sum(p.get("unrealized_pnl", 0) for p in open_positions)
+    total_margin = sum(p.get("margin", 0) for p in open_positions)
+
+    equity = account["balance"] + total_margin + total_unrealized
+    peak = max(account.get("peak_equity", INITIAL_BALANCE), equity)
+    drawdown = (peak - equity) / peak if peak > 0 else 0
+    max_dd = max(account.get("max_drawdown", 0), drawdown)
+
+    # Update account
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$set": {
+            "equity": round(equity, 4),
+            "unrealized_pnl": round(total_unrealized, 4),
+            "peak_equity": round(peak, 4),
+            "max_drawdown": round(max_dd, 6),
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+
+    # Check daily loss limit
+    daily_pnl = account.get("daily_pnl", 0)
+    daily_reset = account.get("daily_pnl_reset", datetime.utcnow())
+    if isinstance(daily_reset, str):
+        daily_reset = datetime.fromisoformat(daily_reset)
+
+    if (datetime.utcnow() - daily_reset).total_seconds() > 86400:
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$set": {"daily_pnl": 0, "daily_pnl_reset": datetime.utcnow(), "trading_paused": False}}
+        )
+    elif daily_pnl < -(equity * DAILY_LOSS_LIMIT_PCT):
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$set": {"trading_paused": True}}
+        )
+
+    snapshot = {
+        "account_id": wallet,
+        "timestamp": datetime.utcnow(),
+        "balance": account["balance"],
+        "equity": round(equity, 4),
+        "unrealized_pnl": round(total_unrealized, 4),
+        "realized_pnl_cumulative": account.get("realized_pnl", 0),
+        "open_position_count": len(open_positions),
+        "drawdown_from_peak": round(drawdown, 6),
+    }
+    perp_equity.insert_one(snapshot)
+
+    return snapshot
+
+
+def calculate_metrics(wallet: str) -> Dict:
+    """Calculate professional trading metrics from closed trades."""
+    trades = list(perp_trades.find({"account_id": wallet}).sort("exit_time", 1))
+    account = perp_accounts.find_one({"wallet": wallet})
+
+    if not trades or not account:
+        return {
+            "total_trades": 0, "winning_trades": 0, "losing_trades": 0,
+            "win_rate": 0, "profit_factor": 0, "avg_rr_ratio": 0,
+            "sharpe_ratio": 0, "sortino_ratio": 0, "max_drawdown": 0,
+            "expectancy": 0, "kelly_criterion": 0, "avg_holding_period": "0h",
+            "total_pnl": 0, "total_fees": 0, "total_funding": 0,
+            "best_trade": 0, "worst_trade": 0, "avg_win": 0, "avg_loss": 0,
+            "consecutive_wins": 0, "consecutive_losses": 0,
+        }
+
+    pnls = [t["realized_pnl"] for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p <= 0]
+
+    total = len(pnls)
+    win_count = len(wins)
+    loss_count = len(losses)
+    win_rate = win_count / total if total > 0 else 0
+
+    avg_win = sum(wins) / win_count if win_count > 0 else 0
+    avg_loss = abs(sum(losses) / loss_count) if loss_count > 0 else 0
+    profit_factor = sum(wins) / abs(sum(losses)) if losses and sum(losses) != 0 else float('inf') if wins else 0
+    avg_rr = avg_win / avg_loss if avg_loss > 0 else float('inf') if avg_win > 0 else 0
+
+    expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+    kelly = (win_rate - ((1 - win_rate) / avg_rr)) if avg_rr > 0 and avg_rr != float('inf') else 0
+    kelly = max(0, min(kelly / 2, 0.05))  # Half Kelly, capped at 5%
+
+    # Sharpe & Sortino from daily returns (approximate from trade returns)
+    if len(pnls) >= 2:
+        returns = [p / INITIAL_BALANCE for p in pnls]
+        mean_r = sum(returns) / len(returns)
+        variance = sum((r - mean_r) ** 2 for r in returns) / len(returns)
+        std_r = math.sqrt(variance) if variance > 0 else 0.0001
+
+        downside_returns = [r for r in returns if r < 0]
+        down_var = sum(r ** 2 for r in downside_returns) / len(downside_returns) if downside_returns else 0.0001
+        down_std = math.sqrt(down_var)
+
+        sharpe = (mean_r / std_r) * math.sqrt(365) if std_r > 0 else 0
+        sortino = (mean_r / down_std) * math.sqrt(365) if down_std > 0 else 0
+    else:
+        sharpe = 0
+        sortino = 0
+
+    # Consecutive wins/losses
+    max_consec_w = max_consec_l = cur_w = cur_l = 0
+    for p in pnls:
+        if p > 0:
+            cur_w += 1
+            cur_l = 0
+            max_consec_w = max(max_consec_w, cur_w)
+        else:
+            cur_l += 1
+            cur_w = 0
+            max_consec_l = max(max_consec_l, cur_l)
+
+    # Average holding period
+    holding_ms = [t.get("holding_period_ms", 0) for t in trades]
+    avg_hold_ms = sum(holding_ms) / len(holding_ms) if holding_ms else 0
+    avg_hold_hrs = avg_hold_ms / 3_600_000
+
+    if avg_hold_hrs < 1:
+        avg_hold_str = f"{int(avg_hold_hrs * 60)}m"
+    elif avg_hold_hrs < 24:
+        avg_hold_str = f"{avg_hold_hrs:.1f}h"
+    else:
+        avg_hold_str = f"{avg_hold_hrs / 24:.1f}d"
+
+    return {
+        "total_trades": total,
+        "winning_trades": win_count,
+        "losing_trades": loss_count,
+        "win_rate": round(win_rate * 100, 2),
+        "profit_factor": round(profit_factor, 2) if profit_factor != float('inf') else 999,
+        "avg_rr_ratio": round(avg_rr, 2) if avg_rr != float('inf') else 999,
+        "sharpe_ratio": round(sharpe, 2),
+        "sortino_ratio": round(sortino, 2),
+        "max_drawdown": round(account.get("max_drawdown", 0) * 100, 2),
+        "expectancy": round(expectancy, 2),
+        "kelly_criterion": round(kelly * 100, 2),
+        "avg_holding_period": avg_hold_str,
+        "total_pnl": round(sum(pnls), 2),
+        "total_fees": round(sum(t.get("total_fees", 0) for t in trades), 2),
+        "total_funding": round(sum(t.get("total_funding_paid", 0) for t in trades), 2),
+        "best_trade": round(max(pnls), 2),
+        "worst_trade": round(min(pnls), 2),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "consecutive_wins": max_consec_w,
+        "consecutive_losses": max_consec_l,
+    }
+
+
+# ── Query Helpers ────────────────────────────────────────────────────────
+
+def get_open_positions(wallet: str) -> List[Dict]:
+    """Get all open positions for an account."""
+    positions = list(perp_positions.find({"account_id": wallet, "status": "open"}).sort("opened_at", -1))
+    return [_format_position(p) for p in positions]
+
+
+def get_trade_history(wallet: str, limit: int = 50, symbol: str = None) -> List[Dict]:
+    """Get closed trade history."""
+    query = {"account_id": wallet}
+    if symbol:
+        query["symbol"] = symbol
+    trades = list(perp_trades.find(query).sort("exit_time", -1).limit(limit))
+    return [_format_trade(t) for t in trades]
+
+
+def get_equity_curve(wallet: str, period: str = "all") -> List[Dict]:
+    """Get equity snapshots for charting."""
+    query = {"account_id": wallet}
+
+    if period == "1d":
+        query["timestamp"] = {"$gte": datetime.utcnow() - timedelta(days=1)}
+    elif period == "1w":
+        query["timestamp"] = {"$gte": datetime.utcnow() - timedelta(weeks=1)}
+    elif period == "1m":
+        query["timestamp"] = {"$gte": datetime.utcnow() - timedelta(days=30)}
+
+    snapshots = list(perp_equity.find(query, {"_id": 0}).sort("timestamp", 1))
+    for s in snapshots:
+        if isinstance(s.get("timestamp"), datetime):
+            s["timestamp"] = s["timestamp"].isoformat()
+    return snapshots
+
+
+def get_markets_info() -> List[Dict]:
+    """Return available markets with config."""
+    return [
+        {
+            "symbol": symbol,
+            "base_asset": info["symbol"],
+            "max_leverage": info["max_leverage"],
+            "tick_size": info["tick"],
+            "coingecko_id": info["base"],
+        }
+        for symbol, info in MARKETS.items()
+    ]
+
+
+# ── Formatting ───────────────────────────────────────────────────────────
+
+def _format_position(pos: Dict) -> Dict:
+    """Format position for API response."""
+    p = dict(pos)
+    p["_id"] = str(p["_id"]) if "_id" in p else None
+    for key in ("opened_at", "last_updated", "last_borrow_charge"):
+        if key in p and isinstance(p[key], datetime):
+            p[key] = p[key].isoformat()
+    return p
+
+
+def _format_trade(trade: Dict) -> Dict:
+    """Format trade for API response."""
+    t = dict(trade)
+    t.pop("_id", None)
+    for key in ("entry_time", "exit_time"):
+        if key in t and isinstance(t[key], datetime):
+            t[key] = t[key].isoformat()
+    return t

@@ -685,6 +685,17 @@ const HoldingsList = ({
                               : asset.balance,
                           )}
                         </span>
+                        <SpinNumber
+                          value={prices[asset.code] || asset.priceUsd}
+                          formatter={(n) =>
+                            n >= 1000 ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}` :
+                            n >= 1 ? `$${n.toFixed(2)}` :
+                            n >= 0.01 ? `$${n.toFixed(4)}` :
+                            `$${n.toFixed(6)}`
+                          }
+                          className="text-[11px] text-slate-400 font-mono"
+                          flashColor={flashColor}
+                        />
                         <div className={`flex items-center gap-1 ${changeColor}`}>
                           {asset.change24h > 0 ? (
                             <FaArrowUp size={8} />

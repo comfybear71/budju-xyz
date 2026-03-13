@@ -81,17 +81,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(403).json({ error: `RPC method not allowed: ${rpcMethod}` });
   }
 
-  try {
-    const response = await fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req.body),
-    });
+  const FALLBACK_RPC = "https://api.mainnet-beta.solana.com";
+  const payload = JSON.stringify(req.body);
+  const headers = { "Content-Type": "application/json" };
 
-    const data = await response.json();
-    return res.status(200).json(data);
-  } catch (error: any) {
-    console.error("RPC proxy error:", error);
-    return res.status(500).json({ error: error.message });
+  // Try primary RPC (Helius), fall back to public RPC on failure
+  const endpoints = rpcUrl !== FALLBACK_RPC ? [rpcUrl, FALLBACK_RPC] : [FALLBACK_RPC];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: payload,
+        signal: AbortSignal.timeout(15_000), // 15s timeout per attempt
+      });
+
+      const data = await response.json();
+
+      // Check for RPC-level errors that warrant fallback
+      if (data.error && endpoint !== FALLBACK_RPC) {
+        console.warn(`Primary RPC error (${data.error.code}): ${data.error.message}, trying fallback`);
+        continue;
+      }
+
+      return res.status(200).json(data);
+    } catch (error: any) {
+      console.warn(`RPC endpoint failed (${endpoint === rpcUrl ? "primary" : "fallback"}): ${error.message}`);
+      if (endpoint === endpoints[endpoints.length - 1]) {
+        // Last endpoint failed — return error
+        return res.status(502).json({ error: `All RPC endpoints failed: ${error.message}` });
+      }
+      // Otherwise try next endpoint
+    }
   }
+
+  return res.status(502).json({ error: "All RPC endpoints failed" });
 }

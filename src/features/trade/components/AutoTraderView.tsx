@@ -473,10 +473,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                           </div>
                         )}
                       </div>
-                      {tradeLog.length > 0 && tradeLog[0].time && (
+                      {tradeLog.length > 0 && (tradeLog[0].timestamp || tradeLog[0].time) && (
                         <span className="text-[9px] text-slate-500 font-mono">
-                          {new Date(tradeLog[0].time).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })}{" "}
-                          {new Date(tradeLog[0].time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                          {new Date(tradeLog[0].timestamp || tradeLog[0].time).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "2-digit" })}{" "}
+                          {new Date(tradeLog[0].timestamp || tradeLog[0].time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
                         </span>
                       )}
                     </div>
@@ -507,6 +507,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                   </span>
                                 </div>
                                 <div className="text-right">
+                                  {(entry.timestamp || entry.time) && (
+                                    <div className="text-[9px] text-slate-600 font-mono">
+                                      {new Date(entry.timestamp || entry.time).toLocaleDateString(undefined, { day: "2-digit", month: "short" })}{" "}
+                                      {new Date(entry.timestamp || entry.time).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: true })}
+                                    </div>
+                                  )}
                                   <div className="text-[10px] text-slate-500 font-mono">
                                     {qty.toFixed(4)} @ {formatPrice(price)}
                                   </div>

@@ -17,6 +17,7 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
+import HighRiskDashboard from "./components/perps/HighRiskDashboard";
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -41,6 +42,7 @@ import {
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
+import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
 
 const Trade = () => {
@@ -98,6 +100,31 @@ const Trade = () => {
       if (data?.role) setUserRole(data.role);
     });
   }, [isConnected, walletAddress]);
+
+  // ── Real-time Binance WebSocket prices ──
+  const { prices: wsPrices, wsState } = useLivePrices(1000);
+
+  // Merge WS prices into assets & prices state whenever they update
+  useEffect(() => {
+    if (Object.keys(wsPrices).length === 0) return;
+
+    // Update prices state (WS overrides CoinGecko for speed)
+    setPrices((prev) => ({ ...prev, ...wsPrices }));
+
+    // Update asset USD values with live prices
+    setAssets((prev) =>
+      prev.map((a) => {
+        const livePrice = wsPrices[a.code];
+        if (livePrice && a.balance > 0) {
+          return { ...a, priceUsd: livePrice, usdValue: a.balance * livePrice };
+        }
+        return a;
+      }),
+    );
+
+    // Feed to AutoTrader
+    autoTrader.updatePrices(wsPrices);
+  }, [wsPrices, autoTrader]);
 
   // Computed – pool value includes crypto + cash (USDC already in USD, AUD converted)
   const totalPoolValue = assets.reduce((s, a) => s + a.usdValue, 0) + usdcBalance + audBalance * AUD_TO_USD;
@@ -203,29 +230,45 @@ const Trade = () => {
     loadData();
   }, [loadData, refreshKey]);
 
-  // Auto-refresh prices every 30s
+  // CoinGecko fallback: refresh 24h changes & coins not on Binance every 60s
   useEffect(() => {
     const interval = setInterval(() => {
       Promise.all([fetchPrices(), fetchChanges()]).then(([p, c]) => {
-        setPrices(p);
+        // Only update prices for coins NOT covered by WebSocket
+        setPrices((prev) => {
+          const merged = { ...prev };
+          for (const [code, price] of Object.entries(p)) {
+            if (!wsPrices[code]) merged[code] = price;
+          }
+          return merged;
+        });
         setChanges(c);
         setAssets((prev) =>
           prev.map((a) => ({
             ...a,
-            priceUsd: p[a.code] || a.priceUsd,
             change24h: c[a.code] || a.change24h,
-            usdValue:
-              p[a.code] && a.balance > 0
-                ? a.balance * p[a.code]
-                : a.usdValue,
+            // Only update price from CoinGecko if WS doesn't cover this coin
+            ...(wsPrices[a.code]
+              ? {}
+              : {
+                  priceUsd: p[a.code] || a.priceUsd,
+                  usdValue:
+                    p[a.code] && a.balance > 0
+                      ? a.balance * p[a.code]
+                      : a.usdValue,
+                }),
           })),
         );
-        // Feed fresh prices to AutoTrader
-        autoTrader.updatePrices(p);
+        // Feed non-WS prices to AutoTrader
+        const nonWs: Record<string, number> = {};
+        for (const [code, price] of Object.entries(p)) {
+          if (!wsPrices[code]) nonWs[code] = price;
+        }
+        if (Object.keys(nonWs).length > 0) autoTrader.updatePrices(nonWs);
       });
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(interval);
-  }, [autoTrader]);
+  }, [autoTrader, wsPrices]);
 
   // Initialize AutoTrader for admin users
   useEffect(() => {
@@ -314,6 +357,11 @@ const Trade = () => {
                   ? "Connecting..."
                   : "Disconnected"}
             </span>
+            {wsState.connected && (
+              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono border border-emerald-500/20">
+                WS LIVE
+              </span>
+            )}
             {isAdmin && (
               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
                 ADMIN
@@ -440,45 +488,69 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Non-admin: 2 insight cards (Orders / Auto Trader) → read-only modals */}
+                {/* Non-admin: 3 insight cards (Orders / Auto Trader / Live Charts) */}
                 {!isAdmin && (
-                  <div className="flex gap-2 mb-3">
+                  <div className="space-y-2 mb-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowTriggerView(!showTriggerView)}
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300">Orders</div>
+                          <div className="text-[10px] font-bold text-purple-400">
+                            {pendingOrderCount > 0
+                              ? `${pendingOrderCount} pending`
+                              : "None"}
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setShowAutoTrader(true)}
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+                            <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                          </svg>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
+                          <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
+                            {traderState?.autoBotActive ? "Active" : "Inactive"}
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                    {/* Live Charts button — opens read-only dashboard */}
                     <button
-                      onClick={() => setShowTriggerView(!showTriggerView)}
-                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
-                      style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                      onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
+                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      style={{
+                        background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
+                        border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
+                      }}
                     >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10" />
-                          <polyline points="12 6 12 12 16 14" />
-                        </svg>
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                        <span className="text-sm">📈</span>
                       </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300">Orders</div>
-                        <div className="text-[10px] font-bold text-purple-400">
-                          {pendingOrderCount > 0
-                            ? `${pendingOrderCount} pending`
-                            : "None"}
+                      <div className="text-left flex-1">
+                        <div className="text-[11px] font-bold text-slate-300">Live Charts + AI Predictions</div>
+                        <div className="text-[10px] font-bold text-red-400">
+                          6 markets • Real-time
                         </div>
                       </div>
-                    </button>
-                    <button
-                      onClick={() => setShowAutoTrader(true)}
-                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
-                      style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
-                          <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                        </svg>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
-                        <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
-                          {traderState?.autoBotActive ? "Active" : "Inactive"}
-                        </div>
-                      </div>
+                      <span className="text-[9px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-500/20">
+                        NEW
+                      </span>
                     </button>
                   </div>
                 )}
@@ -758,27 +830,18 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── High Risk View (admin only — placeholder) ─── */}
+              {/* ─── High Risk View (admin: full access, others: read-only charts) ─── */}
               <AnimatePresence>
                 {showHighRisk && isAdmin && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 10 }}
-                    className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm p-6 text-center"
-                  >
-                    <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-3">
-                      <span className="text-2xl">🔥</span>
-                    </div>
-                    <h3 className="text-base font-bold text-red-400 mb-1">High Risk</h3>
-                    <p className="text-xs text-slate-500">Coming soon — high-risk leveraged strategies and volatile asset plays.</p>
-                    <button
-                      onClick={() => setShowHighRisk(false)}
-                      className="mt-4 px-4 py-2 rounded-lg text-xs font-bold text-slate-400 bg-white/[0.04] hover:text-white transition-colors"
-                    >
-                      Close
-                    </button>
-                  </motion.div>
+                  <HighRiskDashboard
+                    onClose={() => setShowHighRisk(false)}
+                  />
+                )}
+                {showHighRisk && !isAdmin && (
+                  <HighRiskDashboard
+                    readOnly
+                    onClose={() => setShowHighRisk(false)}
+                  />
                 )}
               </AnimatePresence>
 

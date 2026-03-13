@@ -1,4 +1,4 @@
-import { useRef, useEffect, useMemo } from "react";
+import { useRef, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { Chart, DoughnutController, ArcElement, Tooltip } from "chart.js";
 import type { PortfolioAsset } from "../services/tradeApi";
@@ -14,6 +14,8 @@ interface Props {
   onSelectAsset?: (code: string) => void;
 }
 
+const CHART_UPDATE_INTERVAL = 300_000; // 5 minutes
+
 const PortfolioChart = ({
   assets,
   totalValue,
@@ -24,15 +26,42 @@ const PortfolioChart = ({
 }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chartRef = useRef<Chart | null>(null);
+  const lastUpdateRef = useRef(0);
+  const totalValueRef = useRef(totalValue);
+  totalValueRef.current = totalValue;
+
+  // Throttled chart data — only recalculates every 5 minutes
+  const [throttledAssets, setThrottledAssets] = useState(assets);
+
+  useEffect(() => {
+    const now = Date.now();
+    // Always update on first render or when asset list structure changes (new assets added/removed)
+    const structureChanged = assets.length !== throttledAssets.length ||
+      assets.some((a, i) => throttledAssets[i]?.code !== a.code);
+
+    if (structureChanged || now - lastUpdateRef.current >= CHART_UPDATE_INTERVAL) {
+      lastUpdateRef.current = now;
+      setThrottledAssets(assets);
+    }
+  }, [assets]);
+
+  // Also update on a 5 min interval timer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      lastUpdateRef.current = Date.now();
+      setThrottledAssets(assets);
+    }, CHART_UPDATE_INTERVAL);
+    return () => clearInterval(interval);
+  }, [assets]);
 
   const chartData = useMemo(() => {
-    const filtered = assets.filter((a) => a.usdValue > 0);
+    const filtered = throttledAssets.filter((a) => a.usdValue > 0);
     return {
       labels: filtered.map((a) => a.code),
       values: filtered.map((a) => a.usdValue),
       colors: filtered.map((a) => a.color),
     };
-  }, [assets]);
+  }, [throttledAssets]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -66,9 +95,10 @@ const PortfolioChart = ({
             callbacks: {
               label: (ctx) => {
                 const val = ctx.parsed;
+                const tv = totalValueRef.current;
                 const pct =
-                  totalValue > 0
-                    ? ((val / totalValue) * 100).toFixed(1)
+                  tv > 0
+                    ? ((val / tv) * 100).toFixed(1)
                     : "0";
                 return ` ${ctx.label}: $${val.toLocaleString(undefined, { maximumFractionDigits: 0 })} (${pct}%)`;
               },
@@ -89,7 +119,7 @@ const PortfolioChart = ({
     return () => {
       chartRef.current?.destroy();
     };
-  }, [chartData, totalValue]);
+  }, [chartData]);
 
   return (
     <motion.div

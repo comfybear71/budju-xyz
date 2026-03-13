@@ -47,6 +47,14 @@ MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
 SELL_RATIO = 0.833
 HEARTBEAT_STALE_MS = 5 * 60 * 1000  # 5 minutes
 
+# Dry-run mode: set DRY_RUN=true to simulate trades without executing
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
+
+# Circuit breakers (configurable via env vars)
+MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "500"))   # Max USDC per trade
+MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))                 # Max trades per 24h
+MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "2000"))       # Max total USDC sold per 24h
+
 # Swyftx order types
 MARKET_BUY = 1
 MARKET_SELL = 2
@@ -66,16 +74,25 @@ ASSET_CG_IDS = {
 
 # ── HTTP Helper ───────────────────────────────────────────────
 
-def _http_json(url, method="GET", body=None, headers=None):
-    """Simple HTTP JSON request."""
+def _http_json(url, method="GET", body=None, headers=None, retries=0, backoff=2):
+    """Simple HTTP JSON request with optional retry + exponential backoff."""
     hdrs = dict(headers) if headers else {}
     data = json.dumps(body).encode() if body else None
     if data and "Content-Type" not in hdrs:
         hdrs["Content-Type"] = "application/json"
     hdrs.setdefault("User-Agent", "SwyftxTrader/1.0")
-    req = Request(url, data=data, headers=hdrs, method=method)
-    with urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode())
+    last_error = None
+    for attempt in range(1 + retries):
+        try:
+            req = Request(url, data=data, headers=hdrs, method=method)
+            with urlopen(req, timeout=20) as resp:
+                return json.loads(resp.read().decode())
+        except Exception as e:
+            last_error = e
+            if attempt < retries:
+                wait = backoff ** attempt  # 1s, 2s, 4s...
+                time.sleep(wait)
+    raise last_error
 
 # ── Swyftx Token Management ──────────────────────────────────
 
@@ -108,10 +125,10 @@ def _swyftx_headers():
 # ── Data Fetching ─────────────────────────────────────────────
 
 def fetch_prices():
-    """Fetch USD prices from CoinGecko for all tracked assets."""
+    """Fetch USD prices from CoinGecko for all tracked assets (with retry)."""
     ids = ",".join(ASSET_CG_IDS.values())
     url = f"{COINGECKO_URL}?ids={ids}&vs_currencies=usd,aud"
-    data = _http_json(url)
+    data = _http_json(url, retries=2, backoff=2)  # Retry up to 2x with 1s, 2s backoff
 
     prices = {}
     for code, cg_id in ASSET_CG_IDS.items():
@@ -246,11 +263,64 @@ def _is_tier_active(tier_active, tier_num):
     """Check if a tier is active (handles both string and int keys)."""
     return bool(tier_active.get(str(tier_num)) or tier_active.get(tier_num))
 
+# ── Circuit Breakers ─────────────────────────────────────────
+
+def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
+    """Check circuit breakers before executing a trade.
+    Returns (allowed: bool, reason: str or None)."""
+    # 1. Max single trade size
+    if amount_usdc > MAX_SINGLE_TRADE_USDC:
+        reason = f"Trade ${amount_usdc:.2f} exceeds MAX_SINGLE_TRADE_USDC (${MAX_SINGLE_TRADE_USDC:.2f})"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    # 2. Count trades in last 24h from trade log
+    now_iso = datetime.utcnow().isoformat()
+    recent_trades = 0
+    daily_sell_total = 0.0
+    cutoff_ms = int(time.time() * 1000) - (24 * 3_600_000)
+
+    for entry in trade_log:
+        ts = entry.get("timestamp", "")
+        # Parse ISO timestamp to compare
+        try:
+            entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            entry_ms = int(entry_time.timestamp() * 1000)
+        except (ValueError, AttributeError):
+            continue
+
+        if entry_ms > cutoff_ms:
+            recent_trades += 1
+            if str(entry.get("side", "")).lower() == "sell":
+                daily_sell_total += float(entry.get("qty", 0)) * float(entry.get("price", 0))
+
+    # 3. Max daily trades
+    if recent_trades >= MAX_DAILY_TRADES:
+        reason = f"Hit MAX_DAILY_TRADES limit ({MAX_DAILY_TRADES} trades in 24h)"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    # 4. Max daily sell exposure (only for sells)
+    if side == "sell" and (daily_sell_total + amount_usdc) > MAX_DAILY_LOSS_USDC:
+        reason = f"Daily sell total ${daily_sell_total + amount_usdc:.2f} would exceed MAX_DAILY_LOSS_USDC (${MAX_DAILY_LOSS_USDC:.2f})"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    return True, None
+
+
 # ── Main Auto-Trade Check ────────────────────────────────────
 
 def run_auto_trade_check():
     """Core auto-trade logic. Returns a result dict with a log."""
     log = []
+
+    # Emergency kill-switch: set TRADING_ENABLED=false in Vercel env to halt all trades
+    if os.getenv("TRADING_ENABLED", "true").lower() == "false":
+        return {"skipped": True, "reason": "Trading disabled via TRADING_ENABLED env var", "log": log}
+
+    if DRY_RUN:
+        log.append("DRY RUN MODE — trades will be simulated, not executed")
 
     if not SWYFTX_API_KEY:
         return {"error": "SWYFTX_API_KEY not set", "log": log}
@@ -316,6 +386,7 @@ def run_auto_trade_check():
     # 4. Check each coin's price targets
     code_to_id = None  # Lazy-loaded only if a trade is needed
     trades_executed = []
+    decisions = []  # Structured log of every decision for debugging
 
     for code in list(targets.keys()):
         tgt = targets.get(code)
@@ -327,6 +398,7 @@ def run_auto_trade_check():
         if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
             remaining_h = (cooldown_expiry - now_ms) / 3_600_000
             log.append(f"{code}: cooldown ({remaining_h:.1f}h left)")
+            decisions.append({"coin": code, "action": "skip", "reason": "cooldown", "remaining_h": round(remaining_h, 1)})
             continue
         elif cooldown_expiry and isinstance(cooldown_expiry, (int, float)) and cooldown_expiry <= now_ms:
             del cooldowns[code]
@@ -359,6 +431,22 @@ def run_auto_trade_check():
             quantity = round(trade_amount / current_price, 8)
             log.append(f"{code}: BUY at ${current_price:.2f} (target ${buy_target:.2f}) — ${trade_amount:.2f}")
 
+            # Circuit breaker check
+            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
+            if not cb_ok:
+                send_telegram(f"🚫 <b>BUY BLOCKED</b>\n{code}: {cb_reason}")
+                continue
+
+            # Dry-run: simulate without executing
+            if DRY_RUN:
+                log.append(f"{code}: DRY RUN — would BUY {quantity:.6f} @ ${current_price:.2f} (${trade_amount:.2f} USDC)")
+                send_telegram(
+                    f"🧪 <b>DRY RUN BUY</b>\n"
+                    f"💰 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
+                    f"📦 ${trade_amount:,.2f} USDC (not executed)"
+                )
+                continue
+
             if code_to_id is None:
                 code_to_id = fetch_swyftx_asset_ids()
 
@@ -366,6 +454,13 @@ def run_auto_trade_check():
 
             if ok:
                 log.append(f"{code}: BUY executed (order {order_id})")
+                decisions.append({
+                    "coin": code, "action": "BUY", "result": "executed",
+                    "price": current_price, "target": buy_target,
+                    "amount_usdc": round(trade_amount, 2), "quantity": quantity,
+                    "order_id": order_id, "dry_run": False,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
 
                 # Move buy target down, sell stays
                 targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
@@ -406,6 +501,12 @@ def run_auto_trade_check():
                 )
             else:
                 log.append(f"{code}: BUY failed — {err}")
+                decisions.append({
+                    "coin": code, "action": "BUY", "result": "failed",
+                    "price": current_price, "target": buy_target,
+                    "amount_usdc": round(trade_amount, 2), "error": err,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
 
         # ── SELL: price rose above sell target ──
         elif current_price >= sell_target:
@@ -435,6 +536,22 @@ def run_auto_trade_check():
 
             log.append(f"{code}: SELL at ${current_price:.2f} (target ${sell_target:.2f}) — {quantity:.8f} (${sell_value:.2f})")
 
+            # Circuit breaker check
+            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
+            if not cb_ok:
+                send_telegram(f"🚫 <b>SELL BLOCKED</b>\n{code}: {cb_reason}")
+                continue
+
+            # Dry-run: simulate without executing
+            if DRY_RUN:
+                log.append(f"{code}: DRY RUN — would SELL {quantity:.6f} @ ${current_price:.2f} (${sell_value:.2f} USDC)")
+                send_telegram(
+                    f"🧪 <b>DRY RUN SELL</b>\n"
+                    f"💸 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
+                    f"📦 ${sell_value:,.2f} USDC (not executed)"
+                )
+                continue
+
             if code_to_id is None:
                 code_to_id = fetch_swyftx_asset_ids()
 
@@ -442,6 +559,13 @@ def run_auto_trade_check():
 
             if ok:
                 log.append(f"{code}: SELL executed (order {order_id})")
+                decisions.append({
+                    "coin": code, "action": "SELL", "result": "executed",
+                    "price": current_price, "target": sell_target,
+                    "amount_usdc": round(sell_value, 2), "quantity": quantity,
+                    "order_id": order_id, "dry_run": False,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
 
                 # Move sell target up, buy stays
                 targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
@@ -480,6 +604,12 @@ def run_auto_trade_check():
                 )
             else:
                 log.append(f"{code}: SELL failed — {err}")
+                decisions.append({
+                    "coin": code, "action": "SELL", "result": "failed",
+                    "price": current_price, "target": sell_target,
+                    "amount_usdc": round(sell_value, 2), "error": err,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
 
         # ── No trigger ──
         else:
@@ -488,6 +618,11 @@ def run_auto_trade_check():
                 f"{pct_to_buy:.1f}% to buy (${buy_target:.2f}), "
                 f"{pct_to_sell:.1f}% to sell (${sell_target:.2f})"
             )
+            decisions.append({
+                "coin": code, "action": "hold", "price": current_price,
+                "buy_target": buy_target, "sell_target": sell_target,
+                "pct_to_buy": round(pct_to_buy, 2), "pct_to_sell": round(pct_to_sell, 2),
+            })
 
     # 5. Save updated state to MongoDB
     auto_active["targets"] = targets
@@ -506,6 +641,8 @@ def run_auto_trade_check():
         "tradesExecuted": len(trades_executed),
         "trades": trades_executed,
         "coinsMonitored": len(active_coins),
+        "dryRun": DRY_RUN,
+        "decisions": decisions,
         "log": log,
     }
 

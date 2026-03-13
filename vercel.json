@@ -15,6 +15,8 @@
     { "source": "/api/telegram", "destination": "/api/telegram.ts" },
     { "source": "/api/telegram-cron", "destination": "/api/telegram-cron.ts" },
     { "source": "/api/auto-trade-cron", "destination": "/api/auto-trade-cron.py" },
+    { "source": "/api/perp-cron", "destination": "/api/perp-cron.py" },
+    { "source": "/api/perp/:path*", "destination": "/api/index.py" },
     { "source": "/api/user/:path*", "destination": "/api/index.py" },
     { "source": "/api/user-deposit", "destination": "/api/index.py" },
     { "source": "/api/deposit", "destination": "/api/index.py" },
@@ -38,6 +40,10 @@
     {
       "path": "/api/auto-trade-cron",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/perp-cron",
+      "schedule": "* * * * *"
     }
   ],
   "build": {
