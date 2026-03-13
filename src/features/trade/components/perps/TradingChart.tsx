@@ -1057,24 +1057,20 @@ const TradingChart = ({
                 <span className="text-[7px] text-slate-600">Executes when price + conditions align</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                {/* Long entry zone */}
-                <div className={`rounded-lg border p-2 transition-all ${
-                  prediction.entryZones.longReady
-                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
-                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
-                }`}>
+                {/* Long entry zone — always bright */}
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/[0.08] p-2 transition-all">
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px]">{"\u2191"}</span>
-                    <span className={`text-[9px] font-bold ${prediction.entryZones.longReady ? "text-emerald-400" : "text-slate-500"}`}>
+                    <span className="text-[9px] font-bold text-emerald-400">
                       LONG ENTRY
                     </span>
                     {prediction.entryZones.longReady ? (
                       <span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold animate-pulse">READY</span>
                     ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-bold">WAITING</span>
                     )}
                   </div>
-                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.longReady ? "text-emerald-300" : "text-slate-500"}`}>
+                  <div className="text-[13px] font-bold font-mono text-emerald-300">
                     ${formatPrice(prediction.entryZones.longEntry)}
                   </div>
                   <div className="text-[8px] text-slate-500 mt-0.5">
@@ -1087,24 +1083,20 @@ const TradingChart = ({
                     {prediction.entryZones.longReason}
                   </div>
                 </div>
-                {/* Short entry zone */}
-                <div className={`rounded-lg border p-2 transition-all ${
-                  prediction.entryZones.shortReady
-                    ? "border-red-500/30 bg-red-500/[0.08]"
-                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
-                }`}>
+                {/* Short entry zone — always bright */}
+                <div className="rounded-lg border border-red-500/30 bg-red-500/[0.08] p-2 transition-all">
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px]">{"\u2193"}</span>
-                    <span className={`text-[9px] font-bold ${prediction.entryZones.shortReady ? "text-red-400" : "text-slate-500"}`}>
+                    <span className="text-[9px] font-bold text-red-400">
                       SHORT ENTRY
                     </span>
                     {prediction.entryZones.shortReady ? (
                       <span className="text-[7px] px-1 py-0.5 rounded bg-red-500/20 text-red-300 font-bold animate-pulse">READY</span>
                     ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/80 font-bold">WAITING</span>
                     )}
                   </div>
-                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.shortReady ? "text-red-300" : "text-slate-500"}`}>
+                  <div className="text-[13px] font-bold font-mono text-red-300">
                     ${formatPrice(prediction.entryZones.shortEntry)}
                   </div>
                   <div className="text-[8px] text-slate-500 mt-0.5">
