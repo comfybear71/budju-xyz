@@ -377,21 +377,37 @@ MAX_POSITION_PCT = 0.50          # Max 50% equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
 ```
 
-### Auto-Trader Strategies (perp_strategies.py)
-| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop |
-|----------|--------|----------|---------------|---------------|---------------|
-| Trend Following | EMA 9 above/below 21 + accelerating + RSI | 5x | 2.0 | 8.0 | 1.5% |
-| Mean Reversion | Price near BB band (20% tolerance) + RSI leaning | 3x | 1.5 | 3.0 | 1.0% |
-| Momentum | Price breaks 20-candle high/low + RSI confirms | 5x | 2.5 | 10.0 | 2.0% |
-| Scalping | RSI extremes/pullbacks + EMA slope | 5x | 1.5 | 2.5 | 0.8% |
+### Auto-Trader Strategies (perp_strategies.py) — OVERHAULED March 14, 2026
+| Strategy | Signal | Leverage | SL (ATR) | TP (ATR) | Trail | Trail Activation | Status |
+|----------|--------|----------|----------|----------|-------|-----------------|--------|
+| Trend Following | EMA 9/21 actual crossover + RSI | 3x | 2.5 | 8.0 | 2.0% | 3.0% | Active |
+| Mean Reversion | Price at BB band (10% tolerance) + RSI extreme | 2x | 2.0 | 4.0 | 1.5% | 2.5% | Active, NO trend filter |
+| Momentum | Price breaks 20-candle high/low + RSI >55 | 3x | 3.0 | 10.0 | 2.5% | 4.0% | Active |
+| Scalping | Extreme RSI (25/75) + EMA slope + momentum | 3x | 2.0 | 4.0 | 1.2% | 2.0% | **DISABLED** |
 
-- ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR (wider stops that survive normal price noise)
-- **50-period EMA trend filter** on all strategies — longs require price above 50 EMA, shorts require price below. Prevents trading against the trend.
-- **Profit-activated trailing stops** — trail does NOT start from entry. It activates only after price moves favorably by the trailing %. E.g. 1.5% trail on a long activates at +1.5% profit, then ratchets up from there. Until activation, only the fixed SL protects the downside.
-- Trend following and momentum use wide TP (8-10x ATR) so the trailing stop is the primary exit, letting winners run.
-- Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
-- Cooldown: 15 min per market between auto trades
+**Key changes from original:**
+- **Trailing stop activation is now SEPARATE from trail distance** — e.g., 3% activation + 2% trail means winners must move +3% before locking in, then trail from high-water mark with 2% buffer. Prevents the old bug where activation=trail=0.8% meant winners always exited at breakeven.
+- **Mean reversion has NO trend filter** — it was blocking the exact counter-trend entries the strategy needs (buy dips below EMA, sell rallies above EMA).
+- **Scalping DISABLED** — was the biggest fee bleeder. 6 loose entry signals on 1-min data = random entries + 0.3% fee drag per round trip.
+- **Trend following requires actual EMA crossover** — not just "fast > slow + accelerating" which fired constantly.
+- **Leverage reduced across all strategies** — 5x→3x, 3x→2x. Less risk per trade.
+- **Correlation guard** — max 1 position per correlated group: {BTC,ETH,SOL} and {SUI,AVAX,LINK}. Prevents triple stop-out on market-wide moves.
+- **Drawdown protection** — half position size at 5% drawdown from peak, stop trading at 10%.
+- **Risk per trade reduced** — 1.5%→1.0% of equity.
+- **Cooldown increased** — 15 min→2 hours. Prevents re-entering same adverse regime.
+- RSI thresholds tightened — only genuine extremes trigger entries.
+- ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR
 - Historical candles seeded from Binance public API (eliminates cold-start)
+
+### Pending Limit/Stop Orders (perp_pending_orders.py) — NEW March 14, 2026
+Pre-placed orders that wait at key levels like "ninjas" ready to execute:
+- **limit_buy** — below current price, fills on dip (catches red candles)
+- **limit_sell** — above current price, fills on pump
+- **buy_stop** — above current price, fills on breakout
+- **sell_stop** — below current price, fills on breakdown
+- Checked every cron tick (1 min). Orders auto-expire after 24h.
+- Each order has bracket: auto-places SL/TP when filled.
+- DB collection: `perp_pending_orders`
 
 ### Trigger Execution (perp-cron.py → perp_engine.py)
 Checked every minute in priority order (independent checks, not elif):
@@ -409,7 +425,7 @@ Checked every minute in priority order (independent checks, not elif):
 
 ---
 
-## 12. Recent Changes (as of March 13, 2026)
+## 12. Recent Changes (as of March 14, 2026)
 
 - **Full perpetual paper trading system** — 10 markets, 4 auto-trading strategies, real-time Binance WebSocket charts
 - **Critical bug fix: TP never triggered when SL was set** — `elif` chain in trigger checks meant a set-but-not-hit SL blocked TP evaluation entirely. Changed to independent `if not action` checks.
@@ -440,9 +456,46 @@ Checked every minute in priority order (independent checks, not elif):
 - Added Dependabot, ErrorBoundary, TanStack Query caching
 - Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
 
+### Changes March 14, 2026 — Strategy Overhaul & Chart Fixes
+- **Major strategy overhaul** — All 4 strategies retuned after overnight loss analysis (7-8% returns → 0.01% equity). See strategy table above for new parameters.
+- **Scalping strategy disabled** — Was generating 10-20 round-trip trades/day with no edge, bleeding ~$15-60/day in fees alone.
+- **Trailing stop activation separated from trail distance** — `trailing_activation_pct` (new param on `open_position()`) lets winners run before locking in. E.g., activate at +3%, trail at 2%.
+- **Correlation guard added** — Max 1 position per correlated asset group ({BTC,ETH,SOL}, {SUI,AVAX,LINK}). Prevents triple stop-out on market-wide moves.
+- **Drawdown protection** — Position sizing halved at 5% drawdown from peak equity, trading stops at 10%.
+- **Mean reversion trend filter removed** — It was blocking the counter-trend entries the strategy is designed to take.
+- **Trend following tightened** — Now requires actual EMA crossover (not just fast>slow+accelerating).
+- **Cooldown increased 15min → 2 hours** — Prevents re-entering same choppy regime after stop-out.
+- **Pending limit/stop order system** — New `perp_pending_orders.py` module. Pre-placed orders at key levels, checked every cron tick. Supports limit_buy, limit_sell, buy_stop, sell_stop with auto-expiry and bracket orders.
+- **iPhone chart fix** — Charts weren't loading on iOS Safari. Fixed container height collapse (explicit wrapper height), zero-width fallback, debounced ResizeObserver, lazy chart loading with IntersectionObserver, mobile capped at 4 charts (iOS ~6 WebSocket limit).
+- **Chart label cleanup** — Removed arrow labels from AI lines, hidden axis price labels on position lines, added CSS border-radius + transparency to axis labels. Position lines at 35% opacity so AI target lines stand out.
+- **AI entry zone panels always bright** — Both LONG/SHORT cards show full color regardless of ready/blocked state (later reverted to show READY/BLOCKED by user request for monitoring).
+
 ---
 
-## 13. Known Tech Debt & Considerations
+## 13. Lessons Learned (Critical for Strategy Development)
+
+These lessons were discovered through live paper trading March 13-14, 2026. **Anyone working on trading strategies MUST read this.**
+
+### Trading Strategy Lessons
+1. **1-minute candles are pure noise for indicators.** EMA crossovers, RSI, and BB on 1-min data fire constantly with no predictive edge. The "50-period EMA trend filter" was only 50 MINUTES — not a real trend. Use 15m or 1h candle data for signal generation.
+2. **Trailing stop activation MUST be wider than trail distance.** If both are 0.8%, the trail activates and the stop is immediately at breakeven. Winners exit for $0 minus fees. Every winning trade became a losing trade after fees.
+3. **Mean reversion and trend filters are fundamentally incompatible.** Mean reversion buys dips (price below average) and sells rallies (price above average). A trend filter that blocks longs when price is below EMA blocks the exact entries MR needs.
+4. **"Relaxed" conditions = random entries.** Every relaxation we added (don't require crossover, RSI ±10, 20% BB tolerance, OR instead of AND) destroyed signal quality. On 1-min data, loose conditions fire every few minutes → pure fee bleed.
+5. **Scalping on 1-min data with 0.3% round-trip fees has no edge.** The math: need >0.06% favorable move just to break even at 5x leverage. On 1-min candles, ~50% of moves exceed this by chance → net zero before fees → guaranteed loss after fees.
+6. **Correlated assets are secretly one position.** BTC/ETH/SOL have 0.85+ correlation. Three "different" long positions = 3x the same directional bet.
+7. **Short cooldowns create death spirals.** Stop out → re-enter same regime 15min later → stop again → repeat. Each cycle costs 0.3%+ in fees.
+8. **Leverage amplifies losses faster than gains.** At 5x, a 2% adverse move = 10% loss on margin. Reduced to 2-3x.
+9. **Pre-placed limit orders > reactive market orders.** Limit orders at support levels catch overnight wicks that market orders miss entirely. Also earn maker rebates instead of paying taker fees.
+10. **The best trade is the one you don't take.** Reducing from ~20 trades/day to ~3-5 quality setups dramatically reduces fee drag and increases per-trade edge.
+
+### Frontend/Chart Lessons
+1. **iOS Safari canvas height collapse** — lightweight-charts uses absolute positioning. Must wrap in explicit-height container.
+2. **iOS WebSocket limit (~6)** — Lazy load charts with IntersectionObserver. Cap mobile to 4.
+3. **Chart labels should be minimal** — Hide axis labels on everything except current price and prediction. Use line color/style to convey info, not text labels.
+
+---
+
+## 14. Known Tech Debt & Considerations
 
 1. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID with `setTimeout`. Real deposits go through `depositService.ts`.
 2. **Trade log field inconsistency** — `timestamp` (server/API) vs `time` (client autoTrader.ts). View now handles both but root cause should be unified.
@@ -461,4 +514,4 @@ Checked every minute in priority order (independent checks, not elif):
 
 ---
 
-*Last updated: March 13, 2026.*
+*Last updated: March 14, 2026.*
