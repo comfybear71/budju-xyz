@@ -342,7 +342,8 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 │  Position lifecycle, PnL, liquidation, fees, equity      │
 ├─────────────────────────────────────────────────────────┤
 │  CRON: api/perp-cron.py (every 1 minute)                │
-│  Fetch CoinGecko prices → update positions →             │
+│  Fetch Binance prices (CoinGecko fallback) →            │
+│  update positions →             │
 │  check SL/TP/liquidation/trailing → auto-close →         │
 │  run auto-trader strategies → snapshot equity            │
 ├─────────────────────────────────────────────────────────┤
@@ -420,6 +421,7 @@ Checked every minute in priority order (independent checks, not elif):
 - **Profit-activated trailing stops** — Trailing stop no longer starts from entry (which made it a tighter SL than the ATR-based one). Now activates only after price moves favorably by the trailing %, then ratchets from the high-water mark. This lets winners run while locking in profit.
 - **TP widened for trailing stop strategies** — Trend following TP: 4x→8x ATR. Momentum TP: 5x→10x ATR. The trailing stop is now the primary exit for these strategies, with TP as a distant backstop.
 - **Mean reversion gets trailing stop** — Added 1.0% trailing to lock in Bollinger Band bounce profits.
+- **Cron prices switched from CoinGecko to Binance** — Chart shows Binance WebSocket prices but cron used CoinGecko, causing TP/SL triggers to miss when prices differed. Now uses Binance REST API (matches chart) with CoinGecko as fallback.
 - **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
 - Added Vercel Analytics (`@vercel/analytics/react`)
 - Added date/time stamps to trade log entries
@@ -441,7 +443,7 @@ Checked every minute in priority order (independent checks, not elif):
 9. **window.solana / window.solflare globals** — Direct wallet provider access alongside adapter pattern. Works but fragile.
 10. **No TypeScript on Python API** — Python endpoints lack type hints in some handler functions.
 11. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra (VM, Railway, or split Vercel functions).
-12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture.
+12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture. Now uses Binance prices (same source as chart) to minimize price discrepancy.
 13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
 14. **Trailing stop activation stored as price level** — `trailing_stop_activation` field on position doc. Existing positions opened before this change won't have it (they'll have `trailing_stop_price` set from entry — old behavior still works, just not profit-gated).
 

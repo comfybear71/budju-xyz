@@ -2,7 +2,7 @@
 # Perpetual Paper Trading Position Monitor
 # ==========================================
 # Runs every minute via Vercel cron to:
-#   1. Fetch live prices from CoinGecko
+#   1. Fetch live prices from Binance (CoinGecko fallback)
 #   2. Seed historical candles from Binance (cold-start elimination)
 #   3. Store price history for indicator calculations
 #   4. Update all open positions with mark prices
@@ -36,20 +36,46 @@ from perp_strategies import store_price, run_auto_trader, seed_all_markets
 
 # ── Config ────────────────────────────────────────────────────────────
 
+BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 
-def fetch_prices() -> dict:
-    """Fetch live USD prices from CoinGecko for all perp markets."""
+def fetch_prices_binance() -> dict:
+    """Fetch live USD prices from Binance — matches the WebSocket prices shown on the chart."""
+    # Build Binance symbol list: SOL → SOLUSDT
+    binance_symbols = []
+    symbol_map = {}  # SOLUSDT → SOL-PERP
+    for market_key, info in MARKETS.items():
+        bsym = info["symbol"] + "USDT"
+        binance_symbols.append(bsym)
+        symbol_map[bsym] = market_key
+
+    url = f'{BINANCE_URL}?symbols={json.dumps(binance_symbols)}'
+    req = Request(url, headers={"Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            prices = {}
+            for item in data:
+                bsym = item["symbol"]
+                if bsym in symbol_map:
+                    prices[symbol_map[bsym]] = float(item["price"])
+            return prices
+    except Exception as e:
+        print(f"[perp-cron] Binance price fetch error: {e}")
+        return {}
+
+
+def fetch_prices_coingecko() -> dict:
+    """Fallback: fetch live USD prices from CoinGecko."""
     url = f"{COINGECKO_URL}?ids={COINGECKO_IDS}&vs_currencies=usd"
     req = Request(url, headers={"Accept": "application/json"})
     try:
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            # Map coingecko_id → USD price
             prices = {}
             for symbol, info in MARKETS.items():
                 cg_id = info["base"]
@@ -57,8 +83,17 @@ def fetch_prices() -> dict:
                     prices[symbol] = data[cg_id]["usd"]
             return prices
     except Exception as e:
-        print(f"[perp-cron] Price fetch error: {e}")
+        print(f"[perp-cron] CoinGecko price fetch error: {e}")
         return {}
+
+
+def fetch_prices() -> dict:
+    """Fetch prices from Binance (primary) with CoinGecko fallback."""
+    prices = fetch_prices_binance()
+    if prices:
+        return prices
+    print("[perp-cron] Binance failed, falling back to CoinGecko")
+    return fetch_prices_coingecko()
 
 
 def send_telegram(message: str):
