@@ -24,6 +24,8 @@ import {
   closePerpPosition,
   modifyPerpPosition,
   resetPerpAccount,
+  setTradingMode,
+  setKillSwitch,
 } from "../../services/perpApi";
 import type {
   PerpAccount,
@@ -60,6 +62,8 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const [modifyTrail, setModifyTrail] = useState("");
   const [autoTradingEnabled, setAutoTradingEnabled] = useState<boolean | null>(null);
   const [togglingBot, setTogglingBot] = useState(false);
+  const [switchingMode, setSwitchingMode] = useState(false);
+  const [togglingKillSwitch, setTogglingKillSwitch] = useState(false);
 
   const wallet = connection.wallet?.address;
   // Auto-detect admin: if wallet is connected, treat as full access (not read-only)
@@ -294,6 +298,60 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     }
   };
 
+  const isLive = account?.trading_mode === "live";
+  const isKillSwitchActive = account?.kill_switch === true;
+
+  const handleSwitchMode = async () => {
+    if (!wallet) { setError("Wallet not connected"); return; }
+    const newMode = isLive ? "paper" : "live";
+    if (newMode === "live") {
+      if (!confirm(
+        "⚠️ SWITCH TO LIVE TRADING ⚠️\n\n" +
+        "This will use REAL FUNDS on Hyperliquid.\n" +
+        "Make sure you have:\n" +
+        "• HYPERLIQUID_PRIVATE_KEY set\n" +
+        "• HYPERLIQUID_ACCOUNT set\n" +
+        "• Funds deposited on Hyperliquid\n\n" +
+        "Are you absolutely sure?"
+      )) return;
+    }
+    try {
+      setSwitchingMode(true);
+      setError(null);
+      await setTradingMode(wallet, newMode);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to switch mode");
+    } finally {
+      setSwitchingMode(false);
+    }
+  };
+
+  const handleKillSwitch = async () => {
+    if (!wallet) { setError("Wallet not connected"); return; }
+    const activating = !isKillSwitchActive;
+    if (activating) {
+      if (!confirm(
+        "🚨 ACTIVATE KILL SWITCH 🚨\n\n" +
+        "This will IMMEDIATELY:\n" +
+        "• Close ALL open positions\n" +
+        "• Pause all trading\n" +
+        "• Stop the auto-trading bot\n\n" +
+        "Continue?"
+      )) return;
+    }
+    try {
+      setTogglingKillSwitch(true);
+      setError(null);
+      await setKillSwitch(wallet, activating);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Kill switch failed");
+    } finally {
+      setTogglingKillSwitch(false);
+    }
+  };
+
   const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "charts", label: "Charts", icon: "📈" },
     { key: "strategy", label: "Bot", icon: "⚡" },
@@ -325,19 +383,61 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
       className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden"
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-red-500/10 flex items-center justify-between">
+      <div className={`px-4 py-3 border-b flex items-center justify-between ${
+        isLive ? "border-red-500/30 bg-red-950/20" : "border-red-500/10"
+      }`}>
         <div className="flex items-center gap-2">
-          <span className="text-lg">🔥</span>
+          <span className="text-lg">{isLive ? "🔴" : "🔥"}</span>
           <div>
             <h3 className="text-sm font-bold text-red-400">
-              {effectiveReadOnly ? "LIVE CHARTS" : "HIGH RISK — PAPER TRADING"}
+              {effectiveReadOnly
+                ? "LIVE CHARTS"
+                : isLive
+                  ? "HIGH RISK — LIVE TRADING"
+                  : "HIGH RISK — PAPER TRADING"}
             </h3>
             <p className="text-[10px] text-slate-500">
-              {effectiveReadOnly ? "Real-time charts with AI predictions • Read only" : "Simulated perpetual futures • No real funds at risk"}
+              {effectiveReadOnly
+                ? "Real-time charts with AI predictions • Read only"
+                : isLive
+                  ? "Real funds on Hyperliquid • Trades use real money"
+                  : "Simulated perpetual futures • No real funds at risk"}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Kill Switch */}
+          {!effectiveReadOnly && wallet && (
+            <button
+              onClick={handleKillSwitch}
+              disabled={togglingKillSwitch}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                isKillSwitchActive
+                  ? "bg-red-600/30 text-red-200 border-red-500/60 animate-pulse"
+                  : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
+              } disabled:opacity-40`}
+              title={isKillSwitchActive ? "Kill switch ACTIVE — click to deactivate" : "Emergency: close all positions and stop trading"}
+            >
+              {togglingKillSwitch ? "..." : isKillSwitchActive ? "🚨 KILL ON" : "🚨 KILL"}
+            </button>
+          )}
+
+          {/* Paper/Live Mode Toggle */}
+          {!effectiveReadOnly && wallet && (
+            <button
+              onClick={handleSwitchMode}
+              disabled={switchingMode}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+                isLive
+                  ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-slate-800/50 hover:text-slate-300"
+                  : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40"
+              } disabled:opacity-40`}
+              title={isLive ? "Switch to PAPER trading" : "Switch to LIVE trading (real funds)"}
+            >
+              {switchingMode ? "..." : isLive ? "🔴 LIVE" : "📝 PAPER"}
+            </button>
+          )}
+
           {/* Auto-trading START/STOP — always visible when wallet connected */}
           {!effectiveReadOnly && wallet && autoTradingEnabled !== null && (
             <button
@@ -375,6 +475,16 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
           </button>
         </div>
       </div>
+
+      {/* Live mode warning banner */}
+      {isLive && !effectiveReadOnly && (
+        <div className="mx-4 mt-3 p-2 rounded-lg bg-red-900/30 border border-red-500/30 flex items-center gap-2">
+          <span className="text-sm">⚠️</span>
+          <span className="text-[11px] text-red-300 font-medium">
+            LIVE TRADING ACTIVE — Real funds at risk on Hyperliquid
+          </span>
+        </div>
+      )}
 
       <div className="p-4 space-y-3">
         {/* Loading state */}

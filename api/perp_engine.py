@@ -1,15 +1,22 @@
 # ==========================================
-# Perpetual Paper Trading Engine
+# Perpetual Trading Engine (Paper + Live)
 # ==========================================
-# Simulates leveraged perpetual futures trading using real market prices.
-# All positions are paper (simulated) — no real funds are at risk.
+# Supports two modes:
+#   - "paper": Simulated trading with $10K virtual balance (default)
+#   - "live":  Real trading via Hyperliquid exchange
 #
-# Fee model mirrors Jupiter Perps:
+# Paper fee model mirrors Jupiter Perps:
 #   - Open/close: 0.06% of position size
 #   - Borrow fee: 0.01%/hr base (simplified from utilization-based)
 #   - Slippage: 0.05-0.15% based on size
 #
-# Liquidation:
+# Live mode:
+#   - Routes orders to Hyperliquid via perp_exchange.py
+#   - Real fees/slippage handled by exchange
+#   - Local DB still tracks positions for monitoring, metrics, alerts
+#   - Safety: kill switch, max exposure limits, position reconciliation
+#
+# Liquidation (paper):
 #   Long:  liq = entry * (1 - 1/leverage + maintenance_margin)
 #   Short: liq = entry * (1 + 1/leverage - maintenance_margin)
 #   Maintenance margin: 5%
@@ -56,6 +63,12 @@ MAX_OPEN_POSITIONS = 5           # Max concurrent positions
 MAX_POSITION_PCT = 0.50          # Max 50% of equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause
 
+# ── Live Trading Safety Limits ─────────────────────────────────────────
+LIVE_MAX_TOTAL_EXPOSURE = 50_000.0   # Max total notional across all positions
+LIVE_MAX_SINGLE_POSITION = 10_000.0  # Max single position size
+LIVE_MAX_LEVERAGE = 20               # Cap leverage for live (conservative)
+LIVE_MAX_OPEN_POSITIONS = 3          # Fewer concurrent positions for live
+
 # Supported markets
 MARKETS = {
     "SOL-PERP":  {"base": "solana",   "symbol": "SOL",  "max_leverage": 50, "tick": 0.01},
@@ -77,9 +90,17 @@ COINGECKO_IDS = ",".join(m["base"] for m in MARKETS.values())
 # ── Account Management ───────────────────────────────────────────────────
 
 def get_or_create_account(wallet: str) -> Dict:
-    """Get existing paper account or create one with $10K balance."""
+    """Get existing account or create one with $10K paper balance."""
     account = perp_accounts.find_one({"wallet": wallet})
     if account:
+        # Migration: ensure trading_mode field exists
+        if "trading_mode" not in account:
+            perp_accounts.update_one(
+                {"wallet": wallet},
+                {"$set": {"trading_mode": "paper", "kill_switch": False}}
+            )
+            account["trading_mode"] = "paper"
+            account["kill_switch"] = False
         return _format_account(account)
 
     account = {
@@ -98,11 +119,92 @@ def get_or_create_account(wallet: str) -> Dict:
         "daily_pnl": 0.0,
         "daily_pnl_reset": datetime.utcnow(),
         "trading_paused": False,
+        "trading_mode": "paper",       # "paper" or "live"
+        "kill_switch": False,           # Emergency stop all trading
+        "live_max_exposure": LIVE_MAX_TOTAL_EXPOSURE,
+        "live_max_position": LIVE_MAX_SINGLE_POSITION,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
     }
     perp_accounts.insert_one(account)
     return _format_account(account)
+
+
+def set_trading_mode(wallet: str, mode: str) -> Dict:
+    """Switch between 'paper' and 'live' trading mode."""
+    if mode not in ("paper", "live"):
+        raise ValueError("Mode must be 'paper' or 'live'")
+
+    account = get_or_create_account(wallet)
+
+    # Safety: check for open positions before switching modes
+    open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
+    if open_count > 0:
+        raise ValueError(
+            f"Cannot switch modes with {open_count} open positions. "
+            "Close all positions first."
+        )
+
+    if mode == "live":
+        # Verify Hyperliquid is configured
+        from perp_exchange import is_live_ready
+        status = is_live_ready()
+        if not status["ready"]:
+            raise ValueError(
+                f"Live trading not ready: {', '.join(status['issues'])}"
+            )
+
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$set": {"trading_mode": mode, "updated_at": datetime.utcnow()}}
+    )
+
+    return get_or_create_account(wallet)
+
+
+def set_kill_switch(wallet: str, active: bool) -> Dict:
+    """Activate or deactivate the kill switch.
+    When active: closes all live positions immediately and pauses trading.
+    """
+    account = get_or_create_account(wallet)
+
+    if active and account.get("trading_mode") == "live":
+        # Close all exchange positions immediately
+        try:
+            from perp_exchange import emergency_close_all
+            close_result = emergency_close_all()
+        except Exception as e:
+            close_result = {"error": str(e)}
+
+        # Also close all local DB positions
+        open_positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+        for pos in open_positions:
+            try:
+                close_position(str(pos["_id"]), pos.get("mark_price", pos["entry_price"]),
+                              "kill_switch", "Emergency kill switch activated")
+            except Exception:
+                pass
+
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$set": {
+                "kill_switch": True,
+                "trading_paused": True,
+                "updated_at": datetime.utcnow(),
+            }}
+        )
+
+        return {**get_or_create_account(wallet), "exchange_close_result": close_result}
+
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$set": {
+            "kill_switch": active,
+            "trading_paused": active,
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+    return get_or_create_account(wallet)
 
 
 def reset_account(wallet: str) -> Dict:
@@ -190,10 +292,13 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
                   stop_loss: float = None, take_profit: float = None,
                   trailing_stop_pct: float = None,
                   entry_reason: str = "") -> Dict:
-    """Open a new paper trading position."""
+    """Open a new position (paper or live depending on account mode)."""
     account = get_or_create_account(wallet)
+    is_live = account.get("trading_mode") == "live"
 
     # Validations
+    if account.get("kill_switch"):
+        raise ValueError("Kill switch is active. Deactivate it before trading.")
     if account.get("trading_paused"):
         raise ValueError("Trading paused — daily loss limit reached. Reset or wait until tomorrow.")
 
@@ -204,32 +309,80 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     if direction not in ("long", "short"):
         raise ValueError("Direction must be 'long' or 'short'")
 
-    leverage = max(MIN_LEVERAGE, min(leverage, market["max_leverage"]))
+    # Apply different limits for live vs paper
+    max_lev = LIVE_MAX_LEVERAGE if is_live else market["max_leverage"]
+    max_positions = LIVE_MAX_OPEN_POSITIONS if is_live else MAX_OPEN_POSITIONS
+    leverage = max(MIN_LEVERAGE, min(leverage, max_lev))
 
     open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
-    if open_count >= MAX_OPEN_POSITIONS:
-        raise ValueError(f"Max {MAX_OPEN_POSITIONS} open positions allowed")
+    if open_count >= max_positions:
+        raise ValueError(f"Max {max_positions} open positions allowed" +
+                         (" (live mode limit)" if is_live else ""))
 
     equity = account["equity"]
     max_size = equity * MAX_POSITION_PCT
+    if is_live:
+        max_size = min(max_size, account.get("live_max_position", LIVE_MAX_SINGLE_POSITION))
     if size_usd > max_size:
-        raise ValueError(f"Max position size is {MAX_POSITION_PCT*100}% of equity (${max_size:.2f})")
+        raise ValueError(f"Max position size is ${max_size:.2f}" +
+                         (" (live safety limit)" if is_live else ""))
 
     margin = size_usd / leverage
-    if margin > account["balance"]:
+    if not is_live and margin > account["balance"]:
         raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
 
-    # Apply slippage to entry
-    slippage_pct = simulate_slippage(size_usd, entry_price)
-    if direction == "long":
-        fill_price = entry_price * (1 + slippage_pct)
-    else:
-        fill_price = entry_price * (1 - slippage_pct)
+    # ── LIVE MODE: Execute on Hyperliquid ─────────────────────────
+    exchange_oid = None
+    if is_live:
+        from perp_exchange import open_market_position, validate_before_trade, place_tp_sl_orders
 
-    # Calculate fees
-    open_fee = calculate_fees(size_usd)
+        # Pre-trade safety check
+        safety = validate_before_trade(
+            symbol, size_usd,
+            max_total_exposure=account.get("live_max_exposure", LIVE_MAX_TOTAL_EXPOSURE),
+            max_single_position=account.get("live_max_position", LIVE_MAX_SINGLE_POSITION),
+        )
+        if not safety["safe"]:
+            raise ValueError(f"Live safety check failed: {safety['reason']}")
+
+        # Execute on exchange
+        exchange_result = open_market_position(
+            symbol=symbol,
+            direction=direction,
+            size_usd=size_usd,
+            current_price=entry_price,
+            leverage=leverage,
+        )
+
+        if exchange_result["status"] not in ("filled", "resting"):
+            raise RuntimeError(f"Exchange order failed: {exchange_result}")
+
+        # Use real fill price from exchange
+        fill_price = exchange_result["filled_price"]
+        quantity = exchange_result["filled_size"]
+        exchange_oid = exchange_result.get("exchange_oid")
+        open_fee = 0  # Exchange handles fees
+        slippage_pct = 0
+
+        # Place TP/SL on exchange
+        if stop_loss or take_profit:
+            try:
+                place_tp_sl_orders(symbol, direction, quantity, stop_loss, take_profit)
+            except Exception as e:
+                print(f"[perp-engine] Warning: TP/SL placement failed: {e}")
+
+    else:
+        # ── PAPER MODE: Simulate slippage and fees ────────────────
+        slippage_pct = simulate_slippage(size_usd, entry_price)
+        if direction == "long":
+            fill_price = entry_price * (1 + slippage_pct)
+        else:
+            fill_price = entry_price * (1 - slippage_pct)
+        open_fee = calculate_fees(size_usd)
+        quantity = size_usd / fill_price
+
+    # Calculate derived values
     liq_price = calculate_liquidation_price(fill_price, leverage, direction)
-    quantity = size_usd / fill_price
 
     # Trailing stop setup
     trailing_stop_distance = None
@@ -266,6 +419,8 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         "max_adverse_excursion": 0.0,
         "last_borrow_charge": datetime.utcnow(),
         "entry_reason": entry_reason,
+        "trading_mode": "live" if is_live else "paper",
+        "exchange_oid": exchange_oid,
         "status": "open",
         "opened_at": datetime.utcnow(),
         "last_updated": datetime.utcnow(),
@@ -325,17 +480,36 @@ def close_position(position_id: str, exit_price: float,
     wallet = pos["account_id"]
     size_usd = pos["size_usd"]
     direction = pos["direction"]
+    is_live = pos.get("trading_mode") == "live"
 
-    # Apply slippage to exit
-    slippage_pct = simulate_slippage(size_usd, exit_price)
-    if direction == "long":
-        fill_price = exit_price * (1 - slippage_pct)
+    # ── LIVE MODE: Close on Hyperliquid ───────────────────────────
+    if is_live and exit_type != "kill_switch":
+        from perp_exchange import close_market_position
+
+        exchange_result = close_market_position(
+            symbol=pos["symbol"],
+            size=pos["quantity"],
+            current_price=exit_price,
+        )
+
+        if exchange_result["status"] == "filled":
+            fill_price = exchange_result["filled_price"]
+        else:
+            # Fallback to requested price if exchange response unclear
+            fill_price = exit_price
+        close_fee = 0  # Exchange handles fees
+        slippage_pct = 0
     else:
-        fill_price = exit_price * (1 + slippage_pct)
+        # ── PAPER MODE: Simulate slippage ─────────────────────────
+        slippage_pct = simulate_slippage(size_usd, exit_price)
+        if direction == "long":
+            fill_price = exit_price * (1 - slippage_pct)
+        else:
+            fill_price = exit_price * (1 + slippage_pct)
+        close_fee = calculate_fees(size_usd)
 
     # Calculate final P&L
     pnl_usd, pnl_pct = calculate_pnl(pos["entry_price"], fill_price, size_usd, direction)
-    close_fee = calculate_fees(size_usd)
     total_fees = pos.get("total_fees", 0) + close_fee
     cumulative_funding = pos.get("cumulative_funding", 0)
     net_pnl = pnl_usd - total_fees - cumulative_funding

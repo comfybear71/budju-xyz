@@ -178,3 +178,49 @@ export async function updateStrategyConfig(
 ): Promise<{ success: boolean }> {
   return postJson(`${API_BASE}/strategy/config`, { updates, wallet });
 }
+
+// ── Trading Mode & Kill Switch ──────────────────────────────────────
+
+export async function setTradingMode(
+  wallet: string,
+  mode: "paper" | "live",
+): Promise<PerpAccount> {
+  return postJson(`${API_BASE}/mode`, { wallet, mode });
+}
+
+export async function setKillSwitch(
+  wallet: string,
+  active: boolean,
+): Promise<PerpAccount> {
+  return postJson(`${API_BASE}/killswitch`, { wallet, active });
+}
+
+export interface LiveStatus {
+  ready: boolean;
+  testnet: boolean;
+  account: string;
+  balance: number;
+  withdrawable: number;
+  issues: string[];
+  exchange_balance?: {
+    account_value: number;
+    total_margin_used: number;
+    total_ntl_pos: number;
+    withdrawable: number;
+  };
+  exchange_positions?: Array<{
+    coin: string;
+    size: number;
+    entry_price: number;
+    unrealized_pnl: number;
+    direction: string;
+  }>;
+  reconciliation?: {
+    synced: boolean;
+    discrepancies: Array<{ type: string; symbol?: string; message?: string }>;
+  };
+}
+
+export async function fetchLiveStatus(wallet: string): Promise<LiveStatus> {
+  return postJson(`${API_BASE}/live/status`, { wallet });
+}

@@ -38,6 +38,8 @@ from database import (
 from perp_engine import (
     get_or_create_account,
     reset_account,
+    set_trading_mode,
+    set_kill_switch,
     open_position,
     close_position,
     modify_position,
@@ -646,6 +648,47 @@ class handler(BaseHTTPRequestHandler):
                     return
                 update_strategy_config(wallet, updates)
                 self._send_json(200, {"success": True})
+
+            # ── Trading Mode & Kill Switch ─────────────────────────────
+            elif path == '/api/perp/mode':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                mode = body.get('mode')
+                if not wallet or not mode:
+                    self._send_json(400, {"error": "wallet and mode required"})
+                    return
+                if not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_trading_mode(wallet, mode)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/killswitch':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                active = body.get('active')
+                if not wallet or active is None:
+                    self._send_json(400, {"error": "wallet and active required"})
+                    return
+                if not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_kill_switch(wallet, bool(active))
+                self._send_json(200, result)
+
+            elif path == '/api/perp/live/status':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                from perp_exchange import is_live_ready, get_exchange_positions, get_exchange_balance, reconcile_positions
+                live_status = is_live_ready()
+                if live_status["ready"]:
+                    live_status["exchange_balance"] = get_exchange_balance()
+                    live_status["exchange_positions"] = get_exchange_positions()
+                    # Reconcile with local DB
+                    local_positions = list(get_open_positions(wallet))
+                    live_pos = [p for p in local_positions if p.get("trading_mode") == "live"]
+                    live_status["reconciliation"] = reconcile_positions(live_pos)
+                self._send_json(200, live_status)
 
             else:
                 self._send_json(404, {"error": "Not found"})

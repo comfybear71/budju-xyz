@@ -1,4 +1,6 @@
-// ── Perpetual Paper Trading Types ────────────────────────────────────────
+// ── Perpetual Trading Types (Paper + Live) ──────────────────────────────
+
+export type TradingMode = "paper" | "live";
 
 export interface PerpAccount {
   wallet: string;
@@ -15,6 +17,10 @@ export interface PerpAccount {
   peak_equity: number;
   daily_pnl: number;
   trading_paused: boolean;
+  trading_mode: TradingMode;
+  kill_switch: boolean;
+  live_max_exposure?: number;
+  live_max_position?: number;
   created_at: string;
   updated_at: string;
   metrics: PerpMetrics;
@@ -44,6 +50,8 @@ export interface PerpPosition {
   max_favorable_excursion: number;
   max_adverse_excursion: number;
   entry_reason: string;
+  trading_mode: TradingMode;
+  exchange_oid?: string | number;
   status: "open" | "closed";
   opened_at: string;
   last_updated: string;
@@ -62,7 +70,7 @@ export interface PerpTrade {
   entry_time: string;
   exit_time: string;
   holding_period_ms: number;
-  exit_type: "stop_loss" | "take_profit" | "manual" | "liquidation" | "trailing_stop";
+  exit_type: "stop_loss" | "take_profit" | "manual" | "liquidation" | "trailing_stop" | "kill_switch";
   realized_pnl: number;
   realized_pnl_pct: number;
   total_funding_paid: number;

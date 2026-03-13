@@ -159,6 +159,7 @@ def run_perp_monitor() -> dict:
 
                 pnl = trade.get("realized_pnl", 0)
                 pnl_sign = "+" if pnl >= 0 else ""
+                mode_label = "LIVE" if pos.get("trading_mode") == "live" else "PAPER"
 
                 event = {
                     "type": action,
@@ -166,13 +167,15 @@ def run_perp_monitor() -> dict:
                     "direction": direction,
                     "pnl": pnl,
                     "wallet": wallet_short,
+                    "mode": mode_label,
                 }
                 events.append(event)
 
                 # Telegram alert
                 emoji = {"liquidation": "💀", "stop_loss": "🛑", "take_profit": "🎯", "trailing_stop": "📐"}.get(action, "📊")
+                mode_emoji = "🔴" if mode_label == "LIVE" else ""
                 msg = (
-                    f"{emoji} <b>PAPER {action.upper().replace('_', ' ')}</b>\n"
+                    f"{emoji} <b>{mode_label} {action.upper().replace('_', ' ')}</b> {mode_emoji}\n"
                     f"📍 {symbol} {direction} {leverage}x\n"
                     f"💰 P&L: <b>{pnl_sign}${pnl:.2f}</b>\n"
                     f"👤 {wallet_short}"
@@ -186,15 +189,20 @@ def run_perp_monitor() -> dict:
     all_accounts = list(perp_accounts.find({}))
     auto_trade_actions = []
     for acc in all_accounts:
+        # Skip auto-trading if kill switch is active
+        if acc.get("kill_switch"):
+            continue
         try:
+            mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
             actions = run_auto_trader(acc["wallet"], prices)
             for action in actions:
                 if action.get("action") == "opened":
                     auto_trade_actions.append(action)
                     # Send Telegram notification for auto trades
                     direction = action["direction"].upper()
+                    mode_emoji = " 🔴" if mode_label == "LIVE" else ""
                     msg = (
-                        f"🤖 <b>AUTO TRADE OPENED</b>\n"
+                        f"🤖 <b>{mode_label} AUTO TRADE OPENED</b>{mode_emoji}\n"
                         f"📍 {action['symbol']} {direction} {action['leverage']}x\n"
                         f"💵 Size: ${action['size_usd']:.0f} @ ${action['entry_price']:.4f}\n"
                         f"🛑 SL: ${action['stop_loss']:.4f} | 🎯 TP: ${action['take_profit']:.4f}\n"
