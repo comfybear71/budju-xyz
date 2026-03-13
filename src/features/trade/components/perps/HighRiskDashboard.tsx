@@ -263,13 +263,13 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
   const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "charts", label: "Charts", icon: "📈" },
+    { key: "strategy", label: "Bot", icon: "⚡" },
     { key: "positions", label: "Positions", icon: "📍" },
     { key: "order", label: "New Order", icon: "📝" },
     { key: "equity", label: "Equity", icon: "💹" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
     { key: "ai", label: "AI", icon: "🤖" },
-    { key: "strategy", label: "Strategy", icon: "⚡" },
   ];
   // Read-only users see everything except New Order and Strategy (admin-only)
   const readOnlyExclude: Tab[] = ["order", "strategy"];

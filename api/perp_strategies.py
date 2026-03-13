@@ -92,6 +92,20 @@ DEFAULT_STRATEGIES = {
         "max_positions": 1,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
     },
+    "scalping": {
+        "enabled": True,
+        "fast_ema": 5,
+        "rsi_period": 7,
+        "rsi_oversold": 35,       # Enter long when RSI < 35 + EMA rising
+        "rsi_overbought": 65,     # Enter short when RSI > 65 + EMA falling
+        "atr_period": 10,
+        "sl_atr_mult": 1.5,       # Tight SL for scalps (~0.5-1%)
+        "tp_atr_mult": 2.5,       # Quick TP at 2.5x ATR (~1-1.5%)
+        "trailing_stop_pct": 0.8,  # 0.8% trailing stop — lock profit fast
+        "leverage": 5,
+        "max_positions": 3,        # More concurrent scalp positions
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+    },
 }
 
 # How many 1-minute candles we need for calculations
@@ -635,12 +649,99 @@ def strategy_momentum(prices: List[float], config: Dict) -> Optional[Dict]:
     return None
 
 
+def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
+    """
+    Scalping Strategy:
+    - Quick entries based on RSI extremes + EMA slope direction
+    - LONG when RSI dips below 35 AND price is above fast EMA (pullback in uptrend)
+    - SHORT when RSI spikes above 65 AND price is below fast EMA (rally in downtrend)
+    - Tighter stops and profits for fast trades
+    - More relaxed entry conditions than other strategies for higher frequency
+    """
+    fast = config.get("fast_ema", 5)
+    rsi_period = config.get("rsi_period", 7)
+    rsi_os = config.get("rsi_oversold", 35)
+    rsi_ob = config.get("rsi_overbought", 65)
+    atr_period = config.get("atr_period", 10)
+
+    if len(prices) < max(fast + 2, rsi_period + 2, atr_period + 2):
+        return None
+
+    fast_ema_vals = ema(prices, fast)
+    rsi_vals = rsi(prices, rsi_period)
+    atr_vals = atr(prices, atr_period)
+
+    if len(fast_ema_vals) < 3 or not rsi_vals or not atr_vals:
+        return None
+
+    curr_price = prices[-1]
+    prev_price = prices[-2]
+    curr_ema = fast_ema_vals[-1]
+    prev_ema = fast_ema_vals[-2]
+    curr_rsi = rsi_vals[-1]
+    prev_rsi = rsi_vals[-2] if len(rsi_vals) >= 2 else curr_rsi
+    curr_atr = atr_vals[-1]
+
+    # EMA slope (rising or falling)
+    ema_slope = curr_ema - prev_ema
+    ema_rising = ema_slope > 0
+    price_momentum = curr_price - prev_price
+
+    indicators = {
+        "fast_ema": round(curr_ema, 6),
+        "ema_slope": round(ema_slope, 6),
+        "rsi": round(curr_rsi, 2),
+        "prev_rsi": round(prev_rsi, 2),
+        "atr": round(curr_atr, 6),
+        "price": curr_price,
+    }
+
+    # SCALP LONG: RSI was oversold or dipping + EMA is rising + price bouncing up
+    if curr_rsi <= rsi_os and ema_rising and price_momentum > 0:
+        return {
+            "direction": "long",
+            "signal": "scalp_rsi_bounce",
+            "indicators": indicators,
+            "atr": curr_atr,
+        }
+
+    # Also LONG: RSI crossing up from oversold (recovery)
+    if prev_rsi < rsi_os and curr_rsi > rsi_os and curr_price > curr_ema:
+        return {
+            "direction": "long",
+            "signal": "scalp_rsi_recovery",
+            "indicators": indicators,
+            "atr": curr_atr,
+        }
+
+    # SCALP SHORT: RSI was overbought or spiking + EMA is falling + price dropping
+    if curr_rsi >= rsi_ob and not ema_rising and price_momentum < 0:
+        return {
+            "direction": "short",
+            "signal": "scalp_rsi_rejection",
+            "indicators": indicators,
+            "atr": curr_atr,
+        }
+
+    # Also SHORT: RSI crossing down from overbought (exhaustion)
+    if prev_rsi > rsi_ob and curr_rsi < rsi_ob and curr_price < curr_ema:
+        return {
+            "direction": "short",
+            "signal": "scalp_rsi_exhaustion",
+            "indicators": indicators,
+            "atr": curr_atr,
+        }
+
+    return None
+
+
 # ── Main Auto-Trader ─────────────────────────────────────────────────────
 
 STRATEGY_FUNCS = {
     "trend_following": strategy_trend_following,
     "mean_reversion": strategy_mean_reversion,
     "momentum": strategy_momentum,
+    "scalping": strategy_scalping,
 }
 
 

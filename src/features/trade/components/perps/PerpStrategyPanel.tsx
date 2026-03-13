@@ -20,7 +20,7 @@ const STRATEGY_INFO: Record<string, { name: string; desc: string; icon: string }
   },
   scalping: {
     name: "Scalping",
-    desc: "High-frequency 0.1-0.5% captures on 1-5min charts. RSI divergence + VWAP + tight stops. Best in volatile sessions.",
+    desc: "Quick RSI bounces + EMA slope. Enters long on RSI < 35 with rising EMA, short on RSI > 65 with falling EMA. Tight 0.8% trailing stop. 5x leverage.",
     icon: "⚡",
   },
   swing_trading: {

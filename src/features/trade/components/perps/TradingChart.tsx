@@ -615,7 +615,7 @@ const TradingChart = ({
           {/* Compact signal dot */}
           {showPrediction && prediction && compact && (
             <span
-              className={`w-2 h-2 rounded-full ${
+              className={`w-2 h-2 rounded-full flex-shrink-0 ${
                 prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
                   ? "bg-emerald-400"
                   : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
