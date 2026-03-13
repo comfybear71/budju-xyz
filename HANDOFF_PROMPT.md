@@ -319,20 +319,108 @@ VITE_ANALYTICS_ID=            # Google Analytics
 
 ---
 
-## 11. Recent Changes (as of March 2026)
+## 11. Perpetual Paper Trading System (High Risk Dashboard)
 
-- Added Vercel Analytics (`@vercel/analytics/react`)
-- Added date/time stamps to trade log entries (fixed `timestamp` vs `time` field mismatch)
-- Added Dependabot for automated dependency updates
-- Added ErrorBoundary and TanStack Query caching
-- Applied 5-phase cleanup workflow
-- Added server-side auto-trade cron for 24/7 trading
-- Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
-- Added circuit breakers (min $8 order floor, daily limits)
+### Overview
+Full perpetual futures paper trading system at `/trade`. Users trade with $10K virtual USDC balance. Supports 10 markets (SOL, BTC, ETH, DOGE, AVAX, LINK, SUI, JUP, WIF, BONK) with up to 50x leverage.
+
+### Architecture
+```
+┌─────────────────────────────────────────────────────────┐
+│  FRONTEND: HighRiskDashboard                            │
+│  Real-time Binance WebSocket prices + TradingView chart │
+│  Tabs: Chart, Positions, Orders, Trades, Strategy, AI   │
+├─────────────────────────────────────────────────────────┤
+│  API: api/index.py (perp endpoints)                     │
+│  POST /api/perp/order — Open position                   │
+│  POST /api/perp/close — Close position                  │
+│  POST /api/perp/modify — Modify SL/TP/trailing          │
+│  GET  /api/perp/positions — Open positions               │
+│  GET  /api/perp/account — Account info + equity          │
+├─────────────────────────────────────────────────────────┤
+│  ENGINE: api/perp_engine.py                              │
+│  Position lifecycle, PnL, liquidation, fees, equity      │
+├─────────────────────────────────────────────────────────┤
+│  CRON: api/perp-cron.py (every 1 minute)                │
+│  Fetch CoinGecko prices → update positions →             │
+│  check SL/TP/liquidation/trailing → auto-close →         │
+│  run auto-trader strategies → snapshot equity            │
+├─────────────────────────────────────────────────────────┤
+│  STRATEGIES: api/perp_strategies.py                      │
+│  4 strategies: Trend Following, Mean Reversion,          │
+│  Momentum Breakout, Scalping                             │
+│  ATR-based SL/TP, Kelly position sizing                  │
+├─────────────────────────────────────────────────────────┤
+│  DB Collections: perp_accounts, perp_positions,          │
+│  perp_orders, perp_trades, perp_equity, perp_funding,    │
+│  perp_price_history, perp_strategy_config,               │
+│  perp_strategy_signals                                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Paper Trading Fee Model (mirrors Jupiter Perps)
+- **Open/close fee:** 0.06% of position size
+- **Borrow fee:** 0.01%/hr (charged hourly by cron)
+- **Slippage:** 0.05–0.15% simulated based on size
+- **Liquidation:** Scaled maintenance margin: `min(5%, 50%/leverage)`
+
+### Key Engine Constants (perp_engine.py)
+```python
+INITIAL_BALANCE = 10_000.0       # $10K USDC starting balance
+OPEN_CLOSE_FEE_PCT = 0.0006     # 0.06%
+BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr
+MAINTENANCE_MARGIN_PCT = 0.05   # 5% base (scaled down for high leverage)
+MAX_LEVERAGE = 50
+MAX_OPEN_POSITIONS = 5
+MAX_POSITION_PCT = 0.50          # Max 50% equity per position
+DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
+```
+
+### Auto-Trader Strategies (perp_strategies.py)
+| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) |
+|----------|--------|----------|---------------|---------------|
+| Trend Following | EMA 9/21 crossover + RSI | 5x | 2.0 | 4.0 |
+| Mean Reversion | Bollinger Band bounce + RSI | 3x | 1.5 | 3.0 |
+| Momentum | Price breakout above/below range | 5x | 2.5 | 5.0 |
+| Scalping | RSI extremes + EMA slope | 5x | 1.5 | 2.5 |
+
+- ATR is 1-minute data scaled by `sqrt(15)` to approximate 15-min ATR
+- Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
+- Cooldown: 30 min per market between auto trades
+- Historical candles seeded from Binance public API (eliminates cold-start)
+
+### Trigger Execution (perp-cron.py → perp_engine.py)
+Checked every minute in priority order (independent checks, not elif):
+1. **Liquidation** — mark_price crosses liquidation price
+2. **Stop Loss** — mark_price crosses SL level
+3. **Take Profit** — mark_price crosses TP level
+4. **Trailing Stop** — mark_price crosses trailing stop price (ratchets on favorable moves)
+
+### Live Trading (FUTURE — not yet active)
+- `perp_exchange.py` has Drift Protocol integration (Solana-native)
+- All Drift imports are lazy (`if is_live:` guards) — won't crash without deps
+- Drift deps (`driftpy`, `solana`, `solders`, `anchorpy`) removed from requirements.txt — they exceed Vercel's 500MB Lambda limit
+- **When ready:** will need separate deployment strategy (e.g., dedicated VM, Railway, or Vercel split functions)
+- Live mode has extra safety: kill switch, max $500 position, max 3 positions, exchange reconciliation
 
 ---
 
-## 12. Known Tech Debt & Considerations
+## 12. Recent Changes (as of March 13, 2026)
+
+- **Full perpetual paper trading system** — 10 markets, 4 auto-trading strategies, real-time Binance WebSocket charts
+- **Critical bug fix: TP never triggered when SL was set** — `elif` chain in trigger checks meant a set-but-not-hit SL blocked TP evaluation entirely. Changed to independent `if not action` checks.
+- **Critical bug fix: Liquidation formula broken for >20x leverage** — 5% maintenance margin exceeded initial margin at high leverage (e.g., 50x long had liq price ABOVE entry → immediate liquidation). Fixed with scaled maintenance margin: `min(5%, 50%/leverage)`.
+- **SL/TP validation added** — `open_position()` and `modify_position()` now reject invalid SL/TP (e.g., long SL above entry, short TP above entry).
+- **Daily loss limit now scales with equity** — was fixed at 20% of $10K regardless of account growth.
+- **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
+- Added Vercel Analytics (`@vercel/analytics/react`)
+- Added date/time stamps to trade log entries
+- Added Dependabot, ErrorBoundary, TanStack Query caching
+- Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
+
+---
+
+## 13. Known Tech Debt & Considerations
 
 1. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID with `setTimeout`. Real deposits go through `depositService.ts`.
 2. **Trade log field inconsistency** — `timestamp` (server/API) vs `time` (client autoTrader.ts). View now handles both but root cause should be unified.
@@ -344,7 +432,10 @@ VITE_ANALYTICS_ID=            # Google Analytics
 8. **tokenService.ts (940 lines)** — Large utility file in `src/lib/utils/` that could be broken up.
 9. **window.solana / window.solflare globals** — Direct wallet provider access alongside adapter pattern. Works but fragile.
 10. **No TypeScript on Python API** — Python endpoints lack type hints in some handler functions.
+11. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra (VM, Railway, or split Vercel functions).
+12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture.
+13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
 
 ---
 
-*This document was auto-generated from a thorough codebase investigation. Last updated: March 12, 2026.*
+*Last updated: March 13, 2026.*

@@ -17,9 +17,10 @@
 #   - Safety: kill switch, max exposure limits, position reconciliation
 #
 # Liquidation (paper):
-#   Long:  liq = entry * (1 - 1/leverage + maintenance_margin)
-#   Short: liq = entry * (1 + 1/leverage - maintenance_margin)
-#   Maintenance margin: 5%
+#   Long:  liq = entry * (1 - 1/leverage + mm)
+#   Short: liq = entry * (1 + 1/leverage - mm)
+#   Maintenance margin: min(5%, 50%/leverage) — scales with leverage
+#   to prevent liq price being above entry at high leverage
 # ==========================================
 
 import os
