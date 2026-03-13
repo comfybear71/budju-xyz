@@ -10,6 +10,7 @@ import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
 import DashboardCharts from "./DashboardCharts";
 import AIAnalysisPanel from "./AIAnalysisPanel";
+import PerpStrategyPanel from "./PerpStrategyPanel";
 import {
   fetchPerpAccount,
   fetchPerpPositions,
@@ -37,7 +38,7 @@ interface Props {
   readOnly?: boolean;
 }
 
-type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai";
+type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai" | "strategy";
 
 const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Props) => {
   const { connection } = useWallet();
@@ -268,9 +269,10 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
     { key: "ai", label: "AI", icon: "🤖" },
+    { key: "strategy", label: "Strategy", icon: "⚡" },
   ];
-  // Read-only users see everything except New Order
-  const readOnlyExclude: Tab[] = ["order"];
+  // Read-only users see everything except New Order and Strategy (admin-only)
+  const readOnlyExclude: Tab[] = ["order", "strategy"];
   const tabs = readOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
 
   if (!wallet && !readOnly) {
@@ -438,6 +440,13 @@ const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Prop
 
         {activeTab === "ai" && (
           <AIAnalysisPanel />
+        )}
+
+        {activeTab === "strategy" && wallet && (
+          <PerpStrategyPanel
+            wallet={wallet}
+            signAdminMessage={signAdminMessage}
+          />
         )}
       </div>
     </motion.div>

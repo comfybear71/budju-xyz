@@ -49,6 +49,11 @@ from perp_engine import (
     MARKETS,
 )
 from database import ADMIN_WALLETS
+from perp_strategies import (
+    get_strategy_status,
+    toggle_auto_trading,
+    update_strategy_config,
+)
 
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
@@ -335,6 +340,14 @@ class handler(BaseHTTPRequestHandler):
                 metrics = calculate_metrics(wallet)
                 self._send_json(200, metrics)
 
+            elif path == '/api/perp/strategy/status':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                status = get_strategy_status(wallet)
+                self._send_json(200, status)
+
             else:
                 self._send_json(404, {"error": "Not found"})
 
@@ -613,6 +626,30 @@ class handler(BaseHTTPRequestHandler):
                 wallet = body.get('adminWallet')
                 result = reset_account(wallet)
                 self._send_json(200, result)
+
+            elif path == '/api/perp/strategy/toggle':
+                wallet = body.get('wallet')
+                enabled = body.get('enabled')
+                if not wallet or enabled is None:
+                    self._send_json(400, {"error": "wallet and enabled required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                toggle_auto_trading(wallet, bool(enabled))
+                self._send_json(200, {"success": True})
+
+            elif path == '/api/perp/strategy/config':
+                wallet = body.get('wallet')
+                updates = body.get('updates')
+                if not wallet or not updates:
+                    self._send_json(400, {"error": "wallet and updates required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                update_strategy_config(wallet, updates)
+                self._send_json(200, {"success": True})
 
             else:
                 self._send_json(404, {"error": "Not found"})
