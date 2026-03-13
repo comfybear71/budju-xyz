@@ -56,9 +56,9 @@ DEFAULT_STRATEGIES = {
         "rsi_oversold": 35,
         "rsi_overbought": 65,
         "atr_period": 14,
-        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR (~1-1.5% from entry)
-        "tp_atr_mult": 4.0,       # Take profit = 4x ATR (~2-3% from entry)
-        "trailing_stop_pct": 1.5,  # 1.5% trailing stop
+        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR
+        "tp_atr_mult": 8.0,       # Wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 1.5,  # 1.5% trailing stop (activates after +1.5%)
         "leverage": 5,
         "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
@@ -73,7 +73,7 @@ DEFAULT_STRATEGIES = {
         "atr_period": 14,
         "sl_atr_mult": 1.5,       # Tighter SL for mean reversion
         "tp_atr_mult": 3.0,       # TP at 3x ATR (~1.5-2% from entry)
-        "trailing_stop_pct": 0,    # No trailing for mean reversion
+        "trailing_stop_pct": 1.0,  # 1% trailing to lock in BB bounce profit
         "leverage": 3,
         "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "AVAX-PERP", "LINK-PERP"],
@@ -86,8 +86,8 @@ DEFAULT_STRATEGIES = {
         "rsi_threshold": 50,      # RSI must confirm direction
         "atr_period": 14,
         "sl_atr_mult": 2.5,       # Wider SL for breakouts
-        "tp_atr_mult": 5.0,       # TP at 5x ATR (~3-4% from entry)
-        "trailing_stop_pct": 2.0,  # 2% trailing stop
+        "tp_atr_mult": 10.0,      # Very wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 2.0,  # 2% trailing stop (activates after +2%)
         "leverage": 5,
         "max_positions": 1,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
@@ -925,6 +925,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     "entry_price": curr_price,
                     "stop_loss": round(stop_loss, 6),
                     "take_profit": round(take_profit, 6),
+                    "trailing_stop_pct": trailing_pct if trailing_pct > 0 else None,
                     "signal": signal["signal"],
                 })
 

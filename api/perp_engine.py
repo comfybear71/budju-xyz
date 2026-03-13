@@ -408,15 +408,24 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     # Calculate derived values
     liq_price = calculate_liquidation_price(fill_price, leverage, direction)
 
-    # Trailing stop setup
+    # Trailing stop setup — trail is NOT active at entry.
+    # It activates only after price moves favorably past the activation
+    # threshold (trailing_stop_activation, stored as a price level).
+    # Until then, the fixed SL protects the downside.
     trailing_stop_distance = None
     trailing_stop_price = None
+    trailing_stop_activation = None
     if trailing_stop_pct and trailing_stop_pct > 0:
         trailing_stop_distance = trailing_stop_pct
+        # Don't set trailing_stop_price yet — it starts as None
+        # and only gets set once the activation price is reached.
+        # Activation default: 1x ATR favorable move from entry.
+        # Caller can override via trailing_stop_activation_price param.
+        # For now, we store the activation level so the cron can check it.
         if direction == "long":
-            trailing_stop_price = fill_price * (1 - trailing_stop_pct / 100)
+            trailing_stop_activation = fill_price * (1 + trailing_stop_pct / 100)
         else:
-            trailing_stop_price = fill_price * (1 + trailing_stop_pct / 100)
+            trailing_stop_activation = fill_price * (1 - trailing_stop_pct / 100)
 
     position = {
         "account_id": wallet,
@@ -436,6 +445,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         "take_profit": take_profit,
         "trailing_stop_distance": trailing_stop_distance,
         "trailing_stop_price": trailing_stop_price,
+        "trailing_stop_activation": trailing_stop_activation,
         "cumulative_funding": 0.0,
         "total_fees": open_fee,
         "slippage_cost": abs(fill_price - entry_price) * quantity,
@@ -732,20 +742,30 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
             {"$inc": {"total_funding_paid": borrow_fee, "balance": -borrow_fee}}
         )
 
-    # Update trailing stop
+    # Update trailing stop — only activates after price reaches activation level
     trailing_dist = position.get("trailing_stop_distance")
     trailing_price = position.get("trailing_stop_price")
+    activation_price = position.get("trailing_stop_activation")
     if trailing_dist and trailing_dist > 0:
-        if direction == "long":
-            new_trail = mark_price * (1 - trailing_dist / 100)
-            if trailing_price is None or new_trail > trailing_price:
-                update["trailing_stop_price"] = new_trail
-                trailing_price = new_trail
-        else:
-            new_trail = mark_price * (1 + trailing_dist / 100)
-            if trailing_price is None or new_trail < trailing_price:
-                update["trailing_stop_price"] = new_trail
-                trailing_price = new_trail
+        # Check if trailing is activated yet
+        activated = trailing_price is not None  # Already activated previously
+        if not activated and activation_price:
+            if direction == "long" and mark_price >= activation_price:
+                activated = True
+            elif direction == "short" and mark_price <= activation_price:
+                activated = True
+
+        if activated:
+            if direction == "long":
+                new_trail = mark_price * (1 - trailing_dist / 100)
+                if trailing_price is None or new_trail > trailing_price:
+                    update["trailing_stop_price"] = new_trail
+                    trailing_price = new_trail
+            else:
+                new_trail = mark_price * (1 + trailing_dist / 100)
+                if trailing_price is None or new_trail < trailing_price:
+                    update["trailing_stop_price"] = new_trail
+                    trailing_price = new_trail
 
     perp_positions.update_one({"_id": pos_id}, {"$set": update})
 

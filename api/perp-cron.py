@@ -201,11 +201,15 @@ def run_perp_monitor() -> dict:
                     # Send Telegram notification for auto trades
                     direction = action["direction"].upper()
                     mode_emoji = " 🔴" if mode_label == "LIVE" else ""
+                    trail_info = ""
+                    if action.get("trailing_stop_pct"):
+                        trail_info = f"\n📐 Trailing: {action['trailing_stop_pct']}% (activates in profit)"
                     msg = (
                         f"🤖 <b>{mode_label} AUTO TRADE OPENED</b>{mode_emoji}\n"
                         f"📍 {action['symbol']} {direction} {action['leverage']}x\n"
                         f"💵 Size: ${action['size_usd']:.0f} @ ${action['entry_price']:.4f}\n"
-                        f"🛑 SL: ${action['stop_loss']:.4f} | 🎯 TP: ${action['take_profit']:.4f}\n"
+                        f"🛑 SL: ${action['stop_loss']:.4f} | 🎯 TP: ${action['take_profit']:.4f}"
+                        f"{trail_info}\n"
                         f"📊 Strategy: {action['strategy']} ({action['signal']})"
                     )
                     send_telegram(msg)
