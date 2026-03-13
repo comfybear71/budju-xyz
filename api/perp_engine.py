@@ -709,15 +709,16 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     perp_positions.update_one({"_id": pos_id}, {"$set": update})
 
-    # Check triggers
+    # Check triggers — each checked independently (not elif)
+    # so a set-but-not-triggered SL doesn't block TP evaluation
     action = None
 
-    # 1. Liquidation
+    # 1. Liquidation (highest priority)
     if check_liquidation(position, mark_price):
         action = "liquidation"
 
     # 2. Stop loss
-    elif position.get("stop_loss"):
+    if not action and position.get("stop_loss"):
         sl = position["stop_loss"]
         if direction == "long" and mark_price <= sl:
             action = "stop_loss"
@@ -725,7 +726,7 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
             action = "stop_loss"
 
     # 3. Take profit
-    elif position.get("take_profit"):
+    if not action and position.get("take_profit"):
         tp = position["take_profit"]
         if direction == "long" and mark_price >= tp:
             action = "take_profit"
@@ -733,7 +734,7 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
             action = "take_profit"
 
     # 4. Trailing stop
-    elif trailing_price:
+    if not action and trailing_price:
         if direction == "long" and mark_price <= trailing_price:
             action = "trailing_stop"
         elif direction == "short" and mark_price >= trailing_price:
