@@ -489,45 +489,69 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Non-admin: 2 insight cards (Orders / Auto Trader) → read-only modals */}
+                {/* Non-admin: 3 insight cards (Orders / Auto Trader / Live Charts) */}
                 {!isAdmin && (
-                  <div className="flex gap-2 mb-3">
+                  <div className="space-y-2 mb-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowTriggerView(!showTriggerView)}
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300">Orders</div>
+                          <div className="text-[10px] font-bold text-purple-400">
+                            {pendingOrderCount > 0
+                              ? `${pendingOrderCount} pending`
+                              : "None"}
+                          </div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => setShowAutoTrader(true)}
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+                            <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                          </svg>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
+                          <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
+                            {traderState?.autoBotActive ? "Active" : "Inactive"}
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                    {/* Live Charts button — opens read-only dashboard */}
                     <button
-                      onClick={() => setShowTriggerView(!showTriggerView)}
-                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
-                      style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                      onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
+                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      style={{
+                        background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
+                        border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
+                      }}
                     >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10" />
-                          <polyline points="12 6 12 12 16 14" />
-                        </svg>
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
+                        <span className="text-sm">📈</span>
                       </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300">Orders</div>
-                        <div className="text-[10px] font-bold text-purple-400">
-                          {pendingOrderCount > 0
-                            ? `${pendingOrderCount} pending`
-                            : "None"}
+                      <div className="text-left flex-1">
+                        <div className="text-[11px] font-bold text-slate-300">Live Charts + AI Predictions</div>
+                        <div className="text-[10px] font-bold text-red-400">
+                          6 markets • Real-time
                         </div>
                       </div>
-                    </button>
-                    <button
-                      onClick={() => setShowAutoTrader(true)}
-                      className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
-                      style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
-                          <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                        </svg>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
-                        <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
-                          {traderState?.autoBotActive ? "Active" : "Inactive"}
-                        </div>
-                      </div>
+                      <span className="text-[9px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-500/20">
+                        NEW
+                      </span>
                     </button>
                   </div>
                 )}
@@ -807,7 +831,7 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── High Risk View (admin only — paper trading perps) ─── */}
+              {/* ─── High Risk View (admin: full access, others: read-only charts) ─── */}
               <AnimatePresence>
                 {showHighRisk && isAdmin && (
                   <HighRiskDashboard
@@ -817,6 +841,13 @@ const Trade = () => {
                       if (!auth) throw new Error("Admin signature required");
                       return { wallet: auth.adminWallet, signature: auth.adminSignature, message: auth.adminMessage };
                     }}
+                  />
+                )}
+                {showHighRisk && !isAdmin && (
+                  <HighRiskDashboard
+                    readOnly
+                    onClose={() => setShowHighRisk(false)}
+                    signAdminMessage={async () => { throw new Error("Read-only mode"); }}
                   />
                 )}
               </AnimatePresence>

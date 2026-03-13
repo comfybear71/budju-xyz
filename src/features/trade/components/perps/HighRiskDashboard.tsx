@@ -32,11 +32,12 @@ import type {
 interface Props {
   onClose: () => void;
   signAdminMessage: () => Promise<{ wallet: string; signature: number[]; message: string }>;
+  readOnly?: boolean;
 }
 
 type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity";
 
-const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
+const HighRiskDashboard = ({ onClose, signAdminMessage, readOnly = false }: Props) => {
   const { connection } = useWallet();
 
   const [account, setAccount] = useState<PerpAccount | null>(null);
@@ -86,7 +87,17 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
   ];
 
   const loadData = useCallback(async () => {
-    if (!wallet) return;
+    if (!wallet && !readOnly) return;
+    // In read-only mode without wallet, just load markets and skip account-specific data
+    if (!wallet) {
+      try {
+        const mkts = await fetchPerpMarkets();
+        if (mkts.markets.length > 0) setMarkets(mkts.markets);
+        else if (markets.length === 0) setMarkets(DEFAULT_MARKETS);
+      } catch { if (markets.length === 0) setMarkets(DEFAULT_MARKETS); }
+      setInitialLoading(false);
+      return;
+    }
     try {
       const results = await Promise.allSettled([
         fetchPerpAccount(wallet),
@@ -126,7 +137,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
     } finally {
       setInitialLoading(false);
     }
-  }, [wallet]);
+  }, [wallet, readOnly]);
 
   // Set default markets immediately so the UI is usable before API loads
   useEffect(() => {
@@ -240,7 +251,7 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
     }
   };
 
-  const tabs: { key: Tab; label: string; icon: string }[] = [
+  const allTabs: { key: Tab; label: string; icon: string }[] = [
     { key: "charts", label: "Charts", icon: "📈" },
     { key: "positions", label: "Positions", icon: "📍" },
     { key: "order", label: "New Order", icon: "📝" },
@@ -248,8 +259,11 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
   ];
+  // Read-only users only see charts
+  const readOnlyTabs: Tab[] = ["charts"];
+  const tabs = readOnly ? allTabs.filter((t) => readOnlyTabs.includes(t.key)) : allTabs;
 
-  if (!wallet) {
+  if (!wallet && !readOnly) {
     return (
       <div className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm p-6 text-center">
         <span className="text-2xl">🔒</span>
@@ -270,23 +284,29 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
         <div className="flex items-center gap-2">
           <span className="text-lg">🔥</span>
           <div>
-            <h3 className="text-sm font-bold text-red-400">HIGH RISK — PAPER TRADING</h3>
-            <p className="text-[10px] text-slate-500">Simulated perpetual futures • No real funds at risk</p>
+            <h3 className="text-sm font-bold text-red-400">
+              {readOnly ? "LIVE CHARTS" : "HIGH RISK — PAPER TRADING"}
+            </h3>
+            <p className="text-[10px] text-slate-500">
+              {readOnly ? "Real-time charts with AI predictions • Read only" : "Simulated perpetual futures • No real funds at risk"}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {account?.trading_paused && (
+          {!readOnly && account?.trading_paused && (
             <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
               PAUSED
             </span>
           )}
-          <button
-            onClick={handleReset}
-            className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors"
-            title="Reset account"
-          >
-            Reset
-          </button>
+          {!readOnly && (
+            <button
+              onClick={handleReset}
+              className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors"
+              title="Reset account"
+            >
+              Reset
+            </button>
+          )}
           <button
             onClick={onClose}
             className="text-slate-500 hover:text-white transition-colors text-sm"
@@ -298,15 +318,15 @@ const HighRiskDashboard = ({ onClose, signAdminMessage }: Props) => {
 
       <div className="p-4 space-y-3">
         {/* Loading state */}
-        {initialLoading && (
+        {initialLoading && !readOnly && (
           <div className="text-center py-4">
             <div className="animate-pulse text-sm text-slate-400">Loading paper trading account...</div>
           </div>
         )}
 
-        {/* Account summary */}
-        {account && <PerpAccountSummary account={account} />}
-        {!account && !initialLoading && (
+        {/* Account summary — hidden in read-only mode */}
+        {!readOnly && account && <PerpAccountSummary account={account} />}
+        {!readOnly && !account && !initialLoading && (
           <PerpAccountSummary account={{
             wallet: wallet || "", balance: 10000, equity: 10000,
             unrealized_pnl: 0, realized_pnl: 0, total_funding_paid: 0,

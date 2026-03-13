@@ -76,6 +76,122 @@ function formatPrice(price: number): string {
   return price.toFixed(8);
 }
 
+// ── ML Prediction Engine ─────────────────────────────────────
+// Uses weighted linear regression + momentum + volatility analysis
+// to project price N candles into the future and generate signals.
+
+type Signal = "LONG" | "SHORT" | "SCALP LONG" | "SCALP SHORT" | "HOLD";
+
+interface Prediction {
+  points: { time: Time; value: number }[];
+  signal: Signal;
+  confidence: number; // 0-100
+  targetPrice: number;
+}
+
+function computePrediction(candles: CandleData[], lookback = 60, futureCandles = 10): Prediction | null {
+  if (candles.length < lookback) return null;
+
+  const recent = candles.slice(-lookback);
+  const closes = recent.map((c) => c.close);
+  const n = closes.length;
+
+  // 1. Weighted linear regression (recent data weighted more)
+  let sumW = 0, sumWX = 0, sumWY = 0, sumWXX = 0, sumWXY = 0;
+  for (let i = 0; i < n; i++) {
+    const w = 1 + (i / n) * 3; // Weight: 1→4 (recent 3x more important)
+    sumW += w;
+    sumWX += w * i;
+    sumWY += w * closes[i];
+    sumWXX += w * i * i;
+    sumWXY += w * i * closes[i];
+  }
+  const denom = sumW * sumWXX - sumWX * sumWX;
+  if (Math.abs(denom) < 1e-10) return null;
+  const slope = (sumW * sumWXY - sumWX * sumWY) / denom;
+  const intercept = (sumWY - slope * sumWX) / sumW;
+
+  // 2. Momentum (RSI-like) — ratio of up moves vs down moves in recent candles
+  const shortPeriod = Math.min(14, Math.floor(n / 3));
+  const recentCloses = closes.slice(-shortPeriod);
+  let gains = 0, losses = 0;
+  for (let i = 1; i < recentCloses.length; i++) {
+    const diff = recentCloses[i] - recentCloses[i - 1];
+    if (diff > 0) gains += diff;
+    else losses -= diff;
+  }
+  const avgGain = gains / shortPeriod;
+  const avgLoss = losses / shortPeriod || 0.0001;
+  const rsi = 100 - 100 / (1 + avgGain / avgLoss);
+
+  // 3. Volatility (standard deviation of returns)
+  const returns = [];
+  for (let i = 1; i < closes.length; i++) {
+    returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+  }
+  const meanReturn = returns.reduce((s, r) => s + r, 0) / returns.length;
+  const variance = returns.reduce((s, r) => s + (r - meanReturn) ** 2, 0) / returns.length;
+  const volatility = Math.sqrt(variance);
+
+  // 4. EMA crossover signal (8 vs 21 period)
+  const ema = (data: number[], period: number): number => {
+    const k = 2 / (period + 1);
+    let e = data[0];
+    for (let i = 1; i < data.length; i++) e = data[i] * k + e * (1 - k);
+    return e;
+  };
+  const ema8 = ema(closes.slice(-21), 8);
+  const ema21 = ema(closes.slice(-21), 21);
+  const emaCrossSignal = (ema8 - ema21) / closes[n - 1]; // Normalized
+
+  // 5. Generate prediction points
+  const lastCandle = candles[candles.length - 1];
+  const lastTime = lastCandle.time as number;
+  const currentPrice = lastCandle.close;
+
+  // Combine signals: trend (slope) + momentum (RSI) + EMA cross
+  const slopePerCandle = slope;
+  const momentumBias = (rsi - 50) / 50; // -1 to +1
+  const emaBias = emaCrossSignal * 100; // Normalized crossover
+
+  // Blended projection rate per candle
+  const trendRate = slopePerCandle / currentPrice; // Normalized slope
+  const blendedRate = trendRate * 0.5 + momentumBias * volatility * 0.3 + emaBias * 0.2;
+
+  const points: { time: Time; value: number }[] = [
+    { time: lastTime as Time, value: currentPrice },
+  ];
+
+  for (let i = 1; i <= futureCandles; i++) {
+    const futureTime = (lastTime + i * 60) as Time; // 1m candles = 60s each
+    // Add slight decay to prediction confidence over time
+    const decay = 1 - (i / futureCandles) * 0.3;
+    const projected = currentPrice * (1 + blendedRate * i * decay);
+    points.push({ time: futureTime, value: projected });
+  }
+
+  const targetPrice = points[points.length - 1].value;
+  const pctMove = ((targetPrice - currentPrice) / currentPrice) * 100;
+
+  // 6. Determine signal
+  let signal: Signal;
+  const absMove = Math.abs(pctMove);
+  if (absMove < 0.02) {
+    signal = "HOLD";
+  } else if (pctMove > 0) {
+    signal = absMove > 0.1 ? "LONG" : "SCALP LONG";
+  } else {
+    signal = absMove > 0.1 ? "SHORT" : "SCALP SHORT";
+  }
+
+  // 7. Confidence: based on trend strength + volatility alignment
+  const trendStrength = Math.min(Math.abs(trendRate) / volatility, 1) * 100;
+  const rsiConfidence = Math.abs(rsi - 50) * 2; // 0-100
+  const confidence = Math.min(Math.round(trendStrength * 0.5 + rsiConfidence * 0.3 + Math.abs(emaCrossSignal) * 2000 * 0.2), 95);
+
+  return { points, signal, confidence: Math.max(confidence, 10), targetPrice };
+}
+
 // ── Component ────────────────────────────────────────────────
 
 const TradingChart = ({
@@ -91,6 +207,7 @@ const TradingChart = ({
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const predictionSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const klineStreamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<CandleData[]>([]);
 
@@ -99,6 +216,8 @@ const TradingChart = ({
   const [priceChange, setPriceChange] = useState(0);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
+  const [showPrediction, setShowPrediction] = useState(true);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -174,10 +293,22 @@ const TradingChart = ({
       scaleMargins: { top: 0.85, bottom: 0 },
     });
 
+    // ML Prediction line — blue dashed projection
+    const predictionSeries = chart.addLineSeries({
+      color: "rgba(59, 130, 246, 0.8)", // Blue
+      lineWidth: 2,
+      lineStyle: LineStyle.Dashed,
+      crosshairMarkerVisible: false,
+      lastValueVisible: true,
+      priceLineVisible: false,
+      visible: showPrediction,
+    });
+
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     lineSeriesRef.current = lineSeries;
     volumeSeriesRef.current = volumeSeries;
+    predictionSeriesRef.current = predictionSeries;
 
     // Resize handler
     const ro = new ResizeObserver(() => {
@@ -192,7 +323,7 @@ const TradingChart = ({
       chart.remove();
       chartRef.current = null;
     };
-  }, [height, chartMode]);
+  }, [height, chartMode, showPrediction]);
 
   // ── Load Historical Data + Start WS ────────────────────────
 
@@ -229,6 +360,15 @@ const TradingChart = ({
       // Add position lines
       addPositionLines();
 
+      // Compute initial prediction
+      if (showPrediction && historical.length >= 60) {
+        const pred = computePrediction(historical);
+        if (pred && predictionSeriesRef.current) {
+          predictionSeriesRef.current.setData(pred.points);
+          setPrediction(pred);
+        }
+      }
+
       setLoading(false);
 
       // Start kline WebSocket
@@ -261,6 +401,17 @@ const TradingChart = ({
         if (dataRef.current.length > 0) {
           const first = dataRef.current[0];
           setPriceChange(((bar.close - first.close) / first.close) * 100);
+        }
+
+        // Update prediction on each completed candle (isFinal)
+        if (bar.isFinal && showPrediction) {
+          // Append the completed candle to dataRef for prediction calc
+          dataRef.current = [...dataRef.current, candle];
+          const pred = computePrediction(dataRef.current);
+          if (pred && predictionSeriesRef.current) {
+            predictionSeriesRef.current.setData(pred.points);
+            setPrediction(pred);
+          }
         }
       });
 
@@ -380,6 +531,12 @@ const TradingChart = ({
     lineSeriesRef.current?.applyOptions({ visible: chartMode === "line" });
   }, [chartMode]);
 
+  // ── Toggle prediction visibility ─────────────────────────
+
+  useEffect(() => {
+    predictionSeriesRef.current?.applyOptions({ visible: showPrediction });
+  }, [showPrediction]);
+
   // ── Render ─────────────────────────────────────────────────
 
   const isPositive = priceChange >= 0;
@@ -410,6 +567,33 @@ const TradingChart = ({
               </span>
             </>
           )}
+          {/* Signal badge */}
+          {showPrediction && prediction && !compact && (
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                    ? "bg-red-500/15 text-red-400 border-red-500/30"
+                    : "bg-slate-500/15 text-slate-400 border-slate-500/30"
+              }`}
+            >
+              {prediction.signal} {prediction.confidence}%
+            </span>
+          )}
+          {/* Compact signal dot */}
+          {showPrediction && prediction && compact && (
+            <span
+              className={`w-2 h-2 rounded-full ${
+                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                  ? "bg-emerald-400"
+                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                    ? "bg-red-400"
+                    : "bg-slate-400"
+              }`}
+              title={`${prediction.signal} (${prediction.confidence}%)`}
+            />
+          )}
           {/* Chart mode toggle */}
           <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
             <button
@@ -433,6 +617,18 @@ const TradingChart = ({
               Line
             </button>
           </div>
+          {/* AI Prediction toggle */}
+          <button
+            onClick={() => setShowPrediction(!showPrediction)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+              showPrediction
+                ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
+                : "text-slate-500 border-white/[0.06] hover:text-blue-400"
+            }`}
+            title="Toggle AI prediction"
+          >
+            AI
+          </button>
         </div>
       </div>
 
