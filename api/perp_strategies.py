@@ -306,19 +306,20 @@ def bollinger_bands(prices: List[float], period: int = 20, num_std: float = 2.0)
 
 
 def atr(prices: List[float], period: int = 14) -> List[float]:
-    """Average True Range scaled to ~15min timeframe.
+    """Average True Range scaled to ~1hr timeframe.
 
     Raw 1-minute ATR is extremely small (e.g. $0.04 for SOL), making
-    ATR-based SL/TP nearly useless. We scale by sqrt(15) ≈ 3.87 to
-    approximate a 15-minute ATR, giving trades meaningful room.
+    ATR-based SL/TP nearly useless. We scale by sqrt(60) ≈ 7.75 to
+    approximate a 1-hour ATR, giving trades room to breathe without
+    getting stopped out by normal price noise.
     """
     if len(prices) < period + 1:
         return []
 
     true_ranges = [abs(prices[i+1] - prices[i]) for i in range(len(prices) - 1)]
 
-    # Scale factor: sqrt(15) to approximate 15-min ATR from 1-min data
-    scale = math.sqrt(15)
+    # Scale factor: sqrt(60) to approximate 1-hour ATR from 1-min data
+    scale = math.sqrt(60)
 
     atr_vals = [sum(true_ranges[:period]) / period * scale]
     for i in range(period, len(true_ranges)):
@@ -326,6 +327,35 @@ def atr(prices: List[float], period: int = 14) -> List[float]:
         atr_vals.append(raw * scale)
 
     return atr_vals
+
+
+# ── Trend Filter ────────────────────────────────────────────────────────
+
+TREND_EMA_PERIOD = 50  # 50-candle EMA as directional guard
+
+def trend_filter(prices: List[float], direction: str) -> bool:
+    """Check if a trade direction aligns with the higher-timeframe trend.
+
+    Uses a 50-period EMA:
+      - Long signals require price ABOVE the 50 EMA (uptrend)
+      - Short signals require price BELOW the 50 EMA (downtrend)
+
+    Returns True if the trade is allowed, False if it conflicts with trend.
+    """
+    if len(prices) < TREND_EMA_PERIOD + 1:
+        return True  # Not enough data — allow trade (don't block cold-start)
+
+    ema_vals = ema(prices, TREND_EMA_PERIOD)
+    if not ema_vals:
+        return True
+
+    curr_price = prices[-1]
+    curr_ema = ema_vals[-1]
+
+    if direction == "long":
+        return curr_price > curr_ema
+    else:  # short
+        return curr_price < curr_ema
 
 
 # ── Strategy Config ──────────────────────────────────────────────────────
@@ -498,22 +528,24 @@ def strategy_trend_following(prices: List[float], config: Dict) -> Optional[Dict
     # Bullish crossover: fast crosses above slow
     if prev_fast <= prev_slow and curr_fast > curr_slow:
         if curr_rsi > rsi_os and curr_rsi < rsi_ob:
-            return {
-                "direction": "long",
-                "signal": "ema_cross_up",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
+            if trend_filter(prices, "long"):
+                return {
+                    "direction": "long",
+                    "signal": "ema_cross_up",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
     # Bearish crossover: fast crosses below slow
     if prev_fast >= prev_slow and curr_fast < curr_slow:
         if curr_rsi < rsi_ob and curr_rsi > rsi_os:
-            return {
-                "direction": "short",
-                "signal": "ema_cross_down",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
+            if trend_filter(prices, "short"):
+                return {
+                    "direction": "short",
+                    "signal": "ema_cross_down",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
     return None
 
@@ -560,23 +592,25 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
 
     # Price at or below lower band + RSI oversold → LONG
     if curr_price <= curr_lower and curr_rsi <= rsi_os:
-        return {
-            "direction": "long",
-            "signal": "bb_lower_bounce",
-            "indicators": indicators,
-            "atr": curr_atr,
-            "tp_override": curr_middle,  # Target middle band
-        }
+        if trend_filter(prices, "long"):
+            return {
+                "direction": "long",
+                "signal": "bb_lower_bounce",
+                "indicators": indicators,
+                "atr": curr_atr,
+                "tp_override": curr_middle,  # Target middle band
+            }
 
     # Price at or above upper band + RSI overbought → SHORT
     if curr_price >= curr_upper and curr_rsi >= rsi_ob:
-        return {
-            "direction": "short",
-            "signal": "bb_upper_bounce",
-            "indicators": indicators,
-            "atr": curr_atr,
-            "tp_override": curr_middle,
-        }
+        if trend_filter(prices, "short"):
+            return {
+                "direction": "short",
+                "signal": "bb_upper_bounce",
+                "indicators": indicators,
+                "atr": curr_atr,
+                "tp_override": curr_middle,
+            }
 
     return None
 
@@ -629,22 +663,24 @@ def strategy_momentum(prices: List[float], config: Dict) -> Optional[Dict]:
     # Breakout above recent high with strong move
     if curr_price > recent_high and curr_range > avg_range * breakout_mult:
         if curr_rsi > rsi_threshold:
-            return {
-                "direction": "long",
-                "signal": "breakout_high",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
+            if trend_filter(prices, "long"):
+                return {
+                    "direction": "long",
+                    "signal": "breakout_high",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
     # Breakout below recent low with strong move
     if curr_price < recent_low and curr_range > avg_range * breakout_mult:
         if curr_rsi < rsi_threshold:
-            return {
-                "direction": "short",
-                "signal": "breakout_low",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
+            if trend_filter(prices, "short"):
+                return {
+                    "direction": "short",
+                    "signal": "breakout_low",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
     return None
 
@@ -698,39 +734,43 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
 
     # SCALP LONG: RSI was oversold or dipping + EMA is rising + price bouncing up
     if curr_rsi <= rsi_os and ema_rising and price_momentum > 0:
-        return {
-            "direction": "long",
-            "signal": "scalp_rsi_bounce",
-            "indicators": indicators,
-            "atr": curr_atr,
-        }
+        if trend_filter(prices, "long"):
+            return {
+                "direction": "long",
+                "signal": "scalp_rsi_bounce",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
 
     # Also LONG: RSI crossing up from oversold (recovery)
     if prev_rsi < rsi_os and curr_rsi > rsi_os and curr_price > curr_ema:
-        return {
-            "direction": "long",
-            "signal": "scalp_rsi_recovery",
-            "indicators": indicators,
-            "atr": curr_atr,
-        }
+        if trend_filter(prices, "long"):
+            return {
+                "direction": "long",
+                "signal": "scalp_rsi_recovery",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
 
     # SCALP SHORT: RSI was overbought or spiking + EMA is falling + price dropping
     if curr_rsi >= rsi_ob and not ema_rising and price_momentum < 0:
-        return {
-            "direction": "short",
-            "signal": "scalp_rsi_rejection",
-            "indicators": indicators,
-            "atr": curr_atr,
-        }
+        if trend_filter(prices, "short"):
+            return {
+                "direction": "short",
+                "signal": "scalp_rsi_rejection",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
 
     # Also SHORT: RSI crossing down from overbought (exhaustion)
     if prev_rsi > rsi_ob and curr_rsi < rsi_ob and curr_price < curr_ema:
-        return {
-            "direction": "short",
-            "signal": "scalp_rsi_exhaustion",
-            "indicators": indicators,
-            "atr": curr_atr,
-        }
+        if trend_filter(prices, "short"):
+            return {
+                "direction": "short",
+                "signal": "scalp_rsi_exhaustion",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
 
     return None
 
