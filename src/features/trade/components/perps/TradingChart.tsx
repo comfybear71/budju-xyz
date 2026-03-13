@@ -697,89 +697,211 @@ const TradingChart = ({
       {/* Chart container */}
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" />
 
-      {/* Strategy Breakdown Panel */}
-      {showStrategyInfo && prediction?.strategies && !compact && (
-        <div className="mt-2 rounded-lg border border-blue-500/20 bg-slate-900/80 backdrop-blur-sm p-2.5 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">AI Strategy Breakdown</span>
-            <button onClick={() => setShowStrategyInfo(false)} className="text-[9px] text-slate-500 hover:text-white">✕</button>
-          </div>
+      {/* ── Below-chart info panel (non-compact only) ── */}
+      {!compact && (
+        <div className="mt-2 space-y-1.5">
 
-          <div className="grid grid-cols-2 gap-1.5">
-            {/* Trend */}
-            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
-              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Trend (WLR)</div>
-              <div className="flex items-center gap-1">
-                <span className={`text-[10px] font-bold ${
-                  prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
-                  prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
-                }`}>
-                  {prediction.strategies.trend.direction === "up" ? "Bullish" :
-                   prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
-                </span>
-                <span className="text-[8px] text-slate-500">
-                  {prediction.strategies.trend.strength.toFixed(0)}%
-                </span>
+          {/* Active positions for this market */}
+          {(() => {
+            const marketPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
+            if (marketPositions.length === 0) return null;
+            return (
+              <div className="space-y-1">
+                {marketPositions.map((pos) => {
+                  const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
+                  return (
+                    <div
+                      key={pos._id}
+                      className={`rounded-lg border p-2 ${
+                        pos.direction === "long"
+                          ? "bg-emerald-500/[0.05] border-emerald-500/15"
+                          : "bg-red-500/[0.05] border-red-500/15"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            pos.direction === "long"
+                              ? "bg-emerald-500/20 text-emerald-400"
+                              : "bg-red-500/20 text-red-400"
+                          }`}>
+                            {pos.direction.toUpperCase()} {pos.leverage}x
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            Entry ${formatPrice(pos.entry_price)}
+                          </span>
+                        </div>
+                        <span className={`text-[11px] font-bold font-mono ${
+                          pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                        }`}>
+                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                          <span className="text-[9px] ml-0.5 opacity-70">
+                            ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="flex gap-2 mt-1 text-[9px] text-slate-500">
+                        <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
+                        <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
+                        {pos.stop_loss != null && (
+                          <span>SL <span className="text-red-400/70 font-mono">${formatPrice(pos.stop_loss)}</span></span>
+                        )}
+                        {pos.take_profit != null && (
+                          <span>TP <span className="text-emerald-400/70 font-mono">${formatPrice(pos.take_profit)}</span></span>
+                        )}
+                        {pos.trailing_stop_price != null && (
+                          <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="text-[7px] text-slate-600 mt-0.5">Weighted Linear Regression (60 bars)</div>
-            </div>
+            );
+          })()}
 
-            {/* Momentum */}
-            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
-              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Momentum (RSI)</div>
-              <div className="flex items-center gap-1">
-                <span className={`text-[10px] font-bold ${
-                  prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
-                  prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
-                }`}>
-                  {prediction.strategies.momentum.rsi.toFixed(1)}
-                </span>
-                <span className={`text-[8px] ${
-                  prediction.strategies.momentum.bias === "bullish" ? "text-emerald-500/70" :
-                  prediction.strategies.momentum.bias === "bearish" ? "text-red-500/70" : "text-slate-500"
-                }`}>
-                  {prediction.strategies.momentum.bias}
-                </span>
+          {/* AI prediction & strategy breakdown */}
+          {showPrediction && prediction?.strategies && (
+            <div className="rounded-lg border border-blue-500/15 bg-slate-900/60 p-2 space-y-1.5">
+              {/* Signal + reasoning */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                    prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                        ? "bg-red-500/15 text-red-400 border-red-500/30"
+                        : "bg-slate-500/15 text-slate-400 border-slate-500/30"
+                  }`}>
+                    {prediction.signal}
+                  </span>
+                  <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
+                  <span className="text-[9px] text-slate-500">
+                    Target ${formatPrice(prediction.targetPrice)}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowStrategyInfo(!showStrategyInfo)}
+                  className="text-[9px] text-slate-500 hover:text-blue-400 transition-colors"
+                >
+                  {showStrategyInfo ? "Hide details" : "Show details"}
+                </button>
               </div>
-              <div className="text-[7px] text-slate-600 mt-0.5">14-period RSI momentum</div>
-            </div>
 
-            {/* EMA Cross */}
-            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
-              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">EMA Cross</div>
-              <div className="flex items-center gap-1">
-                <span className={`text-[10px] font-bold ${
-                  prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
-                  prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
-                }`}>
-                  {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
-                   prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
-                </span>
+              {/* AI reasoning summary */}
+              <div className="text-[9px] text-slate-400 leading-relaxed">
+                {(() => {
+                  const s = prediction.strategies;
+                  const parts: string[] = [];
+                  if (s.trend.direction !== "flat")
+                    parts.push(`Trend is ${s.trend.direction === "up" ? "bullish" : "bearish"} (${s.trend.strength.toFixed(0)}% strength)`);
+                  else parts.push("No clear trend");
+                  parts.push(`RSI at ${s.momentum.rsi.toFixed(1)} (${s.momentum.bias})`);
+                  if (s.ema.cross !== "neutral")
+                    parts.push(`EMA ${s.ema.cross} cross (8${s.ema.cross === "bullish" ? ">" : "<"}21)`);
+                  parts.push(`${s.volatility.level} volatility (${s.volatility.value.toFixed(3)}%)`);
+                  return parts.join(" • ");
+                })()}
               </div>
-              <div className="text-[7px] text-slate-600 mt-0.5">EMA(8) vs EMA(21) crossover</div>
-            </div>
 
-            {/* Volatility */}
-            <div className="rounded-lg bg-slate-800/50 px-2 py-1.5 border border-white/[0.04]">
-              <div className="text-[8px] text-slate-500 uppercase tracking-wider mb-0.5">Volatility</div>
-              <div className="flex items-center gap-1">
-                <span className={`text-[10px] font-bold ${
-                  prediction.strategies.volatility.level === "high" ? "text-amber-400" :
-                  prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
-                }`}>
-                  {prediction.strategies.volatility.value.toFixed(3)}%
-                </span>
-                <span className="text-[8px] text-slate-500">
-                  {prediction.strategies.volatility.level}
-                </span>
+              {/* Detailed strategy grid (expandable) */}
+              {showStrategyInfo && (
+                <div className="space-y-1.5 pt-1 border-t border-white/[0.04]">
+                  <div className="grid grid-cols-4 gap-1">
+                    {/* Trend */}
+                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
+                      <div className="text-[7px] text-slate-600 uppercase">Trend (60%)</div>
+                      <div className={`text-[10px] font-bold ${
+                        prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
+                        prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
+                      }`}>
+                        {prediction.strategies.trend.direction === "up" ? "Bullish" :
+                         prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
+                      </div>
+                      <div className="text-[8px] text-slate-500">{prediction.strategies.trend.strength.toFixed(0)}% str</div>
+                      <div className="text-[7px] text-slate-600 mt-0.5">WLR slope: {prediction.strategies.trend.slope.toFixed(6)}</div>
+                    </div>
+
+                    {/* Momentum */}
+                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
+                      <div className="text-[7px] text-slate-600 uppercase">RSI (25%)</div>
+                      <div className={`text-[10px] font-bold ${
+                        prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
+                        prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
+                      }`}>
+                        {prediction.strategies.momentum.rsi.toFixed(1)}
+                      </div>
+                      <div className="text-[8px] text-slate-500">{prediction.strategies.momentum.bias}</div>
+                      <div className="text-[7px] text-slate-600 mt-0.5">
+                        {prediction.strategies.momentum.rsi > 70 ? "Overbought" :
+                         prediction.strategies.momentum.rsi < 30 ? "Oversold" : "Normal range"}
+                      </div>
+                    </div>
+
+                    {/* EMA Cross */}
+                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
+                      <div className="text-[7px] text-slate-600 uppercase">EMA (15%)</div>
+                      <div className={`text-[10px] font-bold ${
+                        prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
+                        prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
+                      }`}>
+                        {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
+                         prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
+                      </div>
+                      <div className="text-[8px] text-slate-500">{prediction.strategies.ema.cross}</div>
+                      <div className="text-[7px] text-slate-600 mt-0.5">
+                        8: ${formatPrice(prediction.strategies.ema.ema8)}
+                      </div>
+                    </div>
+
+                    {/* Volatility */}
+                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
+                      <div className="text-[7px] text-slate-600 uppercase">Volatility</div>
+                      <div className={`text-[10px] font-bold ${
+                        prediction.strategies.volatility.level === "high" ? "text-amber-400" :
+                        prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
+                      }`}>
+                        {prediction.strategies.volatility.value.toFixed(3)}%
+                      </div>
+                      <div className="text-[8px] text-slate-500">{prediction.strategies.volatility.level}</div>
+                      <div className="text-[7px] text-slate-600 mt-0.5">Std dev of returns</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Recent trades for this market */}
+          {(() => {
+            const marketTrades = (trades || [])
+              .filter((t) => t.symbol === symbol)
+              .slice(0, 3);
+            if (marketTrades.length === 0) return null;
+            return (
+              <div className="rounded-lg border border-white/[0.04] bg-slate-800/30 p-2">
+                <div className="text-[8px] text-slate-600 uppercase tracking-wider mb-1">Recent Trades</div>
+                <div className="space-y-0.5">
+                  {marketTrades.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between text-[9px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className={t.direction === "long" ? "text-emerald-400" : "text-red-400"}>
+                          {t.direction.toUpperCase()}
+                        </span>
+                        <span className="text-slate-500">{t.leverage}x</span>
+                        <span className="text-slate-500 font-mono">${formatPrice(t.entry_price)}</span>
+                        <span className="text-slate-600">→</span>
+                        <span className="text-slate-500 font-mono">${formatPrice(t.exit_price)}</span>
+                      </div>
+                      <span className={`font-bold font-mono ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="text-[7px] text-slate-600 mt-0.5">Std dev of returns (60 bars)</div>
-            </div>
-          </div>
-
-          <div className="text-[7px] text-slate-600 leading-relaxed border-t border-white/[0.04] pt-1.5">
-            AI blends 4 strategies: <span className="text-blue-400/70">60% trend</span> (weighted linear regression favoring recent candles), <span className="text-blue-400/70">25% momentum</span> (RSI divergence from neutral), <span className="text-blue-400/70">15% EMA cross</span> (8/21 crossover direction). Prediction clamped to ±0.3%/candle max.
-          </div>
+            );
+          })()}
         </div>
       )}
     </div>
