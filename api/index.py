@@ -42,6 +42,7 @@ from perp_engine import (
     set_kill_switch,
     open_position,
     close_position,
+    partial_close_position,
     modify_position,
     get_open_positions,
     get_trade_history,
@@ -56,6 +57,7 @@ from perp_strategies import (
     toggle_auto_trading,
     update_strategy_config,
 )
+from perp_backtest import run_backtest_from_db
 from perp_pending_orders import (
     place_pending_order,
     get_pending_orders,
@@ -617,6 +619,27 @@ class handler(BaseHTTPRequestHandler):
                 result = close_position(position_id, exit_price, "manual", exit_reason)
                 self._send_json(200, result)
 
+            elif path == '/api/perp/partial-close':
+                wallet = body.get('wallet') or body.get('adminWallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+
+                position_id = body.get('positionId')
+                exit_price = float(body.get('exitPrice', 0))
+                close_pct = float(body.get('closePct', 50))
+                exit_reason = body.get('exitReason', 'manual_partial')
+
+                if not position_id or not exit_price:
+                    self._send_json(400, {"error": "positionId and exitPrice required"})
+                    return
+                if close_pct <= 0 or close_pct >= 100:
+                    self._send_json(400, {"error": "closePct must be between 1 and 99"})
+                    return
+
+                result = partial_close_position(position_id, exit_price, close_pct, exit_reason)
+                self._send_json(200, result)
+
             elif path == '/api/perp/modify':
                 wallet = body.get('wallet') or body.get('adminWallet')
                 if not wallet or not is_admin(wallet):
@@ -666,6 +689,28 @@ class handler(BaseHTTPRequestHandler):
                     return
                 update_strategy_config(wallet, updates)
                 self._send_json(200, {"success": True})
+
+            elif path == '/api/perp/backtest':
+                # Run backtest against historical price data
+                strategy = body.get('strategy')
+                symbol = body.get('symbol', 'BTC-PERP')
+                periods = int(body.get('periods', 1440))
+                initial_balance = float(body.get('initialBalance', 10000))
+
+                if not strategy:
+                    self._send_json(400, {"error": "strategy required (trend_following, mean_reversion, momentum, scalping)"})
+                    return
+
+                if periods > 10080:  # Cap at 7 days of 1-min data
+                    self._send_json(400, {"error": "periods capped at 10080 (7 days)"})
+                    return
+
+                result = run_backtest_from_db(strategy, symbol, periods, initial_balance)
+                # Trim trade list for API response (keep last 200)
+                if len(result.get("trades", [])) > 200:
+                    result["trades"] = result["trades"][-200:]
+                    result["trades_trimmed"] = True
+                self._send_json(200, result)
 
             # ── Trading Mode & Kill Switch ─────────────────────────────
             elif path == '/api/perp/mode':

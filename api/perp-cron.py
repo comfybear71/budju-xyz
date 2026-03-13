@@ -29,12 +29,16 @@ from perp_engine import (
     perp_positions,
     update_position_price,
     close_position,
+    partial_close_position,
     snapshot_equity,
     MARKETS,
     COINGECKO_IDS,
+    INITIAL_BALANCE,
 )
 from perp_strategies import store_price, run_auto_trader, seed_all_markets
 from perp_pending_orders import check_and_execute_pending_orders, expire_stale_orders
+from perp_ninja_strategy import run_ninja_strategy
+from perp_grid_strategy import run_grid_strategy
 
 # ── Config ────────────────────────────────────────────────────────────
 
@@ -220,6 +224,41 @@ def run_perp_monitor() -> dict:
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
 
+        # Handle pending partial closes (break-even TP1/TP2)
+        elif result.get("pending_partial_close"):
+            pct = result["pending_partial_close"]
+            pos_id = str(pos["_id"])
+            try:
+                trade = partial_close_position(pos_id, mark_price, close_pct=pct, exit_reason="auto_partial_tp")
+                wallet_short = pos["account_id"][:4] + "..." + pos["account_id"][-4:]
+                pnl = trade.get("realized_pnl", 0)
+                pnl_sign = "+" if pnl >= 0 else ""
+                mode_label = "LIVE" if pos.get("trading_mode") == "live" else "PAPER"
+                remaining = trade.get("remaining_size_usd", 0)
+                msg = (
+                    f"✂️ <b>{mode_label} PARTIAL CLOSE {pct}%</b>\n"
+                    f"📍 {pos['symbol']} {pos['direction'].upper()} {pos['leverage']}x\n"
+                    f"💰 Realized: <b>{pnl_sign}${pnl:.2f}</b>\n"
+                    f"📊 Remaining: ${remaining:.0f}\n"
+                    f"👤 {wallet_short}"
+                )
+                send_telegram(msg)
+                events.append({
+                    "type": "partial_close",
+                    "symbol": pos["symbol"],
+                    "pct": pct,
+                    "pnl": pnl,
+                    "wallet": wallet_short,
+                    "mode": mode_label,
+                })
+                # Clear the flag
+                perp_positions.update_one(
+                    {"_id": pos["_id"]},
+                    {"$unset": {"pending_partial_close": ""}}
+                )
+            except Exception as e:
+                print(f"[perp-cron] Partial close error {pos_id}: {e}")
+
     # 4b. Check and execute pending limit/stop orders
     pending_fills = []
     for symbol, price in prices.items():
@@ -286,6 +325,76 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 
+    # 5b. Run grid strategy for all accounts (refreshes once per hour internally)
+    grid_actions = []
+    for acc in all_accounts:
+        if acc.get("kill_switch"):
+            continue
+        if not acc.get("auto_trading_enabled", False):
+            continue
+        try:
+            equity = acc.get("equity", INITIAL_BALANCE)
+            peak_equity = acc.get("peak_equity", equity)
+            g_actions = run_grid_strategy(acc["wallet"], prices, equity, peak_equity)
+            if g_actions:
+                grid_actions.extend(g_actions)
+                for ga in g_actions:
+                    if ga.get("action") == "grid_placed":
+                        mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
+                        mode_emoji = " 🔴" if mode_label == "LIVE" else ""
+                        mart_label = " (martingale)" if ga.get("martingale") else ""
+                        msg = (
+                            f"📐 <b>{mode_label} GRID PLACED</b>{mode_emoji}\n"
+                            f"📍 {ga['symbol']} — {ga['orders_placed']} orders{mart_label}\n"
+                            f"💵 Center: ${ga['center_price']:.4f} | Spacing: ${ga['spacing']:.4f}\n"
+                            f"📊 {ga['buy_levels']} buys + {ga['sell_levels']} sells"
+                        )
+                        send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Grid strategy error for {acc['wallet'][:8]}: {e}")
+
+    if grid_actions:
+        print(f"[perp-cron] Grid strategy: {len(grid_actions)} actions")
+
+    # 5c. Run ninja ambush strategy (once per hour — not every minute)
+    ninja_actions = []
+    current_minute = datetime.utcnow().minute
+    if current_minute == 0:  # Only on the top of each hour
+        print(f"[perp-cron] Running ninja ambush strategy for {len(all_accounts)} accounts")
+        for acc in all_accounts:
+            if acc.get("kill_switch"):
+                continue
+            if acc.get("trading_paused"):
+                continue
+            wallet = acc["wallet"]
+            acc_equity = acc.get("equity", 10000)
+            acc_peak = acc.get("peak_equity", acc_equity)
+            try:
+                n_actions = run_ninja_strategy(wallet, prices, acc_equity, acc_peak)
+                if n_actions:
+                    ninja_actions.extend(n_actions)
+                    placed = [a for a in n_actions if a.get("action") == "placed"]
+                    if placed:
+                        print(f"[perp-cron] Ninja {wallet[:8]}: {len(placed)} orders placed")
+                        mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
+                        for a in placed:
+                            direction = a.get("direction", "").upper()
+                            msg = (
+                                f"🥷 <b>{mode_label} NINJA AMBUSH SET</b>\n"
+                                f"📍 {a['symbol']} {direction} ({a['order_type']})\n"
+                                f"💵 Trigger: ${a['trigger_price']:.4f} | Size: ${a['size_usd']:.0f}\n"
+                                f"🛑 SL: ${a['stop_loss']:.4f} | 🎯 TP: ${a['take_profit']:.4f}\n"
+                                f"📊 Score: {a['score']} ({', '.join(a['sources'])})"
+                            )
+                            send_telegram(msg)
+            except Exception as e:
+                print(f"[perp-cron] Ninja error for {wallet[:8]}: {e}")
+    else:
+        print(f"[perp-cron] Skipping ninja strategy (minute={current_minute}, runs at :00)")
+
+    if ninja_actions:
+        print(f"[perp-cron] Ninja strategy: {len(ninja_actions)} actions")
+
     # 6. Snapshot equity for all active accounts
     for acc in all_accounts:
         try:
@@ -293,7 +402,7 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Equity snapshot error for {acc['wallet'][:8]}: {e}")
 
-    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades, {len(pending_fills)} pending fills")
+    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades, {len(pending_fills)} pending fills, {len(grid_actions)} grid actions, {len(ninja_actions)} ninja actions")
 
     return {
         "status": "ok",
@@ -304,5 +413,7 @@ def run_perp_monitor() -> dict:
         "events": events,
         "auto_trades": auto_trade_actions,
         "pending_fills": pending_fills,
+        "grid_actions": grid_actions,
+        "ninja_actions": ninja_actions,
         "accounts_snapshotted": len(all_accounts),
     }

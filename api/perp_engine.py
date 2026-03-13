@@ -636,6 +636,130 @@ def close_position(position_id: str, exit_price: float,
     return _format_trade(trade)
 
 
+def partial_close_position(position_id: str, exit_price: float,
+                          close_pct: float = 50.0,
+                          exit_reason: str = "partial_tp") -> Dict:
+    """Close a percentage of an open position and leave the rest running.
+
+    Args:
+        position_id: The position to partially close
+        exit_price: Current market price for exit
+        close_pct: Percentage to close (1-99). E.g. 50 = close half.
+        exit_reason: Reason for partial close
+
+    Returns the trade record for the closed portion. The remaining position
+    stays open with reduced size/quantity/margin.
+    """
+    if close_pct <= 0 or close_pct >= 100:
+        raise ValueError("close_pct must be between 1 and 99. Use close_position for 100%.")
+
+    pos = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not pos:
+        raise ValueError("Position not found or already closed")
+
+    wallet = pos["account_id"]
+    direction = pos["direction"]
+    size_usd = pos["size_usd"]
+    quantity = pos["quantity"]
+    close_fraction = close_pct / 100.0
+
+    # Calculate the portion being closed
+    close_size = round(size_usd * close_fraction, 4)
+    close_qty = round(quantity * close_fraction, 8)
+    remain_size = round(size_usd - close_size, 4)
+    remain_qty = round(quantity - close_qty, 8)
+
+    if remain_size < 10:  # Too small to keep open
+        return close_position(position_id, exit_price, "take_profit", exit_reason)
+
+    # Simulate slippage on the closed portion
+    slippage_pct = simulate_slippage(close_size, exit_price)
+    if direction == "long":
+        fill_price = exit_price * (1 - slippage_pct)
+    else:
+        fill_price = exit_price * (1 + slippage_pct)
+    close_fee = calculate_fees(close_size)
+
+    # Calculate P&L on closed portion
+    pnl_usd, pnl_pct = calculate_pnl(pos["entry_price"], fill_price, close_size, direction)
+    portion_fees = pos.get("total_fees", 0) * close_fraction
+    portion_funding = pos.get("cumulative_funding", 0) * close_fraction
+    net_pnl = pnl_usd - close_fee - portion_funding
+
+    now = datetime.utcnow()
+    opened_at = pos.get("opened_at", now)
+    holding_ms = int((now - opened_at).total_seconds() * 1000) if isinstance(opened_at, datetime) else 0
+
+    # Record the partial close as a trade
+    trade = {
+        "account_id": wallet,
+        "position_id": position_id,
+        "symbol": pos["symbol"],
+        "direction": direction,
+        "leverage": pos["leverage"],
+        "entry_price": pos["entry_price"],
+        "exit_price": fill_price,
+        "quantity": close_qty,
+        "size_usd": close_size,
+        "entry_time": opened_at,
+        "exit_time": now,
+        "holding_period_ms": holding_ms,
+        "exit_type": "partial_close",
+        "realized_pnl": round(net_pnl, 4),
+        "realized_pnl_pct": round(pnl_pct, 4),
+        "total_funding_paid": portion_funding,
+        "total_fees": portion_fees + close_fee,
+        "partial_close_pct": close_pct,
+        "remaining_size_usd": remain_size,
+        "entry_reason": pos.get("entry_reason", ""),
+        "exit_reason": exit_reason,
+    }
+    perp_trades.insert_one(trade)
+
+    # Update the remaining position (reduced size, keep same entry/SL/TP)
+    remain_margin = round(pos.get("margin", 0) * (1 - close_fraction), 4)
+    perp_positions.update_one(
+        {"_id": ObjectId(position_id)},
+        {"$set": {
+            "size_usd": remain_size,
+            "quantity": remain_qty,
+            "margin": remain_margin,
+            "maintenance_margin": remain_size * calculate_maintenance_margin(pos["leverage"]),
+            "total_fees": pos.get("total_fees", 0) * (1 - close_fraction),
+            "cumulative_funding": pos.get("cumulative_funding", 0) * (1 - close_fraction),
+            "last_updated": now,
+        }}
+    )
+
+    # Credit account: margin released + PnL
+    margin_released = pos.get("margin", 0) * close_fraction
+    credit = margin_released + net_pnl
+    perp_accounts.update_one(
+        {"wallet": wallet},
+        {"$inc": {"balance": round(credit, 4)}}
+    )
+
+    # Log the order
+    perp_orders.insert_one({
+        "account_id": wallet,
+        "position_id": position_id,
+        "symbol": pos["symbol"],
+        "side": "sell" if direction == "long" else "buy",
+        "order_type": "partial_close",
+        "size_usd": close_size,
+        "quantity": close_qty,
+        "price": fill_price,
+        "leverage": pos["leverage"],
+        "fees": close_fee,
+        "status": "filled",
+        "partial_close_pct": close_pct,
+        "created_at": now,
+        "filled_at": now,
+    })
+
+    return _format_trade(trade)
+
+
 def modify_position(position_id: str, stop_loss: float = None,
                     take_profit: float = None,
                     trailing_stop_pct: float = None) -> Dict:
@@ -771,6 +895,35 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     perp_positions.update_one({"_id": pos_id}, {"$set": update})
 
+    # ── Smart position management: break-even stop & partial TP ──
+    # After a position moves +2% in our favor, move SL to break-even (risk-free ride)
+    # After +5%, take 25% profit (partial close). After +10%, take another 25%.
+    # This lets the remaining 50% ride with break-even stop indefinitely.
+    breakeven_applied = position.get("breakeven_applied", False)
+    partial_tp1_applied = position.get("partial_tp1_applied", False)
+    partial_tp2_applied = position.get("partial_tp2_applied", False)
+
+    if not breakeven_applied and pnl_pct >= 2.0:
+        # Move SL to break-even + small buffer (0.1% above entry for long)
+        if direction == "long":
+            be_stop = entry * 1.001
+        else:
+            be_stop = entry * 0.999
+        update["stop_loss"] = be_stop
+        update["breakeven_applied"] = True
+
+    if not partial_tp1_applied and pnl_pct >= 5.0:
+        # Take 25% profit — flagged for cron to execute
+        update["partial_tp1_applied"] = True
+        update["pending_partial_close"] = 25  # Cron will call partial_close_position
+
+    if not partial_tp2_applied and pnl_pct >= 10.0:
+        # Take another 25% (now 50% closed total, 50% rides)
+        update["partial_tp2_applied"] = True
+        update["pending_partial_close"] = 25
+
+    perp_positions.update_one({"_id": pos_id}, {"$set": update})
+
     # Check triggers — each checked independently (not elif)
     # so a set-but-not-triggered SL doesn't block TP evaluation
     action = None
@@ -802,7 +955,10 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
         elif direction == "short" and mark_price >= trailing_price:
             action = "trailing_stop"
 
-    return {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
+    result = {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
+    if update.get("pending_partial_close"):
+        result["pending_partial_close"] = update["pending_partial_close"]
+    return result
 
 
 # ── Equity & Metrics ────────────────────────────────────────────────────
