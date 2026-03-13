@@ -89,6 +89,10 @@ interface AIEntryZone {
   bbLower: number;     // Lower Bollinger Band
   bbMiddle: number;    // Middle band (SMA 20)
   ema50: number;       // 50-period EMA trend filter
+  longReady: boolean;  // All conditions met for long (trend + RSI)
+  shortReady: boolean; // All conditions met for short (trend + RSI)
+  longReason: string;  // Why long is ready/blocked
+  shortReason: string; // Why short is ready/blocked
 }
 
 interface Prediction {
@@ -229,8 +233,8 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     },
   };
 
-  // 9. AI Entry Zones — compute Bollinger Bands + EMA50 for target entry levels
-  // These match the server-side strategy triggers (mean reversion at BB, trend at EMA)
+  // 9. AI Entry Zones — compute Bollinger Bands + EMA50 + RSI conditions
+  // Matches server-side strategy triggers: price level + RSI + trend filter must ALL align
   const bbPeriod = 20;
   const bbStd = 2.0;
   const ema50Period = 50;
@@ -245,7 +249,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     const bbUpper = bbMean + bbStd * bbStdDev;
     const bbLower = bbMean - bbStd * bbStdDev;
 
-    // EMA 50 (trend filter)
+    // EMA 50 (trend filter) — server requires price above for longs, below for shorts
     const ema50Slice = closes.slice(-ema50Period);
     let ema50Val = ema50Slice[0];
     const k50 = 2 / (ema50Period + 1);
@@ -253,10 +257,39 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
       ema50Val = ema50Slice[i] * k50 + ema50Val * (1 - k50);
     }
 
-    // Long entry: lower BB (mean reversion) or EMA50 support (trend), whichever is higher
+    // Long entry: lower BB (mean reversion) or EMA50 support
     const longEntry = Math.max(bbLower, Math.min(ema50Val, currentPrice * 0.998));
-    // Short entry: upper BB (mean reversion) or price above EMA50 resistance
+    // Short entry: upper BB (mean reversion) or EMA50 resistance
     const shortEntry = Math.min(bbUpper, Math.max(ema50Val, currentPrice * 1.002));
+
+    // Check if conditions are met (matching server-side perp_strategies.py logic)
+    // Long requires: price above EMA50 (trend filter) + RSI not overbought
+    const trendAllowsLong = currentPrice > ema50Val;
+    const rsiAllowsLong = rsi < 70; // Not overbought
+    const longReady = trendAllowsLong && rsiAllowsLong;
+    let longReason = "";
+    if (longReady) {
+      longReason = "Trend + RSI aligned";
+    } else {
+      const blocks: string[] = [];
+      if (!trendAllowsLong) blocks.push("price below EMA50");
+      if (!rsiAllowsLong) blocks.push(`RSI overbought (${rsi.toFixed(0)})`);
+      longReason = `Blocked: ${blocks.join(", ")}`;
+    }
+
+    // Short requires: price below EMA50 (trend filter) + RSI not oversold
+    const trendAllowsShort = currentPrice < ema50Val;
+    const rsiAllowsShort = rsi > 30; // Not oversold
+    const shortReady = trendAllowsShort && rsiAllowsShort;
+    let shortReason = "";
+    if (shortReady) {
+      shortReason = "Trend + RSI aligned";
+    } else {
+      const blocks: string[] = [];
+      if (!trendAllowsShort) blocks.push("price above EMA50");
+      if (!rsiAllowsShort) blocks.push(`RSI oversold (${rsi.toFixed(0)})`);
+      shortReason = `Blocked: ${blocks.join(", ")}`;
+    }
 
     entryZones = {
       longEntry,
@@ -265,6 +298,10 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
       bbLower,
       bbMiddle: bbMean,
       ema50: ema50Val,
+      longReady,
+      shortReady,
+      longReason,
+      shortReason,
     };
   }
 
@@ -329,7 +366,8 @@ const TradingChart = ({
         timeVisible: true,
         secondsVisible: false,
         borderColor: "transparent",
-        rightOffset: 5,
+        rightOffset: 8,
+        barSpacing: 4,
       },
       crosshair: {
         mode: 0, // Normal crosshair
@@ -432,6 +470,13 @@ const TradingChart = ({
             const first = historical[0];
             setPriceChange(((last.close - first.close) / first.close) * 100);
           }
+        }
+
+        // Default zoom: show last ~200 candles (~3.3 hrs) for good overview
+        if (chartRef.current && historical.length > 200) {
+          const fromTime = historical[historical.length - 200].time;
+          const toTime = (last.time as number + 8 * 60) as Time; // 8 min right padding
+          chartRef.current.timeScale().setVisibleRange({ from: fromTime, to: toTime });
         }
       }
 
@@ -652,27 +697,27 @@ const TradingChart = ({
     }
     aiLinesRef.current = [];
 
-    // AI Long entry target — green dashed line with glow
+    // AI Long entry target — bright green when READY, dim when blocked
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.longEntry,
-        color: "#22c55e",
-        lineWidth: 2,
-        lineStyle: LineStyle.LargeDashed,
+        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.2)",
+        lineWidth: zones.longReady ? 2 : 1,
+        lineStyle: zones.longReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: "\u2191 AI LONG",
+        title: zones.longReady ? "\u2191 AI LONG \u2713" : "\u2191 AI LONG (blocked)",
       })
     );
 
-    // AI Short entry target — red dashed line with glow
+    // AI Short entry target — bright red when READY, dim when blocked
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.shortEntry,
-        color: "#ef4444",
-        lineWidth: 2,
-        lineStyle: LineStyle.LargeDashed,
+        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.2)",
+        lineWidth: zones.shortReady ? 2 : 1,
+        lineStyle: zones.shortReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: "\u2193 AI SHORT",
+        title: zones.shortReady ? "\u2193 AI SHORT \u2713" : "\u2193 AI SHORT (blocked)",
       })
     );
   }, []);
@@ -999,16 +1044,27 @@ const TradingChart = ({
             <div className="rounded-lg border border-cyan-500/15 bg-gradient-to-r from-cyan-950/20 via-slate-900/40 to-cyan-950/20 p-2">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <span className="text-[8px] text-cyan-500/80 uppercase tracking-wider font-bold">AI Trading Genius — Next Moves</span>
-                <span className="text-[7px] text-slate-600">Auto-executes when price hits target</span>
+                <span className="text-[7px] text-slate-600">Executes when price + conditions align</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 {/* Long entry zone */}
-                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/[0.04] p-2">
+                <div className={`rounded-lg border p-2 transition-all ${
+                  prediction.entryZones.longReady
+                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
+                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
+                }`}>
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px]">{"\u2191"}</span>
-                    <span className="text-[9px] font-bold text-emerald-400">LONG ENTRY</span>
+                    <span className={`text-[9px] font-bold ${prediction.entryZones.longReady ? "text-emerald-400" : "text-slate-500"}`}>
+                      LONG ENTRY
+                    </span>
+                    {prediction.entryZones.longReady ? (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold animate-pulse">READY</span>
+                    ) : (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                    )}
                   </div>
-                  <div className="text-[13px] font-bold text-emerald-300 font-mono">
+                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.longReady ? "text-emerald-300" : "text-slate-500"}`}>
                     ${formatPrice(prediction.entryZones.longEntry)}
                   </div>
                   <div className="text-[8px] text-slate-500 mt-0.5">
@@ -1017,17 +1073,28 @@ const TradingChart = ({
                       return `${dist.toFixed(2)}% below current`;
                     })()}
                   </div>
-                  <div className="text-[7px] text-slate-600 mt-0.5">
-                    BB Lower / EMA50 support
+                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.longReady ? "text-emerald-500/70" : "text-amber-500/60"}`}>
+                    {prediction.entryZones.longReason}
                   </div>
                 </div>
                 {/* Short entry zone */}
-                <div className="rounded-lg border border-red-500/20 bg-red-500/[0.04] p-2">
+                <div className={`rounded-lg border p-2 transition-all ${
+                  prediction.entryZones.shortReady
+                    ? "border-red-500/30 bg-red-500/[0.08]"
+                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
+                }`}>
                   <div className="flex items-center gap-1 mb-1">
                     <span className="text-[10px]">{"\u2193"}</span>
-                    <span className="text-[9px] font-bold text-red-400">SHORT ENTRY</span>
+                    <span className={`text-[9px] font-bold ${prediction.entryZones.shortReady ? "text-red-400" : "text-slate-500"}`}>
+                      SHORT ENTRY
+                    </span>
+                    {prediction.entryZones.shortReady ? (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-red-500/20 text-red-300 font-bold animate-pulse">READY</span>
+                    ) : (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                    )}
                   </div>
-                  <div className="text-[13px] font-bold text-red-300 font-mono">
+                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.shortReady ? "text-red-300" : "text-slate-500"}`}>
                     ${formatPrice(prediction.entryZones.shortEntry)}
                   </div>
                   <div className="text-[8px] text-slate-500 mt-0.5">
@@ -1036,8 +1103,8 @@ const TradingChart = ({
                       return `${dist.toFixed(2)}% above current`;
                     })()}
                   </div>
-                  <div className="text-[7px] text-slate-600 mt-0.5">
-                    BB Upper / EMA50 resistance
+                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.shortReady ? "text-red-500/70" : "text-amber-500/60"}`}>
+                    {prediction.entryZones.shortReason}
                   </div>
                 </div>
               </div>
