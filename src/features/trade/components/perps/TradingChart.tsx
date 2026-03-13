@@ -707,25 +707,25 @@ const TradingChart = ({
     }
     aiLinesRef.current = [];
 
-    // AI Long entry target — bright green when READY, visible green when blocked
+    // AI Long entry target — always bright and visible
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.longEntry,
-        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.55)",
+        color: "#22c55e",
         lineWidth: 2,
-        lineStyle: zones.longReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
+        lineStyle: LineStyle.LargeDashed,
         axisLabelVisible: true,
         title: "\u2191 BUY",
       })
     );
 
-    // AI Short entry target — bright red when READY, visible red when blocked
+    // AI Short entry target — always bright and visible
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.shortEntry,
-        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.55)",
+        color: "#ef4444",
         lineWidth: 2,
-        lineStyle: zones.shortReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
+        lineStyle: LineStyle.LargeDashed,
         axisLabelVisible: true,
         title: "\u2193 SELL",
       })
