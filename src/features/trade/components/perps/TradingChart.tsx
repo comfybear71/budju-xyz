@@ -644,22 +644,22 @@ const TradingChart = ({
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
-      // Entry price line — short label
+      // Entry price line — slightly transparent
       const dirLabel = pos.direction === "long" ? "L" : "S";
       candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
-        color: pos.direction === "long" ? "#22c55e" : "#ef4444",
+        color: pos.direction === "long" ? "rgba(34,197,94,0.6)" : "rgba(239,68,68,0.6)",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
         title: `${dirLabel} ${pos.leverage}x`,
       });
 
-      // Stop loss line
+      // Stop loss line — slightly transparent
       if (pos.stop_loss) {
         candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
-          color: "#f59e0b",
+          color: "rgba(245,158,11,0.6)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
@@ -667,11 +667,11 @@ const TradingChart = ({
         });
       }
 
-      // Take profit line
+      // Take profit line — slightly transparent
       if (pos.take_profit) {
         candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
-          color: "#a855f7",
+          color: "rgba(168,85,247,0.6)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
@@ -679,11 +679,11 @@ const TradingChart = ({
         });
       }
 
-      // Liquidation line
+      // Liquidation line — slightly transparent
       if (pos.liquidation_price) {
         candleSeriesRef.current.createPriceLine({
           price: pos.liquidation_price,
-          color: "#dc2626",
+          color: "rgba(220,38,38,0.6)",
           lineWidth: 1,
           lineStyle: LineStyle.SparseDotted,
           axisLabelVisible: true,
@@ -707,27 +707,27 @@ const TradingChart = ({
     }
     aiLinesRef.current = [];
 
-    // AI Long entry target — always bright and visible
+    // AI Long entry target — line label only, no axis price
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.longEntry,
         color: "#22c55e",
         lineWidth: 2,
         lineStyle: LineStyle.LargeDashed,
-        axisLabelVisible: true,
-        title: "\u2191 BUY",
+        axisLabelVisible: false,
+        title: "\u2191",
       })
     );
 
-    // AI Short entry target — always bright and visible
+    // AI Short entry target — line label only, no axis price
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.shortEntry,
         color: "#ef4444",
         lineWidth: 2,
         lineStyle: LineStyle.LargeDashed,
-        axisLabelVisible: true,
-        title: "\u2193 SELL",
+        axisLabelVisible: false,
+        title: "\u2193",
       })
     );
   }, []);
