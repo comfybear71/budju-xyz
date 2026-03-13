@@ -56,9 +56,9 @@ DEFAULT_STRATEGIES = {
         "rsi_oversold": 35,
         "rsi_overbought": 65,
         "atr_period": 14,
-        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR
-        "tp_atr_mult": 3.0,       # Take profit = 3x ATR
-        "trailing_stop_pct": 2.5, # 2.5% trailing stop
+        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR (~1-1.5% from entry)
+        "tp_atr_mult": 4.0,       # Take profit = 4x ATR (~2-3% from entry)
+        "trailing_stop_pct": 1.5,  # 1.5% trailing stop
         "leverage": 5,
         "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
@@ -71,9 +71,9 @@ DEFAULT_STRATEGIES = {
         "rsi_oversold": 30,
         "rsi_overbought": 70,
         "atr_period": 14,
-        "sl_atr_mult": 1.5,
-        "tp_atr_mult": 2.0,
-        "trailing_stop_pct": 0,   # No trailing for mean reversion
+        "sl_atr_mult": 1.5,       # Tighter SL for mean reversion
+        "tp_atr_mult": 3.0,       # TP at 3x ATR (~1.5-2% from entry)
+        "trailing_stop_pct": 0,    # No trailing for mean reversion
         "leverage": 3,
         "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "AVAX-PERP", "LINK-PERP"],
@@ -85,9 +85,9 @@ DEFAULT_STRATEGIES = {
         "rsi_period": 14,
         "rsi_threshold": 50,      # RSI must confirm direction
         "atr_period": 14,
-        "sl_atr_mult": 2.5,
-        "tp_atr_mult": 4.0,
-        "trailing_stop_pct": 3.0,
+        "sl_atr_mult": 2.5,       # Wider SL for breakouts
+        "tp_atr_mult": 5.0,       # TP at 5x ATR (~3-4% from entry)
+        "trailing_stop_pct": 2.0,  # 2% trailing stop
         "leverage": 5,
         "max_positions": 1,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
@@ -99,7 +99,7 @@ MIN_CANDLES = 30
 # Max position size as pct of equity
 MAX_POSITION_PCT = 0.10  # 10% per auto trade (conservative)
 # Minimum minutes between trades on same market
-COOLDOWN_MINUTES = 15
+COOLDOWN_MINUTES = 30
 
 # ── Binance symbol mapping for historical candle seeding ────────────────
 BINANCE_SYMBOLS = {
@@ -292,15 +292,24 @@ def bollinger_bands(prices: List[float], period: int = 20, num_std: float = 2.0)
 
 
 def atr(prices: List[float], period: int = 14) -> List[float]:
-    """Average True Range (simplified — using price changes since we only have close prices)."""
+    """Average True Range scaled to ~15min timeframe.
+
+    Raw 1-minute ATR is extremely small (e.g. $0.04 for SOL), making
+    ATR-based SL/TP nearly useless. We scale by sqrt(15) ≈ 3.87 to
+    approximate a 15-minute ATR, giving trades meaningful room.
+    """
     if len(prices) < period + 1:
         return []
 
     true_ranges = [abs(prices[i+1] - prices[i]) for i in range(len(prices) - 1)]
 
-    atr_vals = [sum(true_ranges[:period]) / period]
+    # Scale factor: sqrt(15) to approximate 15-min ATR from 1-min data
+    scale = math.sqrt(15)
+
+    atr_vals = [sum(true_ranges[:period]) / period * scale]
     for i in range(period, len(true_ranges)):
-        atr_vals.append((atr_vals[-1] * (period - 1) + true_ranges[i]) / period)
+        raw = (atr_vals[-1] / scale * (period - 1) + true_ranges[i]) / period
+        atr_vals.append(raw * scale)
 
     return atr_vals
 
