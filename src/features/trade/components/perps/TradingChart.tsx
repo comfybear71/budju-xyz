@@ -602,7 +602,7 @@ const TradingChart = ({
           position: trade.direction === "long" ? "belowBar" : "aboveBar",
           color: trade.direction === "long" ? "#22c55e" : "#ef4444",
           shape: trade.direction === "long" ? "arrowUp" : "arrowDown",
-          text: `${trade.direction === "long" ? "L" : "S"} $${formatPrice(trade.entry_price)}`,
+          text: trade.direction === "long" ? "L" : "S",
         });
       }
 
@@ -612,12 +612,13 @@ const TradingChart = ({
         const snappedExit = snapToCandle(exitUnix);
         if (snappedExit !== null) {
           const isProfitable = trade.realized_pnl >= 0;
+          const pnl = Math.abs(trade.realized_pnl);
           markers.push({
             time: snappedExit as Time,
             position: "aboveBar",
             color: isProfitable ? "#a855f7" : "#f59e0b",
             shape: "circle",
-            text: `${isProfitable ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`,
+            text: `${isProfitable ? "+" : "-"}$${pnl < 100 ? pnl.toFixed(1) : pnl.toFixed(0)}`,
           });
         }
       }
@@ -636,14 +637,15 @@ const TradingChart = ({
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
-      // Entry price line
+      // Entry price line — short label
+      const dirLabel = pos.direction === "long" ? "L" : "S";
       candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
         color: pos.direction === "long" ? "#22c55e" : "#ef4444",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
-        title: `${pos.direction.toUpperCase()} Entry`,
+        title: `${dirLabel} ${pos.leverage}x`,
       });
 
       // Stop loss line
@@ -654,7 +656,7 @@ const TradingChart = ({
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "SL",
+          title: "",
         });
       }
 
@@ -666,7 +668,7 @@ const TradingChart = ({
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "TP",
+          title: "",
         });
       }
 
@@ -678,7 +680,7 @@ const TradingChart = ({
           lineWidth: 1,
           lineStyle: LineStyle.SparseDotted,
           axisLabelVisible: true,
-          title: "LIQ",
+          title: "",
         });
       }
     }
@@ -701,11 +703,11 @@ const TradingChart = ({
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.longEntry,
-        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.2)",
+        color: zones.longReady ? "#22c55e" : "rgba(34, 197, 94, 0.25)",
         lineWidth: zones.longReady ? 2 : 1,
         lineStyle: zones.longReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: zones.longReady ? "\u2191 AI LONG \u2713" : "\u2191 AI LONG (blocked)",
+        title: zones.longReady ? "\u2191 BUY" : "\u2191 buy",
       })
     );
 
@@ -713,11 +715,11 @@ const TradingChart = ({
     aiLinesRef.current.push(
       candleSeriesRef.current.createPriceLine({
         price: zones.shortEntry,
-        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.2)",
+        color: zones.shortReady ? "#ef4444" : "rgba(239, 68, 68, 0.25)",
         lineWidth: zones.shortReady ? 2 : 1,
         lineStyle: zones.shortReady ? LineStyle.LargeDashed : LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: zones.shortReady ? "\u2193 AI SHORT \u2713" : "\u2193 AI SHORT (blocked)",
+        title: zones.shortReady ? "\u2193 SELL" : "\u2193 sell",
       })
     );
   }, []);
