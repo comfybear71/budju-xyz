@@ -302,6 +302,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
                   size_usd: float, entry_price: float,
                   stop_loss: float = None, take_profit: float = None,
                   trailing_stop_pct: float = None,
+                  trailing_activation_pct: float = None,
                   entry_reason: str = "") -> Dict:
     """Open a new position (paper or live depending on account mode)."""
     account = get_or_create_account(wallet)
@@ -419,13 +420,14 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         trailing_stop_distance = trailing_stop_pct
         # Don't set trailing_stop_price yet — it starts as None
         # and only gets set once the activation price is reached.
-        # Activation default: 1x ATR favorable move from entry.
-        # Caller can override via trailing_stop_activation_price param.
-        # For now, we store the activation level so the cron can check it.
+        # Activation threshold defaults to trailing_activation_pct if provided,
+        # otherwise falls back to trailing_stop_pct (old behavior).
+        # Having activation > trail distance lets winners run before locking in.
+        act_pct = trailing_activation_pct if trailing_activation_pct else trailing_stop_pct
         if direction == "long":
-            trailing_stop_activation = fill_price * (1 + trailing_stop_pct / 100)
+            trailing_stop_activation = fill_price * (1 + act_pct / 100)
         else:
-            trailing_stop_activation = fill_price * (1 - trailing_stop_pct / 100)
+            trailing_stop_activation = fill_price * (1 - act_pct / 100)
 
     position = {
         "account_id": wallet,

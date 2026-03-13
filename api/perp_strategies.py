@@ -53,14 +53,15 @@ DEFAULT_STRATEGIES = {
         "fast_ema": 9,
         "slow_ema": 21,
         "rsi_period": 14,
-        "rsi_oversold": 35,
-        "rsi_overbought": 65,
+        "rsi_oversold": 30,        # Tighter — only enter on genuine oversold
+        "rsi_overbought": 70,      # Tighter — only enter on genuine overbought
         "atr_period": 14,
-        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR
-        "tp_atr_mult": 8.0,       # Wide TP — trailing stop is primary exit
-        "trailing_stop_pct": 1.5,  # 1.5% trailing stop (activates after +1.5%)
-        "leverage": 5,
-        "max_positions": 2,
+        "sl_atr_mult": 2.5,        # Wider SL — room to breathe
+        "tp_atr_mult": 8.0,        # Wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 2.0,   # 2% trail distance
+        "trailing_activation_pct": 3.0,  # Activate after +3% (room for winners to run)
+        "leverage": 3,              # Reduced from 5x — less risk
+        "max_positions": 1,         # Reduced from 2
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
     },
     "mean_reversion": {
@@ -68,43 +69,46 @@ DEFAULT_STRATEGIES = {
         "bb_period": 20,
         "bb_std": 2.0,
         "rsi_period": 14,
-        "rsi_oversold": 30,
-        "rsi_overbought": 70,
+        "rsi_oversold": 25,         # Tighter — genuine oversold only
+        "rsi_overbought": 75,       # Tighter — genuine overbought only
         "atr_period": 14,
-        "sl_atr_mult": 1.5,       # Tighter SL for mean reversion
-        "tp_atr_mult": 3.0,       # TP at 3x ATR (~1.5-2% from entry)
-        "trailing_stop_pct": 1.0,  # 1% trailing to lock in BB bounce profit
-        "leverage": 3,
-        "max_positions": 2,
+        "sl_atr_mult": 2.0,         # Slightly wider SL
+        "tp_atr_mult": 4.0,         # Wider TP — let BB bounce play out
+        "trailing_stop_pct": 1.5,    # 1.5% trail distance
+        "trailing_activation_pct": 2.5,  # Activate after +2.5%
+        "leverage": 2,               # Reduced from 3x
+        "max_positions": 1,          # Reduced from 2
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "AVAX-PERP", "LINK-PERP"],
     },
     "momentum": {
         "enabled": True,
         "lookback": 20,
-        "breakout_mult": 1.5,     # 1.5x avg range for breakout
+        "breakout_mult": 1.5,      # 1.5x avg range for breakout
         "rsi_period": 14,
-        "rsi_threshold": 50,      # RSI must confirm direction
+        "rsi_threshold": 55,        # Raised — need stronger RSI confirmation
         "atr_period": 14,
-        "sl_atr_mult": 2.5,       # Wider SL for breakouts
-        "tp_atr_mult": 10.0,      # Very wide TP — trailing stop is primary exit
-        "trailing_stop_pct": 2.0,  # 2% trailing stop (activates after +2%)
-        "leverage": 5,
+        "sl_atr_mult": 3.0,         # Wider SL for breakouts
+        "tp_atr_mult": 10.0,        # Very wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 2.5,    # 2.5% trail distance
+        "trailing_activation_pct": 4.0,  # Activate after +4%
+        "leverage": 3,               # Reduced from 5x
         "max_positions": 1,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
     },
     "scalping": {
-        "enabled": True,
+        "enabled": False,            # DISABLED — was the biggest fee bleeder
         "fast_ema": 5,
         "rsi_period": 7,
-        "rsi_oversold": 35,       # Enter long when RSI < 35 + EMA rising
-        "rsi_overbought": 65,     # Enter short when RSI > 65 + EMA falling
+        "rsi_oversold": 25,          # Much tighter — only extreme RSI
+        "rsi_overbought": 75,        # Much tighter
         "atr_period": 10,
-        "sl_atr_mult": 1.5,       # Tight SL for scalps (~0.5-1%)
-        "tp_atr_mult": 2.5,       # Quick TP at 2.5x ATR (~1-1.5%)
-        "trailing_stop_pct": 0.8,  # 0.8% trailing stop — lock profit fast
-        "leverage": 5,
-        "max_positions": 3,        # More concurrent scalp positions
-        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+        "sl_atr_mult": 2.0,          # Wider SL
+        "tp_atr_mult": 4.0,          # Wider TP — was 2.5x (too small after fees)
+        "trailing_stop_pct": 1.2,     # 1.2% trail
+        "trailing_activation_pct": 2.0,  # Activate after +2%
+        "leverage": 3,                # Reduced from 5x
+        "max_positions": 1,           # Reduced from 3
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
     },
 }
 
@@ -113,7 +117,7 @@ MIN_CANDLES = 30
 # Max position size as pct of equity
 MAX_POSITION_PCT = 0.10  # 10% per auto trade (conservative)
 # Minimum minutes between trades on same market
-COOLDOWN_MINUTES = 15
+COOLDOWN_MINUTES = 120  # 2 hours — prevents re-entering same chop after stop-out
 
 # ── Binance symbol mapping for historical candle seeding ────────────────
 BINANCE_SYMBOLS = {
@@ -435,10 +439,20 @@ def get_recent_signals(wallet: str, limit: int = 50) -> List[Dict]:
 # ── Position Sizing ──────────────────────────────────────────────────────
 
 def calculate_position_size(equity: float, atr_value: float, price: float,
-                            leverage: int, sl_atr_mult: float) -> float:
-    """Calculate position size based on risk (ATR-based)."""
-    # Risk 1-2% of equity per trade
-    risk_pct = 0.015  # 1.5% of equity
+                            leverage: int, sl_atr_mult: float,
+                            peak_equity: float = None) -> float:
+    """Calculate position size based on risk (ATR-based) with drawdown scaling."""
+    # Base risk: 1% of equity per trade (reduced from 1.5%)
+    risk_pct = 0.01
+
+    # Drawdown protection: reduce size as equity drops from peak
+    if peak_equity and peak_equity > 0:
+        drawdown_pct = (peak_equity - equity) / peak_equity * 100
+        if drawdown_pct >= 10:
+            return 0  # Stop trading at 10% drawdown
+        elif drawdown_pct >= 5:
+            risk_pct *= 0.5  # Half-size at 5% drawdown
+
     risk_amount = equity * risk_pct
 
     # Stop distance in USD
@@ -525,31 +539,27 @@ def strategy_trend_following(prices: List[float], config: Dict) -> Optional[Dict
         "price": curr_price,
     }
 
-    # Bullish: fast EMA above slow (trending up) with RSI confirmation
-    # Relaxed: don't require exact crossover — just fast > slow + RSI not extreme
-    fast_above = curr_fast > curr_slow
-    fast_rising = curr_fast > prev_fast  # Fast EMA still accelerating
+    # Bullish: require actual EMA crossover (prev_fast <= prev_slow, now fast > slow)
+    # This is much more selective than just "fast > slow + accelerating"
+    crossover_up = prev_fast <= prev_slow and curr_fast > curr_slow
 
-    if fast_above and fast_rising and curr_rsi > rsi_os and curr_rsi < 75:
+    if crossover_up and curr_rsi > rsi_os and curr_rsi < 75:
         if trend_filter(prices, "long"):
-            signal_type = "ema_cross_up" if prev_fast <= prev_slow else "ema_trend_long"
             return {
                 "direction": "long",
-                "signal": signal_type,
+                "signal": "ema_cross_up",
                 "indicators": indicators,
                 "atr": curr_atr,
             }
 
-    # Bearish: fast EMA below slow (trending down) with RSI confirmation
-    fast_below = curr_fast < curr_slow
-    fast_falling = curr_fast < prev_fast  # Fast EMA still decelerating
+    # Bearish: require actual EMA crossover (prev_fast >= prev_slow, now fast < slow)
+    crossover_down = prev_fast >= prev_slow and curr_fast < curr_slow
 
-    if fast_below and fast_falling and curr_rsi < rsi_ob and curr_rsi > 25:
+    if crossover_down and curr_rsi < rsi_ob and curr_rsi > 25:
         if trend_filter(prices, "short"):
-            signal_type = "ema_cross_down" if prev_fast >= prev_slow else "ema_trend_short"
             return {
                 "direction": "short",
-                "signal": signal_type,
+                "signal": "ema_cross_down",
                 "indicators": indicators,
                 "atr": curr_atr,
             }
@@ -597,31 +607,31 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
         "price": curr_price,
     }
 
-    # Relaxed: price within 20% of the band distance from the band, not just AT the band
+    # Mean reversion does NOT use trend filter — it's designed to trade
+    # counter-trend (buy dips at lower BB, sell rallies at upper BB).
+    # The trend filter was blocking the exact entries this strategy needs.
     bb_width = curr_upper - curr_lower
-    bb_tolerance = bb_width * 0.2  # 20% of band width
+    bb_tolerance = bb_width * 0.10  # 10% of band width (tighter than before)
 
-    # Price near lower band + RSI leaning oversold → LONG
-    if curr_price <= curr_lower + bb_tolerance and curr_rsi <= rsi_os + 10:
-        if trend_filter(prices, "long"):
-            return {
-                "direction": "long",
-                "signal": "bb_lower_bounce",
-                "indicators": indicators,
-                "atr": curr_atr,
-                "tp_override": curr_middle,  # Target middle band
-            }
+    # Price near lower band + RSI genuinely oversold → LONG
+    if curr_price <= curr_lower + bb_tolerance and curr_rsi <= rsi_os:
+        return {
+            "direction": "long",
+            "signal": "bb_lower_bounce",
+            "indicators": indicators,
+            "atr": curr_atr,
+            "tp_override": curr_middle,  # Target middle band
+        }
 
-    # Price near upper band + RSI leaning overbought → SHORT
-    if curr_price >= curr_upper - bb_tolerance and curr_rsi >= rsi_ob - 10:
-        if trend_filter(prices, "short"):
-            return {
-                "direction": "short",
-                "signal": "bb_upper_bounce",
-                "indicators": indicators,
-                "atr": curr_atr,
-                "tp_override": curr_middle,
-            }
+    # Price near upper band + RSI genuinely overbought → SHORT
+    if curr_price >= curr_upper - bb_tolerance and curr_rsi >= rsi_ob:
+        return {
+            "direction": "short",
+            "signal": "bb_upper_bounce",
+            "indicators": indicators,
+            "atr": curr_atr,
+            "tp_override": curr_middle,
+        }
 
     return None
 
@@ -743,8 +753,9 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
         "price": curr_price,
     }
 
-    # SCALP LONG: RSI oversold zone + EMA rising OR price bouncing
-    if curr_rsi <= rsi_os and (ema_rising or price_momentum > 0):
+    # SCALP LONG: RSI genuinely oversold + EMA rising + price bouncing
+    # Reduced from 6 entry signals to 2 — only strongest setups
+    if curr_rsi <= rsi_os and ema_rising and price_momentum > 0:
         if trend_filter(prices, "long"):
             return {
                 "direction": "long",
@@ -753,52 +764,12 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
                 "atr": curr_atr,
             }
 
-    # Also LONG: RSI recovering from oversold
-    if prev_rsi < rsi_os and curr_rsi > rsi_os and curr_price > curr_ema:
-        if trend_filter(prices, "long"):
-            return {
-                "direction": "long",
-                "signal": "scalp_rsi_recovery",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
-
-    # Also LONG: RSI dipping + price above rising EMA (pullback buy)
-    if curr_rsi < 45 and ema_rising and curr_price > curr_ema and price_momentum > 0:
-        if trend_filter(prices, "long"):
-            return {
-                "direction": "long",
-                "signal": "scalp_pullback_long",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
-
-    # SCALP SHORT: RSI overbought zone + EMA falling OR price dropping
-    if curr_rsi >= rsi_ob and (not ema_rising or price_momentum < 0):
+    # SCALP SHORT: RSI genuinely overbought + EMA falling + price dropping
+    if curr_rsi >= rsi_ob and not ema_rising and price_momentum < 0:
         if trend_filter(prices, "short"):
             return {
                 "direction": "short",
                 "signal": "scalp_rsi_rejection",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
-
-    # Also SHORT: RSI dropping from overbought
-    if prev_rsi > rsi_ob and curr_rsi < rsi_ob and curr_price < curr_ema:
-        if trend_filter(prices, "short"):
-            return {
-                "direction": "short",
-                "signal": "scalp_rsi_exhaustion",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
-
-    # Also SHORT: RSI elevated + price below falling EMA (bounce sell)
-    if curr_rsi > 55 and not ema_rising and curr_price < curr_ema and price_momentum < 0:
-        if trend_filter(prices, "short"):
-            return {
-                "direction": "short",
-                "signal": "scalp_pullback_short",
                 "indicators": indicators,
                 "atr": curr_atr,
             }
@@ -836,6 +807,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
     equity = account.get("equity", INITIAL_BALANCE)
     balance = account.get("balance", 0)
+    peak_equity = account.get("peak_equity", equity)
     global_settings = config.get("global_settings", {})
     cooldown = global_settings.get("cooldown_minutes", COOLDOWN_MINUTES)
     min_candles = global_settings.get("min_candles", MIN_CANDLES)
@@ -844,6 +816,21 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     open_count = len(open_pos)
     open_symbols = set(p["symbol"] for p in open_pos)
+
+    # Correlation groups — assets that move together
+    # Max 1 position per correlation group to avoid stacking the same directional bet
+    CORRELATION_GROUPS = [
+        {"BTC-PERP", "ETH-PERP", "SOL-PERP"},  # Major L1s — highly correlated
+        {"SUI-PERP", "AVAX-PERP", "LINK-PERP"},  # Alt L1/infra — moderately correlated
+    ]
+
+    def is_correlated_open(symbol: str) -> bool:
+        """Check if a correlated asset already has an open position."""
+        for group in CORRELATION_GROUPS:
+            if symbol in group:
+                if open_symbols & group:  # Any overlap
+                    return True
+        return False
 
     actions = []
 
@@ -875,6 +862,10 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if symbol in open_symbols:
                 continue
 
+            # Skip if a correlated asset already has a position
+            if is_correlated_open(symbol):
+                continue
+
             # Check total position limit
             if open_count >= global_settings.get("max_total_positions", MAX_OPEN_POSITIONS):
                 break
@@ -900,9 +891,10 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             atr_value = signal.get("atr", 0)
             curr_price = prices[symbol]
 
-            # Calculate position size
+            # Calculate position size (with drawdown scaling)
             size_usd = calculate_position_size(
-                equity, atr_value, curr_price, strat_leverage, sl_mult
+                equity, atr_value, curr_price, strat_leverage, sl_mult,
+                peak_equity=peak_equity
             )
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
@@ -927,6 +919,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                 take_profit = signal.get("tp_override", curr_price - (atr_value * tp_mult))
 
             entry_reason = f"[{strategy_name}] {signal['signal']}"
+            trailing_activation = strat_config.get("trailing_activation_pct", 0)
 
             # Place the trade
             try:
@@ -940,6 +933,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     stop_loss=stop_loss,
                     take_profit=take_profit,
                     trailing_stop_pct=trailing_pct if trailing_pct > 0 else None,
+                    trailing_activation_pct=trailing_activation if trailing_activation > 0 else None,
                     entry_reason=entry_reason,
                 )
 
