@@ -100,12 +100,15 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
         // Use live price if available, fall back to server mark price
         const livePrice = livePrices[pos.symbol] || pos.mark_price;
 
-        // Recalculate P&L from live price
-        const priceDelta = pos.direction === "long"
-          ? livePrice - pos.entry_price
-          : pos.entry_price - livePrice;
-        const livePnl = (priceDelta / pos.entry_price) * pos.size_usd - pos.total_fees;
-        const livePnlPct = (priceDelta / pos.entry_price) * pos.leverage * 100;
+        // Use server's unrealized_pnl (includes all fees, slippage, funding)
+        // and adjust for live price movement since last server update
+        const serverMarkPrice = pos.mark_price;
+        const priceDeltaFromServer = pos.direction === "long"
+          ? livePrice - serverMarkPrice
+          : serverMarkPrice - livePrice;
+        const livePnlAdjustment = (priceDeltaFromServer / pos.entry_price) * pos.size_usd;
+        const livePnl = pos.unrealized_pnl + livePnlAdjustment;
+        const livePnlPct = pos.margin > 0 ? (livePnl / pos.margin) * 100 : 0;
 
         const pnlColor = livePnl >= 0 ? "text-emerald-400" : "text-red-400";
         const borderColor = livePnl >= 0 ? "border-emerald-500/30" : "border-red-500/30";
