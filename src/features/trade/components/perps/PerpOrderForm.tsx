@@ -7,10 +7,16 @@ interface Props {
   maxBalance: number;
   onSubmit: (order: PerpOrderRequest) => void;
   loading: boolean;
+  initialSymbol?: string;
 }
 
-const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading }: Props) => {
-  const [symbol, setSymbol] = useState(markets[0]?.symbol || "SOL-PERP");
+const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading, initialSymbol }: Props) => {
+  const [symbol, setSymbol] = useState(initialSymbol || markets[0]?.symbol || "SOL-PERP");
+
+  // Update symbol when navigated from positions
+  useEffect(() => {
+    if (initialSymbol) setSymbol(initialSymbol);
+  }, [initialSymbol]);
   const [direction, setDirection] = useState<"long" | "short">("long");
   const [leverage, setLeverage] = useState(5);
   const [sizeUsd, setSizeUsd] = useState("");

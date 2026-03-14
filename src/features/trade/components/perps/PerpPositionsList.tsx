@@ -16,9 +16,10 @@ interface Props {
   wallet?: string;
   onViewChart?: (symbol: string) => void;
   livePrices?: Record<string, number>;
+  onNewTrade?: (symbol: string) => void;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart, livePrices = {} }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart, livePrices = {}, onNewTrade }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [closePct, setClosePct] = useState(50);
@@ -242,11 +243,19 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                     Modify
                   </button>
                   <button
-                    onClick={() => onClose(pos._id, pos.mark_price)}
+                    onClick={() => onClose(pos._id, livePrice)}
                     className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
                   >
                     Close
                   </button>
+                  {onNewTrade && (
+                    <button
+                      onClick={() => onNewTrade(pos.symbol)}
+                      className="flex-1 text-[10px] py-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors border border-blue-500/20"
+                    >
+                      + Trade
+                    </button>
+                  )}
                 </div>
 
                 {/* Advanced actions row */}

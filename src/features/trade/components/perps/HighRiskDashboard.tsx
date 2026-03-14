@@ -58,6 +58,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("charts");
   const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
+  const [orderSymbol, setOrderSymbol] = useState<string | undefined>(undefined);
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
@@ -570,6 +571,10 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
               setChartSymbol(symbol);
               setActiveTab("charts");
             }}
+            onNewTrade={(symbol) => {
+              setOrderSymbol(symbol);
+              setActiveTab("order");
+            }}
           />
         )}
 
@@ -580,6 +585,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             maxBalance={account?.balance || 0}
             onSubmit={handlePlaceOrder}
             loading={loading}
+            initialSymbol={orderSymbol}
           />
         )}
 
