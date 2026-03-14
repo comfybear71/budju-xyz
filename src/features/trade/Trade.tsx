@@ -357,11 +357,15 @@ const Trade = () => {
                   ? "Connecting..."
                   : "Disconnected"}
             </span>
-            {wsState.connected && (
-              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono border border-emerald-500/20">
-                WS LIVE
-              </span>
-            )}
+            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono border ${
+              wsState.connected
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
+                : "bg-amber-500/15 text-amber-400 border-amber-500/20 animate-pulse"
+            }`}>
+              {wsState.connected
+                ? `WS LIVE ${wsState.priceCount > 0 ? `(${wsState.priceCount})` : ""}`
+                : "WS ..."}
+            </span>
             {isAdmin && (
               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
                 ADMIN

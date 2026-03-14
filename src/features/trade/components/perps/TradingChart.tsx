@@ -629,54 +629,60 @@ const TradingChart = ({
       {/* Header */}
       <div className={`${compact ? "mb-1" : "mb-2"}`}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
-              {baseAsset}/USDT
-            </span>
-            {connected && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+                {baseAsset}/USDT
+              </span>
+              {connected && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
+              )}
+              {livePrice > 0 && (
+                <>
+                  <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+                    ${formatPrice(livePrice)}
+                  </span>
+                  <span className={`text-[10px] font-bold whitespace-nowrap ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
+                    {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
+                  </span>
+                </>
+              )}
+            </div>
+            {/* Signal badge — below currency label */}
+            {showPrediction && prediction && !compact && (
+              <button
+                onClick={() => setShowStrategyInfo(!showStrategyInfo)}
+                className={`mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
+                  prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
+                    : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                      ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
+                      : "bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25"
+                }`}
+                title="Click for strategy breakdown"
+              >
+                {prediction.signal} {prediction.confidence}%
+              </button>
             )}
-            {livePrice > 0 && (
-              <>
-                <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
-                  ${formatPrice(livePrice)}
+            {/* Compact signal badge — below currency label */}
+            {showPrediction && prediction && compact && (
+              <div className="mt-0.5">
+                <span
+                  className={`text-[8px] font-bold px-1 py-0.5 rounded border ${
+                    prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                      : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                        ? "bg-red-500/15 text-red-400 border-red-500/30"
+                        : "bg-slate-500/15 text-slate-400 border-slate-500/30"
+                  }`}
+                  title={`${prediction.signal} (${prediction.confidence}%)`}
+                >
+                  {prediction.signal} {prediction.confidence}%
                 </span>
-                <span className={`text-[10px] font-bold whitespace-nowrap ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
-                  {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
-                </span>
-              </>
+              </div>
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0 ml-1">
-          {/* Signal badge — click for strategy breakdown */}
-          {showPrediction && prediction && !compact && (
-            <button
-              onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
-                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
-                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                    ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
-                    : "bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25"
-              }`}
-              title="Click for strategy breakdown"
-            >
-              {prediction.signal} {prediction.confidence}%
-            </button>
-          )}
-          {/* Compact signal dot */}
-          {showPrediction && prediction && compact && (
-            <span
-              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                  ? "bg-emerald-400"
-                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                    ? "bg-red-400"
-                    : "bg-slate-400"
-              }`}
-              title={`${prediction.signal} (${prediction.confidence}%)`}
-            />
-          )}
           {/* Chart mode toggle */}
           <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
             <button

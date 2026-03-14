@@ -8,7 +8,7 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
 import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
@@ -162,6 +162,44 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
     return map;
   }, [positions]);
 
+  // Track price direction for red/green card borders
+  const prevPricesRef = useRef<Record<string, number>>({});
+  const [priceDirection, setPriceDirection] = useState<Record<string, "up" | "down" | null>>({});
+
+  useEffect(() => {
+    const prev = prevPricesRef.current;
+    const dirs: Record<string, "up" | "down" | null> = {};
+
+    for (const m of MARKETS) {
+      const oldPrice = prev[m.base];
+      const newPrice = wsPrices[m.base];
+      if (oldPrice !== undefined && newPrice !== undefined && oldPrice !== newPrice) {
+        dirs[m.base] = newPrice > oldPrice ? "up" : "down";
+      } else {
+        dirs[m.base] = null;
+      }
+    }
+
+    setPriceDirection(dirs);
+    // Snapshot current prices
+    const snapshot: Record<string, number> = {};
+    for (const m of MARKETS) {
+      if (wsPrices[m.base]) snapshot[m.base] = wsPrices[m.base];
+    }
+    prevPricesRef.current = snapshot;
+
+    // Clear direction after 3 seconds
+    const timer = setTimeout(() => setPriceDirection({}), 3000);
+    return () => clearTimeout(timer);
+  }, [wsPrices]);
+
+  const getCardBorder = useCallback((base: string) => {
+    const dir = priceDirection[base];
+    if (dir === "up") return "border-green-500/60 shadow-[0_0_12px_rgba(34,197,94,0.15)]";
+    if (dir === "down") return "border-red-500/60 shadow-[0_0_12px_rgba(239,68,68,0.15)]";
+    return "border-white/[0.04]";
+  }, [priceDirection]);
+
   const isMobile = useIsMobile();
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
 
@@ -282,7 +320,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
           </div>
 
           {/* Single focused chart */}
-          <div className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-3">
+          <div className={`bg-slate-800/30 rounded-xl border p-3 transition-all duration-300 ${getCardBorder(focusMarket.base)}`}>
             <TradingChart
               symbol={focusMarket.symbol}
               baseAsset={focusMarket.base}
@@ -300,7 +338,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
           {gridMarkets.map((m) => (
             <div
               key={m.symbol}
-              className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-2 cursor-pointer hover:border-blue-500/20 transition-colors"
+              className={`bg-slate-800/30 rounded-xl border p-2 cursor-pointer hover:border-blue-500/20 transition-all duration-300 ${getCardBorder(m.base)}`}
               onClick={() => {
                 setFocusedSymbol(m.symbol);
                 setViewMode("focus");
