@@ -325,6 +325,8 @@ const TradingChart = ({
   const [showPositionLines, setShowPositionLines] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [showStrats, setShowStrats] = useState(false);
+  // Inline editing state for pending order / position fields
+  const [editingField, setEditingField] = useState<{ orderId: string; field: "trigger" | "sl" | "tp"; value: string; kind?: "order" | "position" } | null>(null);
 
   // Strategies active on this market
   const activeStratsForMarket = useMemo(() => {
@@ -1293,8 +1295,43 @@ const TradingChart = ({
                         <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
                         <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
                         {pos.stop_loss != null && (
-                          <span className="inline-flex items-center gap-0.5">SL <span className="text-red-400/70 font-mono">${formatPrice(pos.stop_loss)}</span>
-                            {onModifySLTP && (
+                          <span className="inline-flex items-center gap-0.5">
+                            SL{" "}
+                            {editingField?.orderId === pos._id && editingField.field === "sl" && editingField.kind === "position" ? (
+                              <span className="inline-flex items-center">
+                                <span className="text-red-400/70">$</span>
+                                <input
+                                  type="number"
+                                  autoFocus
+                                  step="any"
+                                  value={editingField.value}
+                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = parseFloat(editingField.value);
+                                      if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
+                                      setEditingField(null);
+                                    } else if (e.key === "Escape") setEditingField(null);
+                                  }}
+                                  onBlur={() => {
+                                    const v = parseFloat(editingField.value);
+                                    if (v > 0 && v !== pos.stop_loss && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
+                                    setEditingField(null);
+                                  }}
+                                  className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
+                                />
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "sl", value: String(pos.stop_loss), kind: "position" })}
+                                className={`text-red-400/70 font-mono ${onModifySLTP ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                title={onModifySLTP ? "Click to edit stop loss" : undefined}
+                                disabled={!onModifySLTP}
+                              >
+                                ${formatPrice(pos.stop_loss)}
+                              </button>
+                            )}
+                            {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
                               <button
                                 onClick={() => onModifySLTP(pos._id, { stopLoss: 0 })}
                                 className="text-red-500/50 hover:text-red-400 ml-0.5"
@@ -1304,8 +1341,43 @@ const TradingChart = ({
                           </span>
                         )}
                         {pos.take_profit != null && (
-                          <span className="inline-flex items-center gap-0.5">TP <span className="text-emerald-400/70 font-mono">${formatPrice(pos.take_profit)}</span>
-                            {onModifySLTP && (
+                          <span className="inline-flex items-center gap-0.5">
+                            TP{" "}
+                            {editingField?.orderId === pos._id && editingField.field === "tp" && editingField.kind === "position" ? (
+                              <span className="inline-flex items-center">
+                                <span className="text-emerald-400/70">$</span>
+                                <input
+                                  type="number"
+                                  autoFocus
+                                  step="any"
+                                  value={editingField.value}
+                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = parseFloat(editingField.value);
+                                      if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
+                                      setEditingField(null);
+                                    } else if (e.key === "Escape") setEditingField(null);
+                                  }}
+                                  onBlur={() => {
+                                    const v = parseFloat(editingField.value);
+                                    if (v > 0 && v !== pos.take_profit && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
+                                    setEditingField(null);
+                                  }}
+                                  className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
+                                />
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "tp", value: String(pos.take_profit), kind: "position" })}
+                                className={`text-emerald-400/70 font-mono ${onModifySLTP ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                title={onModifySLTP ? "Click to edit take profit" : undefined}
+                                disabled={!onModifySLTP}
+                              >
+                                ${formatPrice(pos.take_profit)}
+                              </button>
+                            )}
+                            {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
                               <button
                                 onClick={() => onModifySLTP(pos._id, { takeProfit: 0 })}
                                 className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
@@ -1365,9 +1437,41 @@ const TradingChart = ({
                               {stratMatch[1].toUpperCase()}
                             </span>
                           )}
-                          <span className="text-[10px] text-slate-300 font-mono">
-                            @ ${formatPrice(order.trigger_price)}
-                          </span>
+                          {/* Editable trigger price */}
+                          {editingField?.orderId === order._id && editingField.field === "trigger" ? (
+                            <span className="inline-flex items-center">
+                              <span className="text-[10px] text-slate-500">@ $</span>
+                              <input
+                                type="number"
+                                autoFocus
+                                step="any"
+                                value={editingField.value}
+                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") {
+                                    const v = parseFloat(editingField.value);
+                                    if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
+                                    setEditingField(null);
+                                  } else if (e.key === "Escape") setEditingField(null);
+                                }}
+                                onBlur={() => {
+                                  const v = parseFloat(editingField.value);
+                                  if (v > 0 && v !== order.trigger_price && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
+                                  setEditingField(null);
+                                }}
+                                className="w-24 text-[10px] font-mono bg-slate-700 text-white rounded px-1 py-0.5 border border-blue-500/40 outline-none focus:border-blue-400"
+                              />
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "trigger", value: String(order.trigger_price) })}
+                              className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 -mx-1 transition-colors cursor-text" : ""}`}
+                              title={onModifyPendingOrder ? "Click to edit trigger price" : undefined}
+                              disabled={!onModifyPendingOrder}
+                            >
+                              @ ${formatPrice(order.trigger_price)}
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="text-[10px] text-slate-400 font-mono">
@@ -1385,8 +1489,43 @@ const TradingChart = ({
                       </div>
                       <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
                         {order.stop_loss != null && (
-                          <span className="inline-flex items-center gap-0.5">SL <span className="text-red-400/70 font-mono">${formatPrice(order.stop_loss)}</span>
-                            {onModifyPendingOrder && (
+                          <span className="inline-flex items-center gap-0.5">
+                            SL{" "}
+                            {editingField?.orderId === order._id && editingField.field === "sl" ? (
+                              <span className="inline-flex items-center">
+                                <span className="text-red-400/70">$</span>
+                                <input
+                                  type="number"
+                                  autoFocus
+                                  step="any"
+                                  value={editingField.value}
+                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = parseFloat(editingField.value);
+                                      if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { stopLoss: v });
+                                      setEditingField(null);
+                                    } else if (e.key === "Escape") setEditingField(null);
+                                  }}
+                                  onBlur={() => {
+                                    const v = parseFloat(editingField.value);
+                                    if (v > 0 && v !== order.stop_loss && onModifyPendingOrder) onModifyPendingOrder(order._id, { stopLoss: v });
+                                    setEditingField(null);
+                                  }}
+                                  className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
+                                />
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "sl", value: String(order.stop_loss) })}
+                                className={`text-red-400/70 font-mono ${onModifyPendingOrder ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                title={onModifyPendingOrder ? "Click to edit stop loss" : undefined}
+                                disabled={!onModifyPendingOrder}
+                              >
+                                ${formatPrice(order.stop_loss)}
+                              </button>
+                            )}
+                            {onModifyPendingOrder && editingField?.orderId !== order._id && (
                               <button
                                 onClick={() => onModifyPendingOrder(order._id, { stopLoss: 0 })}
                                 className="text-red-500/50 hover:text-red-400 ml-0.5"
@@ -1396,8 +1535,43 @@ const TradingChart = ({
                           </span>
                         )}
                         {order.take_profit != null && (
-                          <span className="inline-flex items-center gap-0.5">TP <span className="text-emerald-400/70 font-mono">${formatPrice(order.take_profit)}</span>
-                            {onModifyPendingOrder && (
+                          <span className="inline-flex items-center gap-0.5">
+                            TP{" "}
+                            {editingField?.orderId === order._id && editingField.field === "tp" ? (
+                              <span className="inline-flex items-center">
+                                <span className="text-emerald-400/70">$</span>
+                                <input
+                                  type="number"
+                                  autoFocus
+                                  step="any"
+                                  value={editingField.value}
+                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      const v = parseFloat(editingField.value);
+                                      if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { takeProfit: v });
+                                      setEditingField(null);
+                                    } else if (e.key === "Escape") setEditingField(null);
+                                  }}
+                                  onBlur={() => {
+                                    const v = parseFloat(editingField.value);
+                                    if (v > 0 && v !== order.take_profit && onModifyPendingOrder) onModifyPendingOrder(order._id, { takeProfit: v });
+                                    setEditingField(null);
+                                  }}
+                                  className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
+                                />
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "tp", value: String(order.take_profit) })}
+                                className={`text-emerald-400/70 font-mono ${onModifyPendingOrder ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                title={onModifyPendingOrder ? "Click to edit take profit" : undefined}
+                                disabled={!onModifyPendingOrder}
+                              >
+                                ${formatPrice(order.take_profit)}
+                              </button>
+                            )}
+                            {onModifyPendingOrder && editingField?.orderId !== order._id && (
                               <button
                                 onClick={() => onModifyPendingOrder(order._id, { takeProfit: 0 })}
                                 className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
