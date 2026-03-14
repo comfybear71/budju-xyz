@@ -53,12 +53,12 @@ BREAKOUT_OFFSET_PCT = 0.05  # 0.05% beyond the extreme
 # Recent high/low lookback (candles)
 MICRO_LOOKBACK = 15  # 15 one-minute candles
 
-# ATR multiplier for stop loss (tight for scalping)
-NINJA_SL_ATR_MULT = 0.8   # Tight stop: 0.8x ATR
+# ATR multiplier for stop loss — needs room to breathe past noise
+NINJA_SL_ATR_MULT = 1.5   # 1.5x ATR stop gives room for normal volatility
 # ATR multiplier for take profit
-NINJA_TP_ATR_MULT = 1.5   # Quick profit: 1.5x ATR (roughly 2:1 vs stop after fees)
+NINJA_TP_ATR_MULT = 3.0   # 3x ATR target (2:1 R:R)
 # Trailing stop percentage
-NINJA_TRAILING_STOP_PCT = 0.3  # 0.3% trailing stop
+NINJA_TRAILING_STOP_PCT = 1.0  # 1% trailing stop
 
 # Max pending ninja orders
 MAX_NINJA_ORDERS = 10
@@ -347,13 +347,12 @@ def run_ninja_strategy(wallet: str, prices: Dict[str, float],
         if has_nearby_order(existing_orders, trigger_price):
             continue
 
-        # ── SL / TP calculation (tight for scalping) ──
-        # Use a fraction of ATR since we're scalping
-        # ATR is already scaled to ~1hr in perp_strategies, so divide for micro
-        micro_atr = current_atr / 4  # Approximate 15-min ATR
-
-        stop_distance = micro_atr * NINJA_SL_ATR_MULT
-        tp_distance = micro_atr * NINJA_TP_ATR_MULT
+        # ── SL / TP calculation ──
+        # ATR is already scaled to ~1hr in perp_strategies (sqrt(60) factor).
+        # Use it directly — dividing further makes stops too tight and
+        # causes instant stop-outs from normal 1-min noise.
+        stop_distance = current_atr * NINJA_SL_ATR_MULT
+        tp_distance = current_atr * NINJA_TP_ATR_MULT
 
         if direction == "long":
             stop_loss = trigger_price - stop_distance
@@ -443,7 +442,7 @@ def run_ninja_strategy(wallet: str, prices: Dict[str, float],
                     "score": level["score"],
                     "source": level["source"],
                     "atr": round(current_atr, 6),
-                    "micro_atr": round(micro_atr, 6),
+                    "atr_used": round(current_atr, 6),
                     "distance_pct": round(distance_pct, 3),
                 },
                 acted=True,

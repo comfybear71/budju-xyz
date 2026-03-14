@@ -643,8 +643,6 @@ const TradingChart = ({
       }
     }
     // ── Pending Orders (dotted lines) ──
-    const myOrders = pendingOrders.filter((o) => o.symbol === symbol && o.status === "pending");
-
     for (const order of myOrders) {
       const isLong = order.direction === "long";
       const typeLabel = order.order_type === "limit"
