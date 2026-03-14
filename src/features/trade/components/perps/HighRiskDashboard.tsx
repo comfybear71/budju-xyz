@@ -57,6 +57,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("charts");
+  const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
@@ -551,6 +552,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             metrics={account?.metrics}
             wallet={wallet}
             onClose={() => setActiveTab(effectiveReadOnly ? "positions" : "order")}
+            initialSymbol={chartSymbol}
           />
         )}
 
@@ -562,6 +564,10 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             onRefresh={loadData}
             readOnly={effectiveReadOnly}
             wallet={wallet}
+            onViewChart={(symbol) => {
+              setChartSymbol(symbol);
+              setActiveTab("charts");
+            }}
           />
         )}
 

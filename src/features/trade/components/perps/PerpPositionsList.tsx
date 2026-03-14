@@ -14,9 +14,10 @@ interface Props {
   onRefresh?: () => void;
   readOnly?: boolean;
   wallet?: string;
+  onViewChart?: (symbol: string) => void;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [closePct, setClosePct] = useState(50);
@@ -107,6 +108,17 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-white">{pos.symbol}</span>
+                {onViewChart && (
+                  <button
+                    onClick={() => onViewChart(pos.symbol)}
+                    className="text-slate-500 hover:text-white transition-colors"
+                    title={`View ${pos.symbol} chart`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                      <path fillRule="evenodd" d="M1 2.75A.75.75 0 011.75 2h16.5a.75.75 0 010 1.5H18v8.75A2.75 2.75 0 0115.25 15h-1.072l.798 3.06a.75.75 0 01-1.452.38L12.637 15h-5.274l-.887 3.44a.75.75 0 01-1.452-.38L5.822 15H4.75A2.75 2.75 0 012 12.25V3.5h-.25A.75.75 0 011 2.75zM7.5 6a.75.75 0 00-.75.75v4.5a.75.75 0 001.5 0v-4.5A.75.75 0 007.5 6zm3-.75a.75.75 0 011.5 0v6.5a.75.75 0 01-1.5 0v-6.5zM14.25 8a.75.75 0 00-.75.75v2.5a.75.75 0 001.5 0v-2.5a.75.75 0 00-.75-.75z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                )}
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
                   {pos.direction.toUpperCase()} {pos.leverage}x
                 </span>

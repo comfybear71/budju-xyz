@@ -22,6 +22,7 @@ interface Props {
   metrics?: PerpMetrics | null;
   wallet?: string;
   onClose: () => void;
+  initialSymbol?: string;
 }
 
 interface MarketDef {
@@ -379,10 +380,18 @@ const QuickTradePanel = ({
 // Detect mobile/small screen for limiting concurrent charts
 // ── Component ────────────────────────────────────────────────
 
-const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props) => {
-  const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
-  const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
+const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialSymbol }: Props) => {
+  const [viewMode, setViewMode] = useState<"grid" | "focus">(initialSymbol ? "focus" : "grid");
+  const [focusedSymbol, setFocusedSymbol] = useState<string>(initialSymbol || "SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
+
+  // When navigated from positions card, jump to that symbol's chart
+  useEffect(() => {
+    if (initialSymbol) {
+      setFocusedSymbol(initialSymbol);
+      setViewMode("focus");
+    }
+  }, [initialSymbol]);
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatus | null>(null);
   const [pendingOrders, setPendingOrders] = useState<PerpPendingOrder[]>([]);
 
