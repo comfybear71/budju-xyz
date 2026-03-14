@@ -108,6 +108,116 @@ async function fetchHistoricalKlines(
   return [];
 }
 
+// ── Support/Resistance Detection ────────────────────────────
+// Detects swing highs/lows, clusters nearby levels, returns strongest.
+
+interface SRLevel {
+  price: number;
+  touches: number;
+  type: "support" | "resistance";
+  strength: "strong" | "moderate" | "weak";
+}
+
+function detectSRLevels(candles: CandleData[], currentPrice: number): SRLevel[] {
+  if (candles.length < 30) return [];
+
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const closes = candles.map((c) => c.close);
+  const window = 3;
+
+  // Find swing highs (resistance candidates)
+  const swingHighs: number[] = [];
+  for (let i = window; i < highs.length - window; i++) {
+    let isHigh = true;
+    for (let j = 1; j <= window; j++) {
+      if (highs[i] <= highs[i - j] || highs[i] <= highs[i + j]) {
+        isHigh = false;
+        break;
+      }
+    }
+    if (isHigh) swingHighs.push(highs[i]);
+  }
+
+  // Find swing lows (support candidates)
+  const swingLows: number[] = [];
+  for (let i = window; i < lows.length - window; i++) {
+    let isLow = true;
+    for (let j = 1; j <= window; j++) {
+      if (lows[i] >= lows[i - j] || lows[i] >= lows[i + j]) {
+        isLow = false;
+        break;
+      }
+    }
+    if (isLow) swingLows.push(lows[i]);
+  }
+
+  // Add wick rejections
+  for (let i = 1; i < candles.length; i++) {
+    const upperWick = (highs[i] - closes[i]) / closes[i] * 100;
+    if (upperWick > 0.15) swingHighs.push(highs[i]);
+    const lowerWick = (closes[i] - lows[i]) / closes[i] * 100;
+    if (lowerWick > 0.15) swingLows.push(lows[i]);
+  }
+
+  // Cluster nearby levels (within 0.3%)
+  function cluster(levels: number[]): { price: number; touches: number }[] {
+    if (!levels.length) return [];
+    const sorted = [...levels].sort((a, b) => a - b);
+    const clusters: { price: number; touches: number }[] = [];
+    let group = [sorted[0]];
+
+    for (let i = 1; i < sorted.length; i++) {
+      if (Math.abs(sorted[i] - group[0]) / group[0] * 100 <= 0.3) {
+        group.push(sorted[i]);
+      } else {
+        if (group.length >= 2) {
+          clusters.push({
+            price: group.reduce((a, b) => a + b, 0) / group.length,
+            touches: group.length,
+          });
+        }
+        group = [sorted[i]];
+      }
+    }
+    if (group.length >= 2) {
+      clusters.push({
+        price: group.reduce((a, b) => a + b, 0) / group.length,
+        touches: group.length,
+      });
+    }
+    clusters.sort((a, b) => b.touches - a.touches);
+    return clusters;
+  }
+
+  const resistanceClusters = cluster(swingHighs);
+  const supportClusters = cluster(swingLows);
+
+  const levels: SRLevel[] = [];
+
+  // Top 5 resistance levels above current price
+  for (const c of resistanceClusters.filter((r) => r.price > currentPrice).slice(0, 5)) {
+    levels.push({
+      price: c.price,
+      touches: c.touches,
+      type: "resistance",
+      strength: c.touches >= 4 ? "strong" : c.touches >= 3 ? "moderate" : "weak",
+    });
+  }
+
+  // Top 5 support levels below current price
+  for (const c of supportClusters.filter((s) => s.price < currentPrice).slice(0, 5)) {
+    levels.push({
+      price: c.price,
+      touches: c.touches,
+      type: "support",
+      strength: c.touches >= 4 ? "strong" : c.touches >= 3 ? "moderate" : "weak",
+    });
+  }
+
+  return levels;
+}
+
 function formatPrice(price: number): string {
   if (price >= 1000) return price.toFixed(2);
   if (price >= 1) return price.toFixed(4);
@@ -297,6 +407,9 @@ const TradingChart = ({
   const [showPositionLines, setShowPositionLines] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
   const [showStrats, setShowStrats] = useState(false);
+  const [showSR, setShowSR] = useState(true);
+  const srLinesRef = useRef<any[]>([]);
+  const srLevelsRef = useRef<SRLevel[]>([]);
 
   // Strategies active on this market
   const activeStratsForMarket = useMemo(() => {
@@ -458,6 +571,8 @@ const TradingChart = ({
       addTradeMarkers();
       // Add position lines
       addPositionLines();
+      // Compute S/R levels
+      computeSR();
 
       // Compute initial prediction
       if (showPrediction && historical.length >= 60) {
@@ -662,6 +777,50 @@ const TradingChart = ({
     }
   }, [positions, pendingOrders, symbol, showPositionLines]);
 
+  // ── Support/Resistance Lines ────────────────────────────────
+
+  const drawSRLines = useCallback(() => {
+    if (!candleSeriesRef.current) return;
+
+    // Remove old SR lines
+    for (const line of srLinesRef.current) {
+      try { candleSeriesRef.current.removePriceLine(line); } catch { /* ok */ }
+    }
+    srLinesRef.current = [];
+
+    if (!showSR || srLevelsRef.current.length === 0) return;
+
+    for (const level of srLevelsRef.current) {
+      const isSupport = level.type === "support";
+      const opacity = level.strength === "strong" ? 0.6 : level.strength === "moderate" ? 0.4 : 0.25;
+      const color = isSupport
+        ? `rgba(34, 197, 94, ${opacity})`   // green for support
+        : `rgba(239, 68, 68, ${opacity})`;   // red for resistance
+
+      srLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+        price: level.price,
+        color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: level.strength !== "weak",
+        title: isSupport ? `S${level.touches}` : `R${level.touches}`,
+      }));
+    }
+  }, [showSR]);
+
+  // Recompute S/R when data changes (after historical load or timeframe change)
+  const computeSR = useCallback(() => {
+    const candles = dataRef.current;
+    if (candles.length < 30) return;
+    const currentPrice = candles[candles.length - 1].close;
+    srLevelsRef.current = detectSRLevels(candles, currentPrice);
+    drawSRLines();
+  }, [drawSRLines]);
+
+  useEffect(() => {
+    drawSRLines();
+  }, [showSR, drawSRLines]);
+
   // ── Toggle chart mode ──────────────────────────────────────
 
   useEffect(() => {
@@ -849,6 +1008,16 @@ const TradingChart = ({
           }`}
         >
           Vol
+        </button>
+        <button
+          onClick={() => setShowSR(!showSR)}
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+            showSR
+              ? "text-cyan-400 bg-cyan-500/15 border-cyan-500/30"
+              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
+          }`}
+        >
+          S/R
         </button>
         <button
           onClick={() => setShowMarkers(!showMarkers)}
