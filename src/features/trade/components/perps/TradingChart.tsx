@@ -258,6 +258,7 @@ const TradingChart = ({
   const predictionSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const klineStreamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<CandleData[]>([]);
+  const priceLinesRef = useRef<any[]>([]);
 
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
   const [livePrice, setLivePrice] = useState(0);
@@ -267,6 +268,9 @@ const TradingChart = ({
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
+  const [showMarkers, setShowMarkers] = useState(true);
+  const [showPositionLines, setShowPositionLines] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -483,7 +487,11 @@ const TradingChart = ({
   // ── Trade Markers ──────────────────────────────────────────
 
   const addTradeMarkers = useCallback(() => {
-    if (!candleSeriesRef.current || trades.length === 0) return;
+    if (!candleSeriesRef.current) return;
+    if (!showMarkers || trades.length === 0) {
+      candleSeriesRef.current.setMarkers([]);
+      return;
+    }
 
     const markers: SeriesMarker<Time>[] = [];
 
@@ -515,63 +523,71 @@ const TradingChart = ({
     // Sort by time (required by lightweight-charts)
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     candleSeriesRef.current.setMarkers(markers);
-  }, [trades, symbol]);
+  }, [trades, symbol, showMarkers]);
 
   // ── Position Lines (entry price, SL, TP) ───────────────────
 
   const addPositionLines = useCallback(() => {
     if (!candleSeriesRef.current) return;
 
+    // Remove existing price lines
+    for (const line of priceLinesRef.current) {
+      try { candleSeriesRef.current.removePriceLine(line); } catch { /* already removed */ }
+    }
+    priceLinesRef.current = [];
+
+    if (!showPositionLines) return;
+
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
       // Entry price line
-      candleSeriesRef.current.createPriceLine({
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
         color: pos.direction === "long" ? "#22c55e" : "#ef4444",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
         axisLabelVisible: true,
         title: `${pos.direction.toUpperCase()} Entry`,
-      });
+      }));
 
       // Stop loss line
       if (pos.stop_loss) {
-        candleSeriesRef.current.createPriceLine({
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
           color: "#f59e0b",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: "SL",
-        });
+        }));
       }
 
       // Take profit line
       if (pos.take_profit) {
-        candleSeriesRef.current.createPriceLine({
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
           color: "#a855f7",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: "TP",
-        });
+        }));
       }
 
       // Liquidation line
       if (pos.liquidation_price) {
-        candleSeriesRef.current.createPriceLine({
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: pos.liquidation_price,
           color: "#dc2626",
           lineWidth: 1,
           lineStyle: LineStyle.SparseDotted,
           axisLabelVisible: true,
           title: "LIQ",
-        });
+        }));
       }
     }
-  }, [positions, symbol]);
+  }, [positions, symbol, showPositionLines]);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -585,6 +601,24 @@ const TradingChart = ({
   useEffect(() => {
     predictionSeriesRef.current?.applyOptions({ visible: showPrediction });
   }, [showPrediction]);
+
+  // ── Toggle markers visibility ──────────────────────────
+
+  useEffect(() => {
+    addTradeMarkers();
+  }, [showMarkers, addTradeMarkers]);
+
+  // ── Toggle position lines visibility ───────────────────
+
+  useEffect(() => {
+    addPositionLines();
+  }, [showPositionLines, addPositionLines]);
+
+  // ── Toggle volume visibility ───────────────────────────
+
+  useEffect(() => {
+    volumeSeriesRef.current?.applyOptions({ visible: showVolume });
+  }, [showVolume]);
 
   // ── Render ─────────────────────────────────────────────────
 
@@ -666,18 +700,6 @@ const TradingChart = ({
               Line
             </button>
           </div>
-          {/* AI Prediction toggle */}
-          <button
-            onClick={() => setShowPrediction(!showPrediction)}
-            className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
-              showPrediction
-                ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
-                : "text-slate-500 border-white/[0.06] hover:text-blue-400"
-            }`}
-            title="Toggle AI prediction"
-          >
-            AI
-          </button>
         </div>
       </div>
       </div>
@@ -720,6 +742,50 @@ const TradingChart = ({
 
       {/* Chart container */}
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
+
+      {/* Indicator toggles */}
+      <div className="flex flex-wrap gap-1 mt-1.5">
+        <button
+          onClick={() => setShowVolume(!showVolume)}
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+            showVolume
+              ? "text-slate-400 bg-slate-500/15 border-slate-500/30"
+              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+          }`}
+        >
+          Vol
+        </button>
+        <button
+          onClick={() => setShowMarkers(!showMarkers)}
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+            showMarkers
+              ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30"
+              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+          }`}
+        >
+          Trades
+        </button>
+        <button
+          onClick={() => setShowPositionLines(!showPositionLines)}
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+            showPositionLines
+              ? "text-amber-400 bg-amber-500/15 border-amber-500/30"
+              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+          }`}
+        >
+          Positions
+        </button>
+        <button
+          onClick={() => setShowPrediction(!showPrediction)}
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+            showPrediction
+              ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
+              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+          }`}
+        >
+          AI
+        </button>
+      </div>
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
