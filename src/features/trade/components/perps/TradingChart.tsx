@@ -313,7 +313,7 @@ const TradingChart = ({
   const [showPrediction, setShowPrediction] = useState(true);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
   const [showMarkers, setShowMarkers] = useState(false);
-  const [showPositionLines, setShowPositionLines] = useState(false);
+  const [showPositionLines, setShowPositionLines] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [showStrats, setShowStrats] = useState(false);
 
