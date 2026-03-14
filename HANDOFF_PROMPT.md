@@ -11,7 +11,7 @@
 - **Live site:** https://budju.xyz
 - **Token:** `2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump` (1B supply, 6 decimals)
 - **Created:** January 31, 2025
-- **Codebase:** ~40,600 lines across ~100 TypeScript/Python files
+- **Codebase:** ~45,000 lines across ~110 TypeScript/Python files
 
 ---
 
@@ -54,7 +54,9 @@ src/
 │   ├── home/                # Landing page (Hero, Ecosystem, Roadmap)
 │   ├── trade/               # Trading platform + auto-trader
 │   │   ├── components/      # AutoTraderView, Leaderboard, Portfolio, etc.
-│   │   └── services/        # autoTrader.ts, tradeApi.ts, activityLog.ts
+│   │   │   └── perps/       # HighRiskDashboard, PerpStrategyPanel, charts, etc.
+│   │   ├── services/        # autoTrader.ts, tradeApi.ts, perpApi.ts
+│   │   └── types/           # perps.ts (TypeScript types for perp system)
 │   ├── bank/                # Bank of BUDJU (deposits, JLP)
 │   ├── pool/                # Liquidity pool management
 │   ├── swap/                # Token swap interface (Jupiter)
@@ -77,9 +79,20 @@ src/
 └── styles/                  # globals.css
 
 api/
-├── index.py                 # Main API (user, deposit, trade, pool, admin endpoints)
+├── index.py                 # Main API (user, deposit, trade, pool, admin, perp endpoints)
 ├── database.py              # MongoDB + share-based pool accounting (NAV system)
-├── auto-trade-cron.py       # Auto-trading cron (every 5 min)
+├── auto-trade-cron.py       # Auto-trading cron (every 5 min) — spot/Swyftx
+├── perp-cron.py             # Perp paper trading cron (every 1 min)
+├── perp_engine.py           # Perp engine: positions, PnL, fees, liquidation, orders
+├── perp_strategies.py       # Strategy engine: indicators, auto-trader runner, config
+├── perp_ninja_strategy.py   # Ninja Ambush: confluence-based pending orders
+├── perp_grid_strategy.py    # Grid Trading: ATR-based grid with smooth martingale
+├── perp_keltner.py          # Keltner Channel: mean reversion + squeeze breakout
+├── perp_bb_squeeze.py       # Bollinger Squeeze: volatility compression breakout
+├── perp_zone_recovery.py    # Zone Recovery: hedge recovery with escalating lots
+├── perp_hf_scalper.py       # HF Scalper: high-frequency small-profit trades
+├── perp_backtest.py         # Backtesting engine
+├── perp_exchange.py         # Drift Protocol integration (live trading, future)
 ├── telegram.ts              # Telegram bot webhook (commands, AI Q&A, moderation)
 ├── telegram-cron.ts         # Scheduled Telegram messages (4x daily + price updates)
 ├── proxy.ts                 # Swyftx exchange proxy (token auth, order placement)
@@ -144,6 +157,7 @@ Plus `<Analytics />` from `@vercel/analytics/react`.
 - **chartApi.ts** — OHLCV candle data from GeckoTerminal (2-min cache)
 - **depositService.ts** — USDC deposits to pool wallet
 - **tokenRegistry.ts** — Token lookup from Solana token list CDN
+- **perpApi.ts** — Full perp trading API client (positions, orders, strategies, backtest)
 
 ---
 
@@ -190,7 +204,10 @@ Allocation %: (userShares / totalShares) × 100
 - `/api/admin/import-user` — Import user
 - `/api/admin/recalibrate` — Snapshot/reset pool P&L
 
-### Auto-Trade Cron (api/auto-trade-cron.py) — Every 5 Minutes
+**Perp Trading API:**
+- See Section 11 for full perp endpoint list
+
+### Auto-Trade Cron (api/auto-trade-cron.py) — Every 5 Minutes (Spot)
 
 **Flow:**
 1. Check trading enabled & bot active in trader_state
@@ -202,17 +219,6 @@ Allocation %: (userShares / totalShares) × 100
    - SELL if price ≥ sell target (83.3% of allocation × balance)
 6. Record trades, update targets, set 24h cooldowns
 7. Send Telegram notifications
-
-**Circuit Breakers (env vars):**
-- `MAX_SINGLE_TRADE_USDC` — default $500
-- `MAX_DAILY_TRADES` — default 20/24h
-- `MAX_DAILY_LOSS_USDC` — default $2000 sold/24h
-- `TRADING_ENABLED` — kill switch
-- `DRY_RUN` — simulate mode
-
-**Tier System:**
-- Each tier has `deviation%` (how much to move targets after trade) and `allocation%` (trade size)
-- Coins assigned to tiers via `autoTierAssignments`
 
 ### Telegram Bot (api/telegram.ts)
 
@@ -281,7 +287,7 @@ VITE_ANALYTICS_ID=            # Google Analytics
 - **vercel.json** defines:
   - No-cache headers on all routes (fresh deploys)
   - Rewrites: API routes → serverless functions, SPA catch-all → `/index.html`
-  - Crons: auto-trade every 5min, telegram-cron 4x daily
+  - Crons: perp-cron every 1 min, auto-trade every 5 min, telegram-cron 4x daily
 - **Python runtime:** api/*.py files auto-detected
 - **TypeScript runtime:** api/*.ts files auto-detected
 - **Static:** dist/ from Vite build
@@ -297,10 +303,11 @@ VITE_ANALYTICS_ID=            # Google Analytics
 4. **Device heartbeat** in auto-trade prevents conflicts between browser and cron trades.
 5. **CORS** restricted to budju.xyz, www.budju.xyz, localhost in production.
 6. **Rate limiting:** 30/min GET, 10/min POST on main API; 60/min on RPC; 20/min on Jupiter.
-7. **Trade log field naming:** Server-side uses `timestamp`, client-side autoTrader.ts uses `time`. The view (`AutoTraderView.tsx`) checks both `entry.timestamp || entry.time`.
+7. **Trade log field naming:** Server-side uses `timestamp`, client-side autoTrader.ts uses `time`. The view checks both.
 8. **Share accounting is NAV-based** — deposits issue shares at current NAV, not 1:1 with USD amount.
 9. **Swyftx token** is cached 50 minutes in proxy.ts warm instances.
 10. **Admin wallet default:** `AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq` — excluded from leaderboards and allocations.
+11. **Strategy config merge** — `get_strategy_config()` auto-merges new strategies into existing accounts so old configs get new strategies on next load.
 
 ---
 
@@ -315,7 +322,6 @@ VITE_ANALYTICS_ID=            # Google Analytics
 - **Raydium AMM pool:** `FxHfhKyXkLRCRGqhasqW2fU1iPJ8Cs1DSAUEmcx3dLmN`
 - **DEX link:** https://dexscreener.com/solana/fxhfhkyxklrcrgqhasqw2fu1ipj8cs1dsauemcx3dlmn
 - **Social links:** Facebook, Telegram, Instagram, Twitter, TikTok, Pump.fun (defined in `src/constants/config.ts`)
-- **Referral links:** Swyftx, Coinbase, CoinSpot, Tokocrypto (defined in `src/constants/addresses.ts`)
 
 ---
 
@@ -331,7 +337,8 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 │  Real-time Binance WebSocket prices                     │
 │  Desktop: TradingView (lightweight-charts)              │
 │  Mobile: SVG MobileAreaChart (iOS Safari compatible)    │
-│  Tabs: Chart, Positions, Orders, Trades, Strategy, AI   │
+│  Tabs: Chart, Bot, Positions, Orders, Trades, AI        │
+│  Strategy toggles: slide switches with live status      │
 ├─────────────────────────────────────────────────────────┤
 │  API: api/index.py (perp endpoints)                     │
 │  POST /api/perp/order — Open position                   │
@@ -343,38 +350,50 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 │  POST /api/perp/position-type — Set core/satellite      │
 │  POST /api/perp/pending-order — Create limit/stop order │
 │  POST /api/perp/pending-order/cancel — Cancel order     │
+│  POST /api/perp/strategy/toggle — Enable/disable bot    │
+│  POST /api/perp/strategy/config — Update strategy cfg   │
+│  GET  /api/perp/strategy/status — Strategy status + pos │
+│  GET  /api/perp/backtest — Run strategy backtest        │
 │  GET  /api/perp/positions — Open positions               │
 │  GET  /api/perp/account — Account info + equity          │
 │  GET  /api/perp/pending-orders — Pending orders          │
-│  GET  /api/perp/position-summary — Core/satellite stats  │
-│  GET  /api/perp/funding-summary — Funding rate analysis  │
-│  GET  /api/perp/reentry-candidates — Re-entry signals    │
+│  GET  /api/perp/metrics — Trading metrics                │
+│  GET  /api/perp/public — Public read-only data           │
 ├─────────────────────────────────────────────────────────┤
 │  ENGINE: api/perp_engine.py                              │
 │  Position lifecycle, PnL, liquidation, fees, equity,     │
 │  pending orders, pyramiding, partial close, flip,        │
 │  position types, funding analysis, re-entry candidates   │
+│  Position limits: 5 per side per symbol (5L + 5S each)   │
+│  Pending order limit: 30 max                             │
 ├─────────────────────────────────────────────────────────┤
 │  CRON: api/perp-cron.py (every 1 minute)                │
-│  Fetch CoinGecko prices → check pending orders →         │
-│  update positions → check SL/TP/liquidation/trailing →   │
-│  auto-close → run auto-trader strategies → equity snap   │
+│  Fetch CoinGecko prices → store price history →          │
+│  check pending orders → update positions → check         │
+│  SL/TP/liquidation/trailing → auto-close → run           │
+│  auto-trader strategies → equity snapshot                 │
 ├─────────────────────────────────────────────────────────┤
-│  STRATEGIES: api/perp_strategies.py                      │
-│  4 strategies: Trend Following, Mean Reversion,          │
-│  Momentum Breakout, Scalping (disabled by default)       │
-│  ATR-based SL/TP, Kelly sizing, correlation guard,       │
-│  drawdown protection, 2hr cooldown                       │
+│  STRATEGY ENGINE: api/perp_strategies.py                 │
+│  10 strategies (6 in main loop, 4 separate runners)      │
+│  Equity curve meta-filter, ATR-based sizing,             │
+│  drawdown protection, Binance historical seeding         │
 ├─────────────────────────────────────────────────────────┤
-│  ADVANCED STRATEGIES (standalone):                       │
-│  api/perp_ninja_strategy.py — Ninja Ambush (confluence)  │
-│  api/perp_grid_strategy.py — Grid Trading (ATR-based)    │
-│  api/perp_backtest.py — Backtesting engine                │
+│  STRATEGY FILES:                                         │
+│  perp_strategies.py — Core 6: trend, mean_rev, momentum, │
+│    scalping, keltner, bb_squeeze                         │
+│  perp_ninja_strategy.py — Ninja Ambush (confluence)      │
+│  perp_grid_strategy.py — Grid (ATR + smooth martingale)  │
+│  perp_zone_recovery.py — Zone Recovery (hedge recovery)  │
+│  perp_hf_scalper.py — HF Scalper (high-frequency)        │
+│  perp_keltner.py — Keltner Channel indicators            │
+│  perp_bb_squeeze.py — BB Squeeze detection               │
+│  perp_backtest.py — Backtesting engine                    │
 ├─────────────────────────────────────────────────────────┤
 │  DB Collections: perp_accounts, perp_positions,          │
 │  perp_orders, perp_trades, perp_equity, perp_funding,    │
 │  perp_price_history, perp_strategy_config,               │
-│  perp_strategy_signals, perp_pending_orders              │
+│  perp_strategy_signals, perp_pending_orders,             │
+│  perp_grid_state, perp_zone_state, perp_equity_curve     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -387,136 +406,119 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 ### Key Engine Constants (perp_engine.py)
 ```python
 INITIAL_BALANCE = 10_000.0       # $10K USDC starting balance
-OPEN_CLOSE_FEE_PCT = 0.0006     # 0.06%
-BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr
-MAINTENANCE_MARGIN_PCT = 0.05   # 5% base (scaled down for high leverage)
 MAX_LEVERAGE = 50
-MAX_OPEN_POSITIONS = 5
+MAX_POSITIONS_PER_SIDE = 5       # Max 5 longs + 5 shorts per symbol
+MAX_OPEN_POSITIONS = 50          # Soft global cap (10 symbols × 5 per side)
 MAX_POSITION_PCT = 0.50          # Max 50% equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
+MAX_PENDING_ORDERS = 30          # Pending order capacity
 ```
 
-### Auto-Trader Strategies (perp_strategies.py)
-| Strategy | Signal | Leverage | SL (ATR mult) | TP (ATR mult) | Trailing Stop | Default |
-|----------|--------|----------|---------------|---------------|---------------|---------|
-| Trend Following | EMA 9/21 crossover + RSI 30/70 | 3x | 2.0 | 8.0 | 1.5% | Enabled |
-| Mean Reversion | Bollinger Band bounce + RSI 30/70 | 3x | 1.5 | 3.0 | 1.0% | Enabled |
-| Momentum | Price breakout above/below range | 3x | 2.5 | 10.0 | 2.0% | Enabled |
-| Scalping | RSI extremes + EMA slope | 3x | 1.5 | 2.5 | 0.8% | **Disabled** |
+### All 10 Auto-Trading Strategies
 
-- ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR (wider stops that survive normal price noise)
-- **50-period EMA trend filter** on trend following, momentum, scalping — longs require price above 50 EMA, shorts below. **Mean reversion has NO trend filter** (it contradicted the strategy by blocking buying dips).
-- **Profit-activated trailing stops** — trail does NOT start from entry. It activates only after price moves favorably by the trailing %. E.g. 1.5% trail on a long activates at +1.5% profit, then ratchets up from there. Until activation, only the fixed SL protects the downside.
-- Trend following and momentum use wide TP (8-10x ATR) so the trailing stop is the primary exit, letting winners run.
-- Position sizing: 1.5% equity risk per trade, capped at 10% equity × leverage
-- **Cooldown: 2 hours** per market between auto trades (was 30 min — overtrading was destroying returns)
-- **Correlation guard:** Max 1 position across correlated group (BTC, ETH, SOL)
-- **Drawdown protection:** Half-size at 5% drawdown, stop trading at 10% drawdown
-- RSI thresholds tightened to 30/70 (was 35/65) to reduce false signals
-- Historical candles seeded from Binance public API (eliminates cold-start)
+| # | Strategy | Type | Signal | Lev | SL | TP | Trail | Cooldown | Default |
+|---|----------|------|--------|-----|----|----|-------|----------|---------|
+| 1 | Trend Following | Main loop | EMA 9/21 cross + RSI | 5x | 2.0x | 8.0x | 1.5% | 2hr | ON |
+| 2 | Mean Reversion | Main loop | BB bounce + RSI 30/70 | 3x | 1.5x | 3.0x | 1.0% | 2hr | ON |
+| 3 | Momentum | Main loop | Breakout + range expansion | 5x | 2.5x | 10.0x | 2.0% | 2hr | ON |
+| 4 | Scalping | Main loop | RSI 5 + EMA slope | 3x | 1.5x | 2.5x | 1.5% | 2hr | OFF |
+| 5 | Keltner Channel | Main loop | KC bounce / squeeze breakout | 3x | 1.5x | 3-5x | 1-2% | 2hr | OFF |
+| 6 | BB Squeeze | Main loop | Squeeze release + momentum | 4x | 2.0x | 8.0x | 2.5% | 2hr | OFF |
+| 7 | Ninja Ambush | Separate | Confluence pending orders | 2x | 2.5x | 6.0x | 2.0% | N/A | OFF |
+| 8 | Grid Trading | Separate | ATR-based grid levels | 2x | 3.0x | 1.0x | — | 1hr | OFF |
+| 9 | Zone Recovery | Separate | Hedge + escalating lots | 3x | 2.0x | 3.0x | — | 2hr | OFF |
+| 10 | HF Scalper | Separate | 4 fast signals, all markets | 5x | 0.5x | 1.0x | 0.5% | **5min** | OFF |
 
-### Advanced Position Management (perp_engine.py)
-- **Partial Close** — Close 1-99% of a position; updates remaining size/margin, credits account
-- **Pyramiding** — Add to winning positions (positive P&L required, max 3 levels, each level 50% of previous size)
-- **Position Flipping** — Close position and immediately open opposite direction, mirroring SL/TP distances
-- **Core/Satellite Tracking** — Tag positions as "core" (long-term conviction) or "satellite" (tactical), with separate P&L summary
-- **Pending Orders** — Limit and stop orders with trigger price, SL/TP, optional expiry. Checked every minute by cron, executed automatically when trigger price is hit.
-- **Funding Rate Analysis** — Per-position funding cost breakdown (hourly/daily, % of P&L)
-- **Re-entry Candidates** — Finds recent profitable trailing stop exits with 0.5-3% pullback from exit price
+**SL/TP values are ATR multipliers.** ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR.
 
-### Advanced Strategy Files (standalone, not yet integrated into cron)
-- **perp_ninja_strategy.py** — Ninja Ambush strategy: swing high/low detection, Bollinger Band extremes, session levels, round numbers, liquidity sweeps, confluence scoring
-- **perp_grid_strategy.py** — Grid Trading: ATR-based grid spacing, optional martingale position sizing, auto-rebalancing
-- **perp_backtest.py** — Backtesting engine: historical simulation with realistic fees, calculates Sharpe ratio, profit factor, max drawdown, win rate
+### Meta-Features
+- **Equity Curve Trading** — Monitors EMA of equity curve. If equity falls below its EMA, reduces position sizing (0.5x at -3%, 0.25x at deeper drawdown). Applied to all strategies automatically.
+- **50-period EMA Trend Filter** — Trend following, momentum, scalping require trade direction aligned with 50 EMA. Mean reversion exempted (it fades overextensions by design).
+- **Drawdown Protection** — Half-size at 5% drawdown from equity peak, stop trading at 10% drawdown.
+- **Correlation Guard** — Max 1 position across BTC/ETH/SOL group (not applied to HF Scalper).
+- **Historical Seeding** — Price history auto-seeded from Binance public API to eliminate cold-start.
 
-### Trigger Execution (perp-cron.py → perp_engine.py)
-Checked every minute in priority order (independent checks, not elif):
-1. **Liquidation** — mark_price crosses liquidation price
-2. **Stop Loss** — mark_price crosses SL level
-3. **Take Profit** — mark_price crosses TP level
-4. **Trailing Stop** — mark_price crosses trailing stop price (ratchets on favorable moves)
+### Strategy Flow (how it all connects)
+```
+1. UI: PerpStrategyPanel.tsx — slide toggle switches
+   ↓ POST /api/perp/strategy/config {strategies.{name}.enabled: true}
+2. Backend: update_strategy_config() → MongoDB perp_strategy_config
+3. Cron: perp-cron.py runs every 1 minute
+   ↓ calls run_auto_trader(wallet, prices)
+4. Auto-trader: perp_strategies.py
+   ↓ Checks each enabled strategy for signals
+   ↓ Applies equity curve filter, drawdown protection
+   ↓ Calculates position size, SL/TP from ATR
+5. Execution: open_position() in perp_engine.py
+   ↓ Creates position document in MongoDB
+6. Monitoring: perp-cron.py checks SL/TP/liquidation every minute
+   ↓ Auto-closes positions when triggered
+```
+
+### Advanced Position Management
+- **Partial Close** — Close 1-99% of a position; updates remaining size/margin
+- **Pyramiding** — Add to winning positions (max 3 levels, 50% size decrease per level)
+- **Position Flipping** — Close + reverse direction in one operation
+- **Core/Satellite Tracking** — Tag positions, get separate P&L summary
+- **Pending Orders** — Limit/stop orders with trigger price, SL/TP, optional expiry
+- **Funding Rate Analysis** — Per-position funding cost breakdown
+- **Re-entry Candidates** — Detects recent profitable exits with pullback from exit price
 
 ### Live Trading (FUTURE — not yet active)
 - `perp_exchange.py` has Drift Protocol integration (Solana-native)
 - All Drift imports are lazy (`if is_live:` guards) — won't crash without deps
-- Drift deps (`driftpy`, `solana`, `solders`, `anchorpy`) removed from requirements.txt — they exceed Vercel's 500MB Lambda limit
-- **When ready:** will need separate deployment strategy (e.g., dedicated VM, Railway, or Vercel split functions)
-- Live mode has extra safety: kill switch, max $500 position, max 3 positions, exchange reconciliation
+- Drift deps exceed Vercel's 500MB Lambda limit — needs separate infra
+- Live mode has extra safety: kill switch, max $500 position, max 3 positions
 
 ---
 
-## 12. Recent Changes (as of March 13, 2026)
+## 12. Recent Changes (as of March 14, 2026)
 
-### Core Trading System (earlier)
-- **Full perpetual paper trading system** — 10 markets, 4 auto-trading strategies, real-time Binance WebSocket charts
-- **Critical bug fix: TP never triggered when SL was set** — `elif` chain in trigger checks meant a set-but-not-hit SL blocked TP evaluation entirely. Changed to independent `if not action` checks.
-- **Critical bug fix: Liquidation formula broken for >20x leverage** — 5% maintenance margin exceeded initial margin at high leverage (e.g., 50x long had liq price ABOVE entry → immediate liquidation). Fixed with scaled maintenance margin: `min(5%, 50%/leverage)`.
-- **SL/TP validation added** — `open_position()` and `modify_position()` now reject invalid SL/TP (e.g., long SL above entry, short TP above entry).
-- **Daily loss limit now scales with equity** — was fixed at 20% of $10K regardless of account growth.
-- **ATR scaling widened from sqrt(15) to sqrt(60)** — 1-min ATR was too small (~0.4% SL), causing every trade to stop out on normal noise. Now approximates 1-hour ATR for meaningful stop distances.
-- **50-period EMA trend filter added** — All 4 strategies now check that trade direction aligns with the higher-timeframe trend. Prevents shorting into rallies and longing into dumps.
-- **Profit-activated trailing stops** — Trailing stop no longer starts from entry (which made it a tighter SL than the ATR-based one). Now activates only after price moves favorably by the trailing %, then ratchets from the high-water mark. This lets winners run while locking in profit.
-- **TP widened for trailing stop strategies** — Trend following TP: 4x→8x ATR. Momentum TP: 5x→10x ATR. The trailing stop is now the primary exit for these strategies, with TP as a distant backstop.
-- **Mean reversion gets trailing stop** — Added 1.0% trailing to lock in Bollinger Band bounce profits.
-- **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
-- Added Vercel Analytics (`@vercel/analytics/react`)
-- Added date/time stamps to trade log entries
-- Added Dependabot, ErrorBoundary, TanStack Query caching
-- Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
+### EA-Inspired Strategies (latest session)
+- **Keltner Channel strategy** (`perp_keltner.py`) — ATR-based channels with auto mode switching: mean reversion (bounce off channel) when normal, breakout mode when BB Squeeze detected
+- **Bollinger Squeeze strategy** (`perp_bb_squeeze.py`) — Detects volatility compression (BB inside Keltner Channel), trades the explosive breakout with momentum + RSI + range expansion confirmation
+- **Zone Recovery strategy** (`perp_zone_recovery.py`) — Forex EA-inspired hedge recovery. Opens opposing trades with escalating lot sizes (smooth martingale 1.3x, D'Alembert, or Fibonacci sizing modes). Max 5 recovery levels per zone, 2 active zones max.
+- **HF Scalper strategy** (`perp_hf_scalper.py`) — High-frequency trading across all 10 markets. 5-minute cooldown, no correlation guard, 4 signal types (micro EMA cross, RSI snap, wick rejection, momentum burst). Tight 0.5x ATR SL / 1.0x ATR TP for quick $1-3 profits.
+- **Equity Curve Trading meta-filter** — Monitors EMA of strategy equity curve, auto-reduces sizing during cold streaks
+- **Smooth martingale** option added to grid strategy (1.3x vs classic 2x doubling)
+- **Strategy config auto-merge** — `get_strategy_config()` now merges new strategies into existing account configs so old accounts see new strategies
+- **UI toggle switches** — Converted ON/OFF buttons to proper slide toggle switches for clearer visual feedback
+- **Removed unimplemented UI cards** — Removed swing_trading, grid_bot, funding_arb cards that had no backend
 
-### Strategy Overhaul (latest session)
-- **Cooldown increased to 2 hours** (was 30 min) — overtrading with no edge was destroying returns
-- **Scalping disabled by default** — 1-min candle noise made it unprofitable
-- **RSI thresholds tightened to 30/70** (was 35/65) — fewer but higher quality signals
-- **Leverage reduced to 3x** across all strategies (was 5x) — lower risk
-- **Trailing stop widened to 1.5%** on trend following (was 0.8%) — stop clipping winners
-- **Mean reversion trend filter REMOVED** — it was blocking the strategy from buying dips below EMA (contradicted the whole point of mean reversion)
-- **Correlation guard added** — max 1 position across BTC/ETH/SOL group to prevent correlated exposure
-- **Drawdown protection** — half-size at 5% drawdown from equity peak, stop trading at 10% drawdown
+### Strategy Integration (previous session)
+- **Ninja Ambush** and **Grid Trading** integrated into cron runner with lazy imports
+- **Backtest API endpoint** added: `GET /api/perp/backtest?strategy=&symbol=&periods=&balance=`
+- **Position limits changed** to 5 per side per currency (5 longs + 5 shorts per symbol)
+- **Pending order limit** increased to 30 (ninja + grid need room)
+- **Position action buttons** added to position cards: partial close, pyramid, flip, core/satellite
 
-### Advanced Position Management (latest session)
-- **Partial close** — Close 1-99% of a position, updates remaining size/margin
-- **Pyramiding** — Add to winning positions (max 3 levels, 50% size decrease per level)
-- **Position flipping** — Close + reverse direction in one operation, mirrors SL/TP distances
-- **Core/satellite position types** — Tag positions with type, get separate P&L summary
-- **Pending orders (limit/stop)** — Full order system with trigger prices, SL/TP, expiry. Cron checks every minute. Full UI in PerpPendingOrders.tsx component.
-- **Funding rate analysis** — Per-position funding cost breakdown
-- **Re-entry candidates** — Detects recent profitable trailing stop exits with 0.5-3% pullback
+### Mobile Charts Fix
+- **MobileAreaChart.tsx** — Pure SVG area chart for iOS Safari
+- **DashboardCharts.tsx** — Auto-detects mobile, limits WebSocket connections in grid mode
 
-### Mobile Charts Fix (latest session)
-- **MobileAreaChart.tsx** — Pure SVG area chart for iOS Safari (lightweight-charts canvas fails on mobile due to height collapse + WebGL issues)
-- **DashboardCharts.tsx** — Auto-detects mobile via user agent + viewport width, switches between TradingChart (desktop) and MobileAreaChart (mobile)
-- **TradingChart.tsx** — Added explicit `height` + `minHeight` style to prevent iOS container collapse
-
-### Strategy Documentation UI
-- **PerpStrategyPanel.tsx** — Each strategy card has expandable "How?" section showing: how it works, entry signal, exit strategy, risk management, best market conditions
-
-### Restored Strategy Files
-- **perp_ninja_strategy.py** — Ninja Ambush strategy (confluence-based entries)
-- **perp_grid_strategy.py** — ATR-based grid trading with optional martingale
-- **perp_backtest.py** — Backtesting engine with Sharpe ratio, profit factor, max drawdown
+### Core System (earlier sessions)
+- Full perpetual paper trading system with 10 markets, real-time Binance WebSocket charts
+- Critical bug fixes: TP trigger chain, liquidation formula, ATR scaling
+- Advanced position management: partial close, pyramiding, flipping, core/satellite
+- Pending orders with limit/stop types, trigger execution, expiry
+- Trailing stops profit-activated (not from entry)
 
 ---
 
 ## 13. Known Tech Debt & Considerations
 
-1. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID with `setTimeout`. Real deposits go through `depositService.ts`.
-2. **Trade log field inconsistency** — `timestamp` (server/API) vs `time` (client autoTrader.ts). View now handles both but root cause should be unified.
-3. **Bundle size warning** — Main chunk >500KB. Could benefit from more aggressive code splitting or `manualChunks` in Vite config.
-4. **No automated tests for frontend** — Only Python tests exist (`npm run test` runs pytest).
+1. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra.
+2. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks.
+3. **Bundle size warning** — Main chunk >500KB. Could benefit from code splitting.
+4. **No automated tests for frontend** — Only Python tests exist.
 5. **Legacy DB name "flub"** — Consider migrating to "budju" for clarity.
-6. **Google Analytics + Vercel Analytics** — Both are now active. Consider consolidating to just Vercel Analytics.
-7. **React 19 strict mode not enabled** — `main.tsx` uses `createRoot` without `<StrictMode>`.
-8. **tokenService.ts (940 lines)** — Large utility file in `src/lib/utils/` that could be broken up.
-9. **window.solana / window.solflare globals** — Direct wallet provider access alongside adapter pattern. Works but fragile.
-10. **No TypeScript on Python API** — Python endpoints lack type hints in some handler functions.
-11. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra (VM, Railway, or split Vercel functions).
-12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture.
-13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
-14. **Trailing stop activation stored as price level** — `trailing_stop_activation` field on position doc. Existing positions opened before this change won't have it (they'll have `trailing_stop_price` set from entry — old behavior still works, just not profit-gated).
-15. **Ninja/Grid/Backtest strategies not integrated into cron** — Standalone files restored from previous branch but not yet wired into `perp-cron.py` or the strategy config UI. Need integration work to enable via the strategy panel.
-16. **Pending orders UI lacks real-time price updates for all markets** — Uses Binance WebSocket for the selected symbol only. Other orders show stale distance calculations until their symbol is selected.
+6. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID. Real deposits use depositService.ts.
+7. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors.
+8. **Pending orders UI lacks real-time price for all markets** — Uses Binance WS for selected symbol only.
+9. **HF Scalper can generate many positions** — Max 15 concurrent, but monitor account balance consumption.
+10. **Zone Recovery can accumulate exposure** — 15% equity cap per zone, but monitor if multiple zones stress the balance.
+11. **Equity curve requires ~20 cron ticks of data** — New accounts trade at full size until enough snapshots accumulate.
 
 ---
 
-*Last updated: March 13, 2026.*
+*Last updated: March 14, 2026.*
