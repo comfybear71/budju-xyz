@@ -501,11 +501,12 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 ### Chart System (March 14, 2026 — IMPORTANT)
 
 **What works:**
-- **DashboardCharts.tsx** — ALWAYS uses TradingChart (candle charts) for ALL devices. Uses `LazyChart` wrapper with IntersectionObserver to defer WebSocket connections until chart scrolls into view (prevents iOS Safari WebSocket limit). Mobile gets 4 charts in grid, desktop gets 6.
-- **TradingChart.tsx** — TradingView `lightweight-charts` candle chart with live Binance WebSocket streaming, AI prediction line, signal badges, position overlays (SL/TP/Liq lines), strategy labels.
+- **DashboardCharts.tsx** — ALWAYS uses TradingChart (candle charts) for ALL devices. Uses `LazyChart` wrapper with IntersectionObserver to defer WebSocket connections until chart scrolls into view (prevents iOS Safari WebSocket limit). Mobile gets 4 charts in grid, desktop gets 6. Grid and focus chart cards flash green/red borders + glow shadow on real-time price changes.
+- **TradingChart.tsx** — TradingView `lightweight-charts` candle chart with live Binance WebSocket streaming, AI prediction line, signal badges, position overlays (SL/TP/Liq lines), strategy labels. Default interval is 1h (was 15m). Toggle buttons (Vol/Trades/Positions/AI/Strats, Candle/Line, signal badge) have `stopPropagation()` to prevent accidental view switching in grid mode. New "Strats" button shows a strategy popup with active strategies per market.
 - **MobileAreaChart.tsx** — Exists as a standalone SVG chart component but is NOT used by DashboardCharts. Can be used for other contexts if needed.
 - **api/klines.ts** — Proxy at `/api/klines` with cascade: Binance.US -> OKX -> Binance Global. Works from any location.
 - **TradingChart data source** — Tries `/api/klines` proxy first (works from any VPN/location), then falls back to direct `api.binance.com` (faster when not geo-blocked).
+- **binanceWs.ts** — WebSocket streams cycle through 3 fallback endpoints (`stream.binance.com` → `data-stream.binance.com` → `stream.binance.us`) on disconnect. Fixes geo-blocking in AU/US.
 
 **What went wrong (DO NOT REPEAT):**
 1. Added MobileAreaChart as a conditional replacement for TradingChart in DashboardCharts based on screen width detection. This caused desktop to show area charts instead of candles through 5+ broken iterations.
@@ -514,6 +515,44 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 4. **Root cause:** DashboardCharts should NEVER conditionally swap TradingChart for MobileAreaChart. The working version (from branch `claude/apply-cleanup-workflow-changes-NfvoU`) always uses TradingChart. Period.
 5. **Geo-blocking:** Binance Global (`api.binance.com`) returns HTTP 451 from US IPs. This affects both Vercel servers (US region) AND users with US VPN. Solution: TradingChart now tries proxy first.
 6. **Content blockers:** iPhone content blockers block URLs containing "binance" — both `api.binance.com` AND paths like `/api/binance`. Solution: proxy renamed to `/api/klines`.
+
+### Live Charts & Trading UX Improvements (March 14, 2026 — Session 2)
+
+Changes made:
+
+1. **WebSocket fallback endpoints** — `binanceWs.ts` now cycles through 3 WebSocket endpoints (`stream.binance.com` → `data-stream.binance.com` → `stream.binance.us`) on disconnect. Both `BinancePriceStream` and `BinanceKlineStream` use this fallback logic. Fixes geo-blocking in AU/US.
+
+2. **WS LIVE badge always visible** — The WS badge in Trade.tsx header now always shows: amber "WS ..." while connecting, green "WS LIVE (count)" when connected. Previously hidden when disconnected.
+
+3. **Live price border colors on chart cards** — DashboardCharts grid and focus chart cards flash green/red borders + glow shadow on real-time price changes (3-second duration). Uses `prevPricesRef` to track price direction per market.
+
+4. **Signal badge repositioned** — In TradingChart, the signal badge (e.g. "SCALP SHORT 21%") moved from cramped header row to its own line below the currency label (BTC/USDT). Works in both compact (grid) and full (focus) mode. Compact mode now shows full text badge instead of just a colored dot.
+
+5. **Default chart interval changed to 1h** — Both `fetchHistoricalKlines` and `BinanceKlineStream` in TradingChart now use "1h" interval instead of "15m".
+
+6. **Toggle button click fix** — Added `stopPropagation()` to Vol/Trades/Positions/AI toggle buttons, Candle/Line buttons, and signal badge in TradingChart. Previously clicking these in grid view would bubble up to the parent card's onClick and switch to focus mode.
+
+7. **Pages scroll to top on cold start** — Added `window.history.scrollRestoration = "manual"` in Layout component to prevent browser overriding the manual `scrollTo(0,0)` on route change.
+
+8. **Hover effects on all buttons** — Added hover effects to all buttons missing them:
+   - Trade page: Orders, Auto Trader, Live Charts cards → `hover:scale-[1.02] hover:brightness-125`
+   - FAQ section: background highlight on hover
+   - NFT detail: like button scale on hover
+   - Carousel dots (NFTShowcase + ShopOfBudjusPreview): scale up + brighten on hover
+
+9. **Brighter chart text** — All chart overlay text brightened: `slate-600` → `slate-400`, `slate-500` → `slate-300` across strategy breakdown panel, position info, recent trades, and toggle button off-states.
+
+10. **Default toggle states** — Trades & Positions buttons now default OFF on cold start. Vol & AI remain ON.
+
+11. **Strategy popup menu on charts** — New "Strats" button next to AI in the chart toggle bar:
+    - Purple themed with green badge showing count of active strategies on that market
+    - Slide-up popup panel shows each active strategy: icon, name, ACTIVE badge, leverage, max positions
+    - Coin row with SOL/BTC/ETH/SUI/AVAX/LINK badges — GREEN if strategy trades that coin, highlighted if current chart's market
+    - Shows active positions with direction + P&L for each strategy on the market
+    - Footer: "X strategies enabled total · Y on {coin}"
+    - DashboardCharts fetches `fetchStrategyStatus(wallet)` every 30s and passes to all TradingChart instances
+    - New `STRATEGY_META` constant maps strategy keys to display names and icons
+    - New `slideUp` CSS keyframe animation in globals.css
 
 ### Core System (earlier sessions)
 - Full perpetual paper trading system with 10 markets, real-time Binance WebSocket charts
