@@ -571,20 +571,50 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
 
 # ── Persistent Trader State ──────────────────────────────────────────────────
 
+DEFAULT_TRADER_STATE = {
+    "pendingOrders": [],
+    "autoTiers": {
+        "tier1": {"deviation": 2, "allocation": 10},
+        "tier2": {"deviation": 5, "allocation": 5},
+    },
+    "autoCooldowns": {},
+    "autoTradeLog": [],
+}
+
+
 def get_trader_state() -> Dict:
     doc = trader_state_collection.find_one({"_id": "admin_state"})
     if not doc:
-        return {
-            "pendingOrders": [],
-            "autoTiers": {"tier1": {"deviation": 2, "allocation": 10}, "tier2": {"deviation": 5, "allocation": 5}},
-            "autoCooldowns": {},
-            "autoTradeLog": []
-        }
+        return dict(DEFAULT_TRADER_STATE)
     doc.pop("_id", None)
+    # Merge defaults for any missing keys
+    for key, default_val in DEFAULT_TRADER_STATE.items():
+        if key not in doc:
+            doc[key] = default_val
+    # Ensure all tier defaults are present
+    if "autoTiers" in doc and isinstance(doc["autoTiers"], dict):
+        for tier_key, tier_defaults in DEFAULT_TRADER_STATE["autoTiers"].items():
+            if tier_key not in doc["autoTiers"]:
+                doc["autoTiers"][tier_key] = dict(tier_defaults)
+            elif isinstance(doc["autoTiers"][tier_key], dict):
+                for k, v in tier_defaults.items():
+                    doc["autoTiers"][tier_key].setdefault(k, v)
     return doc
 
 
 def save_trader_state(state: Dict) -> Dict:
+    # Deep-merge autoTiers so partial tier updates don't wipe other tiers
+    if "autoTiers" in state:
+        existing = trader_state_collection.find_one({"_id": "admin_state"})
+        if existing and "autoTiers" in existing:
+            merged = dict(existing["autoTiers"])
+            for tier_key, tier_val in state["autoTiers"].items():
+                if tier_key in merged and isinstance(tier_val, dict):
+                    merged[tier_key] = {**merged[tier_key], **tier_val}
+                else:
+                    merged[tier_key] = tier_val
+            state["autoTiers"] = merged
+
     trader_state_collection.update_one(
         {"_id": "admin_state"},
         {"$set": state},

@@ -546,11 +546,21 @@ def close_position(position_id: str, exit_price: float,
         slippage_pct = 0
     else:
         # ── PAPER MODE: Simulate slippage ─────────────────────────
-        slippage_pct = simulate_slippage(size_usd, exit_price)
-        if direction == "long":
-            fill_price = exit_price * (1 - slippage_pct)
+        # For TP/SL exits, use the target price as fill (like a real limit order)
+        # instead of mark_price minus slippage — a TP order on an exchange
+        # fills at the TP price, not at a worse price.
+        if exit_type == "take_profit" and pos.get("take_profit"):
+            fill_price = pos["take_profit"]
+            slippage_pct = 0
+        elif exit_type == "stop_loss" and pos.get("stop_loss"):
+            fill_price = pos["stop_loss"]
+            slippage_pct = 0
         else:
-            fill_price = exit_price * (1 + slippage_pct)
+            slippage_pct = simulate_slippage(size_usd, exit_price)
+            if direction == "long":
+                fill_price = exit_price * (1 - slippage_pct)
+            else:
+                fill_price = exit_price * (1 + slippage_pct)
         close_fee = calculate_fees(size_usd)
 
     # Calculate final P&L

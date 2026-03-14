@@ -602,7 +602,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
         )}
 
         {activeTab === "history" && (
-          <PerpTradeHistory trades={trades} />
+          <PerpTradeHistory trades={trades} onRefresh={loadData} />
         )}
 
         {activeTab === "ai" && (
