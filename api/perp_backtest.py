@@ -16,9 +16,13 @@
 # from perp_strategies.calculate_position_size().
 # ==========================================
 
+import os
+import sys
 import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+
+sys.path.insert(0, os.path.dirname(__file__))
 
 # Import strategy functions and helpers directly — no DB dependency
 from perp_strategies import (

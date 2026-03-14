@@ -399,6 +399,15 @@ class handler(BaseHTTPRequestHandler):
                 candidates = get_reentry_candidates(wallet, price_map)
                 self._send_json(200, {"candidates": candidates, "count": len(candidates)})
 
+            elif path == '/api/perp/backtest':
+                strategy = params.get('strategy', 'trend_following')
+                symbol = params.get('symbol', 'SOL-PERP')
+                periods = int(params.get('periods', '1440'))
+                balance = float(params.get('balance', '10000'))
+                from perp_backtest import run_backtest_from_db
+                result = run_backtest_from_db(strategy, symbol, periods, balance)
+                self._send_json(200, result)
+
             else:
                 self._send_json(404, {"error": "Not found"})
 

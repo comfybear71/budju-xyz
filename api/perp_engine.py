@@ -60,7 +60,8 @@ BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr base borrow fee
 MAINTENANCE_MARGIN_PCT = 0.05   # 5% maintenance margin
 MAX_LEVERAGE = 50                # Max 50x
 MIN_LEVERAGE = 2                 # Min 2x
-MAX_OPEN_POSITIONS = 5           # Max concurrent positions
+MAX_POSITIONS_PER_SIDE = 5       # Max 5 longs + 5 shorts per symbol
+MAX_OPEN_POSITIONS = 50          # Soft global cap (10 symbols × 5 per side)
 MAX_POSITION_PCT = 0.50          # Max 50% of equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause
 
@@ -322,13 +323,23 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
 
     # Apply different limits for live vs paper
     max_lev = LIVE_MAX_LEVERAGE if is_live else market["max_leverage"]
-    max_positions = LIVE_MAX_OPEN_POSITIONS if is_live else MAX_OPEN_POSITIONS
     leverage = max(MIN_LEVERAGE, min(leverage, max_lev))
 
-    open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
-    if open_count >= max_positions:
-        raise ValueError(f"Max {max_positions} open positions allowed" +
-                         (" (live mode limit)" if is_live else ""))
+    if is_live:
+        # Live: keep strict global limit
+        open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
+        if open_count >= LIVE_MAX_OPEN_POSITIONS:
+            raise ValueError(f"Max {LIVE_MAX_OPEN_POSITIONS} open positions allowed (live mode limit)")
+    else:
+        # Paper: 5 per side per symbol (5 longs + 5 shorts per currency)
+        same_side_count = perp_positions.count_documents({
+            "account_id": wallet, "status": "open",
+            "symbol": symbol, "direction": direction,
+        })
+        if same_side_count >= MAX_POSITIONS_PER_SIDE:
+            raise ValueError(
+                f"Max {MAX_POSITIONS_PER_SIDE} {direction} positions on {symbol} allowed"
+            )
 
     equity = account["equity"]
     max_size = equity * MAX_POSITION_PCT
@@ -1138,8 +1149,8 @@ def create_pending_order(wallet: str, symbol: str, direction: str, leverage: int
     pending_count = perp_pending_orders.count_documents({
         "account_id": wallet, "status": "pending"
     })
-    if pending_count >= 10:
-        raise ValueError("Max 10 pending orders allowed")
+    if pending_count >= 30:
+        raise ValueError("Max 30 pending orders allowed")
 
     order = {
         "account_id": wallet,
@@ -1175,6 +1186,26 @@ def cancel_pending_order(order_id: str, wallet: str) -> Dict:
     )
     order["status"] = "cancelled"
     return _format_pending_order(order)
+
+
+def cancel_all_pending_orders(wallet: str, symbol: str = None) -> Dict:
+    """Cancel all pending orders for a wallet, optionally filtered by symbol."""
+    query = {"account_id": wallet, "status": "pending"}
+    if symbol:
+        query["symbol"] = symbol
+    result = perp_pending_orders.update_many(
+        query,
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow()}}
+    )
+    return {"cancelled": result.modified_count}
+
+
+def get_pending_order_count(wallet: str) -> int:
+    """Count pending orders for a wallet."""
+    return perp_pending_orders.count_documents({"account_id": wallet, "status": "pending"})
+
+
+MAX_PENDING_ORDERS = 30
 
 
 def check_pending_orders(wallet: str, prices: Dict[str, float]) -> List[Dict]:
@@ -1244,10 +1275,10 @@ def check_pending_orders(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     return triggered
 
 
-def get_pending_orders(wallet: str) -> List[Dict]:
-    """Get all pending orders for a wallet."""
+def get_pending_orders(wallet: str, status: str = "pending") -> List[Dict]:
+    """Get orders for a wallet, filtered by status (default: pending)."""
     orders = list(perp_pending_orders.find(
-        {"account_id": wallet, "status": "pending"}
+        {"account_id": wallet, "status": status}
     ).sort("created_at", -1))
     return [_format_pending_order(o) for o in orders]
 

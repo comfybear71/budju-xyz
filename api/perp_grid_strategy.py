@@ -26,12 +26,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 from database import db
 from perp_engine import (
     MARKETS, INITIAL_BALANCE, MAX_OPEN_POSITIONS,
-    open_position, get_open_positions, perp_accounts, perp_positions,
+    open_position, perp_accounts, perp_positions,
+    create_pending_order, cancel_all_pending_orders, get_pending_orders,
 )
 from perp_strategies import get_price_series, store_price, atr
-from perp_pending_orders import (
-    place_pending_order, cancel_all_pending_orders, get_pending_orders,
-)
 
 # ── Collections ──────────────────────────────────────────────────────────
 
@@ -241,16 +239,16 @@ def place_grid_orders(wallet: str, symbol: str, grid: Dict) -> List[Dict]:
     # Place buy limit orders below price
     for level in grid["buy_levels"]:
         try:
-            order = place_pending_order(
+            order = create_pending_order(
                 wallet=wallet,
                 symbol=symbol,
-                order_type="limit_buy",
-                trigger_price=level["price"],
-                size_usd=level["size_usd"],
+                direction="long",
                 leverage=GRID_LEVERAGE,
+                size_usd=level["size_usd"],
+                order_type="limit",
+                trigger_price=level["price"],
                 stop_loss=level["sl"],
                 take_profit=level["tp"],
-                trailing_stop_pct=None,
                 entry_reason=f"[grid] buy_L{level['level']} @ ${level['price']:.4f}",
                 expiry_hours=GRID_EXPIRY_HOURS,
             )
@@ -269,16 +267,16 @@ def place_grid_orders(wallet: str, symbol: str, grid: Dict) -> List[Dict]:
     # Place sell limit orders above price
     for level in grid["sell_levels"]:
         try:
-            order = place_pending_order(
+            order = create_pending_order(
                 wallet=wallet,
                 symbol=symbol,
-                order_type="limit_sell",
-                trigger_price=level["price"],
-                size_usd=level["size_usd"],
+                direction="short",
                 leverage=GRID_LEVERAGE,
+                size_usd=level["size_usd"],
+                order_type="limit",
+                trigger_price=level["price"],
                 stop_loss=level["sl"],
                 take_profit=level["tp"],
-                trailing_stop_pct=None,
                 entry_reason=f"[grid] sell_L{level['level']} @ ${level['price']:.4f}",
                 expiry_hours=GRID_EXPIRY_HOURS,
             )

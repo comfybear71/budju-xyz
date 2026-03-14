@@ -73,6 +73,26 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     riskManagement: "5x leverage, max 1 position (high conviction only). Requires strong confirmation to avoid false breakouts. 30-min cooldown.",
     bestConditions: "After periods of consolidation/low volatility. Works best when volume confirms the breakout direction.",
   },
+  ninja: {
+    name: "Ninja Ambush",
+    desc: "Places pending orders at key technical levels. Orders wait like ambushes at support/resistance.",
+    icon: "🥷",
+    howItWorks: "Detects key price levels from 5 sources: swing highs/lows, Bollinger Band extremes, previous session levels, round psychological numbers, and liquidity sweep clusters. Levels are scored by confluence — multiple sources agreeing on the same level score higher. Top-ranked levels get pending limit/stop orders placed automatically.",
+    entrySignal: "Limit buy at support (swing lows, BB lower, round numbers). Limit sell at resistance (swing highs, BB upper). Stop buy above breakout levels. Stop sell below breakdown levels. Only levels 2-8% from current price qualify.",
+    exitStrategy: "SL at 2.5x ATR from entry. TP at 6x ATR. 2% profit-activated trailing stop. Orders expire after 24 hours and refresh with new analysis.",
+    riskManagement: "Conservative 2x leverage. Max 8 pending orders (leaves room for manual orders). Max 2 orders per symbol. 1% equity risk per order, halved at 5% drawdown. Stops entirely at 10% drawdown.",
+    bestConditions: "Markets with clear technical structure (support/resistance). Excels when price bounces between levels. Outperforms in volatile but range-bound conditions.",
+  },
+  grid: {
+    name: "Grid Trading",
+    desc: "ATR-based grid of buy/sell limit orders. Profits from price oscillation between levels.",
+    icon: "📊",
+    howItWorks: "Places 5 buy limit orders below current price and 5 sell limit orders above, spaced at 0.5x ATR intervals. Each order has a TP at the next grid level (one spacing away) and a catastrophic SL at 3x spacing. Grid auto-refreshes hourly or when price drifts >3 spacings from center. Selects the most range-bound symbols (lowest ATR/price ratio).",
+    entrySignal: "Automatic limit orders at each grid level. Buy orders below price, sell orders above. Grid spacing adapts to current volatility via ATR.",
+    exitStrategy: "Each trade targets exactly one grid spacing profit. Catastrophic stop at 3x spacing. Orders expire after 2 hours (refreshed hourly). Grid rebalances when price drifts too far from center.",
+    riskManagement: "Conservative 2x leverage. 0.5% of equity per grid level. Max 2 symbols running grids simultaneously. Optional martingale (doubling each level) is disabled by default with hard cap at level 5 and 10% equity limit.",
+    bestConditions: "Sideways/choppy markets with regular oscillations. Best on liquid pairs (SOL, BTC, ETH). Underperforms in strong directional trends.",
+  },
   grid_bot: {
     name: "Grid / Futures Grid",
     desc: "Automated buy-low/sell-high within a price range.",
@@ -412,7 +432,7 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
       <div className="bg-slate-800/20 rounded-lg p-2.5 border border-white/[0.02]">
         <div className="text-[10px] text-slate-500 space-y-1">
           <p><strong className="text-slate-400">How it works:</strong> The cron runs every minute, fetches live prices, calculates technical indicators, and auto-places trades when signals align.</p>
-          <p><strong className="text-slate-400">Risk management:</strong> 1.5% equity risk per trade, ATR-based stops, max 5 concurrent positions, 20% daily loss circuit breaker.</p>
+          <p><strong className="text-slate-400">Risk management:</strong> 1.5% equity risk per trade, ATR-based stops, 5 positions per side per symbol, 2hr cooldown, 20% daily loss circuit breaker.</p>
           <p><strong className="text-slate-400">Data needed:</strong> ~{status.min_candles_required} candles of price data. Historical data is auto-seeded from Binance on first run — strategies activate immediately.</p>
         </div>
       </div>

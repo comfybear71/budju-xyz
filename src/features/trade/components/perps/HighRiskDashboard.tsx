@@ -558,7 +558,9 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             positions={positions}
             onClose={handleClosePosition}
             onModify={handleModifyPosition}
+            onRefresh={loadData}
             readOnly={effectiveReadOnly}
+            wallet={wallet}
           />
         )}
 

@@ -1,14 +1,28 @@
 import { useState } from "react";
 import type { PerpPosition } from "../../types/perps";
+import {
+  partialClosePosition,
+  pyramidPosition,
+  flipPosition,
+  setPositionType,
+} from "../../services/perpApi";
 
 interface Props {
   positions: PerpPosition[];
   onClose: (positionId: string, exitPrice: number) => void;
   onModify: (positionId: string) => void;
+  onRefresh?: () => void;
   readOnly?: boolean;
+  wallet?: string;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet }: Props) => {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [closePct, setClosePct] = useState(50);
+  const [pyramidSize, setPyramidSize] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   if (positions.length === 0) {
     return (
       <div className="text-center py-8 text-slate-500 text-xs">
@@ -17,6 +31,66 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
     );
   }
 
+  const handlePartialClose = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`partial-${pos._id}`);
+      setActionError(null);
+      await partialClosePosition(pos._id, pos.mark_price, closePct, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to partial close");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handlePyramid = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    const size = pyramidSize || Math.round(pos.size_usd * 0.5);
+    try {
+      setActionLoading(`pyramid-${pos._id}`);
+      setActionError(null);
+      await pyramidPosition(pos._id, size, pos.mark_price, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to pyramid");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleFlip = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`flip-${pos._id}`);
+      setActionError(null);
+      await flipPosition(pos._id, pos.mark_price, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to flip");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSetType = async (pos: PerpPosition, type: "core" | "satellite") => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`type-${pos._id}`);
+      setActionError(null);
+      await setPositionType(pos._id, type, wallet);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to set type");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <div className="space-y-2">
       {positions.map((pos) => {
@@ -24,6 +98,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
         const dirColor = pos.direction === "long" ? "text-emerald-400" : "text-red-400";
         const dirBg = pos.direction === "long" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20";
         const pnlSign = pos.unrealized_pnl >= 0 ? "+" : "";
+        const isExpanded = expandedId === pos._id;
+        const posType = pos.position_type || "satellite";
 
         return (
           <div key={pos._id} className="bg-slate-800/40 rounded-xl border border-white/[0.04] p-3">
@@ -34,6 +110,20 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
                   {pos.direction.toUpperCase()} {pos.leverage}x
                 </span>
+                {/* Position type badge */}
+                <span className={`text-[9px] px-1 py-0.5 rounded border ${
+                  posType === "core"
+                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                    : "bg-slate-700/40 text-slate-500 border-white/[0.04]"
+                }`}>
+                  {posType === "core" ? "CORE" : "SAT"}
+                </span>
+                {/* Pyramid level */}
+                {pos.pyramid_level && pos.pyramid_level > 0 && (
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                    P{pos.pyramid_level}
+                  </span>
+                )}
               </div>
               <div className={`text-sm font-bold ${pnlColor}`}>
                 {pnlSign}${pos.unrealized_pnl.toFixed(2)}
@@ -92,20 +182,118 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
 
             {/* Actions — hidden in read-only mode */}
             {!readOnly && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onModify(pos._id)}
-                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
-                >
-                  Modify
-                </button>
-                <button
-                  onClick={() => onClose(pos._id, pos.mark_price)}
-                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
-                >
-                  Close Position
-                </button>
-              </div>
+              <>
+                <div className="flex gap-1.5 mb-1.5">
+                  <button
+                    onClick={() => onModify(pos._id)}
+                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
+                  >
+                    Modify
+                  </button>
+                  <button
+                    onClick={() => onClose(pos._id, pos.mark_price)}
+                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {/* Advanced actions row */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : pos._id)}
+                    className="flex-1 text-[9px] py-1 rounded bg-white/[0.03] text-slate-500 hover:text-slate-300 transition-colors border border-white/[0.03]"
+                  >
+                    {isExpanded ? "Less" : "More"}
+                  </button>
+                  {wallet && (
+                    <>
+                      <button
+                        onClick={() => handleSetType(pos, posType === "core" ? "satellite" : "core")}
+                        disabled={actionLoading === `type-${pos._id}`}
+                        className="text-[9px] py-1 px-2 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20 disabled:opacity-40"
+                      >
+                        {actionLoading === `type-${pos._id}` ? "..." : posType === "core" ? "Satellite" : "Core"}
+                      </button>
+                      <button
+                        onClick={() => handleFlip(pos)}
+                        disabled={actionLoading === `flip-${pos._id}`}
+                        className="text-[9px] py-1 px-2 rounded bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors border border-purple-500/20 disabled:opacity-40"
+                      >
+                        {actionLoading === `flip-${pos._id}` ? "..." : "Flip"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Expanded actions panel */}
+                {isExpanded && wallet && (
+                  <div className="mt-2 space-y-2 p-2 rounded-lg bg-slate-900/50 border border-white/[0.04]">
+                    {actionError && (
+                      <div className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1 border border-red-500/20">
+                        {actionError}
+                        <button onClick={() => setActionError(null)} className="ml-1 text-slate-500">x</button>
+                      </div>
+                    )}
+
+                    {/* Partial Close */}
+                    <div>
+                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Partial Close</div>
+                      <div className="flex gap-1.5 items-center">
+                        <input
+                          type="range"
+                          min={10}
+                          max={90}
+                          step={10}
+                          value={closePct}
+                          onChange={(e) => setClosePct(Number(e.target.value))}
+                          className="flex-1 h-1 accent-red-400"
+                        />
+                        <span className="text-[10px] text-slate-300 w-8 text-right">{closePct}%</span>
+                        <button
+                          onClick={() => handlePartialClose(pos)}
+                          disabled={actionLoading === `partial-${pos._id}`}
+                          className="text-[10px] py-1 px-2 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20 disabled:opacity-40"
+                        >
+                          {actionLoading === `partial-${pos._id}` ? "..." : `Close ${closePct}%`}
+                        </button>
+                      </div>
+                      <div className="text-[9px] text-slate-600 mt-0.5">
+                        Closes ${(pos.size_usd * closePct / 100).toFixed(2)} of ${pos.size_usd.toFixed(2)}
+                      </div>
+                    </div>
+
+                    {/* Pyramid (only if in profit) */}
+                    <div>
+                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">
+                        Pyramid (Add to Position)
+                        {pos.unrealized_pnl < 0 && (
+                          <span className="ml-1 text-red-400 normal-case">- needs profit</span>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5 items-center">
+                        <input
+                          type="number"
+                          placeholder={`$${Math.round(pos.size_usd * 0.5)}`}
+                          value={pyramidSize || ""}
+                          onChange={(e) => setPyramidSize(Number(e.target.value))}
+                          className="flex-1 bg-slate-800 border border-white/[0.06] rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                        <button
+                          onClick={() => handlePyramid(pos)}
+                          disabled={actionLoading === `pyramid-${pos._id}` || pos.unrealized_pnl < 0}
+                          className="text-[10px] py-1 px-2 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors border border-emerald-500/20 disabled:opacity-40"
+                        >
+                          {actionLoading === `pyramid-${pos._id}` ? "..." : "Add"}
+                        </button>
+                      </div>
+                      <div className="text-[9px] text-slate-600 mt-0.5">
+                        Max 3 pyramid levels. Each level 50% of previous size.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         );

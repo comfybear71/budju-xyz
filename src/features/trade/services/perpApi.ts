@@ -327,3 +327,41 @@ export async function fetchReentryCandidates(
 ): Promise<{ candidates: ReentryCandidate[]; count: number }> {
   return fetchJson(`${API_BASE}/reentry-candidates?wallet=${wallet}`);
 }
+
+// ── Backtesting ──────────────────────────────────────────────────────────
+
+export interface BacktestResult {
+  strategy: string;
+  symbol: string;
+  initial_balance: number;
+  final_balance: number;
+  total_return_pct: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  profit_factor: number;
+  sharpe_ratio: number;
+  max_drawdown_pct: number;
+  avg_trade_pnl: number;
+  trades: Array<{
+    direction: string;
+    entry_price: number;
+    exit_price: number;
+    pnl: number;
+    exit_type: string;
+    bars_held: number;
+  }>;
+  equity_curve: Array<{ bar: number; equity: number }>;
+}
+
+export async function runBacktest(
+  strategy: string,
+  symbol: string,
+  periods = 1440,
+  balance = 10000,
+): Promise<BacktestResult> {
+  return fetchJson(
+    `${API_BASE}/backtest?strategy=${strategy}&symbol=${symbol}&periods=${periods}&balance=${balance}`,
+  );
+}

@@ -106,6 +106,24 @@ DEFAULT_STRATEGIES = {
         "max_positions": 2,        # Was 3 — reduced
         "markets": ["SOL-PERP", "BTC-PERP"],
     },
+    "ninja": {
+        "enabled": False,          # Ninja Ambush — pending orders at key levels
+        "leverage": 2,
+        "sl_atr_mult": 2.5,
+        "tp_atr_mult": 6.0,
+        "trailing_stop_pct": 2.0,
+        "max_positions": 8,        # Max pending orders
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+    },
+    "grid": {
+        "enabled": False,          # Grid Trading — ATR-based grid of limit orders
+        "leverage": 2,
+        "sl_atr_mult": 3.0,       # Catastrophic stop at 3x grid spacing
+        "tp_atr_mult": 1.0,       # TP one grid level away
+        "trailing_stop_pct": 0,
+        "max_positions": 10,       # 5 buy + 5 sell levels
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
+    },
 }
 
 # How many 1-minute candles we need for calculations
@@ -993,6 +1011,34 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     "error": str(e),
                 })
 
+    # ── Run Ninja Ambush strategy (pending orders at key levels) ──
+    ninja_config = config.get("strategies", {}).get("ninja", {})
+    if ninja_config.get("enabled"):
+        try:
+            from perp_ninja_strategy import run_ninja_strategy
+            peak_equity = account.get("peak_equity", equity)
+            ninja_actions = run_ninja_strategy(wallet, prices, equity, peak_equity)
+            for a in ninja_actions:
+                a["strategy"] = "ninja"
+            actions.extend(ninja_actions)
+        except Exception as e:
+            print(f"[auto_trader] Ninja strategy error: {e}")
+            actions.append({"action": "error", "strategy": "ninja", "error": str(e)})
+
+    # ── Run Grid Trading strategy (ATR-based grid of limit orders) ──
+    grid_config = config.get("strategies", {}).get("grid", {})
+    if grid_config.get("enabled"):
+        try:
+            from perp_grid_strategy import run_grid_strategy
+            peak_equity = account.get("peak_equity", equity)
+            grid_actions = run_grid_strategy(wallet, prices, equity, peak_equity)
+            for a in grid_actions:
+                a["strategy"] = "grid"
+            actions.extend(grid_actions)
+        except Exception as e:
+            print(f"[auto_trader] Grid strategy error: {e}")
+            actions.append({"action": "error", "strategy": "grid", "error": str(e)})
+
     return actions
 
 
@@ -1016,7 +1062,8 @@ def get_strategy_status(wallet: str) -> Dict:
     # Active strategy positions
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     strategy_positions = {}
-    for name in STRATEGY_FUNCS:
+    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid"]
+    for name in all_strategy_names:
         strategy_positions[name] = [
             {
                 "symbol": p["symbol"],

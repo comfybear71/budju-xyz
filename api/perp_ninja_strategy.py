@@ -27,9 +27,9 @@ from perp_strategies import (
     get_strategy_config, log_signal, calculate_position_size,
     COOLDOWN_MINUTES,
 )
-from perp_pending_orders import (
-    place_pending_order, get_pending_orders, cancel_pending_order,
-    get_pending_order_count, MAX_PENDING_ORDERS,
+from perp_engine import (
+    create_pending_order, get_pending_orders, cancel_pending_order,
+    get_pending_order_count, MAX_PENDING_ORDERS, perp_pending_orders,
 )
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -390,7 +390,7 @@ def cancel_ninja_orders(wallet: str) -> int:
         reason = order.get("entry_reason", "")
         if reason.startswith("[ninja]"):
             try:
-                cancel_pending_order(order["_id"], reason="ninja_refresh")
+                cancel_pending_order(order["_id"], wallet)
                 cancelled += 1
             except Exception as e:
                 print(f"[ninja] Failed to cancel order {order['_id']}: {e}")
@@ -562,14 +562,18 @@ def run_ninja_strategy(wallet: str, prices: Dict[str, float],
             f"score={level['score']}"
         )
 
+        # Map order_type to create_pending_order format
+        mapped_order_type = "limit" if "limit" in order_type else "stop"
+
         try:
-            order = place_pending_order(
+            order = create_pending_order(
                 wallet=wallet,
                 symbol=symbol,
-                order_type=order_type,
-                trigger_price=trigger_price,
-                size_usd=size_usd,
+                direction=direction,
                 leverage=NINJA_LEVERAGE,
+                size_usd=size_usd,
+                order_type=mapped_order_type,
+                trigger_price=trigger_price,
                 stop_loss=round(stop_loss, 6),
                 take_profit=round(take_profit, 6),
                 trailing_stop_pct=NINJA_TRAILING_STOP_PCT,
