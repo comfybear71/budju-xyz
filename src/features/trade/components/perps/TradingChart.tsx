@@ -596,96 +596,69 @@ const TradingChart = ({
     if (!showPositionLines) return;
 
     for (const pos of myPositions) {
-      // Entry price line
+      const isLong = pos.direction === "long";
+      // Entry — thin dotted line, short label
       priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
-        color: pos.direction === "long" ? "#22c55e" : "#ef4444",
+        color: isLong ? "rgba(34, 197, 94, 0.6)" : "rgba(239, 68, 68, 0.6)",
         lineWidth: 1,
-        lineStyle: LineStyle.Solid,
+        lineStyle: LineStyle.Dotted,
         axisLabelVisible: true,
-        title: `${pos.direction.toUpperCase()} Entry`,
+        title: isLong ? "L" : "S",
       }));
 
-      // Stop loss line
+      // SL — subtle dotted
       if (pos.stop_loss) {
         priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
-          color: "#f59e0b",
+          color: "rgba(245, 158, 11, 0.4)",
           lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          lineStyle: LineStyle.SparseDotted,
           axisLabelVisible: true,
           title: "SL",
         }));
       }
 
-      // Take profit line
+      // TP — subtle dotted
       if (pos.take_profit) {
         priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
-          color: "#a855f7",
+          color: "rgba(168, 85, 247, 0.4)",
           lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
+          lineStyle: LineStyle.SparseDotted,
           axisLabelVisible: true,
           title: "TP",
         }));
       }
 
-      // Liquidation line
+      // LIQ — faint dotted, only if within 15% of price
       if (pos.liquidation_price) {
-        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
-          price: pos.liquidation_price,
-          color: "#dc2626",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: true,
-          title: "LIQ",
-        }));
+        const liqDist = Math.abs(pos.liquidation_price - pos.entry_price) / pos.entry_price;
+        if (liqDist < 0.15) {
+          priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+            price: pos.liquidation_price,
+            color: "rgba(220, 38, 38, 0.3)",
+            lineWidth: 1,
+            lineStyle: LineStyle.SparseDotted,
+            axisLabelVisible: false,
+            title: "",
+          }));
+        }
       }
     }
-    // ── Pending Orders (dotted lines) ──
+    // ── Pending Orders — faint dotted lines ──
     for (const order of myOrders) {
       const isLong = order.direction === "long";
-      const typeLabel = order.order_type === "limit"
-        ? (isLong ? "BUY LIMIT" : "SELL LIMIT")
-        : (isLong ? "BUY STOP" : "SELL STOP");
 
-      // Strategy label from entry_reason e.g. "[ninja] support..."
-      const stratMatch = order.entry_reason?.match(/^\[([^\]]+)\]/);
-      const stratLabel = stratMatch ? ` [${stratMatch[1].toUpperCase()}]` : "";
-
-      // Trigger price line
+      // Trigger price — main pending order line
       priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: order.trigger_price,
-        color: isLong ? "#06b6d4" : "#f97316",
+        color: isLong ? "rgba(6, 182, 212, 0.5)" : "rgba(249, 115, 22, 0.5)",
         lineWidth: 1,
         lineStyle: LineStyle.SparseDotted,
         axisLabelVisible: true,
-        title: `${typeLabel}${stratLabel}`,
+        title: isLong ? "BL" : "SL",
       }));
-
-      // Pending order SL line
-      if (order.stop_loss) {
-        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
-          price: order.stop_loss,
-          color: "rgba(249, 115, 22, 0.4)",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: false,
-          title: "",
-        }));
-      }
-
-      // Pending order TP line
-      if (order.take_profit) {
-        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
-          price: order.take_profit,
-          color: "rgba(6, 182, 212, 0.4)",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: false,
-          title: "",
-        }));
-      }
     }
   }, [positions, pendingOrders, symbol, showPositionLines]);
 
