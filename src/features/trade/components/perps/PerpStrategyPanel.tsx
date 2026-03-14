@@ -123,6 +123,16 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     riskManagement: "3x leverage. Max 2 active zones across all symbols. Smooth martingale (1.3x) instead of classic 2x doubling reduces blowup risk significantly. 15% equity cap per zone prevents catastrophic accumulation. 10% drawdown circuit breaker.",
     bestConditions: "Choppy markets with mean-reverting tendencies. The zone width (1.5x ATR) adapts to volatility. Struggles in strong one-directional moves that exceed all recovery levels. Popular strategy pattern from forex Expert Advisors.",
   },
+  sr_reversal: {
+    name: "S/R Reversal",
+    desc: "Detects support/resistance levels from 15-min charts and trades reversals with RSI confirmation.",
+    icon: "🔄",
+    howItWorks: "Analyzes 15-minute candle data to identify key support and resistance levels via swing high/low clustering. When price approaches a known S/R level, the strategy looks for reversal confirmation: RSI oversold/overbought + price rejection (wick bounce). Clusters nearby levels within 0.3% to avoid duplicates. Requires price to be within 0.5% of the level to trigger.",
+    entrySignal: "LONG: Price touches support level (within 0.5%) + RSI < 35 + price bouncing up (close > open). SHORT: Price touches resistance level (within 0.5%) + RSI > 65 + price rejecting down (close < open). Only trades levels with 2+ confluent touches.",
+    exitStrategy: "Stop Loss at 1.5x ATR below entry. Take Profit at 3x ATR (2:1 reward/risk). 1% profit-activated trailing stop to lock in reversal gains.",
+    riskManagement: "3x leverage (conservative for reversals). Max 3 concurrent positions. 30-minute cooldown per symbol to avoid rapid re-entries at the same level. Uses 15-min timeframe for more reliable S/R detection than 1-min noise.",
+    bestConditions: "Markets with well-defined support/resistance zones. Works best on liquid pairs (SOL, BTC, ETH) that respect technical levels. Underperforms during strong breakouts through S/R.",
+  },
 };
 
 const PerpStrategyPanel = ({ wallet }: Props) => {

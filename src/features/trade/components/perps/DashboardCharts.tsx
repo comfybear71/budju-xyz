@@ -213,7 +213,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
               symbol={focusMarket.symbol}
               baseAsset={focusMarket.base}
               positions={positions}
-              trades={mobile ? undefined : trades}
+              trades={trades}
               height={mobile ? 250 : 350}
             />
           </div>
@@ -234,7 +234,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 symbol={m.symbol}
                 baseAsset={m.base}
                 positions={positions}
-                trades={mobile ? undefined : trades}
+                trades={trades}
                 height={mobile ? 140 : 180}
                 compact
               />

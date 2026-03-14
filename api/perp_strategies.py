@@ -160,6 +160,15 @@ DEFAULT_STRATEGIES = {
         "max_positions": 15,       # Many small positions
         "markets": list(MARKETS.keys()),  # All markets
     },
+    "sr_reversal": {
+        "enabled": False,          # S/R Reversal — 15-min support/resistance bounces
+        "leverage": 3,
+        "sl_atr_mult": 1.5,        # Tight SL behind the level
+        "tp_atr_mult": 3.0,        # Target back toward middle
+        "trailing_stop_pct": 1.0,
+        "max_positions": 3,
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+    },
 }
 
 # How many 1-minute candles we need for calculations
@@ -240,6 +249,132 @@ def get_candle_count(symbol: str) -> int:
     return perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
 
 
+def get_price_series_15m(symbol: str, count: int = 100) -> List[float]:
+    """Get the last N 15-minute close prices for a symbol.
+
+    Aggregates from stored 1-minute data by taking the last price
+    in each 15-minute bucket. If 15m candles were directly seeded,
+    uses those instead.
+    """
+    # First try directly stored 15m candles
+    docs_15m = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "15m"},
+        {"price": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(count))
+
+    if len(docs_15m) >= count:
+        return [d["price"] for d in reversed(docs_15m)]
+
+    # Fallback: aggregate from 1-minute data
+    # Need count * 15 one-minute candles to build count 15-min bars
+    needed_1m = count * 15 + 15  # Extra buffer
+    docs_1m = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "1m"},
+        {"price": 1, "timestamp": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(needed_1m))
+
+    if len(docs_1m) < 15:
+        return [d["price"] for d in reversed(docs_15m)] if docs_15m else []
+
+    # Group by 15-minute buckets
+    docs_1m.reverse()  # Chronological order
+    buckets = {}
+    for doc in docs_1m:
+        ts = doc["timestamp"]
+        # Round down to nearest 15-minute boundary
+        bucket_min = (ts.minute // 15) * 15
+        bucket_ts = ts.replace(minute=bucket_min, second=0, microsecond=0)
+        bucket_key = bucket_ts.isoformat()
+        buckets[bucket_key] = doc["price"]  # Last price in bucket = close
+
+    # Get the last N buckets
+    sorted_keys = sorted(buckets.keys())
+    prices_15m = [buckets[k] for k in sorted_keys[-count:]]
+    return prices_15m
+
+
+def seed_15m_candles(symbol: str, count: int = 200) -> int:
+    """Seed 15-minute historical candles from Binance for S/R analysis.
+
+    15-min candles give better support/resistance levels than 1-min noise.
+    """
+    existing = perp_price_history.count_documents(
+        {"symbol": symbol, "interval": "15m"}
+    )
+    if existing >= count:
+        return 0
+
+    binance_symbol = BINANCE_SYMBOLS.get(symbol)
+    if not binance_symbol:
+        return 0
+
+    needed = count - existing
+    url = (
+        f"https://api.binance.com/api/v3/klines"
+        f"?symbol={binance_symbol}&interval=15m&limit={min(needed, 500)}"
+    )
+    req = Request(url, headers={
+        "Accept": "application/json",
+        "User-Agent": "BudjuBot/1.0",
+    })
+
+    try:
+        with urlopen(req, timeout=10) as resp:
+            klines = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"[seed] Binance 15m fetch failed for {symbol}: {e}")
+        return 0
+
+    seeded = 0
+    for kline in klines:
+        open_time_ms = kline[0]
+        close_price = float(kline[4])
+        high_price = float(kline[2])
+        low_price = float(kline[3])
+        ts = datetime.utcfromtimestamp(open_time_ms / 1000)
+        ts = ts.replace(second=0, microsecond=0)
+
+        perp_price_history.update_one(
+            {"symbol": symbol, "timestamp": ts, "interval": "15m"},
+            {"$setOnInsert": {
+                "symbol": symbol,
+                "timestamp": ts,
+                "interval": "15m",
+                "price": close_price,
+                "high": high_price,
+                "low": low_price,
+                "updated_at": datetime.utcnow(),
+                "source": "binance_seed",
+            }},
+            upsert=True,
+        )
+        seeded += 1
+
+    if seeded > 0:
+        print(f"[seed] Seeded {seeded} 15m candles for {symbol}")
+    return seeded
+
+
+def get_15m_hlc(symbol: str, count: int = 100):
+    """Get 15-minute High, Low, Close arrays for S/R detection.
+
+    Returns (highs, lows, closes) lists.
+    """
+    docs = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "15m"},
+        {"price": 1, "high": 1, "low": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(count))
+
+    if not docs:
+        return [], [], []
+
+    docs.reverse()
+    highs = [d.get("high", d["price"]) for d in docs]
+    lows = [d.get("low", d["price"]) for d in docs]
+    closes = [d["price"] for d in docs]
+    return highs, lows, closes
+
+
 def seed_historical_candles(symbol: str, count: int = 120) -> int:
     """
     Fetch historical 1-minute candles from Binance public API and backfill.
@@ -307,6 +442,8 @@ def seed_all_markets(min_candles: int = None):
     for symbol in BINANCE_SYMBOLS:
         try:
             total_seeded += seed_historical_candles(symbol, fetch_count)
+            # Also seed 15-minute candles for S/R analysis
+            total_seeded += seed_15m_candles(symbol, 200)
         except Exception as e:
             print(f"[seed] Error seeding {symbol}: {e}")
     if total_seeded > 0:
@@ -1247,6 +1384,20 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             print(f"[auto_trader] HF Scalper error: {e}")
             actions.append({"action": "error", "strategy": "hf_scalper", "error": str(e)})
 
+    # ── Run S/R Reversal (15-min support/resistance reversal trading) ──
+    sr_config = config.get("strategies", {}).get("sr_reversal", {})
+    if sr_config.get("enabled"):
+        try:
+            from perp_sr_reversal import run_sr_reversal
+            peak_equity = account.get("peak_equity", equity)
+            sr_actions = run_sr_reversal(wallet, prices, equity, peak_equity)
+            for a in sr_actions:
+                a["strategy"] = "sr_reversal"
+            actions.extend(sr_actions)
+        except Exception as e:
+            print(f"[auto_trader] S/R Reversal error: {e}")
+            actions.append({"action": "error", "strategy": "sr_reversal", "error": str(e)})
+
     return actions
 
 
@@ -1270,7 +1421,7 @@ def get_strategy_status(wallet: str) -> Dict:
     # Active strategy positions
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     strategy_positions = {}
-    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid", "zone_recovery", "hf_scalper"]
+    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid", "zone_recovery", "hf_scalper", "sr_reversal"]
     for name in all_strategy_names:
         strategy_positions[name] = [
             {
