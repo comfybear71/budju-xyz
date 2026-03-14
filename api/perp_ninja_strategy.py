@@ -54,18 +54,20 @@ BREAKOUT_OFFSET_PCT = 0.05  # 0.05% beyond the extreme
 MICRO_LOOKBACK = 15  # 15 one-minute candles
 
 # ATR multiplier for stop loss — needs room to breathe past noise
-NINJA_SL_ATR_MULT = 1.5   # 1.5x ATR stop gives room for normal volatility
+# 1hr ATR for LINK ~$0.015, SOL ~$0.08, BTC ~$70, ETH ~$3
+# At 2x ATR: LINK=$0.03 (0.33%), SOL=$0.16 (0.18%), BTC=$140 (0.2%), ETH=$6 (0.3%)
+NINJA_SL_ATR_MULT = 2.0   # 2x ATR stop — room for normal 1hr volatility
 # ATR multiplier for take profit
-NINJA_TP_ATR_MULT = 3.0   # 3x ATR target (2:1 R:R)
+NINJA_TP_ATR_MULT = 4.0   # 4x ATR target (2:1 R:R after fees)
 # Trailing stop percentage
-NINJA_TRAILING_STOP_PCT = 1.0  # 1% trailing stop
+NINJA_TRAILING_STOP_PCT = 1.5  # 1.5% trailing stop
 
 # Max pending ninja orders
 MAX_NINJA_ORDERS = 10
 # Max orders per symbol
 MAX_ORDERS_PER_SYMBOL = 4
-# Leverage for ninja (higher for scalps, but still careful)
-NINJA_LEVERAGE = 5
+# Leverage for ninja scalps
+NINJA_LEVERAGE = 3
 # Order expiry — scalp orders go stale fast
 NINJA_EXPIRY_HOURS = 1  # 1 hour max, refreshed every cron cycle
 
