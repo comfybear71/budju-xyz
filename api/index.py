@@ -849,6 +849,7 @@ class handler(BaseHTTPRequestHandler):
                     trigger_price=float(body['triggerPrice']) if body.get('triggerPrice') else None,
                     stop_loss=float(body['stopLoss']) if body.get('stopLoss') else None,
                     take_profit=float(body['takeProfit']) if body.get('takeProfit') else None,
+                    direction=body.get('direction'),
                 )
                 self._send_json(200, result)
 

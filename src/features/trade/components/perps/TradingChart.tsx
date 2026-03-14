@@ -41,7 +41,7 @@ interface Props {
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
   strategyStatus?: StrategyStatus | null;
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
-  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string }) => void;
   onClosePosition?: (positionId: string, exitPrice: number) => void;
 }
 
@@ -52,6 +52,8 @@ interface DragState {
   positionId: string; // position or order ID
   priceLine: any;
   startPrice: number;
+  orderType?: string; // "stop" | "limit" — for pending orders
+  orderDirection?: string; // "long" | "short" — for pending orders
 }
 
 // Strategy display names and icons
@@ -301,7 +303,7 @@ const TradingChart = ({
   const positionFingerprintRef = useRef<string>("");
 
   // SL/TP/pending draggable line refs — separate from priceLinesRef so we can identify them
-  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp" | "pending"; positionId: string; priceLine: any }>>(new Map());
+  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp" | "pending"; positionId: string; priceLine: any; orderType?: string; orderDirection?: string }>>(new Map());
   const dragRef = useRef<DragState | null>(null);
   const [dragPrice, setDragPrice] = useState<{ type: "sl" | "tp" | "pending"; price: number } | null>(null);
 
@@ -697,7 +699,7 @@ const TradingChart = ({
       });
       priceLinesRef.current.push(pendingLine);
       if (canDrag) {
-        slTpLinesRef.current.set(`pending-${order._id}`, { type: "pending" as any, positionId: order._id, priceLine: pendingLine });
+        slTpLinesRef.current.set(`pending-${order._id}`, { type: "pending" as any, positionId: order._id, priceLine: pendingLine, orderType: order.order_type, orderDirection: order.direction });
       }
     }
   }, [positions, pendingOrders, symbol, showPositionLines, onModifySLTP, onModifyPendingOrder]);
@@ -753,6 +755,8 @@ const TradingChart = ({
         positionId: info.positionId,
         priceLine: info.priceLine,
         startPrice: info.priceLine.options().price,
+        orderType: info.orderType,
+        orderDirection: info.orderDirection,
       };
       container.style.cursor = "ns-resize";
       setDragPrice({ type: info.type, price: info.priceLine.options().price });
@@ -782,7 +786,27 @@ const TradingChart = ({
       if (!newPrice || newPrice <= 0) return;
 
       e.preventDefault();
-      drag.priceLine.applyOptions({ price: newPrice });
+
+      // For pending orders, update label/color when dragged across current price
+      if (drag.type === "pending" && drag.orderType && drag.orderDirection && livePrice > 0) {
+        let effectiveDir = drag.orderDirection;
+        if (drag.orderType === "stop") {
+          if (drag.orderDirection === "long" && newPrice < livePrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice > livePrice) effectiveDir = "long";
+        } else if (drag.orderType === "limit") {
+          if (drag.orderDirection === "long" && newPrice > livePrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice < livePrice) effectiveDir = "long";
+        }
+        const label = drag.orderType === "limit"
+          ? (effectiveDir === "long" ? "BUY LMT" : "SELL LMT")
+          : (effectiveDir === "long" ? "BUY STP" : "SELL STP");
+        const color = effectiveDir === "long"
+          ? "rgba(6, 182, 212, 0.7)"
+          : "rgba(249, 115, 22, 0.7)";
+        drag.priceLine.applyOptions({ price: newPrice, title: `⇕ ${label}`, color });
+      } else {
+        drag.priceLine.applyOptions({ price: newPrice });
+      }
       setDragPrice({ type: drag.type, price: newPrice });
     };
 
@@ -802,7 +826,25 @@ const TradingChart = ({
       // Call modify API if price actually changed
       if (Math.abs(finalPrice - drag.startPrice) > 0.0001) {
         if (drag.type === "pending") {
-          onModifyPendingOrder?.(drag.positionId, { triggerPrice: finalPrice });
+          const mods: { triggerPrice: number; direction?: string } = { triggerPrice: finalPrice };
+          // Auto-flip direction for stop orders when dragged across current price
+          // BUY STOP above price → drag below price = SELL STOP
+          // SELL STOP below price → drag above price = BUY STOP
+          // Same logic for limit orders (reversed)
+          if (drag.orderType === "stop" && drag.orderDirection && livePrice > 0) {
+            if (drag.orderDirection === "long" && finalPrice < livePrice) {
+              mods.direction = "short"; // BUY STOP → SELL STOP
+            } else if (drag.orderDirection === "short" && finalPrice > livePrice) {
+              mods.direction = "long"; // SELL STOP → BUY STOP
+            }
+          } else if (drag.orderType === "limit" && drag.orderDirection && livePrice > 0) {
+            if (drag.orderDirection === "long" && finalPrice > livePrice) {
+              mods.direction = "short"; // BUY LIMIT → SELL LIMIT
+            } else if (drag.orderDirection === "short" && finalPrice < livePrice) {
+              mods.direction = "long"; // SELL LIMIT → BUY LIMIT
+            }
+          }
+          onModifyPendingOrder?.(drag.positionId, mods);
         } else {
           const mods = drag.type === "sl"
             ? { stopLoss: finalPrice }

@@ -90,7 +90,7 @@ const LazyChart = ({
   strategyStatus?: StrategyStatus | null;
   pendingOrders?: PerpPendingOrder[];
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
-  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string }) => void;
   onClosePosition?: (positionId: string, exitPrice: number) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
@@ -440,7 +440,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
   }, [wallet, onRefresh]);
 
   // Handler for dragging pending order trigger price
-  const handleModifyPendingOrder = useCallback(async (orderId: string, mods: { triggerPrice?: number }) => {
+  const handleModifyPendingOrder = useCallback(async (orderId: string, mods: { triggerPrice?: number; direction?: string }) => {
     if (!wallet) return;
     try {
       await modifyPendingOrder(orderId, mods, wallet);

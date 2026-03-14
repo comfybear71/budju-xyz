@@ -1223,8 +1223,9 @@ def cancel_pending_order(order_id: str, wallet: str) -> Dict:
 def modify_pending_order(order_id: str, wallet: str,
                          trigger_price: float = None,
                          stop_loss: float = None,
-                         take_profit: float = None) -> Dict:
-    """Modify a pending order's trigger price, SL, or TP."""
+                         take_profit: float = None,
+                         direction: str = None) -> Dict:
+    """Modify a pending order's trigger price, SL, TP, or direction."""
     order = perp_pending_orders.find_one({
         "_id": ObjectId(order_id), "account_id": wallet, "status": "pending"
     })
@@ -1238,6 +1239,8 @@ def modify_pending_order(order_id: str, wallet: str,
         updates["stop_loss"] = stop_loss if stop_loss > 0 else None
     if take_profit is not None:
         updates["take_profit"] = take_profit if take_profit > 0 else None
+    if direction is not None and direction in ("long", "short"):
+        updates["direction"] = direction
 
     if not updates:
         raise ValueError("No modifications provided")

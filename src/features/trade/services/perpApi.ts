@@ -265,7 +265,7 @@ export async function cancelPendingOrder(
 
 export async function modifyPendingOrder(
   orderId: string,
-  mods: { triggerPrice?: number; stopLoss?: number; takeProfit?: number },
+  mods: { triggerPrice?: number; stopLoss?: number; takeProfit?: number; direction?: string },
   wallet: string,
 ): Promise<PerpPendingOrder> {
   return postJson(`${API_BASE}/pending-order/modify`, { orderId, ...mods, wallet });
