@@ -25,6 +25,8 @@ interface Props {
   pendingOrders?: PerpPendingOrder[];
   height?: number;
   compact?: boolean;
+  /** Delay before fetching (ms) — staggers grid loads to avoid overwhelming mobile */
+  loadDelay?: number;
 }
 
 interface PricePoint {
@@ -32,8 +34,9 @@ interface PricePoint {
   price: number;
 }
 
-const BINANCE_REST = "https://api.binance.com/api/v3/klines";
-const PROXY_REST = "/api/binance";
+// Use neutral endpoint names to avoid iPhone content blockers that
+// pattern-match on "binance" in URLs (both path and domain).
+const PROXY_REST = "/api/klines";
 
 async function fetchHistoricalPrices(
   binanceSymbol: string,
@@ -41,11 +44,10 @@ async function fetchHistoricalPrices(
 ): Promise<PricePoint[]> {
   const symbol = binanceSymbol.toUpperCase();
 
-  // Try our proxy first (avoids iPhone Safari ITP/content blocker issues)
-  // then fall back to direct Binance if proxy is unavailable
+  // Only use our own proxy — direct Binance URLs are blocked by iPhone
+  // content blockers, and even "/api/binance" gets caught by pattern matching
   const urls = [
     `${PROXY_REST}?symbol=${symbol}&interval=1m&limit=${limit}`,
-    `${BINANCE_REST}?symbol=${symbol}&interval=1m&limit=${limit}`,
   ];
 
   let lastError: Error | null = null;
@@ -101,6 +103,7 @@ const MobileAreaChart = ({
   pendingOrders = [],
   height = 200,
   compact = false,
+  loadDelay = 0,
 }: Props) => {
   const [data, setData] = useState<PricePoint[]>([]);
   const [livePrice, setLivePrice] = useState(0);
@@ -127,6 +130,12 @@ const MobileAreaChart = ({
     const init = async () => {
       setLoading(true);
       setFetchError(null);
+
+      // Stagger grid loads to avoid overwhelming mobile connections
+      if (loadDelay > 0) {
+        await new Promise((r) => setTimeout(r, loadDelay));
+        if (!mountedRef.current) return;
+      }
 
       try {
         const historical = await fetchHistoricalPrices(binanceSymbol, 60);
@@ -197,7 +206,7 @@ const MobileAreaChart = ({
       }
       streamRef.current = null;
     };
-  }, [binanceSymbol, compact]);
+  }, [binanceSymbol, compact, loadDelay]);
 
   // Build SVG path
   const svgWidth = 400;

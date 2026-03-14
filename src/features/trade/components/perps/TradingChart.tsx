@@ -34,8 +34,10 @@ interface Props {
   baseAsset: string; // e.g. "SOL"
   positions?: PerpPosition[];
   trades?: PerpTrade[];
+  pendingOrders?: unknown[]; // accepted for compatibility with MobileAreaChart
   height?: number;
   compact?: boolean;
+  loadDelay?: number; // accepted for compatibility with MobileAreaChart
 }
 
 interface CandleData {
@@ -48,7 +50,8 @@ interface CandleData {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const BINANCE_REST = "https://api.binance.com/api/v3/klines";
+// Use our proxy to avoid iPhone content blockers that block "binance" URLs
+const KLINES_PROXY = "/api/klines";
 
 async function fetchHistoricalKlines(
   binanceSymbol: string,
@@ -56,7 +59,7 @@ async function fetchHistoricalKlines(
   limit = 500,
 ): Promise<CandleData[]> {
   const symbol = binanceSymbol.toUpperCase();
-  const url = `${BINANCE_REST}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const url = `${KLINES_PROXY}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();

@@ -242,7 +242,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
       ) : (
         /* Grid view — 2 columns on desktop, 1 on mobile */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {MARKETS.map((m) => (
+          {MARKETS.map((m, idx) => (
             <div
               key={m.symbol}
               className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-2 cursor-pointer hover:border-blue-500/20 transition-colors"
@@ -259,6 +259,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
                 pendingOrders={pendingOrders}
                 height={mobile ? 140 : 180}
                 compact
+                loadDelay={mobile ? idx * 300 : 0}
               />
             </div>
           ))}
