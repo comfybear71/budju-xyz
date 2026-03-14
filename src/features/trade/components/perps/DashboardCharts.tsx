@@ -11,8 +11,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import { fetchStrategyStatus, fetchPendingOrders, type StrategyStatus } from "../../services/perpApi";
-import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
+import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, type StrategyStatus } from "../../services/perpApi";
+import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder, PerpOrderRequest } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -128,6 +128,246 @@ const LazyChart = ({
           Loading {base} chart...
         </div>
       )}
+    </div>
+  );
+};
+
+// ── Quick Trade Panel (focus mode only) ─────────────────────
+
+type OrderMode = "market" | "limit" | "stop";
+
+const QuickTradePanel = ({
+  symbol,
+  price,
+  wallet,
+  onOrderPlaced,
+}: {
+  symbol: string;
+  price: number;
+  wallet: string;
+  onOrderPlaced: () => void;
+}) => {
+  const [mode, setMode] = useState<OrderMode>("market");
+  const [sizeUsd, setSizeUsd] = useState("500");
+  const [leverage, setLeverage] = useState(3);
+  const [triggerPrice, setTriggerPrice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  // Auto-fill trigger price when switching modes
+  useEffect(() => {
+    if (price > 0 && !triggerPrice) {
+      setTriggerPrice(price >= 1000 ? price.toFixed(2) : price >= 1 ? price.toFixed(4) : price.toFixed(6));
+    }
+  }, [mode, price]);
+
+  const showFeedback = (msg: string, ok: boolean) => {
+    setFeedback({ msg, ok });
+    setTimeout(() => setFeedback(null), 3000);
+  };
+
+  const placeMarketOrder = async (direction: "long" | "short") => {
+    if (!price || loading) return;
+    setLoading(true);
+    try {
+      const size = parseFloat(sizeUsd) || 500;
+      const slPct = direction === "long" ? 0.98 : 1.02;
+      const tpPct = direction === "long" ? 1.04 : 0.96;
+      const order: PerpOrderRequest = {
+        symbol,
+        direction,
+        leverage,
+        sizeUsd: size,
+        entryPrice: price,
+        stopLoss: price * slPct,
+        takeProfit: price * tpPct,
+        entryReason: "[manual] quick trade",
+      };
+      await placePerpOrder(order, wallet);
+      showFeedback(`${direction.toUpperCase()} $${size} filled`, true);
+      onOrderPlaced();
+    } catch (e: any) {
+      showFeedback(e?.message || "Order failed", false);
+    }
+    setLoading(false);
+  };
+
+  const placePendingOrderHandler = async (direction: "long" | "short", orderType: "limit" | "stop") => {
+    if (!triggerPrice || loading) return;
+    const trigger = parseFloat(triggerPrice);
+    if (!trigger || trigger <= 0) return;
+    setLoading(true);
+    try {
+      const size = parseFloat(sizeUsd) || 500;
+      const slPct = direction === "long" ? 0.98 : 1.02;
+      const tpPct = direction === "long" ? 1.04 : 0.96;
+      await createPendingOrder({
+        symbol,
+        direction,
+        leverage,
+        sizeUsd: size,
+        orderType,
+        triggerPrice: trigger,
+        stopLoss: trigger * slPct,
+        takeProfit: trigger * tpPct,
+        entryReason: `[manual] ${orderType} order`,
+        expiryHours: 24,
+      }, wallet);
+      const label = direction === "long"
+        ? (orderType === "limit" ? "BUY LIMIT" : "BUY STOP")
+        : (orderType === "limit" ? "SELL LIMIT" : "SELL STOP");
+      showFeedback(`${label} @ $${trigger.toFixed(2)} placed`, true);
+      onOrderPlaced();
+    } catch (e: any) {
+      showFeedback(e?.message || "Order failed", false);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="mt-2 bg-slate-800/40 rounded-xl border border-white/[0.06] p-2.5 space-y-2">
+      {/* Mode tabs */}
+      <div className="flex items-center gap-1">
+        <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+          {(["market", "limit", "stop"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-2 py-1 text-[10px] font-bold transition-colors capitalize ${
+                mode === m
+                  ? "text-blue-400 bg-blue-500/15"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        {/* Size input */}
+        <div className="flex items-center gap-1 ml-auto">
+          <span className="text-[9px] text-slate-500">$</span>
+          <input
+            type="number"
+            value={sizeUsd}
+            onChange={(e) => setSizeUsd(e.target.value)}
+            className="w-16 bg-slate-900/60 border border-white/[0.08] rounded px-1.5 py-1 text-[11px] text-white font-mono text-right focus:outline-none focus:border-blue-500/40"
+          />
+          {/* Quick size buttons */}
+          {[250, 500, 1000].map((s) => (
+            <button
+              key={s}
+              onClick={() => setSizeUsd(String(s))}
+              className={`px-1.5 py-1 text-[9px] rounded border transition-colors ${
+                sizeUsd === String(s)
+                  ? "text-white bg-white/10 border-white/20"
+                  : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+          {/* Leverage */}
+          <span className="text-[9px] text-slate-500 ml-1">Lev</span>
+          <select
+            value={leverage}
+            onChange={(e) => setLeverage(Number(e.target.value))}
+            className="bg-slate-900/60 border border-white/[0.08] rounded px-1 py-1 text-[11px] text-white font-mono focus:outline-none"
+          >
+            {[2, 3, 5, 10, 20].map((l) => (
+              <option key={l} value={l}>{l}x</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Trigger price (limit/stop only) */}
+      {mode !== "market" && (
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-slate-500 w-16">Trigger $</span>
+          <input
+            type="number"
+            value={triggerPrice}
+            onChange={(e) => setTriggerPrice(e.target.value)}
+            placeholder={price > 0 ? price.toFixed(4) : "0.00"}
+            className="flex-1 bg-slate-900/60 border border-white/[0.08] rounded px-2 py-1 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500/40"
+          />
+          <button
+            onClick={() => setTriggerPrice(price >= 1000 ? price.toFixed(2) : price >= 1 ? price.toFixed(4) : price.toFixed(6))}
+            className="text-[9px] text-slate-500 hover:text-white px-1.5 py-1 rounded border border-white/[0.06] hover:bg-white/5"
+          >
+            Mark
+          </button>
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-1.5">
+        {mode === "market" ? (
+          <>
+            <button
+              onClick={() => placeMarketOrder("long")}
+              disabled={loading || !price}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40 transition-colors"
+            >
+              LONG
+            </button>
+            <button
+              onClick={() => placeMarketOrder("short")}
+              disabled={loading || !price}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-40 transition-colors"
+            >
+              SHORT
+            </button>
+          </>
+        ) : mode === "limit" ? (
+          <>
+            <button
+              onClick={() => placePendingOrderHandler("long", "limit")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40 transition-colors"
+            >
+              BUY LIMIT
+            </button>
+            <button
+              onClick={() => placePendingOrderHandler("short", "limit")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-40 transition-colors"
+            >
+              SELL LIMIT
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => placePendingOrderHandler("long", "stop")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-40 transition-colors"
+            >
+              BUY STOP
+            </button>
+            <button
+              onClick={() => placePendingOrderHandler("short", "stop")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 disabled:opacity-40 transition-colors"
+            >
+              SELL STOP
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Margin info + feedback */}
+      <div className="flex items-center justify-between text-[9px]">
+        <span className="text-slate-500">
+          Margin: ${((parseFloat(sizeUsd) || 0) / leverage).toFixed(2)} | Size: ${sizeUsd || "0"} @ {leverage}x
+        </span>
+        {feedback && (
+          <span className={`font-bold ${feedback.ok ? "text-emerald-400" : "text-red-400"}`}>
+            {feedback.msg}
+          </span>
+        )}
+        {loading && <span className="text-blue-400 animate-pulse">Placing...</span>}
+      </div>
     </div>
   );
 };
@@ -339,6 +579,19 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
               pendingOrders={pendingOrders}
             />
           </div>
+
+          {/* Quick Trade Panel */}
+          {wallet && <QuickTradePanel
+            symbol={focusMarket.symbol}
+            price={wsPrices[focusMarket.base] || 0}
+            wallet={wallet}
+            onOrderPlaced={() => {
+              // Refresh pending orders after placing
+              fetchPendingOrders(wallet).then(r =>
+                setPendingOrders(r.orders.filter(o => o.status === "pending"))
+              ).catch(() => {});
+            }}
+          />}
         </>
       ) : (
         /* Grid view — 2 columns on desktop, 1 on mobile.
