@@ -8,11 +8,12 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import MobileAreaChart from "./MobileAreaChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
+import { fetchPendingOrders } from "../../services/perpApi";
+import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
 
 // Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
 const isMobile = (): boolean => {
@@ -32,6 +33,7 @@ interface Props {
   positions: PerpPosition[];
   trades: PerpTrade[];
   metrics?: PerpMetrics | null;
+  wallet?: string;
   onClose: () => void;
 }
 
@@ -69,10 +71,28 @@ function getHourlyWinRate(trades: PerpTrade[]): Record<number, { wins: number; t
 
 // ── Component ────────────────────────────────────────────────
 
-const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
+const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props) => {
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
   const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
+  const [pendingOrders, setPendingOrders] = useState<PerpPendingOrder[]>([]);
   const { prices: wsPrices, wsState } = useLivePrices(500);
+
+  // Fetch pending orders for chart overlay
+  const loadPendingOrders = useCallback(async () => {
+    if (!wallet) return;
+    try {
+      const result = await fetchPendingOrders(wallet);
+      setPendingOrders(result.orders.filter((o) => o.status === "pending"));
+    } catch {
+      // Silently fail — pending orders are optional chart overlay
+    }
+  }, [wallet]);
+
+  useEffect(() => {
+    loadPendingOrders();
+    const interval = setInterval(loadPendingOrders, 30_000);
+    return () => clearInterval(interval);
+  }, [loadPendingOrders]);
 
   // Compute stats
   const openPositions = positions.filter((p) => p.status === "open");
@@ -214,6 +234,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
               baseAsset={focusMarket.base}
               positions={positions}
               trades={trades}
+              pendingOrders={pendingOrders}
               height={mobile ? 250 : 350}
             />
           </div>
@@ -235,6 +256,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 baseAsset={m.base}
                 positions={positions}
                 trades={trades}
+                pendingOrders={pendingOrders}
                 height={mobile ? 140 : 180}
                 compact
               />

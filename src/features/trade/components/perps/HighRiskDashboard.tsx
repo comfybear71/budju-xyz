@@ -549,6 +549,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             positions={positions}
             trades={trades}
             metrics={account?.metrics}
+            wallet={wallet}
             onClose={() => setActiveTab(effectiveReadOnly ? "positions" : "order")}
           />
         )}

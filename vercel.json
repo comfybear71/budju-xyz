@@ -9,6 +9,7 @@
   "rewrites": [
     { "source": "/src/assets/:path*", "destination": "/assets/:path*" },
     { "source": "/api/proxy", "destination": "/api/proxy.ts" },
+    { "source": "/api/binance", "destination": "/api/binance.ts" },
     { "source": "/api/rpc", "destination": "/api/rpc.ts" },
     { "source": "/api/jupiter", "destination": "/api/jupiter.ts" },
     { "source": "/api/marketing", "destination": "/api/marketing.ts" },
