@@ -15,16 +15,7 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import { fetchPendingOrders } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
 
-// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
-const isMobile = (): boolean => {
-  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
-  // Desktop screens always get candle charts — no exceptions
-  if (window.innerWidth >= 1024) return false;
-  const ua = navigator.userAgent;
-  const isMobileUA = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
-  const isSmallScreen = window.innerWidth < 768;
-  return isMobileUA || isSmallScreen;
-};
+// No mobile detection function — we check screen width directly in render
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -109,10 +100,11 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
   }, [positions]);
 
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
-  const mobile = useMemo(() => isMobile(), []);
 
-  // Render chart component based on device
-  const Chart = mobile ? MobileAreaChart : TradingChart;
+  // Screen width check — re-evaluated on every render, no caching
+  // Phones get SVG area chart, everything else gets TradingView candles
+  const isSmallPhone = typeof window !== "undefined" && window.innerWidth < 768;
+  const Chart = isSmallPhone ? MobileAreaChart : TradingChart;
 
   return (
     <div className="space-y-3">
@@ -234,7 +226,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
               positions={positions}
               trades={trades}
               pendingOrders={pendingOrders}
-              height={mobile ? 250 : 350}
+              height={isSmallPhone ? 250 : 350}
             />
           </div>
         </>
@@ -256,9 +248,9 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
                 positions={positions}
                 trades={trades}
                 pendingOrders={pendingOrders}
-                height={mobile ? 140 : 180}
+                height={isSmallPhone ? 140 : 180}
                 compact
-                loadDelay={mobile ? idx * 300 : 0}
+                loadDelay={isSmallPhone ? idx * 300 : 0}
               />
             </div>
           ))}
