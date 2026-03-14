@@ -66,7 +66,7 @@ const FaqItem = ({
       }
     >
       <button
-        className="flex justify-between items-center w-full py-5 px-4 text-left focus:outline-none"
+        className="flex justify-between items-center w-full py-5 px-4 text-left focus:outline-none hover:bg-white/[0.03] transition-colors rounded-lg"
         onClick={toggleOpen}
         aria-expanded={isOpen}
       >

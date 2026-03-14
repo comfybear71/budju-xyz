@@ -136,12 +136,12 @@ const NFTShowcase = () => {
                   <button
                     key={index}
                     onClick={() => setCurrentIndex(index)}
-                    className={`w-3 h-3 rounded-full transition-all ${
+                    className={`w-3 h-3 rounded-full transition-all hover:scale-150 ${
                       currentIndex === index
                         ? "bg-budju-pink scale-125"
                         : isDarkMode
-                        ? "bg-gray-600"
-                        : "bg-gray-400 opacity-70"
+                        ? "bg-gray-600 hover:bg-gray-400"
+                        : "bg-gray-400 opacity-70 hover:opacity-100"
                     }`}
                     aria-label={`Go to slide ${index + 1}`}
                   />

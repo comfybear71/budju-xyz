@@ -498,7 +498,7 @@ const Trade = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setShowTriggerView(!showTriggerView)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
                         style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
                       >
                         <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
@@ -518,7 +518,7 @@ const Trade = () => {
                       </button>
                       <button
                         onClick={() => setShowAutoTrader(true)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
                         style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
                       >
                         <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
@@ -537,7 +537,7 @@ const Trade = () => {
                     {/* Live Charts button — opens read-only dashboard */}
                     <button
                       onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
-                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.01] hover:brightness-125"
                       style={{
                         background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
                         border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
