@@ -116,8 +116,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
 
         return (
           <div key={pos._id} className={`bg-slate-800/40 rounded-xl border ${borderColor} p-3 transition-colors`}>
-            {/* Header */}
-            <div className="flex items-center justify-between mb-2">
+            {/* Header — top row: symbol + P&L */}
+            <div className="flex items-center justify-between mb-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-white">{pos.symbol}</span>
                 {onViewChart && (
@@ -131,53 +131,54 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                     </svg>
                   </button>
                 )}
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
-                  {pos.direction.toUpperCase()} {pos.leverage}x
-                </span>
-                {/* Position type badge */}
-                <span className={`text-[9px] px-1 py-0.5 rounded border ${
-                  posType === "core"
-                    ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                    : "bg-slate-700/40 text-slate-500 border-white/[0.04]"
-                }`}>
-                  {posType === "core" ? "CORE" : "SAT"}
-                </span>
-                {/* Strategy label — extracted from entry_reason "[strategy_name] signal..." */}
-                {pos.entry_reason && (() => {
-                  const match = pos.entry_reason.match(/^\[([^\]]+)\]/);
-                  if (!match) return null;
-                  const strat = match[1];
-                  const STRAT_LABELS: Record<string, { label: string; color: string }> = {
-                    ninja: { label: "NINJA", color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
-                    trend_following: { label: "TREND", color: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
-                    mean_reversion: { label: "MEAN REV", color: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25" },
-                    momentum: { label: "MOMENTUM", color: "bg-orange-500/15 text-orange-400 border-orange-500/25" },
-                    scalping: { label: "SCALP", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25" },
-                    keltner: { label: "KELTNER", color: "bg-teal-500/15 text-teal-400 border-teal-500/25" },
-                    bb_squeeze: { label: "SQUEEZE", color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
-                    grid: { label: "GRID", color: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25" },
-                    zone_recovery: { label: "ZONE REC", color: "bg-rose-500/15 text-rose-400 border-rose-500/25" },
-                    hf_scalper: { label: "HF", color: "bg-lime-500/15 text-lime-400 border-lime-500/25" },
-                    sr_reversal: { label: "S/R REV", color: "bg-violet-500/15 text-violet-400 border-violet-500/25" },
-                  };
-                  const s = STRAT_LABELS[strat] || { label: strat.toUpperCase(), color: "bg-slate-500/15 text-slate-400 border-slate-500/25" };
-                  return (
-                    <span className={`text-[9px] px-1 py-0.5 rounded border ${s.color}`} title={pos.entry_reason}>
-                      {s.label}
-                    </span>
-                  );
-                })()}
-                {/* Pyramid level */}
-                {pos.pyramid_level && pos.pyramid_level > 0 && (
-                  <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    P{pos.pyramid_level}
-                  </span>
-                )}
               </div>
               <div className={`text-sm font-bold ${pnlColor}`}>
                 {pnlSign}${livePnl.toFixed(2)}
                 <span className="text-[10px] ml-1">({pnlSign}{livePnlPct.toFixed(2)}%)</span>
               </div>
+            </div>
+
+            {/* Badges row — wraps to second line */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
+                {pos.direction.toUpperCase()} {pos.leverage}x
+              </span>
+              <span className={`text-[9px] px-1 py-0.5 rounded border ${
+                posType === "core"
+                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                  : "bg-slate-700/40 text-slate-500 border-white/[0.04]"
+              }`}>
+                {posType === "core" ? "CORE" : "SAT"}
+              </span>
+              {pos.entry_reason && (() => {
+                const match = pos.entry_reason.match(/^\[([^\]]+)\]/);
+                if (!match) return null;
+                const strat = match[1];
+                const STRAT_LABELS: Record<string, { label: string; color: string }> = {
+                  ninja: { label: "NINJA", color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
+                  trend_following: { label: "TREND", color: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
+                  mean_reversion: { label: "MEAN REV", color: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25" },
+                  momentum: { label: "MOMENTUM", color: "bg-orange-500/15 text-orange-400 border-orange-500/25" },
+                  scalping: { label: "SCALP", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25" },
+                  keltner: { label: "KELTNER", color: "bg-teal-500/15 text-teal-400 border-teal-500/25" },
+                  bb_squeeze: { label: "SQUEEZE", color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
+                  grid: { label: "GRID", color: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25" },
+                  zone_recovery: { label: "ZONE REC", color: "bg-rose-500/15 text-rose-400 border-rose-500/25" },
+                  hf_scalper: { label: "HF", color: "bg-lime-500/15 text-lime-400 border-lime-500/25" },
+                  sr_reversal: { label: "S/R REV", color: "bg-violet-500/15 text-violet-400 border-violet-500/25" },
+                };
+                const s = STRAT_LABELS[strat] || { label: strat.toUpperCase(), color: "bg-slate-500/15 text-slate-400 border-slate-500/25" };
+                return (
+                  <span className={`text-[9px] px-1 py-0.5 rounded border ${s.color}`} title={pos.entry_reason}>
+                    {s.label}
+                  </span>
+                );
+              })()}
+              {pos.pyramid_level && pos.pyramid_level > 0 && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  P{pos.pyramid_level}
+                </span>
+              )}
             </div>
 
             {/* Details grid */}
