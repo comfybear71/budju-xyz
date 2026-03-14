@@ -353,7 +353,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     if not is_live and margin > account["balance"]:
         raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
 
-    # Validate SL/TP relative to entry and direction
+    # Basic SL/TP direction validation against requested entry
     if stop_loss is not None:
         if direction == "long" and stop_loss >= entry_price:
             raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry_price})")
@@ -415,6 +415,28 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
             fill_price = entry_price * (1 - slippage_pct)
         open_fee = calculate_fees(size_usd)
         quantity = size_usd / fill_price
+
+    # ── Adjust SL/TP to actual fill price ──────────────────────
+    # Slippage can shift fill_price from entry_price. SL/TP were computed
+    # relative to the requested entry, so we must shift them by the same
+    # delta to keep the intended distance from the real fill.
+    if fill_price != entry_price:
+        price_shift = fill_price - entry_price
+        if stop_loss is not None:
+            stop_loss = round(stop_loss + price_shift, 6)
+        if take_profit is not None:
+            take_profit = round(take_profit + price_shift, 6)
+        # Final safety: ensure SL/TP are still on the correct side of fill
+        if stop_loss is not None:
+            if direction == "long" and stop_loss >= fill_price:
+                stop_loss = fill_price * 0.995  # Fallback: 0.5% below
+            if direction == "short" and stop_loss <= fill_price:
+                stop_loss = fill_price * 1.005  # Fallback: 0.5% above
+        if take_profit is not None:
+            if direction == "long" and take_profit <= fill_price:
+                take_profit = fill_price * 1.005
+            if direction == "short" and take_profit >= fill_price:
+                take_profit = fill_price * 0.995
 
     # Calculate derived values
     liq_price = calculate_liquidation_price(fill_price, leverage, direction)
