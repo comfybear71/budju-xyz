@@ -48,7 +48,7 @@ const STRATEGY_META: Record<string, { name: string; icon: string }> = {
   scalping: { name: "Scalping", icon: "⚡" },
   mean_reversion: { name: "Mean Reversion", icon: "🎯" },
   momentum: { name: "Momentum Breakout", icon: "🚀" },
-  ninja: { name: "Ninja Ambush", icon: "🥷" },
+  ninja: { name: "Ninja Scalper", icon: "🥷" },
   grid: { name: "Grid Trading", icon: "📊" },
   keltner: { name: "Keltner Channel", icon: "📐" },
   bb_squeeze: { name: "BB Squeeze", icon: "💥" },
@@ -65,6 +65,7 @@ interface CandleData {
   high: number;
   low: number;
   close: number;
+  volume?: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -98,6 +99,7 @@ async function fetchHistoricalKlines(
         high: parseFloat(k[2]),
         low: parseFloat(k[3]),
         close: parseFloat(k[4]),
+        volume: parseFloat(k[5]) || 0,
       }));
     } catch {
       continue;
@@ -431,6 +433,13 @@ const TradingChart = ({
         candleSeriesRef.current.setData(historical);
         lineSeriesRef.current?.setData(
           historical.map((c) => ({ time: c.time, value: c.close })),
+        );
+        volumeSeriesRef.current?.setData(
+          historical.map((c) => ({
+            time: c.time,
+            value: c.volume || 0,
+            color: c.close >= c.open ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+          })),
         );
 
         // Set initial price
