@@ -43,16 +43,6 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     riskManagement: "5x leverage, max 3 concurrent positions. Higher frequency but smaller position sizes. 30-min cooldown between trades per market.",
     bestConditions: "Markets with regular oscillations and clear micro-trends. Works well on SOL, BTC, ETH with decent volatility.",
   },
-  swing_trading: {
-    name: "Swing Trading",
-    desc: "Multi-day holds at support/resistance. Targets larger swings.",
-    icon: "🔄",
-    howItWorks: "Identifies key support and resistance levels using historical price action combined with Fibonacci retracements. Enters positions at high-probability reversal zones confirmed by RSI extremes.",
-    entrySignal: "LONG at support with RSI < 30. SHORT at resistance with RSI > 70. Multi-timeframe confirmation required.",
-    exitStrategy: "Wider ATR-based stops for multi-day holds. Targets 5-20% price swings. Trailing stop activates after significant profit.",
-    riskManagement: "Lower leverage (3-5x). Fewer but higher-conviction trades. Longer holding periods allow for wider stop placement.",
-    bestConditions: "Markets with clear support/resistance levels. Works in both trending and ranging conditions. Best overall balance.",
-  },
   mean_reversion: {
     name: "Mean Reversion",
     desc: "Bollinger Band bounce + RSI extremes. Fades overextensions.",
@@ -122,26 +112,6 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     exitStrategy: "Close entire zone when net profit reaches 0.5x ATR. Abandon zone after 5 recovery levels (hard cap). Also abandons if total zone exposure exceeds 15% of equity.",
     riskManagement: "3x leverage. Max 2 active zones across all symbols. Smooth martingale (1.3x) instead of classic 2x doubling reduces blowup risk significantly. 15% equity cap per zone prevents catastrophic accumulation. 10% drawdown circuit breaker.",
     bestConditions: "Choppy markets with mean-reverting tendencies. The zone width (1.5x ATR) adapts to volatility. Struggles in strong one-directional moves that exceed all recovery levels. Popular strategy pattern from forex Expert Advisors.",
-  },
-  grid_bot: {
-    name: "Grid / Futures Grid",
-    desc: "Automated buy-low/sell-high within a price range.",
-    icon: "📊",
-    howItWorks: "Sets up a grid of buy and sell orders across a price range. When price drops to a grid level, it buys. When price rises to a grid level, it sells. Profits from oscillations within the range. Can be neutral or directionally biased.",
-    entrySignal: "Automatic entries at each grid level. Grid spacing determined by volatility and number of levels (20-100).",
-    exitStrategy: "Each grid trade has a built-in profit target (the next grid level). Overall grid has a configurable stop loss range.",
-    riskManagement: "Capital distributed across grid levels. Total exposure limited. Works with lower leverage (2-3x) for safety.",
-    bestConditions: "Sideways/choppy markets with regular oscillations. Underperforms in strong directional trends.",
-  },
-  funding_arb: {
-    name: "Funding Rate Arb",
-    desc: "Exploits funding rate inefficiencies for carry trade income.",
-    icon: "💰",
-    howItWorks: "Monitors perpetual funding rates. When funding is significantly positive (longs pay shorts), opens short positions to collect funding. When funding is significantly negative (shorts pay longs), opens long positions. Combined with a spot hedge for near risk-free carry.",
-    entrySignal: "SHORT when 8hr funding rate > 0.03% (annualized > 30% APR). LONG when 8hr funding rate < -0.03%. Checks for sustained funding direction before entry.",
-    exitStrategy: "Exits when funding rate normalizes (approaches zero). Position held as long as favorable funding continues.",
-    riskManagement: "Low leverage (2-3x) since primary income is from funding, not price moves. Position sized to minimize directional risk. 10-30% APR target.",
-    bestConditions: "Markets with persistent funding rate skew. Common during strong bull/bear markets when one side is heavily positioned.",
   },
 };
 
