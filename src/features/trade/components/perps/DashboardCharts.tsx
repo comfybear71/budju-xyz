@@ -15,21 +15,13 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import { fetchPendingOrders } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
 
-// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
+// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari.
+// ONLY match actual phones/tablets, never desktop Macs/PCs.
 const isMobile = (): boolean => {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  // Check UA for mobile devices
-  const isMobileUA = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
-  // iPad in desktop mode: reports as Mac + has touch + small-ish screen
-  // Real Macs also have "ontouchend" due to trackpad, so also check screen size
-  const isIPadDesktopMode =
-    /Macintosh/i.test(ua) &&
-    "ontouchend" in document &&
-    navigator.maxTouchPoints > 1 &&
-    window.innerWidth < 1200;
-  const isSmallScreen = window.innerWidth < 768;
-  return isMobileUA || isIPadDesktopMode || isSmallScreen;
+  // Only match actual mobile device UA strings
+  return /iPhone|iPad|iPod|Android/i.test(ua) && !/Macintosh/i.test(ua);
 };
 
 // ── Types ────────────────────────────────────────────────────
