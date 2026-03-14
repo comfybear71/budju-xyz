@@ -268,8 +268,8 @@ const TradingChart = ({
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
-  const [showMarkers, setShowMarkers] = useState(true);
-  const [showPositionLines, setShowPositionLines] = useState(true);
+  const [showMarkers, setShowMarkers] = useState(false);
+  const [showPositionLines, setShowPositionLines] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
@@ -756,7 +756,7 @@ const TradingChart = ({
           className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
             showVolume
               ? "text-slate-400 bg-slate-500/15 border-slate-500/30"
-              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
           }`}
         >
           Vol
@@ -766,7 +766,7 @@ const TradingChart = ({
           className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
             showMarkers
               ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30"
-              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
           }`}
         >
           Trades
@@ -776,7 +776,7 @@ const TradingChart = ({
           className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
             showPositionLines
               ? "text-amber-400 bg-amber-500/15 border-amber-500/30"
-              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
           }`}
         >
           Positions
@@ -786,7 +786,7 @@ const TradingChart = ({
           className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
             showPrediction
               ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
-              : "text-slate-600 bg-transparent border-white/[0.06] hover:text-slate-400"
+              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
           }`}
         >
           AI
@@ -841,7 +841,7 @@ const TradingChart = ({
                           </span>
                         </span>
                       </div>
-                      <div className="flex gap-2 mt-1 text-[9px] text-slate-500">
+                      <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
                         <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
                         <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
                         {pos.stop_loss != null && (
@@ -877,20 +877,20 @@ const TradingChart = ({
                     {prediction.signal}
                   </span>
                   <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
-                  <span className="text-[9px] text-slate-500">
+                  <span className="text-[9px] text-slate-300">
                     Target ${formatPrice(prediction.targetPrice)}
                   </span>
                 </div>
                 <button
                   onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-                  className="text-[9px] text-slate-500 hover:text-blue-400 transition-colors"
+                  className="text-[9px] text-slate-400 hover:text-blue-400 transition-colors"
                 >
                   {showStrategyInfo ? "Hide details" : "Show details"}
                 </button>
               </div>
 
               {/* AI reasoning summary */}
-              <div className="text-[9px] text-slate-400 leading-relaxed">
+              <div className="text-[9px] text-slate-300 leading-relaxed">
                 {(() => {
                   const s = prediction.strategies;
                   const parts: string[] = [];
@@ -911,7 +911,7 @@ const TradingChart = ({
                   <div className="grid grid-cols-4 gap-1">
                     {/* Trend */}
                     <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">Trend (60%)</div>
+                      <div className="text-[7px] text-slate-400 uppercase">Trend (60%)</div>
                       <div className={`text-[10px] font-bold ${
                         prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
                         prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
@@ -919,21 +919,21 @@ const TradingChart = ({
                         {prediction.strategies.trend.direction === "up" ? "Bullish" :
                          prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
                       </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.trend.strength.toFixed(0)}% str</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">WLR slope: {prediction.strategies.trend.slope.toFixed(6)}</div>
+                      <div className="text-[8px] text-slate-300">{prediction.strategies.trend.strength.toFixed(0)}% str</div>
+                      <div className="text-[7px] text-slate-400 mt-0.5">WLR slope: {prediction.strategies.trend.slope.toFixed(6)}</div>
                     </div>
 
                     {/* Momentum */}
                     <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">RSI (25%)</div>
+                      <div className="text-[7px] text-slate-400 uppercase">RSI (25%)</div>
                       <div className={`text-[10px] font-bold ${
                         prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
                         prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
                       }`}>
                         {prediction.strategies.momentum.rsi.toFixed(1)}
                       </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.momentum.bias}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">
+                      <div className="text-[8px] text-slate-300">{prediction.strategies.momentum.bias}</div>
+                      <div className="text-[7px] text-slate-400 mt-0.5">
                         {prediction.strategies.momentum.rsi > 70 ? "Overbought" :
                          prediction.strategies.momentum.rsi < 30 ? "Oversold" : "Normal range"}
                       </div>
@@ -941,7 +941,7 @@ const TradingChart = ({
 
                     {/* EMA Cross */}
                     <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">EMA (15%)</div>
+                      <div className="text-[7px] text-slate-400 uppercase">EMA (15%)</div>
                       <div className={`text-[10px] font-bold ${
                         prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
                         prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
@@ -949,23 +949,23 @@ const TradingChart = ({
                         {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
                          prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
                       </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.ema.cross}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">
+                      <div className="text-[8px] text-slate-300">{prediction.strategies.ema.cross}</div>
+                      <div className="text-[7px] text-slate-400 mt-0.5">
                         8: ${formatPrice(prediction.strategies.ema.ema8)}
                       </div>
                     </div>
 
                     {/* Volatility */}
                     <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">Volatility</div>
+                      <div className="text-[7px] text-slate-400 uppercase">Volatility</div>
                       <div className={`text-[10px] font-bold ${
                         prediction.strategies.volatility.level === "high" ? "text-amber-400" :
                         prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
                       }`}>
                         {prediction.strategies.volatility.value.toFixed(3)}%
                       </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.volatility.level}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">Std dev of returns</div>
+                      <div className="text-[8px] text-slate-300">{prediction.strategies.volatility.level}</div>
+                      <div className="text-[7px] text-slate-400 mt-0.5">Std dev of returns</div>
                     </div>
                   </div>
                 </div>
@@ -981,7 +981,7 @@ const TradingChart = ({
             if (marketTrades.length === 0) return null;
             return (
               <div className="rounded-lg border border-white/[0.04] bg-slate-800/30 p-2">
-                <div className="text-[8px] text-slate-600 uppercase tracking-wider mb-1">Recent Trades</div>
+                <div className="text-[8px] text-slate-400 uppercase tracking-wider mb-1">Recent Trades</div>
                 <div className="space-y-0.5">
                   {marketTrades.map((t, i) => (
                     <div key={i} className="flex items-center justify-between text-[9px]">
@@ -989,10 +989,10 @@ const TradingChart = ({
                         <span className={t.direction === "long" ? "text-emerald-400" : "text-red-400"}>
                           {t.direction.toUpperCase()}
                         </span>
-                        <span className="text-slate-500">{t.leverage}x</span>
-                        <span className="text-slate-500 font-mono">${formatPrice(t.entry_price)}</span>
-                        <span className="text-slate-600">→</span>
-                        <span className="text-slate-500 font-mono">${formatPrice(t.exit_price)}</span>
+                        <span className="text-slate-300">{t.leverage}x</span>
+                        <span className="text-slate-300 font-mono">${formatPrice(t.entry_price)}</span>
+                        <span className="text-slate-400">→</span>
+                        <span className="text-slate-300 font-mono">${formatPrice(t.exit_price)}</span>
                       </div>
                       <span className={`font-bold font-mono ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                         {t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}
