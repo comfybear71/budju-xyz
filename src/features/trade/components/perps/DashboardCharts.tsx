@@ -11,6 +11,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
+import { fetchStrategyStatus, type StrategyStatus } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
@@ -68,6 +69,7 @@ const LazyChart = ({
   trades,
   height,
   compact,
+  strategyStatus,
 }: {
   symbol: string;
   base: string;
@@ -75,6 +77,7 @@ const LazyChart = ({
   trades: PerpTrade[];
   height: number;
   compact: boolean;
+  strategyStatus?: StrategyStatus | null;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -112,6 +115,7 @@ const LazyChart = ({
           trades={trades}
           height={height}
           compact={compact}
+          strategyStatus={strategyStatus}
         />
       ) : (
         <div
@@ -142,10 +146,25 @@ function useIsMobile(breakpoint = 768): boolean {
 
 // ── Component ────────────────────────────────────────────────
 
-const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
+const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props) => {
   const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
   const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
+  const [strategyStatus, setStrategyStatus] = useState<StrategyStatus | null>(null);
+
+  // Fetch strategy status
+  useEffect(() => {
+    if (!wallet) return;
+    const load = async () => {
+      try {
+        const s = await fetchStrategyStatus(wallet);
+        setStrategyStatus(s);
+      } catch { /* ignore */ }
+    };
+    load();
+    const interval = setInterval(load, 30_000);
+    return () => clearInterval(interval);
+  }, [wallet]);
 
   // Compute stats
   const openPositions = positions.filter((p) => p.status === "open");
@@ -327,6 +346,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
               positions={positions}
               trades={trades}
               height={350}
+              strategyStatus={strategyStatus}
             />
           </div>
         </>
@@ -351,6 +371,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 trades={trades}
                 height={180}
                 compact
+                strategyStatus={strategyStatus}
               />
             </div>
           ))}

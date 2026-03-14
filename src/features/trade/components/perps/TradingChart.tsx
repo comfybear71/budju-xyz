@@ -10,7 +10,7 @@
 //   - Toggle between line and candlestick mode
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   createChart,
   IChartApi,
@@ -26,6 +26,7 @@ import {
   type KlineBar,
 } from "@lib/services/binanceWs";
 import type { PerpPosition, PerpTrade } from "../../types/perps";
+import type { StrategyStatus } from "../../services/perpApi";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -38,7 +39,25 @@ interface Props {
   height?: number;
   compact?: boolean;
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
+  strategyStatus?: StrategyStatus | null;
 }
+
+// Strategy display names and icons
+const STRATEGY_META: Record<string, { name: string; icon: string }> = {
+  trend_following: { name: "Trend Following", icon: "📈" },
+  scalping: { name: "Scalping", icon: "⚡" },
+  mean_reversion: { name: "Mean Reversion", icon: "🎯" },
+  momentum: { name: "Momentum Breakout", icon: "🚀" },
+  ninja: { name: "Ninja Ambush", icon: "🥷" },
+  grid: { name: "Grid Trading", icon: "📊" },
+  keltner: { name: "Keltner Channel", icon: "📐" },
+  bb_squeeze: { name: "BB Squeeze", icon: "💥" },
+  hf_scalper: { name: "HF Scalper", icon: "🏎️" },
+  zone_recovery: { name: "Zone Recovery", icon: "🔄" },
+  sr_reversal: { name: "S/R Reversal", icon: "🪃" },
+};
+
+const ALL_MARKET_BASES = ["SOL", "BTC", "ETH", "SUI", "AVAX", "LINK"];
 
 interface CandleData {
   time: Time;
@@ -249,6 +268,7 @@ const TradingChart = ({
   trades = [],
   height = 300,
   compact = false,
+  strategyStatus,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -271,6 +291,20 @@ const TradingChart = ({
   const [showMarkers, setShowMarkers] = useState(false);
   const [showPositionLines, setShowPositionLines] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
+  const [showStrats, setShowStrats] = useState(false);
+
+  // Strategies active on this market
+  const activeStratsForMarket = useMemo(() => {
+    if (!strategyStatus?.strategies) return [];
+    return Object.entries(strategyStatus.strategies)
+      .filter(([, cfg]) => cfg.enabled && cfg.markets.includes(symbol))
+      .map(([key, cfg]) => ({
+        key,
+        ...(STRATEGY_META[key] || { name: key, icon: "⚙️" }),
+        config: cfg,
+        positions: strategyStatus.strategy_positions?.[key]?.filter(p => p.symbol === symbol) || [],
+      }));
+  }, [strategyStatus, symbol]);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -791,7 +825,121 @@ const TradingChart = ({
         >
           AI
         </button>
+        {/* Strategy popup button */}
+        {strategyStatus && (
+          <button
+            onClick={() => setShowStrats(!showStrats)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors relative ${
+              showStrats
+                ? "text-purple-400 bg-purple-500/15 border-purple-500/30"
+                : activeStratsForMarket.length > 0
+                  ? "text-purple-400 bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20"
+                  : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
+            }`}
+          >
+            Strats
+            {activeStratsForMarket.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 text-[7px] text-white flex items-center justify-center font-bold">
+                {activeStratsForMarket.length}
+              </span>
+            )}
+          </button>
+        )}
       </div>
+
+      {/* ── Strategy slide-up popup ── */}
+      {showStrats && strategyStatus && (
+        <div
+          className="mt-1.5 rounded-lg border border-purple-500/20 bg-slate-900/95 backdrop-blur-sm overflow-hidden animate-[slideUp_0.2s_ease-out]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-white/[0.04]">
+            <span className="text-[10px] font-bold text-purple-300">
+              Active Strategies — {baseAsset}
+            </span>
+            <button
+              onClick={() => setShowStrats(false)}
+              className="text-slate-500 hover:text-white text-xs transition-colors"
+            >
+              ✕
+            </button>
+          </div>
+
+          {activeStratsForMarket.length === 0 ? (
+            <div className="px-2.5 py-3 text-[10px] text-slate-500 text-center">
+              No strategies active on {baseAsset}
+            </div>
+          ) : (
+            <div className="p-1.5 space-y-1">
+              {activeStratsForMarket.map((strat) => (
+                <div
+                  key={strat.key}
+                  className="rounded-lg bg-slate-800/50 border border-white/[0.04] px-2.5 py-2"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">{strat.icon}</span>
+                      <span className="text-[10px] font-bold text-white">{strat.name}</span>
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-bold">
+                        ACTIVE
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
+                      <span>{strat.config.leverage}x</span>
+                      <span>•</span>
+                      <span>Max {strat.config.max_positions} pos</span>
+                    </div>
+                  </div>
+                  {/* Market coins — green if this strategy uses them */}
+                  <div className="flex gap-1">
+                    {ALL_MARKET_BASES.map((coin) => {
+                      const isActive = strat.config.markets.includes(`${coin}-PERP`);
+                      const isCurrent = coin === baseAsset;
+                      return (
+                        <span
+                          key={coin}
+                          className={`text-[8px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
+                            isActive
+                              ? isCurrent
+                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                              : "bg-slate-800/50 text-slate-600 border-white/[0.04]"
+                          }`}
+                        >
+                          {coin}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* Active positions for this strategy on this market */}
+                  {strat.positions.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                      {strat.positions.map((pos, i) => (
+                        <div key={i} className="flex items-center gap-1.5 text-[9px]">
+                          <span className={pos.direction === "long" ? "text-emerald-400" : "text-red-400"}>
+                            {pos.direction.toUpperCase()}
+                          </span>
+                          <span className={`font-mono ${pos.pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+                            {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Show all strategies summary */}
+          {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length > activeStratsForMarket.length && (
+            <div className="px-2.5 py-1.5 border-t border-white/[0.04] text-[9px] text-slate-500">
+              {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length} strategies enabled total
+              {" · "}{activeStratsForMarket.length} on {baseAsset}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
