@@ -474,6 +474,12 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 
 ## 12. Recent Changes (as of March 14, 2026)
 
+### Critical Bug Fixes (latest session — March 14, 2026)
+- **CRITICAL: Take Profit exits losing money** — TP/SL exits in paper mode used `mark_price - slippage` as fill price. This meant a TP trigger at $110 could fill at $109.89 after slippage, then fees pushed P&L negative. Fix: TP exits now fill at the TP target price (like a real limit order), SL exits at SL target price. Market/manual/trailing exits still apply slippage.
+- **Settings persistence bug** — Partial tier updates (e.g., changing tier1 deviation) used MongoDB `$set` which overwrote the entire `autoTiers` field, deleting tier2/tier3. Fix: `save_trader_state()` now deep-merges autoTiers; `get_trader_state()` merges defaults for missing keys.
+- **iPhone charts failing to load** — Content blockers on iPhone Safari pattern-match on "binance" in URLs, blocking both `api.binance.com` AND our `/api/binance` proxy. Fix: Renamed proxy to `/api/klines` (neutral name), all chart components now use `/api/klines`. Added staggered loading (300ms between charts on mobile) to prevent 6 simultaneous fetches overwhelming the connection.
+- **Trade history refresh** — Added manual refresh button to PerpTradeHistory, kill_switch exit type label, and amber warning flag on TP exits with negative P&L.
+
 ### EA-Inspired Strategies (latest session)
 - **Keltner Channel strategy** (`perp_keltner.py`) — ATR-based channels with auto mode switching: mean reversion (bounce off channel) when normal, breakout mode when BB Squeeze detected
 - **Bollinger Squeeze strategy** (`perp_bb_squeeze.py`) — Detects volatility compression (BB inside Keltner Channel), trades the explosive breakout with momentum + RSI + range expansion confirmation
@@ -495,6 +501,8 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 ### Mobile Charts Fix
 - **MobileAreaChart.tsx** — Pure SVG area chart for iOS Safari
 - **DashboardCharts.tsx** — Auto-detects mobile, limits WebSocket connections in grid mode
+- **api/klines.ts** — Proxy endpoint at `/api/klines` (neutral URL to avoid content blockers)
+- All chart data fetches go through `/api/klines` proxy, never direct to Binance
 
 ### Core System (earlier sessions)
 - Full perpetual paper trading system with 10 markets, real-time Binance WebSocket charts
