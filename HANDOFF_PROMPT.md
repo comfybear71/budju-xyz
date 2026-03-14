@@ -474,7 +474,13 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 
 ## 12. Recent Changes (as of March 14, 2026)
 
-### Critical Bug Fixes (latest session — March 14, 2026)
+### Inline Editing for Pending Orders & Positions (latest session — March 14, 2026)
+- **Inline editable trigger price, SL, TP on pending order cards** — In TradingChart.tsx, the trigger price (`@ $70136.57`), stop loss, and take profit values on pending order cards below the chart are now clickable. Clicking turns the value into an inline `<input>` field. Press Enter to save, Escape to cancel, or click away (blur) to auto-save. Uses existing `onModifyPendingOrder` callback — no API changes needed.
+- **Inline editable SL/TP on open position cards** — Same inline editing pattern applied to position cards. Clicking the SL or TP value opens an inline input. Uses existing `onModifySLTP` callback. The "x" remove buttons hide while editing to prevent accidental deletion.
+- **Single `editingField` state** — One state object tracks which order/position field is being edited: `{ orderId, field: "trigger"|"sl"|"tp", value, kind: "order"|"position" }`. Only one field can be edited at a time across all cards.
+- **Why:** Chart drag-to-modify for SL/TP/trigger was buggy and would move all positions around. Direct input editing is more reliable and precise.
+
+### Critical Bug Fixes (previous session — March 14, 2026)
 - **CRITICAL: Take Profit exits losing money** — TP/SL exits in paper mode used `mark_price - slippage` as fill price. This meant a TP trigger at $110 could fill at $109.89 after slippage, then fees pushed P&L negative. Fix: TP exits now fill at the TP target price (like a real limit order), SL exits at SL target price. Market/manual/trailing exits still apply slippage.
 - **Settings persistence bug** — Partial tier updates (e.g., changing tier1 deviation) used MongoDB `$set` which overwrote the entire `autoTiers` field, deleting tier2/tier3. Fix: `save_trader_state()` now deep-merges autoTiers; `get_trader_state()` merges defaults for missing keys.
 - **iPhone charts failing to load** — Content blockers on iPhone Safari pattern-match on "binance" in URLs, blocking both `api.binance.com` AND our `/api/binance` proxy. Fix: Renamed proxy to `/api/klines` (neutral name), all chart components now use `/api/klines`. Added staggered loading (300ms between charts on mobile) to prevent 6 simultaneous fetches overwhelming the connection.
@@ -571,7 +577,7 @@ Changes made:
 4. **No automated tests for frontend** — Only Python tests exist.
 5. **Legacy DB name "flub"** — Consider migrating to "budju" for clarity.
 6. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID. Real deposits use depositService.ts.
-7. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors.
+7. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors. (Note: SL/TP/trigger are now inline-editable in the chart cards — validation still server-side only.)
 8. **Pending orders UI lacks real-time price for all markets** — Uses Binance WS for selected symbol only.
 9. **HF Scalper can generate many positions** — Max 15 concurrent, but monitor account balance consumption.
 10. **Zone Recovery can accumulate exposure** — 15% equity cap per zone, but monitor if multiple zones stress the balance.
@@ -613,4 +619,4 @@ Changes made:
 
 ---
 
-*Last updated: March 14, 2026.*
+*Last updated: March 14, 2026 (Session 3: inline editing for order/position cards).*
