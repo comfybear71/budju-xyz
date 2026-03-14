@@ -103,6 +103,16 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     riskManagement: "4x leverage for conviction. Max 2 positions (high-conviction, low-frequency strategy). Only trades on verified squeeze releases with multiple confirmation signals. Inspired by the TTM Squeeze indicator from forex EA design.",
     bestConditions: "Markets transitioning from low to high volatility. After consolidation periods. Works best on liquid pairs with clear volatility cycles (SOL, BTC, ETH).",
   },
+  hf_scalper: {
+    name: "HF Scalper",
+    desc: "High-frequency scalping — lots of small quick trades across all markets. Any profit is good profit.",
+    icon: "⚡",
+    howItWorks: "Runs 4 fast signal types every minute across all 10 markets: Micro EMA Cross (3/8 EMA), RSI Snap (RSI 5 bounce from extremes), Price Rejection (wick bounce off local high/low), and Momentum Burst (sudden acceleration). Each signal is scored and the best one triggers a trade. Uses 5-minute cooldown instead of 2 hours, allowing many trades per hour.",
+    entrySignal: "MICRO CROSS: 3/8 EMA crossover (fires frequently). RSI SNAP: RSI(5) bounces from 25/75 extremes. WICK REJECTION: price dips below local low then bounces back. MOMENTUM BURST: current candle 1.5x larger than 10-bar average.",
+    exitStrategy: "Very tight: SL at 0.5x ATR, TP at 1.0x ATR. 0.5% trailing stop locks in tiny gains fast. Trades typically last minutes, not hours.",
+    riskManagement: "5x leverage, 0.5% equity per trade (~$50 on $10K). Max 15 concurrent positions. No correlation guard — can trade BTC, ETH, SOL simultaneously. Volume makes the money, not individual trade size.",
+    bestConditions: "Any market with movement. More volatile = more signals. Works around the clock. Philosophy: 1000 trades × $1.50 = $1,500 beats 2 trades × $15 = $30.",
+  },
   zone_recovery: {
     name: "Zone Recovery",
     desc: "Forex EA hedge recovery — opens opposing trades with escalating lots to recover losing positions.",
@@ -217,13 +227,22 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
           <button
             onClick={handleToggle}
             disabled={toggling}
-            className={`px-4 py-2 rounded-lg text-xs font-bold transition-all border ${
+            className={`relative w-14 h-7 rounded-full transition-all duration-200 disabled:opacity-40 ${
               status.auto_trading_enabled
-                ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30"
-                : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
-            } disabled:opacity-40`}
+                ? "bg-emerald-500/40 border border-emerald-500/50"
+                : "bg-slate-700/60 border border-white/[0.08]"
+            }`}
+            aria-label="Toggle auto-trading"
           >
-            {toggling ? "..." : status.auto_trading_enabled ? "STOP" : "START"}
+            <span
+              className={`absolute top-1 w-5 h-5 rounded-full transition-all duration-200 shadow-sm flex items-center justify-center text-[8px] font-bold ${
+                status.auto_trading_enabled
+                  ? "left-[30px] bg-emerald-400 text-emerald-900"
+                  : "left-1 bg-slate-500 text-slate-300"
+              }`}
+            >
+              {toggling ? "..." : status.auto_trading_enabled ? "ON" : ""}
+            </span>
           </button>
         </div>
       </div>
@@ -305,13 +324,20 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
               </div>
               <button
                 onClick={() => handleToggleStrategy(name)}
-                className={`px-2 py-1 rounded text-[10px] font-bold transition-all border flex-shrink-0 ${
+                className={`relative w-10 h-5 rounded-full transition-all duration-200 flex-shrink-0 ${
                   isEnabled
-                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
-                    : "bg-slate-700/40 text-slate-500 border-white/[0.04]"
+                    ? "bg-emerald-500/40 border border-emerald-500/50"
+                    : "bg-slate-700/60 border border-white/[0.06]"
                 }`}
+                aria-label={`Toggle ${info.name}`}
               >
-                {isEnabled ? "ON" : "OFF"}
+                <span
+                  className={`absolute top-0.5 w-4 h-4 rounded-full transition-all duration-200 shadow-sm ${
+                    isEnabled
+                      ? "left-[22px] bg-emerald-400"
+                      : "left-0.5 bg-slate-500"
+                  }`}
+                />
               </button>
             </div>
 

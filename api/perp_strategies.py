@@ -151,6 +151,15 @@ DEFAULT_STRATEGIES = {
         "max_positions": 4,        # 2 zones × 2 sides
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
     },
+    "hf_scalper": {
+        "enabled": False,          # High-Frequency Scalper — lots of small quick trades
+        "leverage": 5,
+        "sl_atr_mult": 0.5,        # Very tight stop
+        "tp_atr_mult": 1.0,        # Quick target
+        "trailing_stop_pct": 0.5,
+        "max_positions": 15,       # Many small positions
+        "markets": list(MARKETS.keys()),  # All markets
+    },
 }
 
 # How many 1-minute candles we need for calculations
@@ -1224,6 +1233,20 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             print(f"[auto_trader] Zone recovery error: {e}")
             actions.append({"action": "error", "strategy": "zone_recovery", "error": str(e)})
 
+    # ── Run HF Scalper (high-frequency, own cooldown/position rules) ──
+    hf_config = config.get("strategies", {}).get("hf_scalper", {})
+    if hf_config.get("enabled"):
+        try:
+            from perp_hf_scalper import run_hf_scalper
+            peak_equity = account.get("peak_equity", equity)
+            hf_actions = run_hf_scalper(wallet, prices, equity, peak_equity)
+            for a in hf_actions:
+                a["strategy"] = "hf_scalper"
+            actions.extend(hf_actions)
+        except Exception as e:
+            print(f"[auto_trader] HF Scalper error: {e}")
+            actions.append({"action": "error", "strategy": "hf_scalper", "error": str(e)})
+
     return actions
 
 
@@ -1247,7 +1270,7 @@ def get_strategy_status(wallet: str) -> Dict:
     # Active strategy positions
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     strategy_positions = {}
-    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid", "zone_recovery"]
+    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid", "zone_recovery", "hf_scalper"]
     for name in all_strategy_names:
         strategy_positions[name] = [
             {
