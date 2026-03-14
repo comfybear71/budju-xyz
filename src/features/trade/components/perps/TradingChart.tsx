@@ -281,6 +281,7 @@ const TradingChart = ({
   const dataRef = useRef<CandleData[]>([]);
   const priceLinesRef = useRef<any[]>([]);
 
+  const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
   const [livePrice, setLivePrice] = useState(0);
   const [priceChange, setPriceChange] = useState(0);
@@ -422,8 +423,8 @@ const TradingChart = ({
     (async () => {
       setLoading(true);
 
-      // Fetch historical 1h klines from Binance REST
-      const historical = await fetchHistoricalKlines(binanceSymbol, "1h", 500);
+      // Fetch historical klines from Binance REST
+      const historical = await fetchHistoricalKlines(binanceSymbol, timeframe, 500);
       dataRef.current = historical;
 
       if (candleSeriesRef.current && historical.length > 0) {
@@ -460,7 +461,7 @@ const TradingChart = ({
       setLoading(false);
 
       // Start kline WebSocket
-      const stream = new BinanceKlineStream(binanceSymbol, "1h");
+      const stream = new BinanceKlineStream(binanceSymbol, timeframe);
       klineStreamRef.current = stream;
       stream.connect();
 
@@ -517,7 +518,7 @@ const TradingChart = ({
         klineStreamRef.current = null;
       }
     };
-  }, [binanceSymbol, initChart]);
+  }, [binanceSymbol, timeframe, initChart]);
 
   // ── Trade Markers ──────────────────────────────────────────
 
@@ -765,6 +766,22 @@ const TradingChart = ({
             )}
           </div>
           <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
+          {/* Timeframe selector */}
+          <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+            {(["5m", "30m", "1h"] as const).map((tf) => (
+              <button
+                key={tf}
+                onClick={() => setTimeframe(tf)}
+                className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                  timeframe === tf
+                    ? "text-emerald-400 bg-emerald-500/15"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
           {/* Chart mode toggle */}
           <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
             <button
