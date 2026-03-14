@@ -15,13 +15,15 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import { fetchPendingOrders } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
 
-// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari.
-// ONLY match actual phones/tablets, never desktop Macs/PCs.
+// Detect mobile/iOS — lightweight-charts has canvas rendering issues on mobile Safari
 const isMobile = (): boolean => {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  // Desktop screens always get candle charts — no exceptions
+  if (window.innerWidth >= 1024) return false;
   const ua = navigator.userAgent;
-  // Only match actual mobile device UA strings
-  return /iPhone|iPad|iPod|Android/i.test(ua) && !/Macintosh/i.test(ua);
+  const isMobileUA = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
+  const isSmallScreen = window.innerWidth < 768;
+  return isMobileUA || isSmallScreen;
 };
 
 // ── Types ────────────────────────────────────────────────────
