@@ -117,14 +117,17 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
 
         return (
           <div key={pos._id} className={`bg-slate-800/40 rounded-xl border ${borderColor} p-3 transition-colors`}>
-            {/* Header — top row: symbol + P&L */}
-            <div className="flex items-center justify-between mb-1.5">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">{pos.symbol}</span>
+            {/* Header — top row: symbol + direction/leverage + P&L */}
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-bold text-white whitespace-nowrap">{pos.symbol}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${dirBg} ${dirColor}`}>
+                  {pos.direction.toUpperCase()} {pos.leverage}x
+                </span>
                 {onViewChart && (
                   <button
                     onClick={() => onViewChart(pos.symbol)}
-                    className="text-slate-500 hover:text-white transition-colors"
+                    className="text-slate-500 hover:text-white transition-colors flex-shrink-0"
                     title={`View ${pos.symbol} chart`}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
@@ -133,17 +136,14 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                   </button>
                 )}
               </div>
-              <div className={`text-sm font-bold ${pnlColor}`}>
+              <div className={`text-sm font-bold ${pnlColor} text-right flex-shrink-0 ml-2`}>
                 {pnlSign}${livePnl.toFixed(2)}
-                <span className="text-[10px] ml-1">({pnlSign}{livePnlPct.toFixed(2)}%)</span>
+                <span className="text-[10px] ml-1">({pnlSign}{livePnlPct.toFixed(1)}%)</span>
               </div>
             </div>
 
-            {/* Badges row — wraps to second line */}
+            {/* Strategy/type badges — separate row */}
             <div className="flex flex-wrap items-center gap-1.5 mb-2">
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
-                {pos.direction.toUpperCase()} {pos.leverage}x
-              </span>
               <span className={`text-[9px] px-1 py-0.5 rounded border ${
                 posType === "core"
                   ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
@@ -153,7 +153,14 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
               </span>
               {pos.entry_reason && (() => {
                 const match = pos.entry_reason.match(/^\[([^\]]+)\]/);
-                if (!match) return null;
+                if (!match) {
+                  // Manual entry — show MANUAL badge if there's a reason text
+                  return (
+                    <span className="text-[9px] px-1 py-0.5 rounded border bg-pink-500/15 text-pink-400 border-pink-500/25" title={pos.entry_reason}>
+                      MANUAL
+                    </span>
+                  );
+                }
                 const strat = match[1];
                 const STRAT_LABELS: Record<string, { label: string; color: string }> = {
                   ninja: { label: "NINJA", color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
@@ -167,6 +174,7 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                   zone_recovery: { label: "ZONE REC", color: "bg-rose-500/15 text-rose-400 border-rose-500/25" },
                   hf_scalper: { label: "HF", color: "bg-lime-500/15 text-lime-400 border-lime-500/25" },
                   sr_reversal: { label: "S/R REV", color: "bg-violet-500/15 text-violet-400 border-violet-500/25" },
+                  MANUAL: { label: "MANUAL", color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
                 };
                 const s = STRAT_LABELS[strat] || { label: strat.toUpperCase(), color: "bg-slate-500/15 text-slate-400 border-slate-500/25" };
                 return (
@@ -178,6 +186,11 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
               {pos.pyramid_level && pos.pyramid_level > 0 && (
                 <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
                   P{pos.pyramid_level}
+                </span>
+              )}
+              {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
+                <span className="text-[9px] text-slate-500 truncate max-w-[150px]" title={pos.entry_reason}>
+                  {pos.entry_reason}
                 </span>
               )}
             </div>
@@ -211,23 +224,23 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
             </div>
 
             {/* SL/TP/Price indicators */}
-            <div className="flex flex-wrap items-center gap-2 text-[10px] mb-2">
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] mb-2">
               {pos.stop_loss && (
-                <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-                  SL: ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 whitespace-nowrap">
+                  SL ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </span>
               )}
               {pos.take_profit && (
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  TP: ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                  TP ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </span>
               )}
-              <span className={`px-1.5 py-0.5 rounded border ${livePnl >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
-                Now: ${livePrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              <span className={`px-1.5 py-0.5 rounded border whitespace-nowrap ${livePnl >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
+                Mark ${livePrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
               </span>
               {pos.trailing_stop_price && (
-                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  Trail: ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                  Trail ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </span>
               )}
             </div>
