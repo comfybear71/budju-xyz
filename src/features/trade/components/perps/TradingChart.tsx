@@ -50,9 +50,9 @@ interface CandleData {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-// Desktop fetches directly from Binance (client-side, no geo-block from browser).
-// Mobile uses /api/klines proxy instead (iPhone content blockers block "binance" URLs).
-const BINANCE_REST = "https://api.binance.com/api/v3/klines";
+// Try our own proxy first (works from any location/VPN), then direct Binance.
+// The proxy at /api/klines cascades through Binance.US, OKX, and Binance Global.
+// Direct Binance works from most countries but returns 451 from US IPs.
 
 async function fetchHistoricalKlines(
   binanceSymbol: string,
@@ -60,17 +60,31 @@ async function fetchHistoricalKlines(
   limit = 500,
 ): Promise<CandleData[]> {
   const symbol = binanceSymbol.toUpperCase();
-  const url = `${BINANCE_REST}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map((k: any[]) => ({
-    time: (Math.floor(k[0] / 1000)) as Time,
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-  }));
+
+  // Try proxy first (always works), then direct Binance (faster when not geo-blocked)
+  const urls = [
+    `/api/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+      return data.map((k: any[]) => ({
+        time: (Math.floor(k[0] / 1000)) as Time,
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+      }));
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
 function formatPrice(price: number): string {

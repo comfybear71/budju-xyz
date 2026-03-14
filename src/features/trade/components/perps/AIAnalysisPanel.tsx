@@ -135,21 +135,32 @@ function computeAnalysis(candles: CandleData[]): Omit<MarketAnalysis, "symbol" |
 
 // ── Fetch historical klines ─────────────────────────────────
 
-// Desktop fetches directly from Binance (client-side, no geo-block from browser).
-const BINANCE_REST = "https://api.binance.com/api/v3/klines";
-
+// Try proxy first (works from any VPN/location), then direct Binance.
 async function fetchKlines(binanceSymbol: string): Promise<CandleData[]> {
-  const url = `${BINANCE_REST}?symbol=${binanceSymbol.toUpperCase()}&interval=1m&limit=120`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map((k: any[]) => ({
-    time: Math.floor(k[0] / 1000),
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-  }));
+  const symbol = binanceSymbol.toUpperCase();
+  const urls = [
+    `/api/klines?symbol=${symbol}&interval=1m&limit=120`,
+    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=120`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+      return data.map((k: any[]) => ({
+        time: Math.floor(k[0] / 1000),
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+      }));
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
 // ── Markets ─────────────────────────────────────────────────

@@ -498,11 +498,22 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 - **Pending order limit** increased to 30 (ninja + grid need room)
 - **Position action buttons** added to position cards: partial close, pyramid, flip, core/satellite
 
-### Mobile Charts Fix
-- **MobileAreaChart.tsx** — Pure SVG area chart for iOS Safari
-- **DashboardCharts.tsx** — Auto-detects mobile, limits WebSocket connections in grid mode
-- **api/klines.ts** — Proxy endpoint at `/api/klines` (neutral URL to avoid content blockers)
-- All chart data fetches go through `/api/klines` proxy, never direct to Binance
+### Chart System (March 14, 2026 — IMPORTANT)
+
+**What works:**
+- **DashboardCharts.tsx** — ALWAYS uses TradingChart (candle charts) for ALL devices. Uses `LazyChart` wrapper with IntersectionObserver to defer WebSocket connections until chart scrolls into view (prevents iOS Safari WebSocket limit). Mobile gets 4 charts in grid, desktop gets 6.
+- **TradingChart.tsx** — TradingView `lightweight-charts` candle chart with live Binance WebSocket streaming, AI prediction line, signal badges, position overlays (SL/TP/Liq lines), strategy labels.
+- **MobileAreaChart.tsx** — Exists as a standalone SVG chart component but is NOT used by DashboardCharts. Can be used for other contexts if needed.
+- **api/klines.ts** — Proxy at `/api/klines` with cascade: Binance.US -> OKX -> Binance Global. Works from any location.
+- **TradingChart data source** — Tries `/api/klines` proxy first (works from any VPN/location), then falls back to direct `api.binance.com` (faster when not geo-blocked).
+
+**What went wrong (DO NOT REPEAT):**
+1. Added MobileAreaChart as a conditional replacement for TradingChart in DashboardCharts based on screen width detection. This caused desktop to show area charts instead of candles through 5+ broken iterations.
+2. Multiple `isMobile()` detection functions all failed — they matched Mac Safari as mobile (due to `ontouchend`, `maxTouchPoints`, etc).
+3. Even `window.innerWidth < 768` should have worked but the real issue was never confirmed — possibly TradingChart was crashing silently when fetching from geo-blocked Binance API (user had US VPN on), making the chart appear blank.
+4. **Root cause:** DashboardCharts should NEVER conditionally swap TradingChart for MobileAreaChart. The working version (from branch `claude/apply-cleanup-workflow-changes-NfvoU`) always uses TradingChart. Period.
+5. **Geo-blocking:** Binance Global (`api.binance.com`) returns HTTP 451 from US IPs. This affects both Vercel servers (US region) AND users with US VPN. Solution: TradingChart now tries proxy first.
+6. **Content blockers:** iPhone content blockers block URLs containing "binance" — both `api.binance.com` AND paths like `/api/binance`. Solution: proxy renamed to `/api/klines`.
 
 ### Core System (earlier sessions)
 - Full perpetual paper trading system with 10 markets, real-time Binance WebSocket charts
@@ -526,6 +537,40 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 9. **HF Scalper can generate many positions** — Max 15 concurrent, but monitor account balance consumption.
 10. **Zone Recovery can accumulate exposure** — 15% equity cap per zone, but monitor if multiple zones stress the balance.
 11. **Equity curve requires ~20 cron ticks of data** — New accounts trade at full size until enough snapshots accumulate.
+
+---
+
+## 14. Session Issues Log (March 14, 2026)
+
+### Issues Caused by This Session
+
+1. **Desktop candle charts replaced with area charts (5 failed fix attempts)**
+   - **Root cause:** Added conditional `MobileAreaChart` swap in DashboardCharts based on screen width detection
+   - **Why it kept failing:** Multiple `isMobile()` implementations all incorrectly matched Mac Safari as mobile
+   - **Real fix:** Restored DashboardCharts to always use TradingChart (as the working branch had it)
+   - **Lesson:** Never conditionally swap chart components. The LazyChart + TradingChart pattern works on all devices.
+
+2. **Chart data fetch failures from US VPN**
+   - **Root cause:** TradingChart fetched directly from `api.binance.com` which returns 451 from US IPs
+   - **Fix:** TradingChart now tries `/api/klines` proxy first, then direct Binance
+   - **Lesson:** Always use the proxy for initial data fetch. WebSocket streaming still goes direct to Binance (not geo-blocked for WS).
+
+3. **Klines proxy server-side failures**
+   - **Root cause:** Original proxy used Bybit as fallback, but Bybit returns 403 from Vercel US servers
+   - **Fix:** Replaced Bybit with OKX (verified working from US). Cascade: Binance.US -> OKX -> Binance Global.
+
+4. **Incorrectly told user to merge to master**
+   - **Root cause:** Assumed Vercel only deploys from main/master branch
+   - **Reality:** User's Vercel IS configured to deploy from the feature branch
+   - **Lesson:** Ask the user about their Vercel deployment config before making assumptions.
+
+### Bugs Fixed This Session (confirmed working)
+
+1. **TP exits losing money** — Fixed in `perp_engine.py`: TP exits now fill at TP target price, SL at SL target price (no slippage on limit-like exits)
+2. **Settings overwritten on partial update** — Fixed in `database.py`: deep-merge for autoTiers instead of `$set` overwrite
+3. **Auto-trader crash (`actions` NameError)** — Fixed in `perp_strategies.py`: moved `actions = []` above equity curve filter
+4. **Strategy labels on positions** — Added regex extraction of `[STRATEGY]` from `entry_reason` in PerpPositionsList and TradingChart
+5. **AI prediction dots on mobile** — Added to MobileAreaChart with tappable info popup
 
 ---
 

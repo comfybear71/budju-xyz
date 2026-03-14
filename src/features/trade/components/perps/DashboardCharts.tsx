@@ -8,14 +8,10 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import TradingChart from "./TradingChart";
-import MobileAreaChart from "./MobileAreaChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import { fetchPendingOrders } from "../../services/perpApi";
-import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
-
-// No mobile detection function — we check screen width directly in render
+import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -59,30 +55,97 @@ function getHourlyWinRate(trades: PerpTrade[]): Record<number, { wins: number; t
   return hours;
 }
 
-// ── Component ────────────────────────────────────────────────
+// ── Lazy Chart Wrapper ────────────────────────────────────────
+// Uses IntersectionObserver to only mount TradingChart (and its WebSocket)
+// when the container scrolls into view. This prevents iOS Safari from
+// hitting the ~6 concurrent WebSocket limit when all 6 grid charts
+// try to connect simultaneously.
 
-const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props) => {
-  const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
-  const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
-  const [pendingOrders, setPendingOrders] = useState<PerpPendingOrder[]>([]);
-  const { prices: wsPrices, wsState } = useLivePrices(500);
-
-  // Fetch pending orders for chart overlay
-  const loadPendingOrders = useCallback(async () => {
-    if (!wallet) return;
-    try {
-      const result = await fetchPendingOrders(wallet);
-      setPendingOrders(result.orders.filter((o) => o.status === "pending"));
-    } catch {
-      // Silently fail — pending orders are optional chart overlay
-    }
-  }, [wallet]);
+const LazyChart = ({
+  symbol,
+  base,
+  positions,
+  trades,
+  height,
+  compact,
+}: {
+  symbol: string;
+  base: string;
+  positions: PerpPosition[];
+  trades: PerpTrade[];
+  height: number;
+  compact: boolean;
+}) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    loadPendingOrders();
-    const interval = setInterval(loadPendingOrders, 30_000);
-    return () => clearInterval(interval);
-  }, [loadPendingOrders]);
+    const el = ref.current;
+    if (!el) return;
+
+    // On browsers without IntersectionObserver (rare), just render immediately
+    if (typeof IntersectionObserver === "undefined") {
+      setIsVisible(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect(); // Only need to trigger once
+        }
+      },
+      { rootMargin: "100px" }, // Start loading slightly before visible
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref}>
+      {isVisible ? (
+        <TradingChart
+          symbol={symbol}
+          baseAsset={base}
+          positions={positions}
+          trades={trades}
+          height={height}
+          compact={compact}
+        />
+      ) : (
+        <div
+          style={{ height: `${height}px` }}
+          className="flex items-center justify-center text-xs text-slate-600 animate-pulse"
+        >
+          Loading {base} chart...
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Detect mobile/small screen for limiting concurrent charts
+function useIsMobile(breakpoint = 768): boolean {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    setIsMobile(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+// ── Component ────────────────────────────────────────────────
+
+const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
+  const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
+  const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
+  const { prices: wsPrices, wsState } = useLivePrices(500);
 
   // Compute stats
   const openPositions = positions.filter((p) => p.status === "open");
@@ -99,12 +162,12 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
     return map;
   }, [positions]);
 
+  const isMobile = useIsMobile();
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
 
-  // Screen width check — re-evaluated on every render, no caching
-  // Phones get SVG area chart, everything else gets TradingView candles
-  const isSmallPhone = typeof window !== "undefined" && window.innerWidth < 768;
-  const Chart = isSmallPhone ? MobileAreaChart : TradingChart;
+  // On mobile, limit grid to 4 charts to stay within iOS Safari's
+  // WebSocket connection limit (~6 total, minus the shared price stream).
+  const gridMarkets = isMobile ? MARKETS.slice(0, 4) : MARKETS;
 
   return (
     <div className="space-y-3">
@@ -220,20 +283,21 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
 
           {/* Single focused chart */}
           <div className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-3">
-            <Chart
+            <TradingChart
               symbol={focusMarket.symbol}
               baseAsset={focusMarket.base}
               positions={positions}
               trades={trades}
-              pendingOrders={pendingOrders}
-              height={isSmallPhone ? 250 : 350}
+              height={350}
             />
           </div>
         </>
       ) : (
-        /* Grid view — 2 columns on desktop, 1 on mobile */
+        /* Grid view — 2 columns on desktop, 1 on mobile.
+           Uses LazyChart to defer WebSocket connections until visible,
+           preventing iOS Safari from exceeding its connection limit. */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {MARKETS.map((m, idx) => (
+          {gridMarkets.map((m) => (
             <div
               key={m.symbol}
               className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-2 cursor-pointer hover:border-blue-500/20 transition-colors"
@@ -242,15 +306,13 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
                 setViewMode("focus");
               }}
             >
-              <Chart
+              <LazyChart
                 symbol={m.symbol}
-                baseAsset={m.base}
+                base={m.base}
                 positions={positions}
                 trades={trades}
-                pendingOrders={pendingOrders}
-                height={isSmallPhone ? 140 : 180}
+                height={180}
                 compact
-                loadDelay={isSmallPhone ? idx * 300 : 0}
               />
             </div>
           ))}
