@@ -474,8 +474,21 @@ def run_ninja_strategy(wallet: str, prices: Dict[str, float],
         # Score by confluence and filter
         scored = score_levels(levels, current_price)
 
-        # Take top levels per symbol
-        top_for_symbol = scored[:MAX_ORDERS_PER_SYMBOL]
+        # Take top levels per symbol — ensure both sides (buy + sell) if available
+        buy_levels = [l for l in scored if l["order_type"] in ("limit_buy", "buy_stop")]
+        sell_levels = [l for l in scored if l["order_type"] in ("limit_sell", "sell_stop")]
+
+        top_for_symbol: List[Dict] = []
+        if MAX_ORDERS_PER_SYMBOL >= 2 and buy_levels and sell_levels:
+            # Guarantee at least one from each side
+            top_for_symbol.append(buy_levels[0])
+            top_for_symbol.append(sell_levels[0])
+            # Fill remaining slots from the rest by score
+            remaining = [l for l in scored if l not in top_for_symbol]
+            top_for_symbol.extend(remaining[: MAX_ORDERS_PER_SYMBOL - 2])
+        else:
+            top_for_symbol = scored[:MAX_ORDERS_PER_SYMBOL]
+
         for level in top_for_symbol:
             level["symbol"] = symbol
             level["current_price"] = current_price
