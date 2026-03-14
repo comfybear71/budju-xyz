@@ -564,6 +564,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             onRefresh={loadData}
             readOnly={effectiveReadOnly}
             wallet={wallet}
+            livePrices={prices}
             onViewChart={(symbol) => {
               setChartSymbol(symbol);
               setActiveTab("charts");

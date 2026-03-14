@@ -15,9 +15,10 @@ interface Props {
   readOnly?: boolean;
   wallet?: string;
   onViewChart?: (symbol: string) => void;
+  livePrices?: Record<string, number>;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart, livePrices = {} }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [closePct, setClosePct] = useState(50);
@@ -95,15 +96,26 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
   return (
     <div className="space-y-2">
       {positions.map((pos) => {
-        const pnlColor = pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400";
+        // Use live price if available, fall back to server mark price
+        const livePrice = livePrices[pos.symbol] || pos.mark_price;
+
+        // Recalculate P&L from live price
+        const priceDelta = pos.direction === "long"
+          ? livePrice - pos.entry_price
+          : pos.entry_price - livePrice;
+        const livePnl = (priceDelta / pos.entry_price) * pos.size_usd - pos.total_fees;
+        const livePnlPct = (priceDelta / pos.entry_price) * pos.leverage * 100;
+
+        const pnlColor = livePnl >= 0 ? "text-emerald-400" : "text-red-400";
+        const borderColor = livePnl >= 0 ? "border-emerald-500/30" : "border-red-500/30";
         const dirColor = pos.direction === "long" ? "text-emerald-400" : "text-red-400";
         const dirBg = pos.direction === "long" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20";
-        const pnlSign = pos.unrealized_pnl >= 0 ? "+" : "";
+        const pnlSign = livePnl >= 0 ? "+" : "";
         const isExpanded = expandedId === pos._id;
         const posType = pos.position_type || "satellite";
 
         return (
-          <div key={pos._id} className="bg-slate-800/40 rounded-xl border border-white/[0.04] p-3">
+          <div key={pos._id} className={`bg-slate-800/40 rounded-xl border ${borderColor} p-3 transition-colors`}>
             {/* Header */}
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
@@ -163,8 +175,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                 )}
               </div>
               <div className={`text-sm font-bold ${pnlColor}`}>
-                {pnlSign}${pos.unrealized_pnl.toFixed(2)}
-                <span className="text-[10px] ml-1">({pnlSign}{pos.unrealized_pnl_pct.toFixed(2)}%)</span>
+                {pnlSign}${livePnl.toFixed(2)}
+                <span className="text-[10px] ml-1">({pnlSign}{livePnlPct.toFixed(2)}%)</span>
               </div>
             </div>
 
@@ -175,8 +187,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                 <div className="text-slate-300">${pos.entry_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
               </div>
               <div>
-                <span className="text-slate-500">Mark</span>
-                <div className="text-white font-medium">${pos.mark_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+                <span className="text-slate-500">Price</span>
+                <div className={`font-medium ${pnlColor}`}>${livePrice.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
               </div>
               <div>
                 <span className="text-slate-500">Liq.</span>
