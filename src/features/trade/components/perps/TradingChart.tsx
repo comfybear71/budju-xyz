@@ -191,7 +191,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   ];
 
   for (let i = 1; i <= futureCandles; i++) {
-    const futureTime = (lastTime + i * 60) as Time; // 1m candles
+    const futureTime = (lastTime + i * 900) as Time; // 15m candles
     const projected = currentPrice * (1 + clampedRate * i);
     points.push({ time: futureTime, value: projected });
   }
@@ -384,7 +384,7 @@ const TradingChart = ({
       setLoading(true);
 
       // Fetch historical 1m klines from Binance REST
-      const historical = await fetchHistoricalKlines(binanceSymbol, "1m", 500);
+      const historical = await fetchHistoricalKlines(binanceSymbol, "15m", 500);
       dataRef.current = historical;
 
       if (candleSeriesRef.current && historical.length > 0) {
@@ -421,7 +421,7 @@ const TradingChart = ({
       setLoading(false);
 
       // Start kline WebSocket
-      const stream = new BinanceKlineStream(binanceSymbol, "1m");
+      const stream = new BinanceKlineStream(binanceSymbol, "15m");
       klineStreamRef.current = stream;
       stream.connect();
 
