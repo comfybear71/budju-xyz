@@ -115,35 +115,40 @@ def detect_scalp_levels(prices: List[float], current_price: float,
     current_rsi = rsi_vals[-1] if rsi_vals else 50.0
     ema_val = ema_vals[-1] if ema_vals else current_price
 
-    # Direction bias: above EMA = prefer longs, below = prefer shorts
+    # Direction bias: above EMA = longs only, below = shorts only
+    # NEVER trade against the trend — no catching falling knives
     bullish_bias = current_price > ema_val
     # RSI filter: don't buy overbought, don't sell oversold
     rsi_ok_long = current_rsi < RSI_OVERBOUGHT
     rsi_ok_short = current_rsi > RSI_OVERSOLD
 
-    # ── 1. Layered limit orders (mean reversion) ──
-    # Buy limits below price, sell limits above
+    # Gate: only trade WITH the micro-trend
+    allow_long = bullish_bias and rsi_ok_long
+    allow_short = (not bullish_bias) and rsi_ok_short
+
+    # ── 1. Layered limit orders (pullback entries WITH trend) ──
+    # Uptrend: buy dips below price.  Downtrend: sell rips above price.
     for i, offset_pct in enumerate(SCALP_LAYERS):
         layer_score = 2.0 - (i * 0.3)  # Tighter = higher score
 
-        if rsi_ok_long:
+        if allow_long:
             buy_price = current_price * (1 - offset_pct / 100)
             levels.append({
                 "price": round(buy_price, 6),
                 "order_type": "limit",
                 "direction": "long",
                 "source": f"layer_{i+1}_buy",
-                "score": layer_score + (0.3 if bullish_bias else 0),
+                "score": layer_score,
             })
 
-        if rsi_ok_short:
+        if allow_short:
             sell_price = current_price * (1 + offset_pct / 100)
             levels.append({
                 "price": round(sell_price, 6),
                 "order_type": "limit",
                 "direction": "short",
                 "source": f"layer_{i+1}_sell",
-                "score": layer_score + (0.3 if not bullish_bias else 0),
+                "score": layer_score,
             })
 
     # ── 2. Breakout / breakdown stop orders ──
@@ -151,8 +156,8 @@ def detect_scalp_levels(prices: List[float], current_price: float,
     recent_high = max(recent)
     recent_low = min(recent)
 
-    # Buy stop above recent high (momentum long)
-    if rsi_ok_long and bullish_bias:
+    # Buy stop above recent high (momentum long) — only in uptrend
+    if allow_long:
         breakout_price = recent_high * (1 + BREAKOUT_OFFSET_PCT / 100)
         levels.append({
             "price": round(breakout_price, 6),
@@ -162,8 +167,8 @@ def detect_scalp_levels(prices: List[float], current_price: float,
             "score": 1.8 if current_rsi > 55 else 1.2,
         })
 
-    # Sell stop below recent low (momentum short)
-    if rsi_ok_short and not bullish_bias:
+    # Sell stop below recent low (momentum short) — only in downtrend
+    if allow_short:
         breakdown_price = recent_low * (1 - BREAKOUT_OFFSET_PCT / 100)
         levels.append({
             "price": round(breakdown_price, 6),
@@ -173,27 +178,26 @@ def detect_scalp_levels(prices: List[float], current_price: float,
             "score": 1.8 if current_rsi < 45 else 1.2,
         })
 
-    # ── 3. Bollinger Band micro-scalp ──
-    # If price is near BB extremes, add a level at the band
+    # ── 3. Bollinger Band micro-scalp (WITH trend only) ──
     upper, middle, lower = bollinger_bands(prices, period=20, num_std=2.0)
     if upper and lower:
         bb_upper = upper[-1]
         bb_lower = lower[-1]
 
-        # Distance from current price to BB bands (as %)
         dist_to_lower = (current_price - bb_lower) / current_price * 100
         dist_to_upper = (bb_upper - current_price) / current_price * 100
 
-        # Only add if BB band is within our scalp range (< 0.8%)
-        if 0.05 < dist_to_lower < 0.8 and rsi_ok_long:
+        # BB lower in uptrend = buy the dip at support
+        if 0.05 < dist_to_lower < 0.8 and allow_long:
             levels.append({
                 "price": round(bb_lower, 6),
                 "order_type": "limit",
                 "direction": "long",
                 "source": "bb_lower_scalp",
-                "score": 2.2,  # High score — BB confluence
+                "score": 2.2,
             })
-        if 0.05 < dist_to_upper < 0.8 and rsi_ok_short:
+        # BB upper in downtrend = sell the rip at resistance
+        if 0.05 < dist_to_upper < 0.8 and allow_short:
             levels.append({
                 "price": round(bb_upper, 6),
                 "order_type": "limit",
