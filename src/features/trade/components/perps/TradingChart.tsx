@@ -282,6 +282,7 @@ const TradingChart = ({
   const klineStreamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<CandleData[]>([]);
   const priceLinesRef = useRef<any[]>([]);
+  const positionFingerprintRef = useRef<string>("");
 
   const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
@@ -572,8 +573,19 @@ const TradingChart = ({
 
   // ── Position Lines (entry price, SL, TP) ───────────────────
 
-  const addPositionLines = useCallback(() => {
+  const addPositionLines = useCallback((force = false) => {
     if (!candleSeriesRef.current) return;
+
+    // Build fingerprint to avoid rebuilding lines when nothing changed
+    const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
+    const myOrders = pendingOrders.filter((o) => o.symbol === symbol && o.status === "pending");
+    const fingerprint = JSON.stringify({
+      show: showPositionLines,
+      pos: myPositions.map((p) => `${p._id}:${p.entry_price}:${p.stop_loss}:${p.take_profit}`),
+      ord: myOrders.map((o) => `${o._id}:${o.trigger_price}`),
+    });
+    if (!force && fingerprint === positionFingerprintRef.current) return;
+    positionFingerprintRef.current = fingerprint;
 
     // Remove existing price lines
     for (const line of priceLinesRef.current) {
@@ -582,8 +594,6 @@ const TradingChart = ({
     priceLinesRef.current = [];
 
     if (!showPositionLines) return;
-
-    const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
       // Entry price line

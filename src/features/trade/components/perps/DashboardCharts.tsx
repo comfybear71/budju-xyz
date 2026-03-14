@@ -133,20 +133,6 @@ const LazyChart = ({
 };
 
 // Detect mobile/small screen for limiting concurrent charts
-function useIsMobile(breakpoint = 768): boolean {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    setIsMobile(mq.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [breakpoint]);
-  return isMobile;
-}
-
 // ── Component ────────────────────────────────────────────────
 
 const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props) => {
@@ -227,12 +213,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
     return "border-white/[0.04]";
   }, [priceDirection]);
 
-  const isMobile = useIsMobile();
   const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
-
-  // On mobile, limit grid to 4 charts to stay within iOS Safari's
-  // WebSocket connection limit (~6 total, minus the shared price stream).
-  const gridMarkets = isMobile ? MARKETS.slice(0, 4) : MARKETS;
 
   return (
     <div className="space-y-3">
@@ -364,7 +345,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
            Uses LazyChart to defer WebSocket connections until visible,
            preventing iOS Safari from exceeding its connection limit. */
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {gridMarkets.map((m) => (
+          {MARKETS.map((m) => (
             <div
               key={m.symbol}
               className={`bg-slate-800/30 rounded-xl border p-2 cursor-pointer hover:border-blue-500/20 transition-all duration-300 ${getCardBorder(m.base)}`}
