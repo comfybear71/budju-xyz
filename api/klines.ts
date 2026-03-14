@@ -46,11 +46,11 @@ function toOkxSymbol(symbol: string): string {
   return symbol.replace("USDT", "-USDT");
 }
 
-const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "1h", "4h", "1d"]);
+const ALLOWED_INTERVALS = new Set(["1m", "5m", "15m", "30m", "1h", "4h", "1d"]);
 
 // OKX interval mapping
 const OKX_INTERVALS: Record<string, string> = {
-  "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1D",
+  "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1H", "4h": "4H", "1d": "1D",
 };
 
 // ── Fetch from Binance.US (verified working from US servers) ─
