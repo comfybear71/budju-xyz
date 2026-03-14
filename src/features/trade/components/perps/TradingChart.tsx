@@ -42,6 +42,7 @@ interface Props {
   strategyStatus?: StrategyStatus | null;
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
   onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number }) => void;
+  onClosePosition?: (positionId: string, exitPrice: number) => void;
 }
 
 // Drag state for SL/TP/pending order lines
@@ -286,6 +287,7 @@ const TradingChart = ({
   pendingOrders = [],
   onModifySLTP,
   onModifyPendingOrder,
+  onClosePosition,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -1202,8 +1204,8 @@ const TradingChart = ({
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
                             pos.direction === "long"
                               ? "bg-emerald-500/20 text-emerald-400"
                               : "bg-red-500/20 text-red-400"
@@ -1211,22 +1213,37 @@ const TradingChart = ({
                             {pos.direction.toUpperCase()} {pos.leverage}x
                           </span>
                           {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
                               {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
                             </span>
                           )}
-                          <span className="text-[10px] text-slate-400 font-mono">
+                          {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
+                              MANUAL
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
                             Entry ${formatPrice(pos.entry_price)}
                           </span>
                         </div>
-                        <span className={`text-[11px] font-bold font-mono ${
-                          pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-                        }`}>
-                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                          <span className="text-[9px] ml-0.5 opacity-70">
-                            ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                          <span className={`text-[11px] font-bold font-mono ${
+                            pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                          }`}>
+                            {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                            <span className="text-[9px] ml-0.5 opacity-70">
+                              ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                            </span>
                           </span>
-                        </span>
+                          {onClosePosition && (
+                            <button
+                              onClick={() => onClosePosition(pos._id, pos.mark_price)}
+                              className="text-[9px] font-bold px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors border border-red-500/25 whitespace-nowrap"
+                            >
+                              Close
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
                         <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
