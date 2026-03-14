@@ -426,11 +426,30 @@ def trend_filter(prices: List[float], direction: str) -> bool:
 # ── Strategy Config ──────────────────────────────────────────────────────
 
 def get_strategy_config(wallet: str) -> Dict:
-    """Get strategy configuration for an account."""
+    """Get strategy configuration for an account.
+
+    Merges any new strategies from DEFAULT_STRATEGIES into existing configs
+    so that accounts created before new strategies were added still see them.
+    """
     config = perp_strategy_config.find_one({"wallet": wallet})
     if config:
         result = dict(config)
         result.pop("_id", None)
+
+        # Merge in any new strategies that didn't exist when this account was created
+        saved_strategies = result.get("strategies", {})
+        updated = False
+        for name, defaults in DEFAULT_STRATEGIES.items():
+            if name not in saved_strategies:
+                saved_strategies[name] = dict(defaults)
+                updated = True
+        if updated:
+            result["strategies"] = saved_strategies
+            perp_strategy_config.update_one(
+                {"wallet": wallet},
+                {"$set": {"strategies": saved_strategies, "updated_at": datetime.utcnow()}},
+            )
+
         return result
 
     # Create default config
