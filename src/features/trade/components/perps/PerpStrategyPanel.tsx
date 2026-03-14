@@ -93,6 +93,36 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
     riskManagement: "Conservative 2x leverage. 0.5% of equity per grid level. Max 2 symbols running grids simultaneously. Optional martingale (doubling each level) is disabled by default with hard cap at level 5 and 10% equity limit.",
     bestConditions: "Sideways/choppy markets with regular oscillations. Best on liquid pairs (SOL, BTC, ETH). Underperforms in strong directional trends.",
   },
+  keltner: {
+    name: "Keltner Channel",
+    desc: "ATR-based channel strategy — auto-switches between mean reversion and squeeze breakout modes.",
+    icon: "📐",
+    howItWorks: "Uses Keltner Channels (EMA ± 1.5x ATR) instead of Bollinger Bands. Auto-detects when a 'squeeze' occurs (Bollinger Bands contract inside Keltner Channels, indicating extremely low volatility). In squeeze mode, trades the breakout. In normal mode, trades mean-reversion bounces off the channel boundaries. This dual-mode approach adapts to market conditions automatically.",
+    entrySignal: "MEAN REVERSION: Long when price touches lower channel + RSI < 30. Short when price touches upper channel + RSI > 70. BREAKOUT: Long when price breaks above upper channel during squeeze release. Short when price breaks below lower channel during squeeze release.",
+    exitStrategy: "Mean reversion: TP at channel middle (1.5x ATR), 1% trailing stop. Breakout: Wide 5x ATR TP, 2% trailing stop to let trends run.",
+    riskManagement: "3x leverage, max 3 positions. 1.5% equity risk per trade. Squeeze detection prevents false breakout entries by requiring BB compression inside KC for minimum 5 bars before signaling.",
+    bestConditions: "Versatile — works in both ranging and trending markets. Excels when volatility cycles between compression and expansion. Based on the Keltner Channel EA pattern from forex trading.",
+  },
+  bb_squeeze: {
+    name: "BB Squeeze Breakout",
+    desc: "Detects volatility compression (squeeze) and trades the explosive breakout that follows.",
+    icon: "💥",
+    howItWorks: "Monitors for Bollinger Band Squeeze: when BB contracts inside Keltner Channels, it signals extremely low volatility — a 'coiled spring'. The strategy waits for squeeze release (BB expands back outside KC), then enters in the direction of momentum. Uses a momentum oscillator (price - SMA) and RSI to confirm breakout direction, plus range expansion verification to avoid false signals.",
+    entrySignal: "LONG: Squeeze releases + momentum positive and rising + RSI > 50 + current candle range > 1.2x average. SHORT: Squeeze releases + momentum negative and falling + RSI < 50 + range expansion. Requires minimum 8 consecutive squeeze bars before watching for release.",
+    exitStrategy: "Wide 8x ATR take profit — trailing stop (2.5%) is the primary exit mechanism. 2x ATR stop loss gives breakouts room to develop. Maximum 3 bars after release to enter — no chasing old breakouts.",
+    riskManagement: "4x leverage for conviction. Max 2 positions (high-conviction, low-frequency strategy). Only trades on verified squeeze releases with multiple confirmation signals. Inspired by the TTM Squeeze indicator from forex EA design.",
+    bestConditions: "Markets transitioning from low to high volatility. After consolidation periods. Works best on liquid pairs with clear volatility cycles (SOL, BTC, ETH).",
+  },
+  zone_recovery: {
+    name: "Zone Recovery",
+    desc: "Forex EA hedge recovery — opens opposing trades with escalating lots to recover losing positions.",
+    icon: "🛡️",
+    howItWorks: "Opens an initial trade based on EMA crossover signal. If the trade moves against us by one 'zone width' (1.5x ATR), it opens an opposing hedge trade at 1.3x the previous size (smooth martingale). This continues, alternating directions with escalating sizes, until the net PnL of all positions in the 'zone' hits the profit target. The key insight: the larger recovery positions only need a small move to recover the smaller initial losses.",
+    entrySignal: "Initial: EMA 9/21 crossover + RSI 35-65 + trend filter. Recovery hedges: automatic when price crosses zone boundary (1.5x ATR from last entry). Supports smooth martingale (1.3x), D'Alembert (+base), or Fibonacci sizing modes.",
+    exitStrategy: "Close entire zone when net profit reaches 0.5x ATR. Abandon zone after 5 recovery levels (hard cap). Also abandons if total zone exposure exceeds 15% of equity.",
+    riskManagement: "3x leverage. Max 2 active zones across all symbols. Smooth martingale (1.3x) instead of classic 2x doubling reduces blowup risk significantly. 15% equity cap per zone prevents catastrophic accumulation. 10% drawdown circuit breaker.",
+    bestConditions: "Choppy markets with mean-reverting tendencies. The zone width (1.5x ATR) adapts to volatility. Struggles in strong one-directional moves that exceed all recovery levels. Popular strategy pattern from forex Expert Advisors.",
+  },
   grid_bot: {
     name: "Grid / Futures Grid",
     desc: "Automated buy-low/sell-high within a price range.",
@@ -432,7 +462,7 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
       <div className="bg-slate-800/20 rounded-lg p-2.5 border border-white/[0.02]">
         <div className="text-[10px] text-slate-500 space-y-1">
           <p><strong className="text-slate-400">How it works:</strong> The cron runs every minute, fetches live prices, calculates technical indicators, and auto-places trades when signals align.</p>
-          <p><strong className="text-slate-400">Risk management:</strong> 1.5% equity risk per trade, ATR-based stops, 5 positions per side per symbol, 2hr cooldown, 20% daily loss circuit breaker.</p>
+          <p><strong className="text-slate-400">Risk management:</strong> 1.5% equity risk per trade, ATR-based stops, 5 positions per side per symbol, 2hr cooldown, 20% daily loss circuit breaker. Equity curve meta-filter auto-reduces sizing during cold streaks.</p>
           <p><strong className="text-slate-400">Data needed:</strong> ~{status.min_candles_required} candles of price data. Historical data is auto-seeded from Binance on first run — strategies activate immediately.</p>
         </div>
       </div>

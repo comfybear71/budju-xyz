@@ -59,6 +59,13 @@ MARTINGALE_ENABLED = False
 MARTINGALE_MAX_LEVEL = 5          # Hard cap: level 5 = 16x base size
 MARTINGALE_MAX_EQUITY_PCT = 0.10  # Never risk more than 10% total equity in grid
 
+# Smooth martingale: gentler 1.3x-1.5x multiplier instead of classic 2x doubling
+# Reduces risk of catastrophic loss while still averaging into positions
+SMOOTH_MARTINGALE_MULT = 1.3      # Each level is 1.3x previous (vs 2x classic)
+# Anti-martingale: increase size on WINNERS, reset on losers (reverse progression)
+ANTI_MARTINGALE_ENABLED = False
+ANTI_MARTINGALE_MULT = 1.3        # Increase winning grid level sizes by 1.3x
+
 
 # ── Grid State Management ────────────────────────────────────────────────
 
@@ -74,6 +81,8 @@ def get_grid_state(wallet: str) -> Dict:
         "grids": {},              # symbol -> grid config
         "last_refresh": None,     # Last time grids were refreshed
         "martingale_enabled": MARTINGALE_ENABLED,
+        "smooth_martingale": False,     # Use 1.3x instead of 2x
+        "anti_martingale": ANTI_MARTINGALE_ENABLED,
     }
 
 
@@ -141,6 +150,7 @@ def calculate_grid_levels(
     atr_value: float,
     equity: float,
     martingale: bool = False,
+    **kwargs,
 ) -> Dict:
     """Calculate grid buy/sell levels, sizes, SL, and TP for each level.
 
@@ -171,10 +181,16 @@ def calculate_grid_levels(
             print(f"[grid] Martingale exposure ${total_exposure:.2f} exceeds {MARTINGALE_MAX_EQUITY_PCT*100}% cap (${max_allowed:.2f}), using flat sizing")
             martingale = False
 
+    # Determine sizing mode
+    smooth = kwargs.get("smooth_martingale", False)
+
     for i in range(1, GRID_LEVELS + 1):
-        # Size: flat or martingale (doubling each level)
+        # Size: flat, classic martingale (2x), or smooth martingale (1.3x)
         if martingale and i <= MARTINGALE_MAX_LEVEL:
-            level_size = base_size * (2 ** (i - 1))
+            if smooth:
+                level_size = base_size * (SMOOTH_MARTINGALE_MULT ** (i - 1))
+            else:
+                level_size = base_size * (2 ** (i - 1))
         else:
             level_size = base_size
 
@@ -422,7 +438,8 @@ def run_grid_strategy(
         curr_atr = atr_vals[-1]
 
         # Calculate grid levels
-        grid = calculate_grid_levels(current_price, curr_atr, equity, martingale)
+        smooth = state.get("smooth_martingale", False)
+        grid = calculate_grid_levels(current_price, curr_atr, equity, martingale, smooth_martingale=smooth)
         if grid is None:
             continue
 
