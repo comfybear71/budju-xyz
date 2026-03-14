@@ -1471,7 +1471,7 @@ const TradingChart = ({
           {(() => {
             const marketTrades = (trades || [])
               .filter((t) => t.symbol === symbol)
-              .slice(0, 3);
+              .slice(0, 5);
             if (marketTrades.length === 0) return null;
             return (
               <div className="rounded-lg border border-white/[0.04] bg-slate-800/30 p-2">
