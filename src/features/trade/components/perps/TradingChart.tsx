@@ -25,7 +25,7 @@ import {
   CODE_TO_BINANCE,
   type KlineBar,
 } from "@lib/services/binanceWs";
-import type { PerpPosition, PerpTrade } from "../../types/perps";
+import type { PerpPosition, PerpTrade, PerpPendingOrder } from "../../types/perps";
 import type { StrategyStatus } from "../../services/perpApi";
 
 // ── Types ────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ interface Props {
   baseAsset: string; // e.g. "SOL"
   positions?: PerpPosition[];
   trades?: PerpTrade[];
-  pendingOrders?: unknown[]; // accepted for compatibility with MobileAreaChart
+  pendingOrders?: PerpPendingOrder[];
   height?: number;
   compact?: boolean;
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
@@ -269,6 +269,7 @@ const TradingChart = ({
   height = 300,
   compact = false,
   strategyStatus,
+  pendingOrders = [],
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -621,7 +622,54 @@ const TradingChart = ({
         }));
       }
     }
-  }, [positions, symbol, showPositionLines]);
+    // ── Pending Orders (dotted lines) ──
+    const myOrders = pendingOrders.filter((o) => o.symbol === symbol && o.status === "pending");
+
+    for (const order of myOrders) {
+      const isLong = order.direction === "long";
+      const typeLabel = order.order_type === "limit"
+        ? (isLong ? "BUY LIMIT" : "SELL LIMIT")
+        : (isLong ? "BUY STOP" : "SELL STOP");
+
+      // Strategy label from entry_reason e.g. "[ninja] support..."
+      const stratMatch = order.entry_reason?.match(/^\[([^\]]+)\]/);
+      const stratLabel = stratMatch ? ` [${stratMatch[1].toUpperCase()}]` : "";
+
+      // Trigger price line
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+        price: order.trigger_price,
+        color: isLong ? "#06b6d4" : "#f97316",
+        lineWidth: 1,
+        lineStyle: LineStyle.SparseDotted,
+        axisLabelVisible: true,
+        title: `${typeLabel}${stratLabel}`,
+      }));
+
+      // Pending order SL line
+      if (order.stop_loss) {
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+          price: order.stop_loss,
+          color: "rgba(249, 115, 22, 0.4)",
+          lineWidth: 1,
+          lineStyle: LineStyle.SparseDotted,
+          axisLabelVisible: false,
+          title: "",
+        }));
+      }
+
+      // Pending order TP line
+      if (order.take_profit) {
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+          price: order.take_profit,
+          color: "rgba(6, 182, 212, 0.4)",
+          lineWidth: 1,
+          lineStyle: LineStyle.SparseDotted,
+          axisLabelVisible: false,
+          title: "",
+        }));
+      }
+    }
+  }, [positions, pendingOrders, symbol, showPositionLines]);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -807,13 +855,21 @@ const TradingChart = ({
         </button>
         <button
           onClick={() => setShowPositionLines(!showPositionLines)}
-          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
+          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors relative ${
             showPositionLines
               ? "text-amber-400 bg-amber-500/15 border-amber-500/30"
               : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
           }`}
         >
           Positions
+          {(() => {
+            const orderCount = pendingOrders.filter(o => o.symbol === symbol && o.status === "pending").length;
+            return orderCount > 0 ? (
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-500 text-[7px] text-white flex items-center justify-center font-bold">
+                {orderCount}
+              </span>
+            ) : null;
+          })()}
         </button>
         <button
           onClick={() => setShowPrediction(!showPrediction)}
@@ -1001,6 +1057,75 @@ const TradingChart = ({
                         {pos.trailing_stop_price != null && (
                           <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
                         )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
+          {/* Pending orders for this market */}
+          {showPositionLines && (() => {
+            const marketOrders = pendingOrders.filter(
+              (o) => o.symbol === symbol && o.status === "pending"
+            );
+            if (marketOrders.length === 0) return null;
+            return (
+              <div className="space-y-1">
+                <div className="text-[8px] text-slate-400 uppercase tracking-wider">
+                  Pending Orders ({marketOrders.length})
+                </div>
+                {marketOrders.map((order) => {
+                  const isLong = order.direction === "long";
+                  const typeLabel = order.order_type === "limit"
+                    ? (isLong ? "BUY LIMIT" : "SELL LIMIT")
+                    : (isLong ? "BUY STOP" : "SELL STOP");
+                  const stratMatch = order.entry_reason?.match(/^\[([^\]]+)\]/);
+                  return (
+                    <div
+                      key={order._id}
+                      className={`rounded-lg border p-2 ${
+                        isLong
+                          ? "bg-cyan-500/[0.05] border-cyan-500/15"
+                          : "bg-orange-500/[0.05] border-orange-500/15"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            isLong
+                              ? "bg-cyan-500/20 text-cyan-400"
+                              : "bg-orange-500/20 text-orange-400"
+                          }`}>
+                            {typeLabel}
+                          </span>
+                          {stratMatch && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                              {stratMatch[1].toUpperCase()}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-300 font-mono">
+                            @ ${formatPrice(order.trigger_price)}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">
+                          {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
+                        </span>
+                      </div>
+                      <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
+                        {order.stop_loss != null && (
+                          <span>SL <span className="text-red-400/70 font-mono">${formatPrice(order.stop_loss)}</span></span>
+                        )}
+                        {order.take_profit != null && (
+                          <span>TP <span className="text-emerald-400/70 font-mono">${formatPrice(order.take_profit)}</span></span>
+                        )}
+                        {order.trailing_stop_pct != null && (
+                          <span>Trail <span className="text-blue-400/70 font-mono">{order.trailing_stop_pct}%</span></span>
+                        )}
+                        <span className="text-slate-500">
+                          Expires {new Date(order.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
                       </div>
                     </div>
                   );

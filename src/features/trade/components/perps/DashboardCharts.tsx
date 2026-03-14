@@ -11,8 +11,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import { fetchStrategyStatus, type StrategyStatus } from "../../services/perpApi";
-import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
+import { fetchStrategyStatus, fetchPendingOrders, type StrategyStatus } from "../../services/perpApi";
+import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -70,6 +70,7 @@ const LazyChart = ({
   height,
   compact,
   strategyStatus,
+  pendingOrders,
 }: {
   symbol: string;
   base: string;
@@ -78,6 +79,7 @@ const LazyChart = ({
   height: number;
   compact: boolean;
   strategyStatus?: StrategyStatus | null;
+  pendingOrders?: PerpPendingOrder[];
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -116,6 +118,7 @@ const LazyChart = ({
           height={height}
           compact={compact}
           strategyStatus={strategyStatus}
+          pendingOrders={pendingOrders}
         />
       ) : (
         <div
@@ -151,14 +154,19 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
   const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
   const [strategyStatus, setStrategyStatus] = useState<StrategyStatus | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<PerpPendingOrder[]>([]);
 
-  // Fetch strategy status
+  // Fetch strategy status + pending orders
   useEffect(() => {
     if (!wallet) return;
     const load = async () => {
       try {
-        const s = await fetchStrategyStatus(wallet);
+        const [s, orders] = await Promise.all([
+          fetchStrategyStatus(wallet),
+          fetchPendingOrders(wallet),
+        ]);
         setStrategyStatus(s);
+        setPendingOrders(orders.orders.filter(o => o.status === "pending"));
       } catch { /* ignore */ }
     };
     load();
@@ -347,6 +355,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
               trades={trades}
               height={350}
               strategyStatus={strategyStatus}
+              pendingOrders={pendingOrders}
             />
           </div>
         </>
@@ -372,6 +381,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose }: Props)
                 height={180}
                 compact
                 strategyStatus={strategyStatus}
+                pendingOrders={pendingOrders}
               />
             </div>
           ))}
