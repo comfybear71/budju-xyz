@@ -172,6 +172,10 @@ const MARKETS = [
   { symbol: "LINK-PERP", base: "LINK" },
   { symbol: "SUI-PERP", base: "SUI" },
   { symbol: "AVAX-PERP", base: "AVAX" },
+  { symbol: "BONK-PERP", base: "BONK" },
+  { symbol: "WIF-PERP", base: "WIF" },
+  { symbol: "DOGE-PERP", base: "DOGE" },
+  { symbol: "JUP-PERP", base: "JUP" },
 ];
 
 // ── Component ───────────────────────────────────────────────

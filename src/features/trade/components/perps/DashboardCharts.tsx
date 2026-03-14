@@ -39,6 +39,10 @@ const MARKETS: MarketDef[] = [
   { symbol: "LINK-PERP", base: "LINK", label: "LINK" },
   { symbol: "SUI-PERP", base: "SUI", label: "SUI" },
   { symbol: "AVAX-PERP", base: "AVAX", label: "AVAX" },
+  { symbol: "BONK-PERP", base: "BONK", label: "BONK" },
+  { symbol: "WIF-PERP", base: "WIF", label: "WIF" },
+  { symbol: "DOGE-PERP", base: "DOGE", label: "DOGE" },
+  { symbol: "JUP-PERP", base: "JUP", label: "JUP" },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────

@@ -35,6 +35,9 @@ const CODE_TO_BINANCE: Record<string, string> = {
   TAO: "taousdt",
   PEPE: "pepeusdt",
   LUNA: "lunausdt",
+  BONK: "bonkusdt",
+  WIF: "wifusdt",
+  JUP: "jupusdt",
 };
 
 // Reverse map: binance symbol → our code
