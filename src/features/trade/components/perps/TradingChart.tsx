@@ -689,7 +689,13 @@ const TradingChart = ({
                     : "bg-red-500/10 text-red-400 border-red-500/20"
                 }`}
               >
-                {pos.direction.toUpperCase()} {pos.leverage}x •{" "}
+                {pos.direction.toUpperCase()} {pos.leverage}x
+                {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
+                  <span className="text-purple-300 ml-0.5">
+                    {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
+                  </span>
+                )}
+                {" • "}
                 <span className={pos.unrealized_pnl >= 0 ? "text-emerald-300" : "text-red-300"}>
                   {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
                 </span>
@@ -731,6 +737,11 @@ const TradingChart = ({
                           }`}>
                             {pos.direction.toUpperCase()} {pos.leverage}x
                           </span>
+                          {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                              {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
+                            </span>
+                          )}
                           <span className="text-[10px] text-slate-400 font-mono">
                             Entry ${formatPrice(pos.entry_price)}
                           </span>
