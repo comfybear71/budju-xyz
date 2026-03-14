@@ -50,8 +50,9 @@ interface CandleData {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-// Use our proxy to avoid iPhone content blockers that block "binance" URLs
-const KLINES_PROXY = "/api/klines";
+// Desktop fetches directly from Binance (client-side, no geo-block from browser).
+// Mobile uses /api/klines proxy instead (iPhone content blockers block "binance" URLs).
+const BINANCE_REST = "https://api.binance.com/api/v3/klines";
 
 async function fetchHistoricalKlines(
   binanceSymbol: string,
@@ -59,7 +60,7 @@ async function fetchHistoricalKlines(
   limit = 500,
 ): Promise<CandleData[]> {
   const symbol = binanceSymbol.toUpperCase();
-  const url = `${KLINES_PROXY}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  const url = `${BINANCE_REST}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();

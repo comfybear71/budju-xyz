@@ -135,11 +135,11 @@ function computeAnalysis(candles: CandleData[]): Omit<MarketAnalysis, "symbol" |
 
 // ── Fetch historical klines ─────────────────────────────────
 
-// Use our proxy to avoid iPhone content blockers that block "binance" URLs
-const KLINES_PROXY = "/api/klines";
+// Desktop fetches directly from Binance (client-side, no geo-block from browser).
+const BINANCE_REST = "https://api.binance.com/api/v3/klines";
 
 async function fetchKlines(binanceSymbol: string): Promise<CandleData[]> {
-  const url = `${KLINES_PROXY}?symbol=${binanceSymbol.toUpperCase()}&interval=1m&limit=120`;
+  const url = `${BINANCE_REST}?symbol=${binanceSymbol.toUpperCase()}&interval=1m&limit=120`;
   const res = await fetch(url);
   if (!res.ok) return [];
   const data = await res.json();
