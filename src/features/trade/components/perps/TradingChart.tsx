@@ -41,7 +41,8 @@ interface Props {
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
   strategyStatus?: StrategyStatus | null;
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
-  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string; stopLoss?: number; takeProfit?: number }) => void;
+  onCancelPendingOrder?: (orderId: string) => void;
   onClosePosition?: (positionId: string, exitPrice: number) => void;
 }
 
@@ -289,6 +290,7 @@ const TradingChart = ({
   pendingOrders = [],
   onModifySLTP,
   onModifyPendingOrder,
+  onCancelPendingOrder,
   onClosePosition,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -310,6 +312,7 @@ const TradingChart = ({
   const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
   const [livePrice, setLivePrice] = useState(0);
+  const livePriceRef = useRef(0);
   const [priceChange, setPriceChange] = useState(0);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -471,6 +474,7 @@ const TradingChart = ({
         const last = historical[historical.length - 1];
         if (last) {
           setLivePrice(last.close);
+          livePriceRef.current = last.close;
           if (historical.length > 1) {
             const first = historical[0];
             setPriceChange(((last.close - first.close) / first.close) * 100);
@@ -502,6 +506,7 @@ const TradingChart = ({
       const unsub = stream.onBar((bar: KlineBar) => {
         setConnected(true);
         setLivePrice(bar.close);
+        livePriceRef.current = bar.close;
 
         const candle: CandleData = {
           time: bar.time as Time,
@@ -628,7 +633,7 @@ const TradingChart = ({
         color: isLong ? "rgba(34, 197, 94, 0.6)" : "rgba(239, 68, 68, 0.6)",
         lineWidth: 1,
         lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
+        axisLabelVisible: false,
         title: isLong ? "L" : "S",
       }));
 
@@ -639,8 +644,8 @@ const TradingChart = ({
           color: onModifySLTP ? "rgba(245, 158, 11, 0.7)" : "rgba(245, 158, 11, 0.4)",
           lineWidth: onModifySLTP ? 2 : 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: onModifySLTP ? "⇕ SL" : "SL",
+          axisLabelVisible: false,
+          title: "SL",
         });
         priceLinesRef.current.push(slLine);
         if (onModifySLTP) {
@@ -655,8 +660,8 @@ const TradingChart = ({
           color: onModifySLTP ? "rgba(168, 85, 247, 0.7)" : "rgba(168, 85, 247, 0.4)",
           lineWidth: onModifySLTP ? 2 : 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: onModifySLTP ? "⇕ TP" : "TP",
+          axisLabelVisible: false,
+          title: "TP",
         });
         priceLinesRef.current.push(tpLine);
         if (onModifySLTP) {
@@ -684,8 +689,8 @@ const TradingChart = ({
       const isLong = order.direction === "long";
       const canDrag = !!onModifyPendingOrder;
       const label = order.order_type === "limit"
-        ? (isLong ? "BUY LMT" : "SELL LMT")
-        : (isLong ? "BUY STP" : "SELL STP");
+        ? (isLong ? "B LMT" : "S LMT")
+        : (isLong ? "B STP" : "S STP");
 
       const pendingLine = candleSeriesRef.current.createPriceLine({
         price: order.trigger_price,
@@ -694,8 +699,8 @@ const TradingChart = ({
           : (canDrag ? "rgba(249, 115, 22, 0.7)" : "rgba(249, 115, 22, 0.5)"),
         lineWidth: canDrag ? 2 : 1,
         lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: canDrag ? `⇕ ${label}` : label,
+        axisLabelVisible: false,
+        title: label,
       });
       priceLinesRef.current.push(pendingLine);
       if (canDrag) {
@@ -711,7 +716,7 @@ const TradingChart = ({
     const series = candleSeriesRef.current;
     if (!container || !chart || !series || (!onModifySLTP && !onModifyPendingOrder)) return;
 
-    const SNAP_PX = 12; // pixels proximity to grab a line
+    const SNAP_PX = 20; // pixels proximity to grab a line
 
     const getPrice = (y: number): number | null => {
       try {
@@ -788,22 +793,23 @@ const TradingChart = ({
       e.preventDefault();
 
       // For pending orders, update label/color when dragged across current price
-      if (drag.type === "pending" && drag.orderType && drag.orderDirection && livePrice > 0) {
+      const curPrice = livePriceRef.current;
+      if (drag.type === "pending" && drag.orderType && drag.orderDirection && curPrice > 0) {
         let effectiveDir = drag.orderDirection;
         if (drag.orderType === "stop") {
-          if (drag.orderDirection === "long" && newPrice < livePrice) effectiveDir = "short";
-          else if (drag.orderDirection === "short" && newPrice > livePrice) effectiveDir = "long";
+          if (drag.orderDirection === "long" && newPrice < curPrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice > curPrice) effectiveDir = "long";
         } else if (drag.orderType === "limit") {
-          if (drag.orderDirection === "long" && newPrice > livePrice) effectiveDir = "short";
-          else if (drag.orderDirection === "short" && newPrice < livePrice) effectiveDir = "long";
+          if (drag.orderDirection === "long" && newPrice > curPrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice < curPrice) effectiveDir = "long";
         }
         const label = drag.orderType === "limit"
-          ? (effectiveDir === "long" ? "BUY LMT" : "SELL LMT")
-          : (effectiveDir === "long" ? "BUY STP" : "SELL STP");
+          ? (effectiveDir === "long" ? "B LMT" : "S LMT")
+          : (effectiveDir === "long" ? "B STP" : "S STP");
         const color = effectiveDir === "long"
           ? "rgba(6, 182, 212, 0.7)"
           : "rgba(249, 115, 22, 0.7)";
-        drag.priceLine.applyOptions({ price: newPrice, title: `⇕ ${label}`, color });
+        drag.priceLine.applyOptions({ price: newPrice, title: label, color });
       } else {
         drag.priceLine.applyOptions({ price: newPrice });
       }
@@ -831,16 +837,17 @@ const TradingChart = ({
           // BUY STOP above price → drag below price = SELL STOP
           // SELL STOP below price → drag above price = BUY STOP
           // Same logic for limit orders (reversed)
-          if (drag.orderType === "stop" && drag.orderDirection && livePrice > 0) {
-            if (drag.orderDirection === "long" && finalPrice < livePrice) {
+          const cp = livePriceRef.current;
+          if (drag.orderType === "stop" && drag.orderDirection && cp > 0) {
+            if (drag.orderDirection === "long" && finalPrice < cp) {
               mods.direction = "short"; // BUY STOP → SELL STOP
-            } else if (drag.orderDirection === "short" && finalPrice > livePrice) {
+            } else if (drag.orderDirection === "short" && finalPrice > cp) {
               mods.direction = "long"; // SELL STOP → BUY STOP
             }
-          } else if (drag.orderType === "limit" && drag.orderDirection && livePrice > 0) {
-            if (drag.orderDirection === "long" && finalPrice > livePrice) {
+          } else if (drag.orderType === "limit" && drag.orderDirection && cp > 0) {
+            if (drag.orderDirection === "long" && finalPrice > cp) {
               mods.direction = "short"; // BUY LIMIT → SELL LIMIT
-            } else if (drag.orderDirection === "short" && finalPrice < livePrice) {
+            } else if (drag.orderDirection === "short" && finalPrice < cp) {
               mods.direction = "long"; // SELL LIMIT → BUY LIMIT
             }
           }
@@ -1027,34 +1034,7 @@ const TradingChart = ({
         </div>
       )}
 
-      {/* Active positions overlay */}
-      {positions.filter((p) => p.symbol === symbol && p.status === "open").length > 0 && (
-        <div className="absolute top-8 left-2 z-10 space-y-0.5">
-          {positions
-            .filter((p) => p.symbol === symbol && p.status === "open")
-            .map((pos) => (
-              <div
-                key={pos._id}
-                className={`text-[9px] px-1.5 py-0.5 rounded border backdrop-blur-sm ${
-                  pos.direction === "long"
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border-red-500/20"
-                }`}
-              >
-                {pos.direction.toUpperCase()} {pos.leverage}x
-                {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
-                  <span className="text-purple-300 ml-0.5">
-                    {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
-                  </span>
-                )}
-                {" • "}
-                <span className={pos.unrealized_pnl >= 0 ? "text-emerald-300" : "text-red-300"}>
-                  {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                </span>
-              </div>
-            ))}
-        </div>
-      )}
+      {/* Active positions overlay removed — shown in cards below chart */}
 
       {/* Chart container */}
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
@@ -1312,10 +1292,26 @@ const TradingChart = ({
                         <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
                         <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
                         {pos.stop_loss != null && (
-                          <span>SL <span className="text-red-400/70 font-mono">${formatPrice(pos.stop_loss)}</span></span>
+                          <span className="inline-flex items-center gap-0.5">SL <span className="text-red-400/70 font-mono">${formatPrice(pos.stop_loss)}</span>
+                            {onModifySLTP && (
+                              <button
+                                onClick={() => onModifySLTP(pos._id, { stopLoss: 0 })}
+                                className="text-red-500/50 hover:text-red-400 ml-0.5"
+                                title="Remove stop loss"
+                              >x</button>
+                            )}
+                          </span>
                         )}
                         {pos.take_profit != null && (
-                          <span>TP <span className="text-emerald-400/70 font-mono">${formatPrice(pos.take_profit)}</span></span>
+                          <span className="inline-flex items-center gap-0.5">TP <span className="text-emerald-400/70 font-mono">${formatPrice(pos.take_profit)}</span>
+                            {onModifySLTP && (
+                              <button
+                                onClick={() => onModifySLTP(pos._id, { takeProfit: 0 })}
+                                className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
+                                title="Remove take profit"
+                              >x</button>
+                            )}
+                          </span>
                         )}
                         {pos.trailing_stop_price != null && (
                           <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
@@ -1372,16 +1368,42 @@ const TradingChart = ({
                             @ ${formatPrice(order.trigger_price)}
                           </span>
                         </div>
-                        <span className="text-[10px] text-slate-400 font-mono">
-                          {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
+                          </span>
+                          {onCancelPendingOrder && (
+                            <button
+                              onClick={() => onCancelPendingOrder(order._id)}
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all border bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 border-red-500/25 hover:border-red-500/40"
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
                         {order.stop_loss != null && (
-                          <span>SL <span className="text-red-400/70 font-mono">${formatPrice(order.stop_loss)}</span></span>
+                          <span className="inline-flex items-center gap-0.5">SL <span className="text-red-400/70 font-mono">${formatPrice(order.stop_loss)}</span>
+                            {onModifyPendingOrder && (
+                              <button
+                                onClick={() => onModifyPendingOrder(order._id, { stopLoss: 0 })}
+                                className="text-red-500/50 hover:text-red-400 ml-0.5"
+                                title="Remove stop loss"
+                              >x</button>
+                            )}
+                          </span>
                         )}
                         {order.take_profit != null && (
-                          <span>TP <span className="text-emerald-400/70 font-mono">${formatPrice(order.take_profit)}</span></span>
+                          <span className="inline-flex items-center gap-0.5">TP <span className="text-emerald-400/70 font-mono">${formatPrice(order.take_profit)}</span>
+                            {onModifyPendingOrder && (
+                              <button
+                                onClick={() => onModifyPendingOrder(order._id, { takeProfit: 0 })}
+                                className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
+                                title="Remove take profit"
+                              >x</button>
+                            )}
+                          </span>
                         )}
                         {order.trailing_stop_pct != null && (
                           <span>Trail <span className="text-blue-400/70 font-mono">{order.trailing_stop_pct}%</span></span>
