@@ -208,26 +208,27 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
               </div>
             </div>
 
-            {/* SL/TP indicators */}
-            {(pos.stop_loss || pos.take_profit || pos.trailing_stop_price) && (
-              <div className="flex gap-2 text-[10px] mb-2">
-                {pos.stop_loss && (
-                  <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-                    SL: ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-                {pos.take_profit && (
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    TP: ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-                {pos.trailing_stop_price && (
-                  <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    Trail: ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* SL/TP/Price indicators */}
+            <div className="flex flex-wrap items-center gap-2 text-[10px] mb-2">
+              {pos.stop_loss && (
+                <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                  SL: ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </span>
+              )}
+              {pos.take_profit && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  TP: ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </span>
+              )}
+              <span className={`px-1.5 py-0.5 rounded border ${livePnl >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
+                Now: ${livePrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+              </span>
+              {pos.trailing_stop_price && (
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  Trail: ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                </span>
+              )}
+            </div>
 
             {/* Actions — hidden in read-only mode */}
             {!readOnly && (
