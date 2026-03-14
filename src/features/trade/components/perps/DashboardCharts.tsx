@@ -296,7 +296,7 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
         /* Grid view — 2 columns on desktop, 1 on mobile.
            Uses LazyChart to defer WebSocket connections until visible,
            preventing iOS Safari from exceeding its connection limit. */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {gridMarkets.map((m) => (
             <div
               key={m.symbol}
