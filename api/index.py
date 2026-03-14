@@ -57,6 +57,7 @@ from perp_engine import (
     get_reentry_candidates,
     create_pending_order,
     cancel_pending_order,
+    modify_pending_order,
     get_pending_orders,
     MARKETS,
 )
@@ -790,6 +791,20 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
                 result = cancel_pending_order(order_id, wallet)
+                self._send_json(200, result)
+
+            elif path == '/api/perp/pending-order/modify':
+                wallet = body.get('wallet')
+                order_id = body.get('orderId')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = modify_pending_order(
+                    order_id, wallet,
+                    trigger_price=float(body['triggerPrice']) if body.get('triggerPrice') else None,
+                    stop_loss=float(body['stopLoss']) if body.get('stopLoss') else None,
+                    take_profit=float(body['takeProfit']) if body.get('takeProfit') else None,
+                )
                 self._send_json(200, result)
 
             # ── Pyramiding ─────────────────────────────────────────────

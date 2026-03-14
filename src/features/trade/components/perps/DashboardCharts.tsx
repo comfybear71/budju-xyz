@@ -11,7 +11,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, modifyPerpPosition, type StrategyStatus } from "../../services/perpApi";
+import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, modifyPerpPosition, modifyPendingOrder, type StrategyStatus } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder, PerpOrderRequest } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
@@ -78,6 +78,7 @@ const LazyChart = ({
   strategyStatus,
   pendingOrders,
   onModifySLTP,
+  onModifyPendingOrder,
 }: {
   symbol: string;
   base: string;
@@ -88,6 +89,7 @@ const LazyChart = ({
   strategyStatus?: StrategyStatus | null;
   pendingOrders?: PerpPendingOrder[];
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number }) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -128,6 +130,7 @@ const LazyChart = ({
           strategyStatus={strategyStatus}
           pendingOrders={pendingOrders}
           onModifySLTP={onModifySLTP}
+          onModifyPendingOrder={onModifyPendingOrder}
         />
       ) : (
         <div
@@ -433,6 +436,17 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
     }
   }, [wallet, onRefresh]);
 
+  // Handler for dragging pending order trigger price
+  const handleModifyPendingOrder = useCallback(async (orderId: string, mods: { triggerPrice?: number }) => {
+    if (!wallet) return;
+    try {
+      await modifyPendingOrder(orderId, mods, wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] Pending order modify failed:", err);
+    }
+  }, [wallet, onRefresh]);
+
   // Per-market position count
   const positionsBySymbol = useMemo(() => {
     const map: Record<string, PerpPosition[]> = {};
@@ -606,6 +620,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
               strategyStatus={strategyStatus}
               pendingOrders={pendingOrders}
               onModifySLTP={wallet ? handleModifySLTP : undefined}
+              onModifyPendingOrder={wallet ? handleModifyPendingOrder : undefined}
             />
           </div>
 
@@ -646,6 +661,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
                 strategyStatus={strategyStatus}
                 pendingOrders={pendingOrders}
                 onModifySLTP={wallet ? handleModifySLTP : undefined}
+                onModifyPendingOrder={wallet ? handleModifyPendingOrder : undefined}
               />
             </div>
           ))}

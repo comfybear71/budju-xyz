@@ -1220,6 +1220,36 @@ def cancel_pending_order(order_id: str, wallet: str) -> Dict:
     return _format_pending_order(order)
 
 
+def modify_pending_order(order_id: str, wallet: str,
+                         trigger_price: float = None,
+                         stop_loss: float = None,
+                         take_profit: float = None) -> Dict:
+    """Modify a pending order's trigger price, SL, or TP."""
+    order = perp_pending_orders.find_one({
+        "_id": ObjectId(order_id), "account_id": wallet, "status": "pending"
+    })
+    if not order:
+        raise ValueError("Pending order not found")
+
+    updates = {}
+    if trigger_price is not None and trigger_price > 0:
+        updates["trigger_price"] = trigger_price
+    if stop_loss is not None:
+        updates["stop_loss"] = stop_loss if stop_loss > 0 else None
+    if take_profit is not None:
+        updates["take_profit"] = take_profit if take_profit > 0 else None
+
+    if not updates:
+        raise ValueError("No modifications provided")
+
+    perp_pending_orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": updates}
+    )
+    order.update(updates)
+    return _format_pending_order(order)
+
+
 def cancel_all_pending_orders(wallet: str, symbol: str = None) -> Dict:
     """Cancel all pending orders for a wallet, optionally filtered by symbol."""
     query = {"account_id": wallet, "status": "pending"}

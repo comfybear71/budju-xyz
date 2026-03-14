@@ -41,13 +41,14 @@ interface Props {
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
   strategyStatus?: StrategyStatus | null;
   onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number }) => void;
 }
 
-// Drag state for SL/TP lines
+// Drag state for SL/TP/pending order lines
 interface DragState {
   active: boolean;
-  type: "sl" | "tp";
-  positionId: string;
+  type: "sl" | "tp" | "pending";
+  positionId: string; // position or order ID
   priceLine: any;
   startPrice: number;
 }
@@ -284,6 +285,7 @@ const TradingChart = ({
   strategyStatus,
   pendingOrders = [],
   onModifySLTP,
+  onModifyPendingOrder,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -296,10 +298,10 @@ const TradingChart = ({
   const priceLinesRef = useRef<any[]>([]);
   const positionFingerprintRef = useRef<string>("");
 
-  // SL/TP draggable line refs — separate from priceLinesRef so we can identify them
-  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp"; positionId: string; priceLine: any }>>(new Map());
+  // SL/TP/pending draggable line refs — separate from priceLinesRef so we can identify them
+  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp" | "pending"; positionId: string; priceLine: any }>>(new Map());
   const dragRef = useRef<DragState | null>(null);
-  const [dragPrice, setDragPrice] = useState<{ type: "sl" | "tp"; price: number } | null>(null);
+  const [dragPrice, setDragPrice] = useState<{ type: "sl" | "tp" | "pending"; price: number } | null>(null);
 
   const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
@@ -672,28 +674,37 @@ const TradingChart = ({
         }
       }
     }
-    // ── Pending Orders — faint dotted lines ──
+    // ── Pending Orders — draggable trigger price lines ──
     for (const order of myOrders) {
       const isLong = order.direction === "long";
+      const canDrag = !!onModifyPendingOrder;
+      const label = order.order_type === "limit"
+        ? (isLong ? "BUY LMT" : "SELL LMT")
+        : (isLong ? "BUY STP" : "SELL STP");
 
-      // Trigger price — main pending order line
-      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+      const pendingLine = candleSeriesRef.current.createPriceLine({
         price: order.trigger_price,
-        color: isLong ? "rgba(6, 182, 212, 0.5)" : "rgba(249, 115, 22, 0.5)",
-        lineWidth: 1,
-        lineStyle: LineStyle.SparseDotted,
+        color: isLong
+          ? (canDrag ? "rgba(6, 182, 212, 0.7)" : "rgba(6, 182, 212, 0.5)")
+          : (canDrag ? "rgba(249, 115, 22, 0.7)" : "rgba(249, 115, 22, 0.5)"),
+        lineWidth: canDrag ? 2 : 1,
+        lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: isLong ? "BL" : "SL",
-      }));
+        title: canDrag ? `⇕ ${label}` : label,
+      });
+      priceLinesRef.current.push(pendingLine);
+      if (canDrag) {
+        slTpLinesRef.current.set(`pending-${order._id}`, { type: "pending" as any, positionId: order._id, priceLine: pendingLine });
+      }
     }
-  }, [positions, pendingOrders, symbol, showPositionLines, onModifySLTP]);
+  }, [positions, pendingOrders, symbol, showPositionLines, onModifySLTP, onModifyPendingOrder]);
 
   // ── SL/TP Drag Handlers ──────────────────────────────────
   useEffect(() => {
     const container = containerRef.current;
     const chart = chartRef.current;
     const series = candleSeriesRef.current;
-    if (!container || !chart || !series || !onModifySLTP) return;
+    if (!container || !chart || !series || (!onModifySLTP && !onModifyPendingOrder)) return;
 
     const SNAP_PX = 12; // pixels proximity to grab a line
 
@@ -787,10 +798,14 @@ const TradingChart = ({
 
       // Call modify API if price actually changed
       if (Math.abs(finalPrice - drag.startPrice) > 0.0001) {
-        const mods = drag.type === "sl"
-          ? { stopLoss: finalPrice }
-          : { takeProfit: finalPrice };
-        onModifySLTP(drag.positionId, mods);
+        if (drag.type === "pending") {
+          onModifyPendingOrder?.(drag.positionId, { triggerPrice: finalPrice });
+        } else {
+          const mods = drag.type === "sl"
+            ? { stopLoss: finalPrice }
+            : { takeProfit: finalPrice };
+          onModifySLTP?.(drag.positionId, mods);
+        }
       }
 
       dragRef.current = null;
@@ -806,7 +821,7 @@ const TradingChart = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [onModifySLTP]);
+  }, [onModifySLTP, onModifyPendingOrder]);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -958,9 +973,11 @@ const TradingChart = ({
           <div className={`text-[11px] font-bold px-2 py-1 rounded-lg border backdrop-blur-sm ${
             dragPrice.type === "sl"
               ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-              : "bg-purple-500/20 text-purple-300 border-purple-500/30"
+              : dragPrice.type === "tp"
+              ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
+              : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
           }`}>
-            {dragPrice.type === "sl" ? "SL" : "TP"}: ${formatPrice(dragPrice.price)}
+            {dragPrice.type === "sl" ? "SL" : dragPrice.type === "tp" ? "TP" : "Trigger"}: ${formatPrice(dragPrice.price)}
           </div>
         </div>
       )}

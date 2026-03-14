@@ -263,6 +263,14 @@ export async function cancelPendingOrder(
   return postJson(`${API_BASE}/pending-order/cancel`, { orderId, wallet });
 }
 
+export async function modifyPendingOrder(
+  orderId: string,
+  mods: { triggerPrice?: number; stopLoss?: number; takeProfit?: number },
+  wallet: string,
+): Promise<PerpPendingOrder> {
+  return postJson(`${API_BASE}/pending-order/modify`, { orderId, ...mods, wallet });
+}
+
 // ── Advanced Position Management ────────────────────────────────────────
 
 export async function partialClosePosition(
