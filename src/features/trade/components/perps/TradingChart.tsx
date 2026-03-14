@@ -40,6 +40,16 @@ interface Props {
   compact?: boolean;
   loadDelay?: number; // accepted for compatibility with MobileAreaChart
   strategyStatus?: StrategyStatus | null;
+  onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
+}
+
+// Drag state for SL/TP lines
+interface DragState {
+  active: boolean;
+  type: "sl" | "tp";
+  positionId: string;
+  priceLine: any;
+  startPrice: number;
 }
 
 // Strategy display names and icons
@@ -273,6 +283,7 @@ const TradingChart = ({
   compact = false,
   strategyStatus,
   pendingOrders = [],
+  onModifySLTP,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -284,6 +295,11 @@ const TradingChart = ({
   const dataRef = useRef<CandleData[]>([]);
   const priceLinesRef = useRef<any[]>([]);
   const positionFingerprintRef = useRef<string>("");
+
+  // SL/TP draggable line refs — separate from priceLinesRef so we can identify them
+  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp"; positionId: string; priceLine: any }>>(new Map());
+  const dragRef = useRef<DragState | null>(null);
+  const [dragPrice, setDragPrice] = useState<{ type: "sl" | "tp"; price: number } | null>(null);
 
   const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
@@ -593,6 +609,7 @@ const TradingChart = ({
       try { candleSeriesRef.current.removePriceLine(line); } catch { /* already removed */ }
     }
     priceLinesRef.current = [];
+    slTpLinesRef.current.clear();
 
     if (!showPositionLines) return;
 
@@ -608,28 +625,36 @@ const TradingChart = ({
         title: isLong ? "L" : "S",
       }));
 
-      // SL — subtle dotted
+      // SL — draggable line
       if (pos.stop_loss) {
-        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+        const slLine = candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
-          color: "rgba(245, 158, 11, 0.4)",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
+          color: onModifySLTP ? "rgba(245, 158, 11, 0.7)" : "rgba(245, 158, 11, 0.4)",
+          lineWidth: onModifySLTP ? 2 : 1,
+          lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "SL",
-        }));
+          title: onModifySLTP ? "⇕ SL" : "SL",
+        });
+        priceLinesRef.current.push(slLine);
+        if (onModifySLTP) {
+          slTpLinesRef.current.set(`sl-${pos._id}`, { type: "sl", positionId: pos._id, priceLine: slLine });
+        }
       }
 
-      // TP — subtle dotted
+      // TP — draggable line
       if (pos.take_profit) {
-        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+        const tpLine = candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
-          color: "rgba(168, 85, 247, 0.4)",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
+          color: onModifySLTP ? "rgba(168, 85, 247, 0.7)" : "rgba(168, 85, 247, 0.4)",
+          lineWidth: onModifySLTP ? 2 : 1,
+          lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "TP",
-        }));
+          title: onModifySLTP ? "⇕ TP" : "TP",
+        });
+        priceLinesRef.current.push(tpLine);
+        if (onModifySLTP) {
+          slTpLinesRef.current.set(`tp-${pos._id}`, { type: "tp", positionId: pos._id, priceLine: tpLine });
+        }
       }
 
       // LIQ — faint dotted, only if within 15% of price
@@ -661,7 +686,127 @@ const TradingChart = ({
         title: isLong ? "BL" : "SL",
       }));
     }
-  }, [positions, pendingOrders, symbol, showPositionLines]);
+  }, [positions, pendingOrders, symbol, showPositionLines, onModifySLTP]);
+
+  // ── SL/TP Drag Handlers ──────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!container || !chart || !series || !onModifySLTP) return;
+
+    const SNAP_PX = 12; // pixels proximity to grab a line
+
+    const getPrice = (y: number): number | null => {
+      try {
+        const price = series.coordinateToPrice(y);
+        return typeof price === "number" && isFinite(price) ? price : null;
+      } catch { return null; }
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const mousePrice = getPrice(y);
+      if (!mousePrice) return;
+
+      // Find nearest SL/TP line within snap distance
+      let nearest: { key: string; dist: number } | null = null;
+      for (const [key, info] of slTpLinesRef.current) {
+        const linePrice = info.priceLine.options().price;
+        const lineY = series.priceToCoordinate(linePrice);
+        if (lineY === null) continue;
+        const dist = Math.abs(y - lineY);
+        if (dist < SNAP_PX && (!nearest || dist < nearest.dist)) {
+          nearest = { key, dist };
+        }
+      }
+
+      if (!nearest) return;
+      const info = slTpLinesRef.current.get(nearest.key)!;
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Disable chart scrolling during drag
+      chart.applyOptions({
+        handleScroll: { mouseWheel: false, pressedMouseMove: false },
+        handleScale: { mouseWheel: false, pinch: false },
+      });
+
+      dragRef.current = {
+        active: true,
+        type: info.type,
+        positionId: info.positionId,
+        priceLine: info.priceLine,
+        startPrice: info.priceLine.options().price,
+      };
+      container.style.cursor = "ns-resize";
+      setDragPrice({ type: info.type, price: info.priceLine.options().price });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag?.active) {
+        // Show grab cursor when hovering near SL/TP lines
+        const rect = container.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        let nearLine = false;
+        for (const [, info] of slTpLinesRef.current) {
+          const lineY = series.priceToCoordinate(info.priceLine.options().price);
+          if (lineY !== null && Math.abs(y - lineY) < SNAP_PX) {
+            nearLine = true;
+            break;
+          }
+        }
+        container.style.cursor = nearLine ? "ns-resize" : "";
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const newPrice = getPrice(y);
+      if (!newPrice || newPrice <= 0) return;
+
+      e.preventDefault();
+      drag.priceLine.applyOptions({ price: newPrice });
+      setDragPrice({ type: drag.type, price: newPrice });
+    };
+
+    const handleMouseUp = () => {
+      const drag = dragRef.current;
+      if (!drag?.active) return;
+
+      const finalPrice = drag.priceLine.options().price;
+      container.style.cursor = "";
+
+      // Re-enable chart interaction
+      chart.applyOptions({
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale: { mouseWheel: true, pinch: true },
+      });
+
+      // Call modify API if price actually changed
+      if (Math.abs(finalPrice - drag.startPrice) > 0.0001) {
+        const mods = drag.type === "sl"
+          ? { stopLoss: finalPrice }
+          : { takeProfit: finalPrice };
+        onModifySLTP(drag.positionId, mods);
+      }
+
+      dragRef.current = null;
+      setDragPrice(null);
+    };
+
+    container.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      container.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [onModifySLTP]);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -804,6 +949,19 @@ const TradingChart = ({
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/50 z-10 rounded-lg">
           <div className="text-xs text-slate-400 animate-pulse">Loading {baseAsset} chart...</div>
+        </div>
+      )}
+
+      {/* Drag indicator */}
+      {dragPrice && (
+        <div className="absolute top-2 right-2 z-20">
+          <div className={`text-[11px] font-bold px-2 py-1 rounded-lg border backdrop-blur-sm ${
+            dragPrice.type === "sl"
+              ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+              : "bg-purple-500/20 text-purple-300 border-purple-500/30"
+          }`}>
+            {dragPrice.type === "sl" ? "SL" : "TP"}: ${formatPrice(dragPrice.price)}
+          </div>
         </div>
       )}
 

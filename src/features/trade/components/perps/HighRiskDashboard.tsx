@@ -553,6 +553,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             wallet={wallet}
             onClose={() => setActiveTab(effectiveReadOnly ? "positions" : "order")}
             initialSymbol={chartSymbol}
+            onRefresh={loadData}
           />
         )}
 

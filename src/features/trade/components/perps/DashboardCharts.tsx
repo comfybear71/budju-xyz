@@ -11,7 +11,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, type StrategyStatus } from "../../services/perpApi";
+import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, modifyPerpPosition, type StrategyStatus } from "../../services/perpApi";
 import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder, PerpOrderRequest } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
@@ -23,6 +23,7 @@ interface Props {
   wallet?: string;
   onClose: () => void;
   initialSymbol?: string;
+  onRefresh?: () => void;
 }
 
 interface MarketDef {
@@ -76,6 +77,7 @@ const LazyChart = ({
   compact,
   strategyStatus,
   pendingOrders,
+  onModifySLTP,
 }: {
   symbol: string;
   base: string;
@@ -85,6 +87,7 @@ const LazyChart = ({
   compact: boolean;
   strategyStatus?: StrategyStatus | null;
   pendingOrders?: PerpPendingOrder[];
+  onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -124,6 +127,7 @@ const LazyChart = ({
           compact={compact}
           strategyStatus={strategyStatus}
           pendingOrders={pendingOrders}
+          onModifySLTP={onModifySLTP}
         />
       ) : (
         <div
@@ -380,7 +384,7 @@ const QuickTradePanel = ({
 // Detect mobile/small screen for limiting concurrent charts
 // ── Component ────────────────────────────────────────────────
 
-const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialSymbol }: Props) => {
+const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialSymbol, onRefresh }: Props) => {
   const [viewMode, setViewMode] = useState<"grid" | "focus">(initialSymbol ? "focus" : "grid");
   const [focusedSymbol, setFocusedSymbol] = useState<string>(initialSymbol || "SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
@@ -417,6 +421,17 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
   const openPositions = positions.filter((p) => p.status === "open");
   const totalPnl = openPositions.reduce((s, p) => s + p.unrealized_pnl, 0);
   const hourlyStats = useMemo(() => getHourlyWinRate(trades), [trades]);
+
+  // Handler for dragging SL/TP lines on charts
+  const handleModifySLTP = useCallback(async (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => {
+    if (!wallet) return;
+    try {
+      await modifyPerpPosition(positionId, mods, wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] SL/TP modify failed:", err);
+    }
+  }, [wallet, onRefresh]);
 
   // Per-market position count
   const positionsBySymbol = useMemo(() => {
@@ -590,6 +605,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
               height={350}
               strategyStatus={strategyStatus}
               pendingOrders={pendingOrders}
+              onModifySLTP={wallet ? handleModifySLTP : undefined}
             />
           </div>
 
@@ -629,6 +645,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
                 compact
                 strategyStatus={strategyStatus}
                 pendingOrders={pendingOrders}
+                onModifySLTP={wallet ? handleModifySLTP : undefined}
               />
             </div>
           ))}
