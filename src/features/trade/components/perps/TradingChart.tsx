@@ -651,7 +651,7 @@ const TradingChart = ({
             {/* Signal badge — below currency label */}
             {showPrediction && prediction && !compact && (
               <button
-                onClick={() => setShowStrategyInfo(!showStrategyInfo)}
+                onClick={(e) => { e.stopPropagation(); setShowStrategyInfo(!showStrategyInfo); }}
                 className={`mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
                   prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
                     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
@@ -682,7 +682,7 @@ const TradingChart = ({
               </div>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+          <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
           {/* Chart mode toggle */}
           <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
             <button
@@ -750,7 +750,7 @@ const TradingChart = ({
       <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
       {/* Indicator toggles */}
-      <div className="flex flex-wrap gap-1 mt-1.5">
+      <div className="flex flex-wrap gap-1 mt-1.5" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => setShowVolume(!showVolume)}
           className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
