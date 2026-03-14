@@ -19,10 +19,15 @@ import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder } from "../
 const isMobile = (): boolean => {
   if (typeof window === "undefined" || typeof navigator === "undefined") return false;
   const ua = navigator.userAgent;
-  // Check UA for mobile devices + screen width as fallback
+  // Check UA for mobile devices
   const isMobileUA = /iPhone|iPad|iPod|Android|Mobile/i.test(ua);
-  // Also detect iPad in desktop mode (reports as Mac but has touch)
-  const isIPadDesktopMode = /Macintosh/i.test(ua) && "ontouchend" in document;
+  // iPad in desktop mode: reports as Mac + has touch + small-ish screen
+  // Real Macs also have "ontouchend" due to trackpad, so also check screen size
+  const isIPadDesktopMode =
+    /Macintosh/i.test(ua) &&
+    "ontouchend" in document &&
+    navigator.maxTouchPoints > 1 &&
+    window.innerWidth < 1200;
   const isSmallScreen = window.innerWidth < 768;
   return isMobileUA || isIPadDesktopMode || isSmallScreen;
 };

@@ -1168,6 +1168,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     # Record equity snapshot for equity curve trading
     record_equity_snapshot(wallet, equity)
 
+    actions = []
+
     # Equity curve meta-filter: reduce size during cold streaks
     ec_mult = get_equity_curve_multiplier(wallet)
     if ec_mult < 1.0:
@@ -1181,8 +1183,6 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     open_count = len(open_pos)
     open_symbols = set(p["symbol"] for p in open_pos)
-
-    actions = []
 
     for strategy_name, strategy_func in STRATEGY_FUNCS.items():
         strat_config = config.get("strategies", {}).get(strategy_name, {})

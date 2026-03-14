@@ -81,6 +81,109 @@ function formatPrice(price: number): string {
   return price.toFixed(8);
 }
 
+// ── AI Prediction Engine (matches TradingChart) ────────────────────
+type Signal = "LONG" | "SHORT" | "SCALP LONG" | "SCALP SHORT" | "HOLD";
+
+interface PredictionResult {
+  points: { time: number; value: number }[];
+  signal: Signal;
+  confidence: number;
+  targetPrice: number;
+  rsi: number;
+  ema8: number;
+  ema21: number;
+  volatilityLevel: "low" | "medium" | "high";
+  trendDir: "up" | "down" | "flat";
+}
+
+function computePrediction(prices: PricePoint[], lookback = 50, futureCandles = 5): PredictionResult | null {
+  if (prices.length < lookback) return null;
+
+  const recent = prices.slice(-lookback);
+  const closes = recent.map((d) => d.price);
+  const n = closes.length;
+
+  // Weighted linear regression
+  let sumW = 0, sumWX = 0, sumWY = 0, sumWXX = 0, sumWXY = 0;
+  for (let i = 0; i < n; i++) {
+    const w = 1 + (i / n) * 3;
+    sumW += w; sumWX += w * i; sumWY += w * closes[i];
+    sumWXX += w * i * i; sumWXY += w * i * closes[i];
+  }
+  const denom = sumW * sumWXX - sumWX * sumWX;
+  if (Math.abs(denom) < 1e-10) return null;
+  const slope = (sumW * sumWXY - sumWX * sumWY) / denom;
+
+  // RSI
+  const sp = Math.min(14, Math.floor(n / 3));
+  const rc = closes.slice(-sp);
+  let gains = 0, losses = 0;
+  for (let i = 1; i < rc.length; i++) {
+    const d = rc[i] - rc[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const rsi = 100 - 100 / (1 + gains / sp / ((losses / sp) || 0.0001));
+
+  // Volatility
+  const rets: number[] = [];
+  for (let i = 1; i < closes.length; i++) rets.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+  const meanR = rets.reduce((s, r) => s + r, 0) / rets.length;
+  const vol = Math.sqrt(rets.reduce((s, r) => s + (r - meanR) ** 2, 0) / rets.length);
+
+  // EMA crossover
+  const ema = (data: number[], period: number) => {
+    const k = 2 / (period + 1); let e = data[0];
+    for (let i = 1; i < data.length; i++) e = data[i] * k + e * (1 - k);
+    return e;
+  };
+  const ema8 = ema(closes.slice(-21), 8);
+  const ema21 = ema(closes.slice(-21), 21);
+  const emaSig = (ema8 - ema21) / closes[n - 1];
+
+  // Blend + clamp
+  const trendRate = slope / closes[n - 1];
+  const momNudge = ((rsi - 50) / 50) * vol * 0.1;
+  const rawRate = trendRate * 0.6 + momNudge * 0.25 + emaSig * 0.5 * 0.15;
+  const clamped = Math.max(-0.003, Math.min(0.003, rawRate));
+
+  const last = recent[recent.length - 1];
+  const curPrice = last.price;
+  const pts = [{ time: last.time, value: curPrice }];
+  for (let i = 1; i <= futureCandles; i++) {
+    pts.push({ time: last.time + i * 60, value: curPrice * (1 + clamped * i) });
+  }
+
+  const target = pts[pts.length - 1].value;
+  const pctMove = ((target - curPrice) / curPrice) * 100;
+  const absMove = Math.abs(pctMove);
+  let signal: Signal = "HOLD";
+  if (absMove >= 0.01) signal = pctMove > 0 ? (absMove > 0.15 ? "LONG" : "SCALP LONG") : (absMove > 0.15 ? "SHORT" : "SCALP SHORT");
+
+  const trendStr = Math.min(Math.abs(trendRate) / (vol || 0.001), 1) * 100;
+  const rsiConf = Math.abs(rsi - 50) * 2;
+  const conf = Math.min(Math.round(trendStr * 0.5 + rsiConf * 0.3 + Math.min(Math.abs(emaSig) * 500, 30) * 0.2), 95);
+
+  return {
+    points: pts,
+    signal,
+    confidence: Math.max(conf, 10),
+    targetPrice: target,
+    rsi,
+    ema8,
+    ema21,
+    volatilityLevel: vol > 0.003 ? "high" : vol > 0.001 ? "medium" : "low",
+    trendDir: Math.abs(trendRate) < 0.0001 ? "flat" : trendRate > 0 ? "up" : "down",
+  };
+}
+
+const SIGNAL_COLORS: Record<Signal, string> = {
+  LONG: "#22c55e",
+  SHORT: "#ef4444",
+  "SCALP LONG": "#4ade80",
+  "SCALP SHORT": "#f87171",
+  HOLD: "#94a3b8",
+};
+
 const STRATEGY_LABELS: Record<string, string> = {
   trend_following: "Trend",
   scalping: "Scalp",
@@ -113,8 +216,10 @@ const MobileAreaChart = ({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [showTradeDots, setShowTradeDots] = useState(!compact);
   const [showPendingOrders, setShowPendingOrders] = useState(!compact);
+  const [showPrediction, setShowPrediction] = useState(!compact);
   const [tappedTrade, setTappedTrade] = useState<PerpTrade | null>(null);
   const [tappedOrder, setTappedOrder] = useState<PerpPendingOrder | null>(null);
+  const [tappedPrediction, setTappedPrediction] = useState(false);
   const streamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<PricePoint[]>([]);
   const mountedRef = useRef(true);
@@ -241,6 +346,26 @@ const MobileAreaChart = ({
     areaD = pathD + ` L ${points[points.length - 1].x.toFixed(1)} ${svgHeight} L ${points[0].x.toFixed(1)} ${svgHeight} Z`;
   }
 
+  // AI prediction projection
+  const prediction = useMemo(() => {
+    if (!showPrediction || data.length < 50) return null;
+    return computePrediction(data);
+  }, [data, showPrediction]);
+
+  // Map prediction points to SVG coordinates
+  const predictionPoints = useMemo(() => {
+    if (!prediction || data.length < 2 || priceRange <= 0) return [];
+    const timeMin = data[0].time;
+    const timeMax = data[data.length - 1].time;
+    const timeRange = timeMax - timeMin || 1;
+
+    return prediction.points.map((p) => {
+      const x = padding.left + ((p.time - timeMin) / timeRange) * chartWidth;
+      const y = padding.top + (1 - (p.value - minPrice) / priceRange) * chartHeight;
+      return { x: Math.min(x, svgWidth - 2), y: Math.max(padding.top, Math.min(y, svgHeight - padding.bottom)), value: p.value };
+    });
+  }, [prediction, data, minPrice, priceRange, chartWidth, svgWidth, svgHeight, padding.left, padding.top, padding.bottom]);
+
   // Filter trades that fall within the chart's time & price range for this symbol
   const chartTrades = useMemo(() => {
     if (!showTradeDots || data.length < 2) return [];
@@ -317,8 +442,22 @@ const MobileAreaChart = ({
             )}
           </div>
           {/* Chart overlay toggles */}
-          {!compact && (hasTradesForSymbol || hasPendingForSymbol) && (
+          {!compact && (
             <div className="flex items-center gap-1">
+              {/* AI Prediction toggle — always available */}
+              <button
+                onClick={() => {
+                  setShowPrediction(!showPrediction);
+                  setTappedPrediction(false);
+                }}
+                className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                  showPrediction
+                    ? "bg-blue-500/15 text-blue-400 border-blue-500/25"
+                    : "bg-white/[0.04] text-slate-500 border-white/[0.06]"
+                }`}
+              >
+                {showPrediction ? "◉ AI" : "○ AI"}
+              </button>
               {hasTradesForSymbol && (
                 <button
                   onClick={() => {
@@ -411,7 +550,7 @@ const MobileAreaChart = ({
             display: "block",
           }}
           preserveAspectRatio="xMidYMid meet"
-          onClick={() => { setTappedTrade(null); setTappedOrder(null); }}
+          onClick={() => { setTappedTrade(null); setTappedOrder(null); setTappedPrediction(false); }}
         >
           <defs>
             <linearGradient id={`grad-${baseAsset}`} x1="0" y1="0" x2="0" y2="1">
@@ -506,6 +645,61 @@ const MobileAreaChart = ({
               </g>
             );
           })}
+
+          {/* AI Prediction projection */}
+          {prediction && predictionPoints.length >= 2 && (
+            <g>
+              {/* Dashed projection line */}
+              <path
+                d={predictionPoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ")}
+                fill="none"
+                stroke={SIGNAL_COLORS[prediction.signal]}
+                strokeWidth="1.5"
+                strokeDasharray="4 3"
+                opacity="0.7"
+              />
+              {/* Target dot (last point) — tappable */}
+              {predictionPoints.length > 1 && (() => {
+                const target = predictionPoints[predictionPoints.length - 1];
+                const sigColor = SIGNAL_COLORS[prediction.signal];
+                return (
+                  <g>
+                    {/* Pulsing outer ring */}
+                    <circle cx={target.x} cy={target.y} r="6" fill="none" stroke={sigColor} strokeWidth="1" opacity="0.4">
+                      <animate attributeName="r" values="5;8;5" dur="2s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" values="0.4;0.1;0.4" dur="2s" repeatCount="indefinite" />
+                    </circle>
+                    {/* Inner dot */}
+                    <circle
+                      cx={target.x} cy={target.y} r={tappedPrediction ? 5 : 3.5}
+                      fill={sigColor} opacity="0.9"
+                      style={{ cursor: "pointer" }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTappedPrediction(!tappedPrediction);
+                        setTappedTrade(null);
+                        setTappedOrder(null);
+                      }}
+                    />
+                    {/* Signal label */}
+                    <text
+                      x={target.x} y={target.y - 10}
+                      textAnchor="middle" fill={sigColor}
+                      fontSize="7" fontFamily="monospace" fontWeight="bold" opacity="0.9"
+                    >
+                      {prediction.signal}
+                    </text>
+                  </g>
+                );
+              })()}
+              {/* Small dots along the projection path */}
+              {predictionPoints.slice(1, -1).map((p, i) => (
+                <circle key={`pred-${i}`} cx={p.x} cy={p.y} r="1.5"
+                  fill={SIGNAL_COLORS[prediction.signal]} opacity="0.5"
+                />
+              ))}
+            </g>
+          )}
 
           {/* Trade execution dots */}
           {chartTrades.map(({ trade, x, y }, i) => {
@@ -665,6 +859,59 @@ const MobileAreaChart = ({
             {tappedOrder.expires_at && (
               <span>Expires: {new Date(tappedOrder.expires_at).toLocaleString()}</span>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* AI Prediction info popup */}
+      {tappedPrediction && prediction && (
+        <div
+          className="absolute z-20 bg-slate-800/95 backdrop-blur-sm rounded-lg border border-blue-500/20 px-2.5 py-2 shadow-xl"
+          style={{ bottom: 8, left: 8, right: 8 }}
+        >
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-blue-400">AI PROJECTION</span>
+              <span className={`text-[10px] font-bold ${
+                prediction.signal.includes("LONG") ? "text-emerald-400" : prediction.signal.includes("SHORT") ? "text-red-400" : "text-slate-400"
+              }`}>
+                {prediction.signal}
+              </span>
+              <span className="text-[10px] text-slate-500">{prediction.confidence}%</span>
+            </div>
+            <button
+              onClick={() => setTappedPrediction(false)}
+              className="text-slate-500 hover:text-white text-[10px] px-1"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex items-center gap-3 text-[9px]">
+            <span className="text-slate-500">
+              Target: <span className={`font-bold ${
+                prediction.signal.includes("LONG") ? "text-emerald-300" : prediction.signal.includes("SHORT") ? "text-red-300" : "text-slate-300"
+              }`}>${formatPrice(prediction.targetPrice)}</span>
+            </span>
+            <span className="text-slate-500">
+              RSI: <span className={`${prediction.rsi > 60 ? "text-emerald-400" : prediction.rsi < 40 ? "text-red-400" : "text-slate-300"}`}>
+                {prediction.rsi.toFixed(0)}
+              </span>
+            </span>
+            <span className="text-slate-500">
+              Trend: <span className={`${prediction.trendDir === "up" ? "text-emerald-400" : prediction.trendDir === "down" ? "text-red-400" : "text-slate-400"}`}>
+                {prediction.trendDir === "up" ? "▲" : prediction.trendDir === "down" ? "▼" : "─"}
+              </span>
+            </span>
+            <span className="text-slate-500">
+              Vol: <span className="text-slate-300">{prediction.volatilityLevel}</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[8px] text-slate-600 mt-0.5">
+            <span>EMA8: ${formatPrice(prediction.ema8)}</span>
+            <span>EMA21: ${formatPrice(prediction.ema21)}</span>
+            <span className={prediction.ema8 > prediction.ema21 ? "text-emerald-500" : "text-red-500"}>
+              {prediction.ema8 > prediction.ema21 ? "Bullish cross" : "Bearish cross"}
+            </span>
           </div>
         </div>
       )}
