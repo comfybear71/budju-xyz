@@ -656,6 +656,51 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = close_position(position_id, exit_price, "manual", exit_reason)
+
+                # Send Telegram notification for closed trades
+                try:
+                    pnl = result.get("realized_pnl", 0)
+                    symbol = result.get("symbol", "?")
+                    direction = result.get("direction", "?")
+                    leverage = result.get("leverage", 1)
+                    wallet_short = wallet[:4] + ".." + wallet[-4:]
+                    is_live = result.get("trading_mode") == "live"
+                    mode_label = "LIVE" if is_live else "PAPER"
+
+                    if pnl > 0:
+                        emoji = "💰"
+                        msg = (
+                            f"{emoji} <b>{mode_label} WIN</b>{'  🔴' if is_live else ''}\n"
+                            f"📍 {symbol} {direction.upper()} {leverage}x\n"
+                            f"💰 P&L: <b>+${pnl:.2f}</b>\n"
+                            f"🔧 Manual close\n"
+                            f"👤 {wallet_short}"
+                        )
+                    else:
+                        msg = (
+                            f"📕 <b>{mode_label} CLOSE</b>{'  🔴' if is_live else ''}\n"
+                            f"📍 {symbol} {direction.upper()} {leverage}x\n"
+                            f"💸 P&L: <b>${pnl:.2f}</b>\n"
+                            f"🔧 Manual close\n"
+                            f"👤 {wallet_short}"
+                        )
+
+                    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "-1002398835975")
+                    if tg_token:
+                        from urllib.request import Request, urlopen
+                        tg_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+                        tg_payload = json.dumps({
+                            "chat_id": tg_chat,
+                            "text": msg,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": True,
+                        }).encode()
+                        tg_req = Request(tg_url, data=tg_payload, headers={"Content-Type": "application/json"})
+                        urlopen(tg_req, timeout=10)
+                except Exception as tg_err:
+                    print(f"[perp/close] Telegram notification error: {tg_err}")
+
                 self._send_json(200, result)
 
             elif path == '/api/perp/modify':
