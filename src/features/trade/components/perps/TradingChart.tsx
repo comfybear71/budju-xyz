@@ -313,6 +313,7 @@ const TradingChart = ({
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
+  const [closingId, setClosingId] = useState<string | null>(null);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
   const [showMarkers, setShowMarkers] = useState(false);
   const [showPositionLines, setShowPositionLines] = useState(true);
@@ -1237,10 +1238,30 @@ const TradingChart = ({
                           </span>
                           {onClosePosition && (
                             <button
-                              onClick={() => onClosePosition(pos._id, pos.mark_price)}
-                              className="text-[9px] font-bold px-2 py-1 rounded bg-red-500/15 text-red-400 hover:bg-red-500/25 transition-colors border border-red-500/25 whitespace-nowrap"
+                              disabled={closingId === pos._id}
+                              onClick={async () => {
+                                setClosingId(pos._id);
+                                try {
+                                  await onClosePosition(pos._id, pos.mark_price);
+                                } finally {
+                                  setClosingId(null);
+                                }
+                              }}
+                              className={`text-[9px] font-bold px-2 py-1 rounded transition-all border whitespace-nowrap ${
+                                closingId === pos._id
+                                  ? "bg-red-500/25 text-red-300 border-red-500/40 cursor-wait"
+                                  : "bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 hover:border-red-500/40 hover:scale-105 border-red-500/25"
+                              } disabled:opacity-60`}
                             >
-                              Close
+                              {closingId === pos._id ? (
+                                <span className="flex items-center gap-1">
+                                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  Closing
+                                </span>
+                              ) : "Close"}
                             </button>
                           )}
                         </div>
