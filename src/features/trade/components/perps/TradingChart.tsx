@@ -27,6 +27,7 @@ import {
 } from "@lib/services/binanceWs";
 import type { PerpPosition, PerpTrade, PerpPendingOrder } from "../../types/perps";
 import type { StrategyStatus } from "../../services/perpApi";
+import StrategySpotlight from "./StrategySpotlight";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -1418,6 +1419,9 @@ const TradingChart = ({
               </div>
             );
           })()}
+
+          {/* Strategy Spotlight — rotating opportunities across all strategies */}
+          {showPrediction && <StrategySpotlight />}
 
           {/* AI prediction & strategy breakdown */}
           {showPrediction && prediction?.strategies && (
