@@ -893,10 +893,22 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     cumulative_funding = position.get("cumulative_funding", 0) + borrow_fee
 
+    # Show net unrealized P&L (matches close_position formula exactly)
+    # total_fees includes: open_fee + borrow_fees accumulated so far
+    total_fees_so_far = position.get("total_fees", 0) + borrow_fee
+    est_close_fee = calculate_fees(size_usd)
+    est_close_slippage_pct = simulate_slippage(size_usd, mark_price)
+    quantity = position.get("quantity", size_usd / mark_price if mark_price > 0 else 0)
+    est_close_slippage_usd = est_close_slippage_pct * mark_price * quantity if mark_price > 0 else 0
+    # Mirror close_position: net = gross - (total_fees + close_fee) - cumulative_funding - slippage
+    net_unrealized = pnl_usd - (total_fees_so_far + est_close_fee) - cumulative_funding - est_close_slippage_usd
+    margin = position.get("margin", 0)
+    net_unrealized_pct = (net_unrealized / margin) * 100 if margin > 0 else 0
+
     update = {
         "mark_price": mark_price,
-        "unrealized_pnl": round(pnl_usd, 4),
-        "unrealized_pnl_pct": round(pnl_pct, 4),
+        "unrealized_pnl": round(net_unrealized, 4),
+        "unrealized_pnl_pct": round(net_unrealized_pct, 4),
         "max_favorable_excursion": round(mfe, 4),
         "max_adverse_excursion": round(mae, 4),
         "cumulative_funding": round(cumulative_funding, 4),
