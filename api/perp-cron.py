@@ -172,16 +172,17 @@ def run_perp_monitor() -> dict:
                 }
                 events.append(event)
 
-                # Telegram alert
-                emoji = {"liquidation": "💀", "stop_loss": "🛑", "take_profit": "🎯", "trailing_stop": "📐"}.get(action, "📊")
-                mode_emoji = "🔴" if mode_label == "LIVE" else ""
-                msg = (
-                    f"{emoji} <b>{mode_label} {action.upper().replace('_', ' ')}</b> {mode_emoji}\n"
-                    f"📍 {symbol} {direction} {leverage}x\n"
-                    f"💰 P&L: <b>{pnl_sign}${pnl:.2f}</b>\n"
-                    f"👤 {wallet_short}"
-                )
-                send_telegram(msg)
+                # Telegram alert — only send wins (positive P&L)
+                if pnl > 0:
+                    emoji = {"take_profit": "🎯", "trailing_stop": "📐"}.get(action, "💰")
+                    mode_emoji = "🔴" if mode_label == "LIVE" else ""
+                    msg = (
+                        f"{emoji} <b>{mode_label} WIN</b> {mode_emoji}\n"
+                        f"📍 {symbol} {direction} {leverage}x\n"
+                        f"💰 P&L: <b>+${pnl:.2f}</b>\n"
+                        f"👤 {wallet_short}"
+                    )
+                    send_telegram(msg)
 
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
@@ -194,14 +195,6 @@ def run_perp_monitor() -> dict:
             triggered = check_pending_orders(acc["wallet"], prices)
             for t in triggered:
                 pending_filled += 1
-                pos = t["position"]
-                direction = pos.get("direction", "?").upper()
-                msg = (
-                    f"📋 <b>PENDING ORDER FILLED</b>\n"
-                    f"📍 {pos['symbol']} {direction} {pos['leverage']}x\n"
-                    f"💵 Size: ${pos['size_usd']:.0f} @ ${pos['entry_price']:.4f}"
-                )
-                send_telegram(msg)
         except Exception as e:
             print(f"[perp-cron] Pending order check error for {acc['wallet'][:8]}: {e}")
 
@@ -217,21 +210,6 @@ def run_perp_monitor() -> dict:
             for action in actions:
                 if action.get("action") == "opened":
                     auto_trade_actions.append(action)
-                    # Send Telegram notification for auto trades
-                    direction = action["direction"].upper()
-                    mode_emoji = " 🔴" if mode_label == "LIVE" else ""
-                    trail_info = ""
-                    if action.get("trailing_stop_pct"):
-                        trail_info = f"\n📐 Trailing: {action['trailing_stop_pct']}% (activates in profit)"
-                    msg = (
-                        f"🤖 <b>{mode_label} AUTO TRADE OPENED</b>{mode_emoji}\n"
-                        f"📍 {action['symbol']} {direction} {action['leverage']}x\n"
-                        f"💵 Size: ${action['size_usd']:.0f} @ ${action['entry_price']:.4f}\n"
-                        f"🛑 SL: ${action['stop_loss']:.4f} | 🎯 TP: ${action['take_profit']:.4f}"
-                        f"{trail_info}\n"
-                        f"📊 Strategy: {action['strategy']} ({action['signal']})"
-                    )
-                    send_telegram(msg)
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 

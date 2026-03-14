@@ -434,17 +434,12 @@ def run_auto_trade_check():
             # Circuit breaker check
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
             if not cb_ok:
-                send_telegram(f"🚫 <b>BUY BLOCKED</b>\n{code}: {cb_reason}")
+                log.append(f"{code}: BUY BLOCKED — {cb_reason}")
                 continue
 
             # Dry-run: simulate without executing
             if DRY_RUN:
                 log.append(f"{code}: DRY RUN — would BUY {quantity:.6f} @ ${current_price:.2f} (${trade_amount:.2f} USDC)")
-                send_telegram(
-                    f"🧪 <b>DRY RUN BUY</b>\n"
-                    f"💰 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
-                    f"📦 ${trade_amount:,.2f} USDC (not executed)"
-                )
                 continue
 
             if code_to_id is None:
@@ -493,12 +488,7 @@ def run_auto_trade_check():
 
                 usdc_balance -= trade_amount
 
-                send_telegram(
-                    f"🤖 <b>Auto BUY</b>\n"
-                    f"💰 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
-                    f"📦 ${trade_amount:,.2f} USDC\n"
-                    f"🆔 {order_id}"
-                )
+                # Buy notifications silenced — only send wins
             else:
                 log.append(f"{code}: BUY failed — {err}")
                 decisions.append({
@@ -539,17 +529,12 @@ def run_auto_trade_check():
             # Circuit breaker check
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
             if not cb_ok:
-                send_telegram(f"🚫 <b>SELL BLOCKED</b>\n{code}: {cb_reason}")
+                log.append(f"{code}: SELL BLOCKED — {cb_reason}")
                 continue
 
             # Dry-run: simulate without executing
             if DRY_RUN:
                 log.append(f"{code}: DRY RUN — would SELL {quantity:.6f} @ ${current_price:.2f} (${sell_value:.2f} USDC)")
-                send_telegram(
-                    f"🧪 <b>DRY RUN SELL</b>\n"
-                    f"💸 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
-                    f"📦 ${sell_value:,.2f} USDC (not executed)"
-                )
                 continue
 
             if code_to_id is None:
