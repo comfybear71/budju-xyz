@@ -387,8 +387,8 @@ const TradingChart = ({
     (async () => {
       setLoading(true);
 
-      // Fetch historical 1m klines from Binance REST
-      const historical = await fetchHistoricalKlines(binanceSymbol, "15m", 500);
+      // Fetch historical 1h klines from Binance REST
+      const historical = await fetchHistoricalKlines(binanceSymbol, "1h", 500);
       dataRef.current = historical;
 
       if (candleSeriesRef.current && historical.length > 0) {
@@ -425,7 +425,7 @@ const TradingChart = ({
       setLoading(false);
 
       // Start kline WebSocket
-      const stream = new BinanceKlineStream(binanceSymbol, "15m");
+      const stream = new BinanceKlineStream(binanceSymbol, "1h");
       klineStreamRef.current = stream;
       stream.connect();
 
