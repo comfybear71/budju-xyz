@@ -45,6 +45,8 @@ interface Props {
   onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string; stopLoss?: number; takeProfit?: number }) => void;
   onCancelPendingOrder?: (orderId: string) => void;
   onClosePosition?: (positionId: string, exitPrice: number) => void;
+  /** Injected content rendered immediately after the chart canvas (before toggles/expandable panels) */
+  children?: React.ReactNode;
 }
 
 // Drag state for SL/TP/pending order lines
@@ -297,6 +299,7 @@ const TradingChart = ({
   onModifyPendingOrder,
   onCancelPendingOrder,
   onClosePosition,
+  children,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -1045,6 +1048,9 @@ const TradingChart = ({
 
       {/* Chart container */}
       <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
+
+      {/* Injected trade panel (rendered between chart and toggles) */}
+      {children}
 
       {/* Indicator toggles */}
       <div className="flex flex-wrap gap-1 mt-1.5" onClick={(e) => e.stopPropagation()}>

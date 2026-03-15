@@ -656,7 +656,7 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
             })}
           </div>
 
-          {/* Single focused chart */}
+          {/* Single focused chart with trade panel injected below canvas */}
           <div className={`bg-slate-800/30 rounded-xl border p-3 transition-all duration-300 ${getCardBorder(focusMarket.base)}`}>
             <TradingChart
               symbol={focusMarket.symbol}
@@ -670,21 +670,86 @@ const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialS
               onModifyPendingOrder={wallet ? handleModifyPendingOrder : undefined}
               onCancelPendingOrder={wallet ? handleCancelPendingOrder : undefined}
               onClosePosition={wallet ? handleClosePosition : undefined}
-            />
-          </div>
+            >
+              {/* Trade panel — immediately below chart canvas */}
+              {wallet && <QuickTradePanel
+                symbol={focusMarket.symbol}
+                price={wsPrices[focusMarket.base] || 0}
+                wallet={wallet}
+                onOrderPlaced={() => {
+                  fetchPendingOrders(wallet).then(r =>
+                    setPendingOrders(r.orders.filter(o => o.status === "pending"))
+                  ).catch(() => {});
+                  onRefresh?.();
+                }}
+              />}
 
-          {/* Quick Trade Panel */}
-          {wallet && <QuickTradePanel
-            symbol={focusMarket.symbol}
-            price={wsPrices[focusMarket.base] || 0}
-            wallet={wallet}
-            onOrderPlaced={() => {
-              // Refresh pending orders after placing
-              fetchPendingOrders(wallet).then(r =>
-                setPendingOrders(r.orders.filter(o => o.status === "pending"))
-              ).catch(() => {});
-            }}
-          />}
+              {/* Compact open positions for this market */}
+              {(() => {
+                const marketPos = positions.filter(
+                  (p) => p.symbol === focusMarket.symbol && p.status === "open"
+                );
+                if (marketPos.length === 0) return null;
+                return (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="text-[9px] text-slate-500 uppercase tracking-wider">
+                      Open Positions ({marketPos.length})
+                    </div>
+                    {marketPos.map((pos) => {
+                      const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
+                      return (
+                        <div
+                          key={pos._id}
+                          className={`flex items-center justify-between rounded-lg border px-2.5 py-2 ${
+                            pos.direction === "long"
+                              ? "bg-[#0d1a14] border-emerald-500/15"
+                              : "bg-[#1a0d0d] border-red-500/15"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                              pos.direction === "long"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-red-500/20 text-red-400"
+                            }`}>
+                              {pos.direction.toUpperCase()} {pos.leverage}x
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                              ${pos.entry_price >= 1000 ? pos.entry_price.toFixed(2) : pos.entry_price >= 1 ? pos.entry_price.toFixed(4) : pos.entry_price.toFixed(6)}
+                            </span>
+                            <span className="text-[9px] text-slate-500">${pos.size_usd?.toFixed(0) || "—"}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className={`text-[11px] font-bold font-mono ${
+                              pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                            }`}>
+                              {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                              <span className="text-[9px] ml-0.5 opacity-70">
+                                ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                              </span>
+                            </span>
+                            {wallet && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await handleClosePosition(pos._id, pos.mark_price);
+                                    onRefresh?.();
+                                  } catch { /* handled in handler */ }
+                                }}
+                                className="text-[9px] font-bold px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/30 transition-colors whitespace-nowrap"
+                              >
+                                Close
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </TradingChart>
+          </div>
         </>
       ) : (
         /* Grid view — 2 columns on desktop, 1 on mobile.
