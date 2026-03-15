@@ -387,35 +387,45 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
       className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden"
     >
       {/* Header */}
-      <div className={`px-4 py-3 border-b flex items-center justify-between ${
+      <div className={`px-4 py-3 border-b ${
         isLive ? "border-red-500/30 bg-red-950/20" : "border-red-500/10"
       }`}>
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{isLive ? "🔴" : "🔥"}</span>
-          <div>
-            <h3 className="text-sm font-bold text-red-400">
-              {effectiveReadOnly
-                ? "LIVE CHARTS"
-                : isLive
-                  ? "HIGH RISK — LIVE TRADING"
-                  : "HIGH RISK — PAPER TRADING"}
-            </h3>
-            <p className="text-[10px] text-slate-500">
-              {effectiveReadOnly
-                ? "Real-time charts with AI predictions • Read only"
-                : isLive
-                  ? "Real funds on Drift Protocol • Trades use real money"
-                  : "Simulated perpetual futures • No real funds at risk"}
-            </p>
+        {/* Top: title + close button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-lg flex-shrink-0">{isLive ? "🔴" : "🔥"}</span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-red-400 truncate">
+                {effectiveReadOnly
+                  ? "LIVE CHARTS"
+                  : isLive
+                    ? "HIGH RISK — LIVE TRADING"
+                    : "HIGH RISK — PAPER TRADING"}
+              </h3>
+              <p className="text-[10px] text-slate-500 truncate">
+                {effectiveReadOnly
+                  ? "Real-time charts with AI predictions • Read only"
+                  : isLive
+                    ? "Real funds on Drift Protocol • Trades use real money"
+                    : "Simulated perpetual futures • No real funds at risk"}
+              </p>
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-white transition-colors text-sm flex-shrink-0 ml-2"
+          >
+            ✕
+          </button>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Kill Switch */}
-          {!effectiveReadOnly && wallet && (
+        {/* Action buttons row — wraps on narrow screens */}
+        {!effectiveReadOnly && wallet && (
+          <div className="flex items-center flex-wrap gap-1.5 mt-2">
+            {/* Kill Switch */}
             <button
               onClick={handleKillSwitch}
               disabled={togglingKillSwitch}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
                 isKillSwitchActive
                   ? "bg-red-600/30 text-red-200 border-red-500/60 animate-pulse"
                   : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
@@ -424,14 +434,12 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               {togglingKillSwitch ? "..." : isKillSwitchActive ? "🚨 KILL ON" : "🚨 KILL"}
             </button>
-          )}
 
-          {/* Paper/Live Mode Toggle */}
-          {!effectiveReadOnly && wallet && (
+            {/* Paper/Live Mode Toggle */}
             <button
               onClick={handleSwitchMode}
               disabled={switchingMode}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
                 isLive
                   ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-slate-800/50 hover:text-slate-300"
                   : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40"
@@ -440,29 +448,27 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               {switchingMode ? "..." : isLive ? "🔴 LIVE" : "📝 PAPER"}
             </button>
-          )}
 
-          {/* Auto-trading START/STOP — always visible when wallet connected */}
-          {!effectiveReadOnly && wallet && autoTradingEnabled !== null && (
-            <button
-              onClick={handleToggleBot}
-              disabled={togglingBot}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
-                autoTradingEnabled
-                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
-                  : "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
-              } disabled:opacity-40`}
-              title={autoTradingEnabled ? "Click to STOP auto-trading" : "Click to START auto-trading"}
-            >
-              {togglingBot ? "..." : autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
-            </button>
-          )}
-          {!effectiveReadOnly && account?.trading_paused && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
-              PAUSED
-            </span>
-          )}
-          {!effectiveReadOnly && (
+            {/* Auto-trading START/STOP */}
+            {autoTradingEnabled !== null && (
+              <button
+                onClick={handleToggleBot}
+                disabled={togglingBot}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                  autoTradingEnabled
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
+                    : "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
+                } disabled:opacity-40`}
+                title={autoTradingEnabled ? "Click to STOP auto-trading" : "Click to START auto-trading"}
+              >
+                {togglingBot ? "..." : autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
+              </button>
+            )}
+            {account?.trading_paused && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                PAUSED
+              </span>
+            )}
             <button
               onClick={handleReset}
               className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors"
@@ -470,14 +476,8 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               Reset
             </button>
-          )}
-          <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-white transition-colors text-sm"
-          >
-            ✕
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Live mode warning banner */}
