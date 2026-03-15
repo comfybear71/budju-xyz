@@ -39,16 +39,33 @@ interface StrategyOpportunity {
 // ── Markets ─────────────────────────────────────────────────
 
 const MARKETS = [
+  // High volume / majors
   { symbol: "SOL-PERP", base: "SOL" },
   { symbol: "BTC-PERP", base: "BTC" },
   { symbol: "ETH-PERP", base: "ETH" },
+  { symbol: "DOGE-PERP", base: "DOGE" },
   { symbol: "LINK-PERP", base: "LINK" },
   { symbol: "SUI-PERP", base: "SUI" },
   { symbol: "AVAX-PERP", base: "AVAX" },
-  { symbol: "BONK-PERP", base: "BONK" },
-  { symbol: "WIF-PERP", base: "WIF" },
-  { symbol: "DOGE-PERP", base: "DOGE" },
+  { symbol: "RENDER-PERP", base: "RENDER" },
+  // Solana ecosystem
   { symbol: "JUP-PERP", base: "JUP" },
+  { symbol: "WIF-PERP", base: "WIF" },
+  { symbol: "BONK-PERP", base: "BONK" },
+  { symbol: "PYTH-PERP", base: "PYTH" },
+  { symbol: "JTO-PERP", base: "JTO" },
+  { symbol: "HNT-PERP", base: "HNT" },
+  { symbol: "RAY-PERP", base: "RAY" },
+  { symbol: "W-PERP", base: "W" },
+  { symbol: "TNSR-PERP", base: "TNSR" },
+  { symbol: "DRIFT-PERP", base: "DRIFT" },
+  { symbol: "POPCAT-PERP", base: "POPCAT" },
+  { symbol: "PENGU-PERP", base: "PENGU" },
+  { symbol: "TRUMP-PERP", base: "TRUMP" },
+  { symbol: "ME-PERP", base: "ME" },
+  { symbol: "PNUT-PERP", base: "PNUT" },
+  { symbol: "GOAT-PERP", base: "GOAT" },
+  { symbol: "FARTCOIN-PERP", base: "FARTCOIN" },
 ];
 
 // ── Fetch klines ────────────────────────────────────────────

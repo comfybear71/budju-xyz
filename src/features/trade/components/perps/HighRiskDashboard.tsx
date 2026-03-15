@@ -88,8 +88,9 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     }
   }, [wsPrices, markets]);
 
-  // Fallback markets when API hasn't loaded yet
+  // Fallback markets when API hasn't loaded yet — all 25 Drift perp markets
   const DEFAULT_MARKETS: PerpMarket[] = [
+    // High volume / majors
     { symbol: "SOL-PERP", base_asset: "SOL", max_leverage: 50, tick_size: 0.01, coingecko_id: "solana" },
     { symbol: "BTC-PERP", base_asset: "BTC", max_leverage: 50, tick_size: 0.1, coingecko_id: "bitcoin" },
     { symbol: "ETH-PERP", base_asset: "ETH", max_leverage: 50, tick_size: 0.01, coingecko_id: "ethereum" },
@@ -97,9 +98,25 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     { symbol: "AVAX-PERP", base_asset: "AVAX", max_leverage: 20, tick_size: 0.01, coingecko_id: "avalanche-2" },
     { symbol: "LINK-PERP", base_asset: "LINK", max_leverage: 20, tick_size: 0.001, coingecko_id: "chainlink" },
     { symbol: "SUI-PERP", base_asset: "SUI", max_leverage: 20, tick_size: 0.001, coingecko_id: "sui" },
+    { symbol: "RENDER-PERP", base_asset: "RENDER", max_leverage: 20, tick_size: 0.001, coingecko_id: "render-token" },
+    // Solana ecosystem
     { symbol: "JUP-PERP", base_asset: "JUP", max_leverage: 10, tick_size: 0.0001, coingecko_id: "jupiter-exchange-solana" },
     { symbol: "WIF-PERP", base_asset: "WIF", max_leverage: 10, tick_size: 0.0001, coingecko_id: "dogwifcoin" },
     { symbol: "BONK-PERP", base_asset: "BONK", max_leverage: 10, tick_size: 0.00000001, coingecko_id: "bonk" },
+    { symbol: "PYTH-PERP", base_asset: "PYTH", max_leverage: 10, tick_size: 0.0001, coingecko_id: "pyth-network" },
+    { symbol: "JTO-PERP", base_asset: "JTO", max_leverage: 10, tick_size: 0.001, coingecko_id: "jito-governance-token" },
+    { symbol: "HNT-PERP", base_asset: "HNT", max_leverage: 10, tick_size: 0.001, coingecko_id: "helium" },
+    { symbol: "RAY-PERP", base_asset: "RAY", max_leverage: 10, tick_size: 0.001, coingecko_id: "raydium" },
+    { symbol: "W-PERP", base_asset: "W", max_leverage: 10, tick_size: 0.0001, coingecko_id: "wormhole" },
+    { symbol: "TNSR-PERP", base_asset: "TNSR", max_leverage: 10, tick_size: 0.0001, coingecko_id: "tensor" },
+    { symbol: "DRIFT-PERP", base_asset: "DRIFT", max_leverage: 10, tick_size: 0.001, coingecko_id: "drift-protocol" },
+    { symbol: "POPCAT-PERP", base_asset: "POPCAT", max_leverage: 10, tick_size: 0.0001, coingecko_id: "popcat" },
+    { symbol: "PENGU-PERP", base_asset: "PENGU", max_leverage: 10, tick_size: 0.00001, coingecko_id: "pudgy-penguins" },
+    { symbol: "TRUMP-PERP", base_asset: "TRUMP", max_leverage: 10, tick_size: 0.001, coingecko_id: "official-trump" },
+    { symbol: "ME-PERP", base_asset: "ME", max_leverage: 10, tick_size: 0.0001, coingecko_id: "magic-eden" },
+    { symbol: "PNUT-PERP", base_asset: "PNUT", max_leverage: 10, tick_size: 0.0001, coingecko_id: "peanut-the-squirrel" },
+    { symbol: "GOAT-PERP", base_asset: "GOAT", max_leverage: 10, tick_size: 0.0001, coingecko_id: "goatseus-maximus" },
+    { symbol: "FARTCOIN-PERP", base_asset: "FARTCOIN", max_leverage: 10, tick_size: 0.0001, coingecko_id: "fartcoin" },
   ];
 
   const loadData = useCallback(async () => {

@@ -73,16 +73,33 @@ LIVE_MAX_OPEN_POSITIONS = 3          # Fewer concurrent positions for live
 
 # Supported markets
 MARKETS = {
-    "SOL-PERP":  {"base": "solana",   "symbol": "SOL",  "max_leverage": 50, "tick": 0.01},
-    "BTC-PERP":  {"base": "bitcoin",  "symbol": "BTC",  "max_leverage": 50, "tick": 0.1},
-    "ETH-PERP":  {"base": "ethereum", "symbol": "ETH",  "max_leverage": 50, "tick": 0.01},
-    "DOGE-PERP": {"base": "dogecoin", "symbol": "DOGE", "max_leverage": 20, "tick": 0.00001},
-    "AVAX-PERP": {"base": "avalanche-2", "symbol": "AVAX", "max_leverage": 20, "tick": 0.01},
-    "LINK-PERP": {"base": "chainlink", "symbol": "LINK", "max_leverage": 20, "tick": 0.001},
-    "SUI-PERP":  {"base": "sui",      "symbol": "SUI",  "max_leverage": 20, "tick": 0.001},
-    "JUP-PERP":  {"base": "jupiter-exchange-solana", "symbol": "JUP", "max_leverage": 10, "tick": 0.0001},
-    "WIF-PERP":  {"base": "dogwifcoin", "symbol": "WIF", "max_leverage": 10, "tick": 0.0001},
-    "BONK-PERP": {"base": "bonk",     "symbol": "BONK", "max_leverage": 10, "tick": 0.00000001},
+    # ── High volume / majors ──────────────────────────────────
+    "SOL-PERP":     {"base": "solana",                  "symbol": "SOL",     "max_leverage": 50, "tick": 0.01},
+    "BTC-PERP":     {"base": "bitcoin",                 "symbol": "BTC",     "max_leverage": 50, "tick": 0.1},
+    "ETH-PERP":     {"base": "ethereum",                "symbol": "ETH",     "max_leverage": 50, "tick": 0.01},
+    "DOGE-PERP":    {"base": "dogecoin",                "symbol": "DOGE",    "max_leverage": 20, "tick": 0.00001},
+    "AVAX-PERP":    {"base": "avalanche-2",             "symbol": "AVAX",    "max_leverage": 20, "tick": 0.01},
+    "LINK-PERP":    {"base": "chainlink",               "symbol": "LINK",    "max_leverage": 20, "tick": 0.001},
+    "SUI-PERP":     {"base": "sui",                     "symbol": "SUI",     "max_leverage": 20, "tick": 0.001},
+    "RENDER-PERP":  {"base": "render-token",            "symbol": "RENDER",  "max_leverage": 20, "tick": 0.001},
+    # ── Solana ecosystem ──────────────────────────────────────
+    "JUP-PERP":     {"base": "jupiter-exchange-solana",  "symbol": "JUP",     "max_leverage": 10, "tick": 0.0001},
+    "WIF-PERP":     {"base": "dogwifcoin",              "symbol": "WIF",     "max_leverage": 10, "tick": 0.0001},
+    "BONK-PERP":    {"base": "bonk",                    "symbol": "BONK",    "max_leverage": 10, "tick": 0.00000001},
+    "PYTH-PERP":    {"base": "pyth-network",            "symbol": "PYTH",    "max_leverage": 10, "tick": 0.0001},
+    "JTO-PERP":     {"base": "jito-governance-token",   "symbol": "JTO",     "max_leverage": 10, "tick": 0.001},
+    "HNT-PERP":     {"base": "helium",                  "symbol": "HNT",     "max_leverage": 10, "tick": 0.001},
+    "RAY-PERP":     {"base": "raydium",                 "symbol": "RAY",     "max_leverage": 10, "tick": 0.001},
+    "W-PERP":       {"base": "wormhole",                "symbol": "W",       "max_leverage": 10, "tick": 0.0001},
+    "TNSR-PERP":    {"base": "tensor",                  "symbol": "TNSR",    "max_leverage": 10, "tick": 0.0001},
+    "DRIFT-PERP":   {"base": "drift-protocol",          "symbol": "DRIFT",   "max_leverage": 10, "tick": 0.001},
+    "POPCAT-PERP":  {"base": "popcat",                  "symbol": "POPCAT",  "max_leverage": 10, "tick": 0.0001},
+    "PENGU-PERP":   {"base": "pudgy-penguins",          "symbol": "PENGU",   "max_leverage": 10, "tick": 0.00001},
+    "TRUMP-PERP":   {"base": "official-trump",          "symbol": "TRUMP",   "max_leverage": 10, "tick": 0.001},
+    "ME-PERP":      {"base": "magic-eden",              "symbol": "ME",      "max_leverage": 10, "tick": 0.0001},
+    "PNUT-PERP":    {"base": "peanut-the-squirrel",     "symbol": "PNUT",    "max_leverage": 10, "tick": 0.0001},
+    "GOAT-PERP":    {"base": "goatseus-maximus",        "symbol": "GOAT",    "max_leverage": 10, "tick": 0.0001},
+    "FARTCOIN-PERP":{"base": "fartcoin",                "symbol": "FARTCOIN","max_leverage": 10, "tick": 0.0001},
 }
 
 # CoinGecko IDs for batch price fetch

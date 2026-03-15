@@ -73,7 +73,11 @@ const STRATEGY_META: Record<string, { name: string; icon: string }> = {
   sr_reversal: { name: "S/R Reversal", icon: "🪃" },
 };
 
-const ALL_MARKET_BASES = ["SOL", "BTC", "ETH", "SUI", "AVAX", "LINK"];
+const ALL_MARKET_BASES = [
+  "SOL", "BTC", "ETH", "DOGE", "LINK", "SUI", "AVAX", "RENDER",
+  "JUP", "WIF", "BONK", "PYTH", "JTO", "HNT", "RAY", "W",
+  "TNSR", "DRIFT", "POPCAT", "PENGU", "TRUMP", "ME", "PNUT", "GOAT", "FARTCOIN",
+];
 
 interface CandleData {
   time: Time;

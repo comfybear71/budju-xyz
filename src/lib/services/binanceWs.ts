@@ -38,6 +38,21 @@ const CODE_TO_BINANCE: Record<string, string> = {
   BONK: "bonkusdt",
   WIF: "wifusdt",
   JUP: "jupusdt",
+  // Solana ecosystem (perps)
+  PYTH: "pythusdt",
+  JTO: "jtousdt",
+  HNT: "hntusdt",
+  RAY: "rayusdt",
+  W: "wusdt",
+  DRIFT: "driftusdt",
+  POPCAT: "popcatusdt",
+  PENGU: "penguusdt",
+  TRUMP: "trumpusdt",
+  ME: "meusdt",
+  PNUT: "pnutusdt",
+  GOAT: "goatusdt",
+  FARTCOIN: "fartcoinusdt",
+  TNSR: "tnsrusdt",
 };
 
 // Reverse map: binance symbol → our code
