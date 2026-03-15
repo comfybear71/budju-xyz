@@ -1222,7 +1222,7 @@ const TradingChart = ({
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
-        <div className="mt-2 space-y-2.5">
+        <div className="mt-2 space-y-2.5 overflow-hidden">
 
           {/* Active positions for this market */}
           {(() => {
@@ -1235,7 +1235,7 @@ const TradingChart = ({
                   return (
                     <div
                       key={pos._id}
-                      className={`rounded-lg border p-2.5 ${
+                      className={`rounded-lg border p-2.5 overflow-hidden ${
                         pos.direction === "long"
                           ? "bg-emerald-500/[0.05] border-emerald-500/15"
                           : "bg-red-500/[0.05] border-red-500/15"
@@ -1440,7 +1440,7 @@ const TradingChart = ({
                   return (
                     <div
                       key={order._id}
-                      className={`rounded-lg border p-2.5 ${
+                      className={`rounded-lg border p-2.5 overflow-hidden ${
                         isLong
                           ? "bg-cyan-500/[0.05] border-cyan-500/15"
                           : "bg-orange-500/[0.05] border-orange-500/15"
@@ -1628,32 +1628,30 @@ const TradingChart = ({
           {showPrediction && prediction?.strategies && (
             <div className="rounded-lg border border-blue-500/15 bg-slate-900/60 p-2 space-y-1.5">
               {/* Signal + reasoning */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                    prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                      : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                        ? "bg-red-500/15 text-red-400 border-red-500/30"
-                        : "bg-slate-500/15 text-slate-400 border-slate-500/30"
-                  }`}>
-                    {prediction.signal}
-                  </span>
-                  <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
-                  <span className="text-[9px] text-slate-300">
-                    Target ${formatPrice(prediction.targetPrice)}
-                  </span>
-                </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
+                  prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
+                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                    : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
+                      ? "bg-red-500/15 text-red-400 border-red-500/30"
+                      : "bg-slate-500/15 text-slate-400 border-slate-500/30"
+                }`}>
+                  {prediction.signal}
+                </span>
+                <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
+                <span className="text-[9px] text-slate-300">
+                  Target ${formatPrice(prediction.targetPrice)}
+                </span>
                 <button
                   onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-                  className="text-[9px] text-slate-400 hover:text-blue-400 transition-colors"
+                  className="text-[9px] text-slate-400 hover:text-blue-400 transition-colors ml-auto"
                 >
                   {showStrategyInfo ? "Hide details" : "Show details"}
                 </button>
               </div>
 
               {/* AI reasoning summary */}
-              <div className="text-[9px] text-slate-300 leading-relaxed">
+              <div className="text-[9px] text-slate-300 leading-relaxed break-words overflow-hidden">
                 {(() => {
                   const s = prediction.strategies;
                   const parts: string[] = [];
@@ -1671,7 +1669,7 @@ const TradingChart = ({
               {/* Detailed strategy grid (expandable) */}
               {showStrategyInfo && (
                 <div className="space-y-1.5 pt-1 border-t border-white/[0.04]">
-                  <div className="grid grid-cols-4 gap-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                     {/* Trend */}
                     <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
                       <div className="text-[7px] text-slate-400 uppercase">Trend (60%)</div>
@@ -1747,17 +1745,17 @@ const TradingChart = ({
                 <div className="text-[8px] text-slate-400 uppercase tracking-wider mb-1">Recent Trades</div>
                 <div className="space-y-0.5">
                   {marketTrades.map((t, i) => (
-                    <div key={i} className="flex items-center justify-between text-[9px]">
-                      <div className="flex items-center gap-1.5">
-                        <span className={t.direction === "long" ? "text-emerald-400" : "text-red-400"}>
+                    <div key={i} className="flex flex-wrap items-center justify-between gap-x-1.5 text-[9px]">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`whitespace-nowrap ${t.direction === "long" ? "text-emerald-400" : "text-red-400"}`}>
                           {t.direction.toUpperCase()}
                         </span>
-                        <span className="text-slate-300">{t.leverage}x</span>
-                        <span className="text-slate-300 font-mono">${formatPrice(t.entry_price)}</span>
+                        <span className="text-slate-300 whitespace-nowrap">{t.leverage}x</span>
+                        <span className="text-slate-300 font-mono whitespace-nowrap">${formatPrice(t.entry_price)}</span>
                         <span className="text-slate-400">→</span>
-                        <span className="text-slate-300 font-mono">${formatPrice(t.exit_price)}</span>
+                        <span className="text-slate-300 font-mono whitespace-nowrap">${formatPrice(t.exit_price)}</span>
                       </div>
-                      <span className={`font-bold font-mono ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      <span className={`font-bold font-mono flex-shrink-0 ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                         {t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}
                       </span>
                     </div>
