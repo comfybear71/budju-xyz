@@ -27,7 +27,6 @@ import {
 } from "@lib/services/binanceWs";
 import type { PerpPosition, PerpTrade, PerpPendingOrder } from "../../types/perps";
 import type { StrategyStatus } from "../../services/perpApi";
-// StrategySpotlight available via Signals tab in HighRiskDashboard
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -59,27 +58,6 @@ interface DragState {
   orderType?: string; // "stop" | "limit" — for pending orders
   orderDirection?: string; // "long" | "short" — for pending orders
 }
-
-// Strategy display names and icons
-const STRATEGY_META: Record<string, { name: string; icon: string }> = {
-  trend_following: { name: "Trend Following", icon: "📈" },
-  scalping: { name: "Scalping", icon: "⚡" },
-  mean_reversion: { name: "Mean Reversion", icon: "🎯" },
-  momentum: { name: "Momentum Breakout", icon: "🚀" },
-  ninja: { name: "Ninja Scalper", icon: "🥷" },
-  grid: { name: "Grid Trading", icon: "📊" },
-  keltner: { name: "Keltner Channel", icon: "📐" },
-  bb_squeeze: { name: "BB Squeeze", icon: "💥" },
-  hf_scalper: { name: "HF Scalper", icon: "🏎️" },
-  zone_recovery: { name: "Zone Recovery", icon: "🔄" },
-  sr_reversal: { name: "S/R Reversal", icon: "🪃" },
-};
-
-const ALL_MARKET_BASES = [
-  "SOL", "BTC", "ETH", "DOGE", "LINK", "SUI", "AVAX", "RENDER",
-  "JUP", "WIF", "BONK", "PYTH", "JTO", "HNT", "RAY", "W",
-  "TNSR", "DRIFT", "POPCAT", "PENGU", "TRUMP", "ME", "PNUT", "GOAT", "FARTCOIN",
-];
 
 interface CandleData {
   time: Time;
@@ -293,12 +271,10 @@ const TradingChart = ({
   trades = [],
   height = 300,
   compact = false,
-  strategyStatus,
   pendingOrders = [],
   onModifySLTP,
   onModifyPendingOrder,
   onCancelPendingOrder,
-  onClosePosition,
   children,
 }: Props) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -326,27 +302,9 @@ const TradingChart = ({
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(false);
-  const [closingId, setClosingId] = useState<string | null>(null);
-  const [showStrategyInfo, setShowStrategyInfo] = useState(false);
   const [showMarkers, setShowMarkers] = useState(false);
   const [showPositionLines, setShowPositionLines] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
-  const [showStrats, setShowStrats] = useState(false);
-  // Inline editing state for pending order / position fields
-  const [editingField, setEditingField] = useState<{ orderId: string; field: "trigger" | "sl" | "tp"; value: string; kind?: "order" | "position" } | null>(null);
-
-  // Strategies active on this market
-  const activeStratsForMarket = useMemo(() => {
-    if (!strategyStatus?.strategies) return [];
-    return Object.entries(strategyStatus.strategies)
-      .filter(([, cfg]) => cfg.enabled && cfg.markets.includes(symbol))
-      .map(([key, cfg]) => ({
-        key,
-        ...(STRATEGY_META[key] || { name: key, icon: "⚙️" }),
-        config: cfg,
-        positions: strategyStatus.strategy_positions?.[key]?.filter(p => p.symbol === symbol) || [],
-      }));
-  }, [strategyStatus, symbol]);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -924,102 +882,67 @@ const TradingChart = ({
     <div className="relative" style={{ isolation: "isolate" }}>
       {/* Header */}
       <div className={`${compact ? "mb-1" : "mb-2"}`}>
-        <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
-                {baseAsset}/USDT
-              </span>
-              {connected && (
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
-              )}
-              {livePrice > 0 && (
-                <>
-                  <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
-                    ${formatPrice(livePrice)}
-                  </span>
-                  <span className={`text-[10px] font-bold whitespace-nowrap ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
-                    {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
-                  </span>
-                </>
-              )}
-            </div>
-            {/* Signal badge — below currency label */}
-            {showPrediction && prediction && !compact && (
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowStrategyInfo(!showStrategyInfo); }}
-                className={`mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
-                  prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
-                    : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                      ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
-                      : "bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25"
-                }`}
-                title="Click for strategy breakdown"
-              >
-                {prediction.signal} {prediction.confidence}%
-              </button>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Symbol + price */}
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+              {baseAsset}/USDT
+            </span>
+            {connected && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse flex-shrink-0" />
             )}
-            {/* Compact signal badge — below currency label */}
-            {showPrediction && prediction && compact && (
-              <div className="mt-0.5">
-                <span
-                  className={`text-[8px] font-bold px-1 py-0.5 rounded border ${
-                    prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                      : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                        ? "bg-red-500/15 text-red-400 border-red-500/30"
-                        : "bg-slate-500/15 text-slate-400 border-slate-500/30"
-                  }`}
-                  title={`${prediction.signal} (${prediction.confidence}%)`}
-                >
-                  {prediction.signal} {prediction.confidence}%
+            {livePrice > 0 && (
+              <>
+                <span className={`font-mono font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
+                  ${formatPrice(livePrice)}
                 </span>
-              </div>
+                <span className={`text-[10px] font-bold whitespace-nowrap ${isPositive ? "text-emerald-400" : "text-red-400"}`}>
+                  {isPositive ? "+" : ""}{priceChange.toFixed(2)}%
+                </span>
+              </>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
-          {/* Timeframe selector */}
-          <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
-            {(["5m", "30m", "1h"] as const).map((tf) => (
+          {/* Timeframe + chart mode controls */}
+          <div className="flex items-center gap-1 ml-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+              {(["5m", "30m", "1h"] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setTimeframe(tf)}
+                  className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                    timeframe === tf
+                      ? "text-emerald-400 bg-emerald-500/15"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+            <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
               <button
-                key={tf}
-                onClick={() => setTimeframe(tf)}
+                onClick={() => setChartMode("candle")}
                 className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
-                  timeframe === tf
-                    ? "text-emerald-400 bg-emerald-500/15"
+                  chartMode === "candle"
+                    ? "text-blue-400 bg-blue-500/15"
                     : "text-slate-500 hover:text-slate-300"
                 }`}
               >
-                {tf}
+                Candle
               </button>
-            ))}
-          </div>
-          {/* Chart mode toggle */}
-          <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
-            <button
-              onClick={() => setChartMode("candle")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
-                chartMode === "candle"
-                  ? "text-blue-400 bg-blue-500/15"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              Candle
-            </button>
-            <button
-              onClick={() => setChartMode("line")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
-                chartMode === "line"
-                  ? "text-blue-400 bg-blue-500/15"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              Line
-            </button>
+              <button
+                onClick={() => setChartMode("line")}
+                className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                  chartMode === "line"
+                    ? "text-blue-400 bg-blue-500/15"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                Line
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       </div>
 
       {/* Loading overlay */}
@@ -1049,697 +972,9 @@ const TradingChart = ({
       {/* Chart container */}
       <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
-      {/* Injected trade panel (rendered between chart and toggles) */}
+      {/* Injected trade panel (rendered immediately below chart) */}
       {children}
 
-      {/* Indicator toggles */}
-      <div className="flex flex-wrap gap-1 mt-1.5" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={() => setShowVolume(!showVolume)}
-          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
-            showVolume
-              ? "text-slate-400 bg-slate-500/15 border-slate-500/30"
-              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
-          }`}
-        >
-          Vol
-        </button>
-        <button
-          onClick={() => setShowMarkers(!showMarkers)}
-          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
-            showMarkers
-              ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30"
-              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
-          }`}
-        >
-          Trades
-        </button>
-        <button
-          onClick={() => setShowPositionLines(!showPositionLines)}
-          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors relative ${
-            showPositionLines
-              ? "text-amber-400 bg-amber-500/15 border-amber-500/30"
-              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
-          }`}
-        >
-          Positions
-          {(() => {
-            const orderCount = pendingOrders.filter(o => o.symbol === symbol && o.status === "pending").length;
-            return orderCount > 0 ? (
-              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-500 text-[7px] text-white flex items-center justify-center font-bold">
-                {orderCount}
-              </span>
-            ) : null;
-          })()}
-        </button>
-        <button
-          onClick={() => setShowPrediction(!showPrediction)}
-          className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
-            showPrediction
-              ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
-              : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
-          }`}
-        >
-          AI
-        </button>
-        {/* Strategy popup button */}
-        {strategyStatus && (
-          <button
-            onClick={() => setShowStrats(!showStrats)}
-            className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors relative ${
-              showStrats
-                ? "text-purple-400 bg-purple-500/15 border-purple-500/30"
-                : activeStratsForMarket.length > 0
-                  ? "text-purple-400 bg-purple-500/10 border-purple-500/20 hover:bg-purple-500/20"
-                  : "text-slate-400 bg-transparent border-white/[0.06] hover:text-slate-300"
-            }`}
-          >
-            Strats
-            {activeStratsForMarket.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-500 text-[7px] text-white flex items-center justify-center font-bold">
-                {activeStratsForMarket.length}
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-
-      {/* ── Strategy overlay — fixed position so it doesn't push content ── */}
-      {showStrats && strategyStatus && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/50 z-40"
-            onClick={() => setShowStrats(false)}
-          />
-          {/* Panel */}
-          <div
-            className="fixed inset-x-3 bottom-3 top-auto max-h-[70vh] rounded-xl border border-purple-500/25 bg-[#0f172a]/98 backdrop-blur-md overflow-y-auto z-50 shadow-2xl animate-[slideUp_0.2s_ease-out]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sticky top-0 flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06] bg-[#0f172a]/95 backdrop-blur-sm z-10">
-              <span className="text-[11px] font-bold text-purple-300">
-                Active Strategies — {baseAsset}
-              </span>
-              <button
-                onClick={() => setShowStrats(false)}
-                className="text-slate-400 hover:text-white text-sm transition-colors px-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            {activeStratsForMarket.length === 0 ? (
-              <div className="px-3 py-6 text-[11px] text-slate-500 text-center">
-                No strategies active on {baseAsset}
-              </div>
-            ) : (
-              <div className="p-2 space-y-1.5">
-                {activeStratsForMarket.map((strat) => (
-                  <div
-                    key={strat.key}
-                    className="rounded-lg bg-slate-800/50 border border-white/[0.06] px-3 py-2.5"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm">{strat.icon}</span>
-                        <span className="text-[11px] font-bold text-white">{strat.name}</span>
-                        <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-bold">
-                          ACTIVE
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
-                        <span>{strat.config.leverage}x</span>
-                        <span>•</span>
-                        <span>Max {strat.config.max_positions} pos</span>
-                      </div>
-                    </div>
-                    {/* Market coins */}
-                    <div className="flex flex-wrap gap-1">
-                      {ALL_MARKET_BASES.map((coin) => {
-                        const isActive = strat.config.markets.includes(`${coin}-PERP`);
-                        const isCurrent = coin === baseAsset;
-                        return (
-                          <span
-                            key={coin}
-                            className={`text-[8px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
-                              isActive
-                                ? isCurrent
-                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                                : "bg-slate-800/50 text-slate-600 border-white/[0.04]"
-                            }`}
-                          >
-                            {coin}
-                          </span>
-                        );
-                      })}
-                    </div>
-                    {/* Active positions for this strategy */}
-                    {strat.positions.length > 0 && (
-                      <div className="mt-1.5 space-y-0.5">
-                        {strat.positions.map((pos, i) => (
-                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
-                            <span className={pos.direction === "long" ? "text-emerald-400" : "text-red-400"}>
-                              {pos.direction.toUpperCase()}
-                            </span>
-                            <span className={`font-mono ${pos.pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                              {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* All strategies summary */}
-            {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length > activeStratsForMarket.length && (
-              <div className="px-3 py-2 border-t border-white/[0.06] text-[9px] text-slate-500">
-                {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length} strategies enabled total
-                {" · "}{activeStratsForMarket.length} on {baseAsset}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* ── Below-chart info panel (non-compact only) ── */}
-      {!compact && (
-        <div className="relative z-10 mt-2 space-y-2.5" style={{ isolation: "isolate" }}>
-
-          {/* Active positions for this market */}
-          {showPositionLines && (() => {
-            const marketPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
-            if (marketPositions.length === 0) return null;
-            return (
-              <div className="space-y-2">
-                {marketPositions.map((pos) => {
-                  const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
-                  return (
-                    <div
-                      key={pos._id}
-                      className={`rounded-lg border p-2.5 overflow-hidden ${
-                        pos.direction === "long"
-                          ? "bg-[#0d1a14] border-emerald-500/15"
-                          : "bg-[#1a0d0d] border-red-500/15"
-                      }`}
-                    >
-                      {/* Row 1: direction + strategy + PnL */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
-                            pos.direction === "long"
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}>
-                            {pos.direction.toUpperCase()} {pos.leverage}x
-                          </span>
-                          {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
-                              {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
-                            </span>
-                          )}
-                          {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
-                              MANUAL
-                            </span>
-                          )}
-                        </div>
-                        <span className={`text-[11px] font-bold font-mono whitespace-nowrap flex-shrink-0 ${
-                          pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-                        }`}>
-                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                          <span className="text-[9px] ml-0.5 opacity-70">
-                            ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
-                          </span>
-                        </span>
-                      </div>
-
-                      {/* Row 2: Entry + Close button */}
-                      <div className="flex items-center justify-between gap-2 mt-1.5">
-                        <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
-                          Entry ${formatPrice(pos.entry_price)}
-                        </span>
-                        {onClosePosition && (
-                          <button
-                            disabled={closingId === pos._id}
-                            onClick={async () => {
-                              setClosingId(pos._id);
-                              try {
-                                await onClosePosition(pos._id, pos.mark_price);
-                              } finally {
-                                setClosingId(null);
-                              }
-                            }}
-                            className={`text-[9px] font-bold px-2.5 py-1 rounded transition-all border whitespace-nowrap ${
-                              closingId === pos._id
-                                ? "bg-red-500/25 text-red-300 border-red-500/40 cursor-wait"
-                                : "bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 hover:border-red-500/40 hover:scale-105 border-red-500/25"
-                            } disabled:opacity-60`}
-                          >
-                            {closingId === pos._id ? (
-                              <span className="flex items-center gap-1">
-                                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                </svg>
-                                Closing
-                              </span>
-                            ) : "Close"}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Row 3: Size + Mark price */}
-                      <div className="flex items-center gap-3 mt-1.5 text-[9px] text-slate-400">
-                        <span>Size <span className="font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
-                        <span>Mark <span className="font-mono">${formatPrice(pos.mark_price)}</span></span>
-                      </div>
-
-                      {/* Row 4: SL, TP, Trail — each on its own line for clarity */}
-                      {(pos.stop_loss != null || pos.take_profit != null || pos.trailing_stop_price != null) && (
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 pt-1.5 border-t border-white/[0.04] text-[9px] text-slate-400">
-                          {pos.stop_loss != null && (
-                            <span className="inline-flex items-center gap-0.5">
-                              SL{" "}
-                              {editingField?.orderId === pos._id && editingField.field === "sl" && editingField.kind === "position" ? (
-                                <span className="inline-flex items-center">
-                                  <span className="text-red-400/70">$</span>
-                                  <input
-                                    type="number"
-                                    autoFocus
-                                    step="any"
-                                    value={editingField.value}
-                                    onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        const v = parseFloat(editingField.value);
-                                        if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
-                                        setEditingField(null);
-                                      } else if (e.key === "Escape") setEditingField(null);
-                                    }}
-                                    onBlur={() => {
-                                      const v = parseFloat(editingField.value);
-                                      if (v > 0 && v !== pos.stop_loss && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
-                                      setEditingField(null);
-                                    }}
-                                    className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
-                                  />
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "sl", value: String(pos.stop_loss), kind: "position" })}
-                                  className={`text-red-400/70 font-mono ${onModifySLTP ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                  title={onModifySLTP ? "Click to edit stop loss" : undefined}
-                                  disabled={!onModifySLTP}
-                                >
-                                  ${formatPrice(pos.stop_loss)}
-                                </button>
-                              )}
-                              {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
-                                <button
-                                  onClick={() => onModifySLTP(pos._id, { stopLoss: 0 })}
-                                  className="text-red-500/50 hover:text-red-400 ml-0.5"
-                                  title="Remove stop loss"
-                                >x</button>
-                              )}
-                            </span>
-                          )}
-                          {pos.take_profit != null && (
-                            <span className="inline-flex items-center gap-0.5">
-                              TP{" "}
-                              {editingField?.orderId === pos._id && editingField.field === "tp" && editingField.kind === "position" ? (
-                                <span className="inline-flex items-center">
-                                  <span className="text-emerald-400/70">$</span>
-                                  <input
-                                    type="number"
-                                    autoFocus
-                                    step="any"
-                                    value={editingField.value}
-                                    onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") {
-                                        const v = parseFloat(editingField.value);
-                                        if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
-                                        setEditingField(null);
-                                      } else if (e.key === "Escape") setEditingField(null);
-                                    }}
-                                    onBlur={() => {
-                                      const v = parseFloat(editingField.value);
-                                      if (v > 0 && v !== pos.take_profit && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
-                                      setEditingField(null);
-                                    }}
-                                    className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
-                                  />
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "tp", value: String(pos.take_profit), kind: "position" })}
-                                  className={`text-emerald-400/70 font-mono ${onModifySLTP ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                  title={onModifySLTP ? "Click to edit take profit" : undefined}
-                                  disabled={!onModifySLTP}
-                                >
-                                  ${formatPrice(pos.take_profit)}
-                                </button>
-                              )}
-                              {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
-                                <button
-                                  onClick={() => onModifySLTP(pos._id, { takeProfit: 0 })}
-                                  className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
-                                  title="Remove take profit"
-                                >x</button>
-                              )}
-                            </span>
-                          )}
-                          {pos.trailing_stop_price != null && (
-                            <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* Pending orders for this market */}
-          {showPositionLines && (() => {
-            const marketOrders = pendingOrders.filter(
-              (o) => o.symbol === symbol && o.status === "pending"
-            );
-            if (marketOrders.length === 0) return null;
-            return (
-              <div className="space-y-2">
-                <div className="text-[8px] text-slate-400 uppercase tracking-wider">
-                  Pending Orders ({marketOrders.length})
-                </div>
-                {marketOrders.map((order) => {
-                  const isLong = order.direction === "long";
-                  const typeLabel = order.order_type === "limit"
-                    ? (isLong ? "BUY LIMIT" : "SELL LIMIT")
-                    : (isLong ? "BUY STOP" : "SELL STOP");
-                  const stratMatch = order.entry_reason?.match(/^\[([^\]]+)\]/);
-                  return (
-                    <div
-                      key={order._id}
-                      className={`rounded-lg border p-2.5 overflow-hidden ${
-                        isLong
-                          ? "bg-[#0d1517] border-cyan-500/15"
-                          : "bg-[#1a150d] border-orange-500/15"
-                      }`}
-                    >
-                      {/* Row 1: type badge + strategy */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
-                            isLong
-                              ? "bg-cyan-500/20 text-cyan-400"
-                              : "bg-orange-500/20 text-orange-400"
-                          }`}>
-                            {typeLabel}
-                          </span>
-                          {stratMatch && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
-                              {stratMatch[1].toUpperCase()}
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
-                            {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
-                          </span>
-                        </div>
-                        {onCancelPendingOrder && (
-                          <button
-                            onClick={() => onCancelPendingOrder(order._id)}
-                            className="text-[9px] font-bold px-2 py-1 rounded transition-all border bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 border-red-500/25 hover:border-red-500/40 flex-shrink-0"
-                          >
-                            Cancel
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Row 2: Trigger price */}
-                      <div className="mt-1.5">
-                        {editingField?.orderId === order._id && editingField.field === "trigger" ? (
-                          <span className="inline-flex items-center">
-                            <span className="text-[10px] text-slate-500">@ $</span>
-                            <input
-                              type="number"
-                              autoFocus
-                              step="any"
-                              value={editingField.value}
-                              onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  const v = parseFloat(editingField.value);
-                                  if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
-                                  setEditingField(null);
-                                } else if (e.key === "Escape") setEditingField(null);
-                              }}
-                              onBlur={() => {
-                                const v = parseFloat(editingField.value);
-                                if (v > 0 && v !== order.trigger_price && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
-                                setEditingField(null);
-                              }}
-                              className="w-24 text-[10px] font-mono bg-slate-700 text-white rounded px-1 py-0.5 border border-blue-500/40 outline-none focus:border-blue-400"
-                            />
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "trigger", value: String(order.trigger_price) })}
-                            className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 transition-colors cursor-text" : ""}`}
-                            title={onModifyPendingOrder ? "Click to edit trigger price" : undefined}
-                            disabled={!onModifyPendingOrder}
-                          >
-                            @ ${formatPrice(order.trigger_price)}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Row 3: SL, TP, Trail, Expires */}
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 pt-1.5 border-t border-white/[0.04] text-[9px] text-slate-400">
-                        {order.stop_loss != null && (
-                          <span className="inline-flex items-center gap-0.5">
-                            SL{" "}
-                            {editingField?.orderId === order._id && editingField.field === "sl" ? (
-                              <span className="inline-flex items-center">
-                                <span className="text-red-400/70">$</span>
-                                <input
-                                  type="number"
-                                  autoFocus
-                                  step="any"
-                                  value={editingField.value}
-                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const v = parseFloat(editingField.value);
-                                      if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { stopLoss: v });
-                                      setEditingField(null);
-                                    } else if (e.key === "Escape") setEditingField(null);
-                                  }}
-                                  onBlur={() => {
-                                    const v = parseFloat(editingField.value);
-                                    if (v > 0 && v !== order.stop_loss && onModifyPendingOrder) onModifyPendingOrder(order._id, { stopLoss: v });
-                                    setEditingField(null);
-                                  }}
-                                  className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
-                                />
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "sl", value: String(order.stop_loss) })}
-                                className={`text-red-400/70 font-mono ${onModifyPendingOrder ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                title={onModifyPendingOrder ? "Click to edit stop loss" : undefined}
-                                disabled={!onModifyPendingOrder}
-                              >
-                                ${formatPrice(order.stop_loss)}
-                              </button>
-                            )}
-                            {onModifyPendingOrder && editingField?.orderId !== order._id && (
-                              <button
-                                onClick={() => onModifyPendingOrder(order._id, { stopLoss: 0 })}
-                                className="text-red-500/50 hover:text-red-400 ml-0.5"
-                                title="Remove stop loss"
-                              >x</button>
-                            )}
-                          </span>
-                        )}
-                        {order.take_profit != null && (
-                          <span className="inline-flex items-center gap-0.5">
-                            TP{" "}
-                            {editingField?.orderId === order._id && editingField.field === "tp" ? (
-                              <span className="inline-flex items-center">
-                                <span className="text-emerald-400/70">$</span>
-                                <input
-                                  type="number"
-                                  autoFocus
-                                  step="any"
-                                  value={editingField.value}
-                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const v = parseFloat(editingField.value);
-                                      if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { takeProfit: v });
-                                      setEditingField(null);
-                                    } else if (e.key === "Escape") setEditingField(null);
-                                  }}
-                                  onBlur={() => {
-                                    const v = parseFloat(editingField.value);
-                                    if (v > 0 && v !== order.take_profit && onModifyPendingOrder) onModifyPendingOrder(order._id, { takeProfit: v });
-                                    setEditingField(null);
-                                  }}
-                                  className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
-                                />
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "tp", value: String(order.take_profit) })}
-                                className={`text-emerald-400/70 font-mono ${onModifyPendingOrder ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                title={onModifyPendingOrder ? "Click to edit take profit" : undefined}
-                                disabled={!onModifyPendingOrder}
-                              >
-                                ${formatPrice(order.take_profit)}
-                              </button>
-                            )}
-                            {onModifyPendingOrder && editingField?.orderId !== order._id && (
-                              <button
-                                onClick={() => onModifyPendingOrder(order._id, { takeProfit: 0 })}
-                                className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
-                                title="Remove take profit"
-                              >x</button>
-                            )}
-                          </span>
-                        )}
-                        {order.trailing_stop_pct != null && (
-                          <span>Trail <span className="text-blue-400/70 font-mono">{order.trailing_stop_pct}%</span></span>
-                        )}
-                        <span className="text-slate-500">
-                          Expires {new Date(order.expires_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* AI prediction & strategy breakdown */}
-          {showPrediction && prediction?.strategies && (
-            <div className="rounded-lg border border-blue-500/15 bg-slate-900 p-2 space-y-1.5">
-              {/* Signal + reasoning */}
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                  prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                    ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                    : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                      ? "bg-red-500/15 text-red-400 border-red-500/30"
-                      : "bg-slate-500/15 text-slate-400 border-slate-500/30"
-                }`}>
-                  {prediction.signal}
-                </span>
-                <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
-                <span className="text-[9px] text-slate-300">
-                  Target ${formatPrice(prediction.targetPrice)}
-                </span>
-                <button
-                  onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-                  className="text-[9px] text-slate-400 hover:text-blue-400 transition-colors ml-auto"
-                >
-                  {showStrategyInfo ? "Hide details" : "Show details"}
-                </button>
-              </div>
-
-              {/* AI reasoning summary */}
-              <div className="text-[9px] text-slate-300 leading-relaxed break-words overflow-hidden">
-                {(() => {
-                  const s = prediction.strategies;
-                  const parts: string[] = [];
-                  if (s.trend.direction !== "flat")
-                    parts.push(`Trend is ${s.trend.direction === "up" ? "bullish" : "bearish"} (${s.trend.strength.toFixed(0)}% strength)`);
-                  else parts.push("No clear trend");
-                  parts.push(`RSI at ${s.momentum.rsi.toFixed(1)} (${s.momentum.bias})`);
-                  if (s.ema.cross !== "neutral")
-                    parts.push(`EMA ${s.ema.cross} cross (8${s.ema.cross === "bullish" ? ">" : "<"}21)`);
-                  parts.push(`${s.volatility.level} volatility (${s.volatility.value.toFixed(3)}%)`);
-                  return parts.join(" • ");
-                })()}
-              </div>
-
-              {/* Detailed strategy grid (expandable) */}
-              {showStrategyInfo && (
-                <div className="space-y-1.5 pt-1 border-t border-white/[0.04]">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                    {/* Trend */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-400 uppercase">Trend (60%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
-                        prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.trend.direction === "up" ? "Bullish" :
-                         prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
-                      </div>
-                      <div className="text-[8px] text-slate-300">{prediction.strategies.trend.strength.toFixed(0)}% str</div>
-                      <div className="text-[7px] text-slate-400 mt-0.5">WLR slope: {prediction.strategies.trend.slope.toFixed(6)}</div>
-                    </div>
-
-                    {/* Momentum */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-400 uppercase">RSI (25%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
-                        prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.momentum.rsi.toFixed(1)}
-                      </div>
-                      <div className="text-[8px] text-slate-300">{prediction.strategies.momentum.bias}</div>
-                      <div className="text-[7px] text-slate-400 mt-0.5">
-                        {prediction.strategies.momentum.rsi > 70 ? "Overbought" :
-                         prediction.strategies.momentum.rsi < 30 ? "Oversold" : "Normal range"}
-                      </div>
-                    </div>
-
-                    {/* EMA Cross */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-400 uppercase">EMA (15%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
-                        prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
-                         prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
-                      </div>
-                      <div className="text-[8px] text-slate-300">{prediction.strategies.ema.cross}</div>
-                      <div className="text-[7px] text-slate-400 mt-0.5">
-                        8: ${formatPrice(prediction.strategies.ema.ema8)}
-                      </div>
-                    </div>
-
-                    {/* Volatility */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-400 uppercase">Volatility</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.volatility.level === "high" ? "text-amber-400" :
-                        prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.volatility.value.toFixed(3)}%
-                      </div>
-                      <div className="text-[8px] text-slate-300">{prediction.strategies.volatility.level}</div>
-                      <div className="text-[7px] text-slate-400 mt-0.5">Std dev of returns</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Recent trades removed — available in History tab */}
-        </div>
-      )}
     </div>
   );
 };

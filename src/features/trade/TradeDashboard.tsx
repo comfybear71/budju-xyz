@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useDashboardData } from "./hooks/useDashboardData";
 import BotControlBar from "./components/dashboard/BotControlBar";
 import MarketPills from "./components/dashboard/MarketPills";
-import SignalFeed from "./components/dashboard/SignalFeed";
+// SignalFeed removed — can be re-added as a tab later
 import QuickTradeSheet from "./components/dashboard/QuickTradeSheet";
 import PositionsStrip from "./components/dashboard/PositionsStrip";
 import type { StrategyOpportunity } from "./utils/strategyDetectors";
@@ -36,7 +36,7 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
 
   const [tradeSheetOpen, setTradeSheetOpen] = useState(false);
   const [tradeSheetPrefill, setTradeSheetPrefill] = useState<StrategyOpportunity | null>(null);
-  const [activePanel, setActivePanel] = useState<BottomPanel>("signals");
+  const [activePanel, setActivePanel] = useState<BottomPanel>("order");
 
   // Page title
   useEffect(() => {
@@ -67,11 +67,10 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
   }
 
   const panelTabs: { key: BottomPanel; label: string; badge?: number }[] = [
-    { key: "signals", label: "Signals" },
-    { key: "positions", label: "Positions", badge: data.positions.length || undefined },
     { key: "order", label: "Order" },
-    { key: "strategy", label: "Bot" },
+    { key: "positions", label: "Positions", badge: data.positions.length || undefined },
     { key: "pending", label: "Pending" },
+    { key: "strategy", label: "Bot" },
     { key: "equity", label: "Equity" },
     { key: "metrics", label: "Stats" },
     { key: "history", label: "History" },
@@ -194,10 +193,7 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
           </div>
         </div>
 
-        {/* RIGHT: Signal feed + panels (desktop) */}
-        <div className="hidden lg:flex lg:flex-col border-l border-white/[0.04] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-          <SignalFeed onTrade={handleSignalTrade} />
-        </div>
+        {/* RIGHT sidebar removed — signals available via dedicated tab later */}
       </div>
 
       {/* === MOBILE BOTTOM PANELS === */}
@@ -224,10 +220,6 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
 
         {/* Active panel content */}
         <div className="min-h-[200px]">
-          {activePanel === "signals" && (
-            <SignalFeed onTrade={handleSignalTrade} />
-          )}
-
           {activePanel === "positions" && (
             <PositionsStrip
               positions={data.positions}
