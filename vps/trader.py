@@ -66,7 +66,7 @@ class Trader:
             logger.warning("No TRADING_WALLET_KEY set — dry run only")
 
         # Load positions from DB if available
-        if self.db:
+        if self.db is not None:
             await self._load_positions()
 
         logger.info(
@@ -339,7 +339,7 @@ class Trader:
         self._daily_trades.append(trade)
 
         # Persist to DB if available
-        if self.db:
+        if self.db is not None:
             asyncio.create_task(self._save_trade(trade))
 
     async def _save_trade(self, trade: dict):
