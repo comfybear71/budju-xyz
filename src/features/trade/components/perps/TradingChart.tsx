@@ -1114,283 +1114,301 @@ const TradingChart = ({
         )}
       </div>
 
-      {/* ── Strategy slide-up popup ── */}
+      {/* ── Strategy overlay — fixed position so it doesn't push content ── */}
       {showStrats && strategyStatus && (
-        <div
-          className="mt-1.5 rounded-lg border border-purple-500/20 bg-slate-900/95 backdrop-blur-sm overflow-hidden animate-[slideUp_0.2s_ease-out]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-white/[0.04]">
-            <span className="text-[10px] font-bold text-purple-300">
-              Active Strategies — {baseAsset}
-            </span>
-            <button
-              onClick={() => setShowStrats(false)}
-              className="text-slate-500 hover:text-white text-xs transition-colors"
-            >
-              ✕
-            </button>
-          </div>
-
-          {activeStratsForMarket.length === 0 ? (
-            <div className="px-2.5 py-3 text-[10px] text-slate-500 text-center">
-              No strategies active on {baseAsset}
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 z-40"
+            onClick={() => setShowStrats(false)}
+          />
+          {/* Panel */}
+          <div
+            className="fixed inset-x-3 bottom-3 top-auto max-h-[70vh] rounded-xl border border-purple-500/25 bg-[#0f172a]/98 backdrop-blur-md overflow-y-auto z-50 shadow-2xl animate-[slideUp_0.2s_ease-out]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 flex items-center justify-between px-3 py-2.5 border-b border-white/[0.06] bg-[#0f172a]/95 backdrop-blur-sm z-10">
+              <span className="text-[11px] font-bold text-purple-300">
+                Active Strategies — {baseAsset}
+              </span>
+              <button
+                onClick={() => setShowStrats(false)}
+                className="text-slate-400 hover:text-white text-sm transition-colors px-1"
+              >
+                ✕
+              </button>
             </div>
-          ) : (
-            <div className="p-1.5 space-y-1">
-              {activeStratsForMarket.map((strat) => (
-                <div
-                  key={strat.key}
-                  className="rounded-lg bg-slate-800/50 border border-white/[0.04] px-2.5 py-2"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm">{strat.icon}</span>
-                      <span className="text-[10px] font-bold text-white">{strat.name}</span>
-                      <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-bold">
-                        ACTIVE
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
-                      <span>{strat.config.leverage}x</span>
-                      <span>•</span>
-                      <span>Max {strat.config.max_positions} pos</span>
-                    </div>
-                  </div>
-                  {/* Market coins — green if this strategy uses them */}
-                  <div className="flex gap-1">
-                    {ALL_MARKET_BASES.map((coin) => {
-                      const isActive = strat.config.markets.includes(`${coin}-PERP`);
-                      const isCurrent = coin === baseAsset;
-                      return (
-                        <span
-                          key={coin}
-                          className={`text-[8px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
-                            isActive
-                              ? isCurrent
-                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
-                                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                              : "bg-slate-800/50 text-slate-600 border-white/[0.04]"
-                          }`}
-                        >
-                          {coin}
+
+            {activeStratsForMarket.length === 0 ? (
+              <div className="px-3 py-6 text-[11px] text-slate-500 text-center">
+                No strategies active on {baseAsset}
+              </div>
+            ) : (
+              <div className="p-2 space-y-1.5">
+                {activeStratsForMarket.map((strat) => (
+                  <div
+                    key={strat.key}
+                    className="rounded-lg bg-slate-800/50 border border-white/[0.06] px-3 py-2.5"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">{strat.icon}</span>
+                        <span className="text-[11px] font-bold text-white">{strat.name}</span>
+                        <span className="text-[8px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 font-bold">
+                          ACTIVE
                         </span>
-                      );
-                    })}
-                  </div>
-                  {/* Active positions for this strategy on this market */}
-                  {strat.positions.length > 0 && (
-                    <div className="mt-1.5 space-y-0.5">
-                      {strat.positions.map((pos, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-[9px]">
-                          <span className={pos.direction === "long" ? "text-emerald-400" : "text-red-400"}>
-                            {pos.direction.toUpperCase()}
-                          </span>
-                          <span className={`font-mono ${pos.pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}>
-                            {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[9px] text-slate-400">
+                        <span>{strat.config.leverage}x</span>
+                        <span>•</span>
+                        <span>Max {strat.config.max_positions} pos</span>
+                      </div>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                    {/* Market coins */}
+                    <div className="flex flex-wrap gap-1">
+                      {ALL_MARKET_BASES.map((coin) => {
+                        const isActive = strat.config.markets.includes(`${coin}-PERP`);
+                        const isCurrent = coin === baseAsset;
+                        return (
+                          <span
+                            key={coin}
+                            className={`text-[8px] font-bold px-1.5 py-0.5 rounded border transition-colors ${
+                              isActive
+                                ? isCurrent
+                                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                  : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                                : "bg-slate-800/50 text-slate-600 border-white/[0.04]"
+                            }`}
+                          >
+                            {coin}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {/* Active positions for this strategy */}
+                    {strat.positions.length > 0 && (
+                      <div className="mt-1.5 space-y-0.5">
+                        {strat.positions.map((pos, i) => (
+                          <div key={i} className="flex items-center gap-1.5 text-[9px]">
+                            <span className={pos.direction === "long" ? "text-emerald-400" : "text-red-400"}>
+                              {pos.direction.toUpperCase()}
+                            </span>
+                            <span className={`font-mono ${pos.pnl >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+                              {pos.pnl >= 0 ? "+" : ""}${pos.pnl.toFixed(2)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
-          {/* Show all strategies summary */}
-          {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length > activeStratsForMarket.length && (
-            <div className="px-2.5 py-1.5 border-t border-white/[0.04] text-[9px] text-slate-500">
-              {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length} strategies enabled total
-              {" · "}{activeStratsForMarket.length} on {baseAsset}
-            </div>
-          )}
-        </div>
+            {/* All strategies summary */}
+            {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length > activeStratsForMarket.length && (
+              <div className="px-3 py-2 border-t border-white/[0.06] text-[9px] text-slate-500">
+                {Object.entries(strategyStatus.strategies).filter(([, c]) => c.enabled).length} strategies enabled total
+                {" · "}{activeStratsForMarket.length} on {baseAsset}
+              </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
-        <div className="mt-2 space-y-1.5">
+        <div className="mt-2 space-y-2.5">
 
           {/* Active positions for this market */}
           {(() => {
             const marketPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
             if (marketPositions.length === 0) return null;
             return (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {marketPositions.map((pos) => {
                   const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
                   return (
                     <div
                       key={pos._id}
-                      className={`rounded-lg border p-2 ${
+                      className={`rounded-lg border p-2.5 ${
                         pos.direction === "long"
                           ? "bg-emerald-500/[0.05] border-emerald-500/15"
                           : "bg-red-500/[0.05] border-red-500/15"
                       }`}
                     >
-                      {/* Row 1: badges + strategy tag */}
-                      <div className="flex items-center flex-wrap gap-1.5">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
-                          pos.direction === "long"
-                            ? "bg-emerald-500/20 text-emerald-400"
-                            : "bg-red-500/20 text-red-400"
+                      {/* Row 1: direction + strategy + PnL */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            pos.direction === "long"
+                              ? "bg-emerald-500/20 text-emerald-400"
+                              : "bg-red-500/20 text-red-400"
+                          }`}>
+                            {pos.direction.toUpperCase()} {pos.leverage}x
+                          </span>
+                          {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
+                              {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
+                            </span>
+                          )}
+                          {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
+                              MANUAL
+                            </span>
+                          )}
+                        </div>
+                        <span className={`text-[11px] font-bold font-mono whitespace-nowrap flex-shrink-0 ${
+                          pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
                         }`}>
-                          {pos.direction.toUpperCase()} {pos.leverage}x
+                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                          <span className="text-[9px] ml-0.5 opacity-70">
+                            ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                          </span>
                         </span>
-                        {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
-                            {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
-                          </span>
-                        )}
-                        {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
-                            MANUAL
-                          </span>
-                        )}
+                      </div>
+
+                      {/* Row 2: Entry + Close button */}
+                      <div className="flex items-center justify-between gap-2 mt-1.5">
                         <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
                           Entry ${formatPrice(pos.entry_price)}
                         </span>
-                        {/* PnL + Close pushed to right */}
-                        <span className="ml-auto flex items-center gap-1.5">
-                          <span className={`text-[11px] font-bold font-mono whitespace-nowrap ${
-                            pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-                          }`}>
-                            {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                            <span className="text-[9px] ml-0.5 opacity-70">
-                              ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
-                            </span>
-                          </span>
-                          {onClosePosition && (
-                            <button
-                              disabled={closingId === pos._id}
-                              onClick={async () => {
-                                setClosingId(pos._id);
-                                try {
-                                  await onClosePosition(pos._id, pos.mark_price);
-                                } finally {
-                                  setClosingId(null);
-                                }
-                              }}
-                              className={`text-[9px] font-bold px-2 py-1 rounded transition-all border whitespace-nowrap ${
-                                closingId === pos._id
-                                  ? "bg-red-500/25 text-red-300 border-red-500/40 cursor-wait"
-                                  : "bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 hover:border-red-500/40 hover:scale-105 border-red-500/25"
-                              } disabled:opacity-60`}
-                            >
-                              {closingId === pos._id ? (
-                                <span className="flex items-center gap-1">
-                                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                                  </svg>
-                                  Closing
+                        {onClosePosition && (
+                          <button
+                            disabled={closingId === pos._id}
+                            onClick={async () => {
+                              setClosingId(pos._id);
+                              try {
+                                await onClosePosition(pos._id, pos.mark_price);
+                              } finally {
+                                setClosingId(null);
+                              }
+                            }}
+                            className={`text-[9px] font-bold px-2.5 py-1 rounded transition-all border whitespace-nowrap ${
+                              closingId === pos._id
+                                ? "bg-red-500/25 text-red-300 border-red-500/40 cursor-wait"
+                                : "bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 hover:border-red-500/40 hover:scale-105 border-red-500/25"
+                            } disabled:opacity-60`}
+                          >
+                            {closingId === pos._id ? (
+                              <span className="flex items-center gap-1">
+                                <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                                Closing
+                              </span>
+                            ) : "Close"}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Row 3: Size + Mark price */}
+                      <div className="flex items-center gap-3 mt-1.5 text-[9px] text-slate-400">
+                        <span>Size <span className="font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
+                        <span>Mark <span className="font-mono">${formatPrice(pos.mark_price)}</span></span>
+                      </div>
+
+                      {/* Row 4: SL, TP, Trail — each on its own line for clarity */}
+                      {(pos.stop_loss != null || pos.take_profit != null || pos.trailing_stop_price != null) && (
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 pt-1.5 border-t border-white/[0.04] text-[9px] text-slate-400">
+                          {pos.stop_loss != null && (
+                            <span className="inline-flex items-center gap-0.5">
+                              SL{" "}
+                              {editingField?.orderId === pos._id && editingField.field === "sl" && editingField.kind === "position" ? (
+                                <span className="inline-flex items-center">
+                                  <span className="text-red-400/70">$</span>
+                                  <input
+                                    type="number"
+                                    autoFocus
+                                    step="any"
+                                    value={editingField.value}
+                                    onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const v = parseFloat(editingField.value);
+                                        if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
+                                        setEditingField(null);
+                                      } else if (e.key === "Escape") setEditingField(null);
+                                    }}
+                                    onBlur={() => {
+                                      const v = parseFloat(editingField.value);
+                                      if (v > 0 && v !== pos.stop_loss && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
+                                      setEditingField(null);
+                                    }}
+                                    className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
+                                  />
                                 </span>
-                              ) : "Close"}
-                            </button>
+                              ) : (
+                                <button
+                                  onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "sl", value: String(pos.stop_loss), kind: "position" })}
+                                  className={`text-red-400/70 font-mono ${onModifySLTP ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                  title={onModifySLTP ? "Click to edit stop loss" : undefined}
+                                  disabled={!onModifySLTP}
+                                >
+                                  ${formatPrice(pos.stop_loss)}
+                                </button>
+                              )}
+                              {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
+                                <button
+                                  onClick={() => onModifySLTP(pos._id, { stopLoss: 0 })}
+                                  className="text-red-500/50 hover:text-red-400 ml-0.5"
+                                  title="Remove stop loss"
+                                >x</button>
+                              )}
+                            </span>
                           )}
-                        </span>
-                      </div>
-                      {/* Row 2: Size, Mark, SL, TP, Trail */}
-                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[9px] text-slate-400">
-                        <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
-                        <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
-                        {pos.stop_loss != null && (
-                          <span className="inline-flex items-center gap-0.5">
-                            SL{" "}
-                            {editingField?.orderId === pos._id && editingField.field === "sl" && editingField.kind === "position" ? (
-                              <span className="inline-flex items-center">
-                                <span className="text-red-400/70">$</span>
-                                <input
-                                  type="number"
-                                  autoFocus
-                                  step="any"
-                                  value={editingField.value}
-                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
+                          {pos.take_profit != null && (
+                            <span className="inline-flex items-center gap-0.5">
+                              TP{" "}
+                              {editingField?.orderId === pos._id && editingField.field === "tp" && editingField.kind === "position" ? (
+                                <span className="inline-flex items-center">
+                                  <span className="text-emerald-400/70">$</span>
+                                  <input
+                                    type="number"
+                                    autoFocus
+                                    step="any"
+                                    value={editingField.value}
+                                    onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const v = parseFloat(editingField.value);
+                                        if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
+                                        setEditingField(null);
+                                      } else if (e.key === "Escape") setEditingField(null);
+                                    }}
+                                    onBlur={() => {
                                       const v = parseFloat(editingField.value);
-                                      if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
+                                      if (v > 0 && v !== pos.take_profit && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
                                       setEditingField(null);
-                                    } else if (e.key === "Escape") setEditingField(null);
-                                  }}
-                                  onBlur={() => {
-                                    const v = parseFloat(editingField.value);
-                                    if (v > 0 && v !== pos.stop_loss && onModifySLTP) onModifySLTP(pos._id, { stopLoss: v });
-                                    setEditingField(null);
-                                  }}
-                                  className="w-20 text-[9px] font-mono bg-slate-700 text-red-300 rounded px-1 py-0.5 border border-red-500/40 outline-none focus:border-red-400"
-                                />
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "sl", value: String(pos.stop_loss), kind: "position" })}
-                                className={`text-red-400/70 font-mono ${onModifySLTP ? "hover:text-red-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                title={onModifySLTP ? "Click to edit stop loss" : undefined}
-                                disabled={!onModifySLTP}
-                              >
-                                ${formatPrice(pos.stop_loss)}
-                              </button>
-                            )}
-                            {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
-                              <button
-                                onClick={() => onModifySLTP(pos._id, { stopLoss: 0 })}
-                                className="text-red-500/50 hover:text-red-400 ml-0.5"
-                                title="Remove stop loss"
-                              >x</button>
-                            )}
-                          </span>
-                        )}
-                        {pos.take_profit != null && (
-                          <span className="inline-flex items-center gap-0.5">
-                            TP{" "}
-                            {editingField?.orderId === pos._id && editingField.field === "tp" && editingField.kind === "position" ? (
-                              <span className="inline-flex items-center">
-                                <span className="text-emerald-400/70">$</span>
-                                <input
-                                  type="number"
-                                  autoFocus
-                                  step="any"
-                                  value={editingField.value}
-                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      const v = parseFloat(editingField.value);
-                                      if (v > 0 && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
-                                      setEditingField(null);
-                                    } else if (e.key === "Escape") setEditingField(null);
-                                  }}
-                                  onBlur={() => {
-                                    const v = parseFloat(editingField.value);
-                                    if (v > 0 && v !== pos.take_profit && onModifySLTP) onModifySLTP(pos._id, { takeProfit: v });
-                                    setEditingField(null);
-                                  }}
-                                  className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
-                                />
-                              </span>
-                            ) : (
-                              <button
-                                onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "tp", value: String(pos.take_profit), kind: "position" })}
-                                className={`text-emerald-400/70 font-mono ${onModifySLTP ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
-                                title={onModifySLTP ? "Click to edit take profit" : undefined}
-                                disabled={!onModifySLTP}
-                              >
-                                ${formatPrice(pos.take_profit)}
-                              </button>
-                            )}
-                            {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
-                              <button
-                                onClick={() => onModifySLTP(pos._id, { takeProfit: 0 })}
-                                className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
-                                title="Remove take profit"
-                              >x</button>
-                            )}
-                          </span>
-                        )}
-                        {pos.trailing_stop_price != null && (
-                          <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
-                        )}
-                      </div>
+                                    }}
+                                    className="w-20 text-[9px] font-mono bg-slate-700 text-emerald-300 rounded px-1 py-0.5 border border-emerald-500/40 outline-none focus:border-emerald-400"
+                                  />
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => onModifySLTP && setEditingField({ orderId: pos._id, field: "tp", value: String(pos.take_profit), kind: "position" })}
+                                  className={`text-emerald-400/70 font-mono ${onModifySLTP ? "hover:text-emerald-300 hover:bg-slate-700/50 rounded px-0.5 transition-colors cursor-text" : ""}`}
+                                  title={onModifySLTP ? "Click to edit take profit" : undefined}
+                                  disabled={!onModifySLTP}
+                                >
+                                  ${formatPrice(pos.take_profit)}
+                                </button>
+                              )}
+                              {onModifySLTP && !(editingField?.orderId === pos._id && editingField.kind === "position") && (
+                                <button
+                                  onClick={() => onModifySLTP(pos._id, { takeProfit: 0 })}
+                                  className="text-emerald-500/50 hover:text-emerald-400 ml-0.5"
+                                  title="Remove take profit"
+                                >x</button>
+                              )}
+                            </span>
+                          )}
+                          {pos.trailing_stop_price != null && (
+                            <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1405,7 +1423,7 @@ const TradingChart = ({
             );
             if (marketOrders.length === 0) return null;
             return (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 <div className="text-[8px] text-slate-400 uppercase tracking-wider">
                   Pending Orders ({marketOrders.length})
                 </div>
@@ -1418,27 +1436,43 @@ const TradingChart = ({
                   return (
                     <div
                       key={order._id}
-                      className={`rounded-lg border p-2 ${
+                      className={`rounded-lg border p-2.5 ${
                         isLong
                           ? "bg-cyan-500/[0.05] border-cyan-500/15"
                           : "bg-orange-500/[0.05] border-orange-500/15"
                       }`}
                     >
-                      {/* Row 1: type badge + strategy + trigger price + leverage + cancel */}
-                      <div className="flex items-center flex-wrap gap-1.5">
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          isLong
-                            ? "bg-cyan-500/20 text-cyan-400"
-                            : "bg-orange-500/20 text-orange-400"
-                        }`}>
-                          {typeLabel}
-                        </span>
-                        {stratMatch && (
-                          <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
-                            {stratMatch[1].toUpperCase()}
+                      {/* Row 1: type badge + strategy */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            isLong
+                              ? "bg-cyan-500/20 text-cyan-400"
+                              : "bg-orange-500/20 text-orange-400"
+                          }`}>
+                            {typeLabel}
                           </span>
+                          {stratMatch && (
+                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
+                              {stratMatch[1].toUpperCase()}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                            {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
+                          </span>
+                        </div>
+                        {onCancelPendingOrder && (
+                          <button
+                            onClick={() => onCancelPendingOrder(order._id)}
+                            className="text-[9px] font-bold px-2 py-1 rounded transition-all border bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 border-red-500/25 hover:border-red-500/40 flex-shrink-0"
+                          >
+                            Cancel
+                          </button>
                         )}
-                        {/* Editable trigger price */}
+                      </div>
+
+                      {/* Row 2: Trigger price */}
+                      <div className="mt-1.5">
                         {editingField?.orderId === order._id && editingField.field === "trigger" ? (
                           <span className="inline-flex items-center">
                             <span className="text-[10px] text-slate-500">@ $</span>
@@ -1466,30 +1500,17 @@ const TradingChart = ({
                         ) : (
                           <button
                             onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "trigger", value: String(order.trigger_price) })}
-                            className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 -mx-1 transition-colors cursor-text" : ""}`}
+                            className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 transition-colors cursor-text" : ""}`}
                             title={onModifyPendingOrder ? "Click to edit trigger price" : undefined}
                             disabled={!onModifyPendingOrder}
                           >
                             @ ${formatPrice(order.trigger_price)}
                           </button>
                         )}
-                        {/* Leverage + size + cancel pushed to right */}
-                        <span className="ml-auto flex items-center gap-1.5">
-                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
-                            {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
-                          </span>
-                          {onCancelPendingOrder && (
-                            <button
-                              onClick={() => onCancelPendingOrder(order._id)}
-                              className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all border bg-red-500/15 text-red-400 hover:bg-red-500/30 hover:text-red-300 border-red-500/25 hover:border-red-500/40"
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </span>
                       </div>
-                      {/* Row 2: SL, TP, Trail, Expires */}
-                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[9px] text-slate-400">
+
+                      {/* Row 3: SL, TP, Trail, Expires */}
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-1.5 pt-1.5 border-t border-white/[0.04] text-[9px] text-slate-400">
                         {order.stop_loss != null && (
                           <span className="inline-flex items-center gap-0.5">
                             SL{" "}

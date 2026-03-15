@@ -798,18 +798,20 @@ const StrategySpotlight = () => {
       onMouseLeave={() => setPaused(false)}
     >
       {/* Top row: strategy name + market + direction + hotness */}
-      <div className="flex items-center flex-wrap gap-1.5">
-        <span className="text-xs">{opp.icon}</span>
-        <span className={`text-[10px] font-bold uppercase tracking-wider ${colors.text}`}>
-          {opp.strategy}
-        </span>
-        <span className="text-[10px] text-slate-300 font-bold">{opp.base}</span>
-        <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirBg} ${dirColor}`}>
-          {opp.direction.toUpperCase()}
-        </span>
-        <span className="text-[9px] text-slate-500">{opp.leverage}</span>
-        {/* Hotness bar — pushed right */}
-        <span className="ml-auto flex items-center gap-1" title={`Hotness: ${opp.hotness}%`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+          <span className="text-xs">{opp.icon}</span>
+          <span className={`text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${colors.text}`}>
+            {opp.strategy}
+          </span>
+          <span className="text-[10px] text-slate-300 font-bold">{opp.base}</span>
+          <span className={`text-[9px] font-bold px-1 py-0.5 rounded border whitespace-nowrap ${dirBg} ${dirColor}`}>
+            {opp.direction.toUpperCase()}
+          </span>
+          <span className="text-[9px] text-slate-500">{opp.leverage}</span>
+        </div>
+        {/* Hotness bar */}
+        <span className="flex items-center gap-1 flex-shrink-0" title={`Hotness: ${opp.hotness}%`}>
           <span className="w-10 h-1.5 rounded-full bg-slate-700 overflow-hidden inline-block">
             <span
               className={`block h-full rounded-full transition-all duration-700 ${
