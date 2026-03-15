@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 import aiohttp
 
-from config import ASSETS, USDC_MINT, PRICE_CHECK_INTERVAL
+from config import ASSETS, USDC_MINT, PRICE_CHECK_INTERVAL, JUPITER_API_KEY
 
 logger = logging.getLogger("price_monitor")
 
@@ -61,9 +61,14 @@ class PriceMonitor:
         mint_ids = ",".join(asset["mint"] for asset in ASSETS.values())
 
         try:
+            headers = {}
+            if JUPITER_API_KEY:
+                headers["x-api-key"] = JUPITER_API_KEY
+
             async with self._session.get(
                 self.JUPITER_PRICE_URL,
                 params={"ids": mint_ids, "vsToken": USDC_MINT},
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
                 if resp.status != 200:

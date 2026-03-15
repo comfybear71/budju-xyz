@@ -124,6 +124,7 @@ MAX_DAILY_LOSS_USD = float(os.getenv("MAX_DAILY_LOSS_USD", "200"))
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "8420"))
 API_SECRET = os.getenv("API_SECRET", "")
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "")
 
 # Price check interval in seconds
 PRICE_CHECK_INTERVAL = 5
