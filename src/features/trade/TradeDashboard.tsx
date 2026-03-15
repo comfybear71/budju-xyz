@@ -172,6 +172,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             loading={data.loading}
             initialSymbol={data.selectedSymbol}
             hideMarketSelect
+            wallet={data.wallet}
           />
         </Suspense>
       </div>
