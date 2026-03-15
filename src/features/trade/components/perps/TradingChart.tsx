@@ -27,7 +27,7 @@ import {
 } from "@lib/services/binanceWs";
 import type { PerpPosition, PerpTrade, PerpPendingOrder } from "../../types/perps";
 import type { StrategyStatus } from "../../services/perpApi";
-import StrategySpotlight from "./StrategySpotlight";
+// StrategySpotlight available via Signals tab in HighRiskDashboard
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -1627,9 +1627,6 @@ const TradingChart = ({
             );
           })()}
 
-          {/* Strategy Spotlight — rotating opportunities across all strategies */}
-          {showPrediction && <StrategySpotlight />}
-
           {/* AI prediction & strategy breakdown */}
           {showPrediction && prediction?.strategies && (
             <div className="rounded-lg border border-blue-500/15 bg-slate-900 p-2 space-y-1.5">
@@ -1740,36 +1737,7 @@ const TradingChart = ({
             </div>
           )}
 
-          {/* Recent trades for this market */}
-          {(() => {
-            const marketTrades = (trades || [])
-              .filter((t) => t.symbol === symbol)
-              .slice(0, 5);
-            if (marketTrades.length === 0) return null;
-            return (
-              <div className="rounded-lg border border-white/[0.06] bg-slate-800 p-2">
-                <div className="text-[8px] text-slate-400 uppercase tracking-wider mb-1">Recent Trades</div>
-                <div className="space-y-0.5">
-                  {marketTrades.map((t, i) => (
-                    <div key={i} className="flex flex-wrap items-center justify-between gap-x-1.5 text-[9px]">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={`whitespace-nowrap ${t.direction === "long" ? "text-emerald-400" : "text-red-400"}`}>
-                          {t.direction.toUpperCase()}
-                        </span>
-                        <span className="text-slate-300 whitespace-nowrap">{t.leverage}x</span>
-                        <span className="text-slate-300 font-mono whitespace-nowrap">${formatPrice(t.entry_price)}</span>
-                        <span className="text-slate-400">→</span>
-                        <span className="text-slate-300 font-mono whitespace-nowrap">${formatPrice(t.exit_price)}</span>
-                      </div>
-                      <span className={`font-bold font-mono flex-shrink-0 ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
+          {/* Recent trades removed — available in History tab */}
         </div>
       )}
     </div>
