@@ -792,67 +792,48 @@ const StrategySpotlight = () => {
 
   return (
     <div
-      className={`rounded-lg border ${colors.border} ${colors.bg} p-2.5 space-y-1.5 transition-all duration-500 shadow-lg ${colors.glow} cursor-pointer`}
+      className={`rounded-lg border ${colors.border} ${colors.bg} p-2.5 space-y-1.5 transition-all duration-500 shadow-lg ${colors.glow} cursor-pointer overflow-hidden`}
       onClick={() => setExpanded(!expanded)}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
       {/* Top row: strategy name + market + direction + hotness */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span className="text-xs">{opp.icon}</span>
-          <span className={`text-[10px] font-bold uppercase tracking-wider ${colors.text}`}>
-            {opp.strategy}
+      <div className="flex items-center flex-wrap gap-1.5">
+        <span className="text-xs">{opp.icon}</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${colors.text}`}>
+          {opp.strategy}
+        </span>
+        <span className="text-[10px] text-slate-300 font-bold">{opp.base}</span>
+        <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirBg} ${dirColor}`}>
+          {opp.direction.toUpperCase()}
+        </span>
+        <span className="text-[9px] text-slate-500">{opp.leverage}</span>
+        {/* Hotness bar — pushed right */}
+        <span className="ml-auto flex items-center gap-1" title={`Hotness: ${opp.hotness}%`}>
+          <span className="w-10 h-1.5 rounded-full bg-slate-700 overflow-hidden inline-block">
+            <span
+              className={`block h-full rounded-full transition-all duration-700 ${
+                opp.hotness >= 80 ? "bg-red-400" : opp.hotness >= 60 ? "bg-orange-400" : opp.hotness >= 40 ? "bg-yellow-400" : "bg-slate-400"
+              }`}
+              style={{ width: `${opp.hotness}%` }}
+            />
           </span>
-          <span className="text-[10px] text-slate-300 font-bold">{opp.base}</span>
-          <span className={`text-[9px] font-bold px-1 py-0.5 rounded border ${dirBg} ${dirColor}`}>
-            {opp.direction.toUpperCase()}
+          <span className={`text-[8px] font-bold ${
+            opp.hotness >= 80 ? "text-red-400" : opp.hotness >= 60 ? "text-orange-400" : "text-slate-400"
+          }`}>
+            {opp.hotness >= 80 ? "HOT" : opp.hotness >= 60 ? "WARM" : "MILD"}
           </span>
-          <span className="text-[9px] text-slate-500">{opp.leverage}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Hotness bar */}
-          <div className="flex items-center gap-1" title={`Hotness: ${opp.hotness}%`}>
-            <div className="w-12 h-1.5 rounded-full bg-slate-700 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${
-                  opp.hotness >= 80 ? "bg-red-400" : opp.hotness >= 60 ? "bg-orange-400" : opp.hotness >= 40 ? "bg-yellow-400" : "bg-slate-400"
-                }`}
-                style={{ width: `${opp.hotness}%` }}
-              />
-            </div>
-            <span className={`text-[8px] font-bold ${
-              opp.hotness >= 80 ? "text-red-400" : opp.hotness >= 60 ? "text-orange-400" : "text-slate-400"
-            }`}>
-              {opp.hotness >= 80 ? "HOT" : opp.hotness >= 60 ? "WARM" : "MILD"}
-            </span>
-          </div>
-          {/* Page dots */}
-          <div className="flex items-center gap-0.5">
-            {opportunities.slice(0, Math.min(opportunities.length, 8)).map((_, i) => (
-              <button
-                key={i}
-                onClick={(e) => { e.stopPropagation(); setActiveIndex(i); }}
-                className={`w-1 h-1 rounded-full transition-all ${
-                  i === activeIndex % opportunities.length
-                    ? `${opp.hotness >= 80 ? "bg-red-400" : opp.hotness >= 60 ? "bg-orange-400" : "bg-blue-400"} w-2`
-                    : "bg-slate-600"
-                }`}
-              />
-            ))}
-            {opportunities.length > 8 && <span className="text-[7px] text-slate-600 ml-0.5">+{opportunities.length - 8}</span>}
-          </div>
-        </div>
+        </span>
       </div>
 
       {/* Headline */}
-      <div className="text-[10px] text-slate-200 font-medium leading-relaxed">
+      <div className="text-[10px] text-slate-200 font-medium leading-relaxed break-words">
         {opp.headline}
       </div>
 
       {/* Compact info row */}
-      <div className="flex items-center gap-3 text-[9px]">
-        <span className="text-slate-400">Entry: <span className="text-slate-300">{opp.entryZone}</span></span>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px]">
+        <span className="text-slate-400">Entry: <span className="text-slate-300 break-all">{opp.entryZone}</span></span>
         <span className="text-slate-400">Conf: <span className={colors.text}>{opp.confidence}%</span></span>
       </div>
 
@@ -871,12 +852,28 @@ const StrategySpotlight = () => {
         </div>
       )}
 
-      {/* Footer: count + controls */}
-      <div className="flex items-center justify-between pt-0.5">
-        <div className="text-[8px] text-slate-600">
+      {/* Footer: count + dots + controls */}
+      <div className="flex items-center flex-wrap gap-1.5 pt-0.5">
+        <span className="text-[8px] text-slate-600">
           {activeIndex + 1}/{opportunities.length} opportunities • {paused ? "paused" : "rotating"}
-        </div>
-        <div className="flex items-center gap-1.5">
+        </span>
+        {/* Page dots */}
+        <span className="flex items-center gap-0.5">
+          {opportunities.slice(0, Math.min(opportunities.length, 8)).map((_, i) => (
+            <button
+              key={i}
+              onClick={(e) => { e.stopPropagation(); setActiveIndex(i); }}
+              className={`w-1 h-1 rounded-full transition-all ${
+                i === activeIndex % opportunities.length
+                  ? `${opp.hotness >= 80 ? "bg-red-400" : opp.hotness >= 60 ? "bg-orange-400" : "bg-blue-400"} w-2`
+                  : "bg-slate-600"
+              }`}
+            />
+          ))}
+          {opportunities.length > 8 && <span className="text-[7px] text-slate-600 ml-0.5">+{opportunities.length - 8}</span>}
+        </span>
+        {/* Nav buttons pushed right */}
+        <span className="ml-auto flex items-center gap-1">
           <button
             onClick={(e) => { e.stopPropagation(); setActiveIndex(i => (i - 1 + opportunities.length) % opportunities.length); }}
             className="text-[9px] text-slate-500 hover:text-white transition-colors px-1"
@@ -895,7 +892,7 @@ const StrategySpotlight = () => {
           >
             {loading ? "..." : "↻"}
           </button>
-        </div>
+        </span>
       </div>
     </div>
   );
