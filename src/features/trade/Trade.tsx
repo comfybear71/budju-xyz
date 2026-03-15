@@ -461,8 +461,48 @@ const Trade = () => {
 
               {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
-                {/* Admin mode buttons removed for clean mobile UI */}
-
+                {/* Admin: nav buttons — FLUB-style pills in a dark container */}
+                {isAdmin && (
+                  <div
+                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk ? "" : "mb-3"}`}
+                    style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+                  >
+                    <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
+                      {([
+                        { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
+                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } } },
+                        { key: "trigger", label: "Trigger", icon: "\u2699", active: showTriggerView, color: "amber",
+                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } },
+                        { key: "auto", label: "Auto", icon: "\u2728", active: showAutoAdmin, color: "emerald",
+                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowDeposit(false); setShowHighRisk(false); } },
+                        { key: "deposit", label: "Deposit", icon: "+", active: showDeposit, color: "green",
+                          onClick: () => { setShowDeposit(!showDeposit); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                        { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
+                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); } },
+                      ] as const).map((btn) => {
+                        const colorMap: Record<string, { active: string; inactive: string }> = {
+                          blue:    { active: "bg-blue-500/20 text-blue-300 border-blue-500/40", inactive: "text-slate-400 border-transparent hover:text-blue-400" },
+                          amber:   { active: "bg-amber-500/20 text-amber-300 border-amber-500/40", inactive: "text-slate-400 border-transparent hover:text-amber-400" },
+                          emerald: { active: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40", inactive: "text-slate-400 border-transparent hover:text-emerald-400" },
+                          green:   { active: "bg-green-500/20 text-green-300 border-green-500/40", inactive: "text-slate-400 border-transparent hover:text-green-400" },
+                          red:     { active: "bg-red-500/20 text-red-300 border-red-500/40", inactive: "text-slate-400 border-transparent hover:text-red-400" },
+                        };
+                        const colors = colorMap[btn.color] || colorMap.blue;
+                        return (
+                          <button
+                            key={btn.key}
+                            onClick={btn.onClick}
+                            className={`flex-shrink-0 px-4 py-2 rounded-lg text-xs font-bold border transition-all whitespace-nowrap ${
+                              btn.active ? colors.active : colors.inactive
+                            }`}
+                          >
+                            {btn.icon} {btn.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 {/* Non-admin: 3 insight cards (Orders / Auto Trader / Live Charts) */}
                 {!isAdmin && (
