@@ -260,7 +260,7 @@ const QuickTradePanel = ({
   };
 
   return (
-    <div className="mt-2 bg-slate-800/40 rounded-xl border border-white/[0.06] p-2.5 space-y-2">
+    <div className="mt-2 bg-slate-800 rounded-xl border border-white/[0.08] p-2.5 space-y-2">
       {/* Mode tabs */}
       <div className="flex items-center gap-1">
         <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
@@ -335,21 +335,21 @@ const QuickTradePanel = ({
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex gap-1.5">
+      {/* Action buttons — large tap targets for mobile */}
+      <div className="flex gap-2">
         {mode === "market" ? (
           <>
             <button
               onClick={() => placeMarketOrder("long")}
               disabled={loading || !price}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/40 active:bg-emerald-500/50 disabled:opacity-40 transition-colors"
             >
               LONG
             </button>
             <button
               onClick={() => placeMarketOrder("short")}
               disabled={loading || !price}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-red-600/30 text-red-300 border border-red-500/40 hover:bg-red-500/40 active:bg-red-500/50 disabled:opacity-40 transition-colors"
             >
               SHORT
             </button>
@@ -359,14 +359,14 @@ const QuickTradePanel = ({
             <button
               onClick={() => placePendingOrderHandler("long", "limit")}
               disabled={loading || !triggerPrice}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/40 active:bg-emerald-500/50 disabled:opacity-40 transition-colors"
             >
               BUY LIMIT
             </button>
             <button
               onClick={() => placePendingOrderHandler("short", "limit")}
               disabled={loading || !triggerPrice}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-red-600/30 text-red-300 border border-red-500/40 hover:bg-red-500/40 active:bg-red-500/50 disabled:opacity-40 transition-colors"
             >
               SELL LIMIT
             </button>
@@ -376,14 +376,14 @@ const QuickTradePanel = ({
             <button
               onClick={() => placePendingOrderHandler("long", "stop")}
               disabled={loading || !triggerPrice}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/40 active:bg-cyan-500/50 disabled:opacity-40 transition-colors"
             >
               BUY STOP
             </button>
             <button
               onClick={() => placePendingOrderHandler("short", "stop")}
               disabled={loading || !triggerPrice}
-              className="flex-1 py-2 rounded-lg text-[11px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30 hover:bg-orange-500/30 disabled:opacity-40 transition-colors"
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-orange-600/30 text-orange-300 border border-orange-500/40 hover:bg-orange-500/40 active:bg-orange-500/50 disabled:opacity-40 transition-colors"
             >
               SELL STOP
             </button>
@@ -411,7 +411,9 @@ const QuickTradePanel = ({
 // ── Component ────────────────────────────────────────────────
 
 const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialSymbol, onRefresh }: Props) => {
-  const [viewMode, setViewMode] = useState<"grid" | "focus">(initialSymbol ? "focus" : "grid");
+  // Default to focus mode on mobile (window width < 640px) for better UX
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const [viewMode, setViewMode] = useState<"grid" | "focus">(initialSymbol || isMobile ? "focus" : "grid");
   const [focusedSymbol, setFocusedSymbol] = useState<string>(initialSymbol || "SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
 

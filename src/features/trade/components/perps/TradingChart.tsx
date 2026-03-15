@@ -322,11 +322,11 @@ const TradingChart = ({
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
-  const [showPrediction, setShowPrediction] = useState(true);
+  const [showPrediction, setShowPrediction] = useState(false);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
   const [showMarkers, setShowMarkers] = useState(false);
-  const [showPositionLines, setShowPositionLines] = useState(true);
+  const [showPositionLines, setShowPositionLines] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
   const [showStrats, setShowStrats] = useState(false);
   // Inline editing state for pending order / position fields
