@@ -459,10 +459,11 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
+              {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL, hidden on perp page) ── */}
+              {!showHighRisk && (
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
-                {/* Admin: nav buttons — FLUB-style pills in a dark container */}
-                {isAdmin && (
+                {/* Admin: nav buttons — FLUB-style pills in a dark container (hidden on perp page) */}
+                {isAdmin && !showHighRisk && (
                   <div
                     className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
@@ -783,6 +784,7 @@ const Trade = () => {
                   </>
                 )}
               </div>
+              )}
 
               {/* ─── Trade Panel (admin only) ─── */}
               <AnimatePresence>
