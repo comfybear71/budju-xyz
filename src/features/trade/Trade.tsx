@@ -45,7 +45,6 @@ import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
 import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
-import { fetchHealth, updateConfig } from "@features/spot/services/spotApi";
 
 const Trade = () => {
   const { connection } = useWallet();
@@ -92,11 +91,6 @@ const Trade = () => {
   const autoTrader = autoTraderRef.current;
   const activityLog = getActivityLog();
 
-  // VPS bot state
-  const [vpsConnected, setVpsConnected] = useState(false);
-  const [vpsDryRun, setVpsDryRun] = useState(true);
-  const [vpsTradingEnabled, setVpsTradingEnabled] = useState(true);
-  const [vpsToggling, setVpsToggling] = useState(false);
 
   // Fetch user role from server when wallet connects
   useEffect(() => {
@@ -109,23 +103,6 @@ const Trade = () => {
     });
   }, [isConnected, walletAddress]);
 
-  // ── VPS bot health check (admin only) ──
-  useEffect(() => {
-    if (!isAdmin) return;
-    const check = async () => {
-      try {
-        const health = await fetchHealth();
-        setVpsConnected(health.status === "ok");
-        setVpsDryRun(health.dry_run);
-        setVpsTradingEnabled(health.trading_enabled);
-      } catch {
-        setVpsConnected(false);
-      }
-    };
-    check();
-    const interval = setInterval(check, 30000);
-    return () => clearInterval(interval);
-  }, [isAdmin]);
 
   // ── Real-time Binance WebSocket prices ──
   const { prices: wsPrices, wsState } = useLivePrices(1000);
@@ -518,66 +495,6 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* VPS Spot Bot Controls (admin only) */}
-                {isAdmin && vpsConnected && (
-                  <div className="flex items-center gap-2 mt-2 mb-3">
-                    {/* Kill / Start Bot */}
-                    <button
-                      disabled={vpsToggling}
-                      onClick={async () => {
-                        const action = vpsTradingEnabled ? "KILL the spot bot" : "START the spot bot";
-                        if (!confirm(`Are you sure you want to ${action}?`)) return;
-                        setVpsToggling(true);
-                        try {
-                          const res = await updateConfig({ trading_enabled: !vpsTradingEnabled });
-                          setVpsTradingEnabled(res.trading_enabled);
-                        } catch { /* handled */ }
-                        setVpsToggling(false);
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
-                        vpsTradingEnabled
-                          ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30"
-                          : "bg-green-500/20 text-green-300 border-green-500/40 hover:bg-green-500/30"
-                      } ${vpsToggling ? "opacity-50" : ""}`}
-                    >
-                      {vpsTradingEnabled ? "KILL" : "START"}
-                    </button>
-
-                    {/* Paper / Live Toggle */}
-                    <button
-                      disabled={vpsToggling}
-                      onClick={async () => {
-                        if (vpsDryRun) {
-                          if (!confirm("Switch to LIVE trading? Real transactions will be executed on-chain.")) return;
-                        }
-                        setVpsToggling(true);
-                        try {
-                          const res = await updateConfig({ dry_run: !vpsDryRun });
-                          setVpsDryRun(res.dry_run);
-                        } catch { /* handled */ }
-                        setVpsToggling(false);
-                      }}
-                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all ${
-                        vpsDryRun
-                          ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40 hover:bg-yellow-500/30"
-                          : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
-                      } ${vpsToggling ? "opacity-50" : ""}`}
-                    >
-                      {vpsDryRun ? "PAPER" : "LIVE"}
-                    </button>
-
-                    {/* Status */}
-                    <span className={`ml-auto text-[10px] font-bold px-2 py-1 rounded ${
-                      !vpsTradingEnabled
-                        ? "bg-slate-500/20 text-slate-400"
-                        : vpsDryRun
-                          ? "bg-yellow-500/10 text-yellow-400"
-                          : "bg-emerald-500/10 text-emerald-400"
-                    }`}>
-                      Spot: {!vpsTradingEnabled ? "OFF" : vpsDryRun ? "PAPER" : "LIVE"}
-                    </span>
-                  </div>
-                )}
 
                 {/* Non-admin: 3 insight cards (Orders / Auto Trader / Live Charts) */}
                 {!isAdmin && (
