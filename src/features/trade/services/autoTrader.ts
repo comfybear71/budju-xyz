@@ -149,6 +149,9 @@ export class AutoTrader {
   // Warmup: skip first price check after resume so fresh prices load first
   private _warmup = false;
 
+  // Debounce timer for tier settings save (slider drags fire onChange rapidly)
+  private _saveTierSettingsTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Computed ─────────────────────────────────────────────
 
   get isActive(): boolean {
@@ -375,13 +378,29 @@ export class AutoTrader {
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
     this.tierSettings[key] = { ...this.tierSettings[key], ...settings };
-    this._saveTierSettings();
+
+    // Debounce server save — slider onChange fires on every drag pixel,
+    // flooding the API with concurrent POSTs that race/fail silently.
+    // In-memory update is immediate so the UI stays responsive.
+    if (this._saveTierSettingsTimer) clearTimeout(this._saveTierSettingsTimer);
+    this._saveTierSettingsTimer = setTimeout(() => {
+      this._saveTierSettingsTimer = null;
+      this._saveTierSettings();
+    }, 500);
+
     this._notifyChange();
   }
 
   // ── Start / Stop ────────────────────────────────────────
 
   async startTier(tierNum: number): Promise<{ success: boolean; error?: string }> {
+    // Flush any pending debounced tier settings save before starting
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+      this._saveTierSettingsTimer = null;
+      await this._saveTierSettings();
+    }
+
     // Refresh data first
     await this._refreshData();
 
@@ -1096,6 +1115,10 @@ export class AutoTrader {
   destroy() {
     this._stopMonitoring();
     this._clearOwnershipRetry();
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+      this._saveTierSettingsTimer = null;
+    }
     this._onStateChange = null;
   }
 }
