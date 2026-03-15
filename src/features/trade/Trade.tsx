@@ -871,8 +871,8 @@ const Trade = () => {
               </div>
               )}
 
-              {/* ─── Activity Log (visible to ALL users) ──────────── */}
-              <ActivityLog />
+              {/* ─── Activity Log (visible to ALL users, hidden on perp page) ──────────── */}
+              {!showHighRisk && <ActivityLog />}
 
             </div>
           )}

@@ -64,6 +64,23 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
       )}
 
 
+      {/* Account summary — compact row */}
+      {data.account && (
+        <div className="grid grid-cols-4 gap-1.5 px-3 mb-2">
+          {[
+            { label: "Balance", value: `$${data.account.balance.toFixed(0)}` },
+            { label: "Equity", value: `$${data.account.equity.toFixed(0)}`, color: data.account.equity >= 10000 ? "text-emerald-400" : "text-red-400" },
+            { label: "Realized", value: `${data.account.realized_pnl >= 0 ? "+" : ""}$${data.account.realized_pnl.toFixed(0)}`, color: data.account.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
+            { label: "Win Rate", value: data.account.metrics.total_trades > 0 ? `${data.account.metrics.win_rate.toFixed(0)}%` : "—" },
+          ].map((s) => (
+            <div key={s.label} className="bg-slate-800/30 rounded-lg px-2 py-1.5 border border-white/[0.03]">
+              <div className="text-[8px] text-slate-600 uppercase">{s.label}</div>
+              <div className={`text-[11px] font-bold ${s.color || "text-white"}`}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* === MAIN CONTENT === */}
       {/* Mobile: stacked | Desktop: 3-column grid */}
       <div className="lg:grid lg:grid-cols-[1fr_2fr_1fr] lg:gap-0 lg:h-[calc(100vh-180px)]">
