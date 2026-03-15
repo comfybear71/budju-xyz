@@ -117,6 +117,14 @@ TRADING_WALLET_KEY = os.getenv("TRADING_WALLET_KEY", "")
 TRADING_ENABLED = os.getenv("TRADING_ENABLED", "true").lower() == "true"
 DRY_RUN = os.getenv("DRY_RUN", "true").lower() == "true"
 
+# ── Runtime-mutable state ─────────────────────────────────
+# These can be changed at runtime via the /api/config endpoint.
+# All modules should read from this dict instead of the module constants.
+runtime = {
+    "trading_enabled": TRADING_ENABLED,
+    "dry_run": DRY_RUN,
+}
+
 MAX_SINGLE_TRADE_USD = float(os.getenv("MAX_SINGLE_TRADE_USD", "50"))
 MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "50"))
 MAX_DAILY_LOSS_USD = float(os.getenv("MAX_DAILY_LOSS_USD", "200"))

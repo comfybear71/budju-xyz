@@ -16,7 +16,7 @@ import logging
 import sys
 from typing import Optional
 
-from config import MONGODB_URI, DB_NAME, DRY_RUN, TRADING_ENABLED
+from config import MONGODB_URI, DB_NAME, runtime
 from price_monitor import PriceMonitor
 from trader import Trader
 from api_server import APIServer
@@ -56,7 +56,7 @@ def get_db():
 async def main():
     logger.info("=" * 50)
     logger.info("BUDJU VPS Trading Bot starting...")
-    logger.info("  Trading: %s | Dry Run: %s", TRADING_ENABLED, DRY_RUN)
+    logger.info("  Trading: %s | Dry Run: %s", runtime["trading_enabled"], runtime["dry_run"])
     logger.info("=" * 50)
 
     # Connect to database

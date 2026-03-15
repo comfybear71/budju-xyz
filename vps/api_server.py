@@ -12,7 +12,7 @@ from typing import Optional
 
 from aiohttp import web
 
-from config import API_HOST, API_PORT, API_SECRET, ASSETS, DRY_RUN, TRADING_ENABLED
+from config import API_HOST, API_PORT, API_SECRET, ASSETS, runtime
 from price_monitor import PriceMonitor
 from trader import Trader
 
@@ -65,6 +65,8 @@ class APIServer:
         self.app.router.add_get("/api/status", self._get_status)
         self.app.router.add_post("/api/buy", self._buy)
         self.app.router.add_post("/api/sell", self._sell)
+        self.app.router.add_post("/api/config", self._update_config)
+        self.app.router.add_get("/api/config", self._get_config)
 
     async def _handle_options(self, request: web.Request) -> web.Response:
         return json_response({})
@@ -75,8 +77,8 @@ class APIServer:
             "uptime": time.time(),
             "prices_count": len(self.price_monitor.prices),
             "last_price_update": self.price_monitor.last_update,
-            "trading_enabled": TRADING_ENABLED,
-            "dry_run": DRY_RUN,
+            "trading_enabled": runtime["trading_enabled"],
+            "dry_run": runtime["dry_run"],
             "wallet": self.trader.get_wallet_address(),
         })
 
@@ -120,8 +122,8 @@ class APIServer:
         """Full bot status for the dashboard."""
         portfolio = self.trader.get_portfolio()
         return json_response({
-            "trading_enabled": TRADING_ENABLED,
-            "dry_run": DRY_RUN,
+            "trading_enabled": runtime["trading_enabled"],
+            "dry_run": runtime["dry_run"],
             "wallet": self.trader.get_wallet_address(),
             "portfolio": portfolio,
             "prices_count": len(self.price_monitor.prices),
@@ -166,6 +168,39 @@ class APIServer:
         result = await self.trader.sell(symbol, pct)
         status = 200 if result["success"] else 400
         return json_response(result, status)
+
+    async def _get_config(self, request: web.Request) -> web.Response:
+        if not verify_auth(request):
+            return json_response({"error": "Unauthorized"}, 401)
+        return json_response({
+            "trading_enabled": runtime["trading_enabled"],
+            "dry_run": runtime["dry_run"],
+        })
+
+    async def _update_config(self, request: web.Request) -> web.Response:
+        if not verify_auth(request):
+            return json_response({"error": "Unauthorized"}, 401)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return json_response({"error": "Invalid JSON"}, 400)
+
+        changed = []
+        if "trading_enabled" in body:
+            runtime["trading_enabled"] = bool(body["trading_enabled"])
+            changed.append(f"trading_enabled={runtime['trading_enabled']}")
+        if "dry_run" in body:
+            runtime["dry_run"] = bool(body["dry_run"])
+            changed.append(f"dry_run={runtime['dry_run']}")
+
+        if changed:
+            logger.info("Config updated via API: %s", ", ".join(changed))
+
+        return json_response({
+            "trading_enabled": runtime["trading_enabled"],
+            "dry_run": runtime["dry_run"],
+        })
 
     async def start(self):
         """Start the API server."""

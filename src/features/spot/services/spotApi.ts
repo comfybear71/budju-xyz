@@ -139,3 +139,11 @@ export async function executeBuy(symbol: string, amount: number) {
 export async function executeSell(symbol: string, pct: number = 100) {
   return post<{ success: boolean; trade?: SpotTrade; error?: string }>("/api/sell", { symbol, pct });
 }
+
+export async function fetchConfig() {
+  return get<{ trading_enabled: boolean; dry_run: boolean }>("/api/config");
+}
+
+export async function updateConfig(config: { trading_enabled?: boolean; dry_run?: boolean }) {
+  return post<{ trading_enabled: boolean; dry_run: boolean }>("/api/config", config);
+}

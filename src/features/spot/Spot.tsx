@@ -12,6 +12,7 @@ import {
   fetchSpotPortfolio,
   fetchSpotTrades,
   fetchHealth,
+  updateConfig,
   type SpotAsset,
   type SpotPortfolio as SpotPortfolioType,
   type SpotTrade,
@@ -21,6 +22,8 @@ import {
 const Spot = () => {
   const [connected, setConnected] = useState(false);
   const [dryRun, setDryRun] = useState(true);
+  const [tradingEnabled, setTradingEnabled] = useState(true);
+  const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [assets, setAssets] = useState<SpotAsset[]>([]);
@@ -37,6 +40,7 @@ const Spot = () => {
       const health = await fetchHealth();
       setConnected(health.status === "ok");
       setDryRun(health.dry_run);
+      setTradingEnabled(health.trading_enabled);
       setError(null);
     } catch {
       setConnected(false);
@@ -153,6 +157,67 @@ const Spot = () => {
         </div>
       </div>
 
+      {/* Bot Controls */}
+      {connected && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          {/* Kill Switch / Enable Bot */}
+          <button
+            disabled={toggling}
+            onClick={async () => {
+              const action = tradingEnabled ? "KILL the trading bot" : "ENABLE the trading bot";
+              if (!confirm(`Are you sure you want to ${action}?`)) return;
+              setToggling(true);
+              try {
+                const res = await updateConfig({ trading_enabled: !tradingEnabled });
+                setTradingEnabled(res.trading_enabled);
+              } catch { /* handled */ }
+              setToggling(false);
+            }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${
+              tradingEnabled
+                ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30"
+                : "bg-green-500/20 text-green-300 border-green-500/40 hover:bg-green-500/30"
+            } ${toggling ? "opacity-50" : ""}`}
+          >
+            {tradingEnabled ? "KILL BOT" : "START BOT"}
+          </button>
+
+          {/* Paper / Live Toggle */}
+          <button
+            disabled={toggling}
+            onClick={async () => {
+              if (dryRun) {
+                if (!confirm("Switch to LIVE trading? Real transactions will be executed.")) return;
+              }
+              setToggling(true);
+              try {
+                const res = await updateConfig({ dry_run: !dryRun });
+                setDryRun(res.dry_run);
+              } catch { /* handled */ }
+              setToggling(false);
+            }}
+            className={`px-4 py-2 rounded-lg text-xs font-bold border transition-all ${
+              dryRun
+                ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40 hover:bg-yellow-500/30"
+                : "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
+            } ${toggling ? "opacity-50" : ""}`}
+          >
+            {dryRun ? "PAPER" : "LIVE"}
+          </button>
+
+          {/* Status badge */}
+          <span className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold ${
+            !tradingEnabled
+              ? "bg-slate-500/20 text-slate-400 border border-slate-500/30"
+              : dryRun
+                ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+          }`}>
+            {!tradingEnabled ? "BOT OFF" : dryRun ? "PAPER MODE" : "LIVE TRADING"}
+          </span>
+        </div>
+      )}
+
       {/* Error banner */}
       {error && (
         <motion.div
@@ -166,13 +231,6 @@ const Spot = () => {
             Make sure the VPS bot is running
           </span>
         </motion.div>
-      )}
-
-      {/* Dry run banner */}
-      {connected && dryRun && (
-        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-budju text-yellow-400 text-sm text-center">
-          Paper trading mode — no real transactions. Set DRY_RUN=false on VPS to trade live.
-        </div>
       )}
 
       {/* Main layout */}

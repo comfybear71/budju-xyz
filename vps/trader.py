@@ -16,9 +16,9 @@ from solders.transaction import VersionedTransaction
 
 from config import (
     ASSETS, USDC_MINT, HELIUS_RPC,
-    TRADING_WALLET_KEY, TRADING_ENABLED, DRY_RUN,
+    TRADING_WALLET_KEY,
     MAX_SINGLE_TRADE_USD, MAX_DAILY_TRADES, MAX_DAILY_LOSS_USD,
-    DEFAULT_SLIPPAGE_BPS,
+    DEFAULT_SLIPPAGE_BPS, runtime,
 )
 from price_monitor import PriceMonitor
 
@@ -71,7 +71,7 @@ class Trader:
 
         logger.info(
             "Trader started — enabled=%s, dry_run=%s, max_trade=$%.0f",
-            TRADING_ENABLED, DRY_RUN, MAX_SINGLE_TRADE_USD,
+            runtime["trading_enabled"], runtime["dry_run"], MAX_SINGLE_TRADE_USD,
         )
 
     async def stop(self):
@@ -91,7 +91,7 @@ class Trader:
 
     def _check_circuit_breakers(self, usd_amount: float) -> Optional[str]:
         """Check if a trade should be blocked. Returns reason or None."""
-        if not TRADING_ENABLED:
+        if not runtime["trading_enabled"]:
             return "Trading is disabled (TRADING_ENABLED=false)"
 
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -259,7 +259,7 @@ class Trader:
                 "error": f"Price impact too high: {price_impact}%",
             }
 
-        if DRY_RUN:
+        if runtime["dry_run"]:
             logger.info(
                 "DRY RUN: %s → %s, amount=%d, outAmount=%d, impact=%s%%",
                 input_mint[:8], output_mint[:8], amount, out_amount, price_impact,
