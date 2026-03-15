@@ -1229,31 +1229,31 @@ const TradingChart = ({
                           : "bg-red-500/[0.05] border-red-500/15"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
-                            pos.direction === "long"
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}>
-                            {pos.direction.toUpperCase()} {pos.leverage}x
+                      {/* Row 1: badges + strategy tag */}
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                          pos.direction === "long"
+                            ? "bg-emerald-500/20 text-emerald-400"
+                            : "bg-red-500/20 text-red-400"
+                        }`}>
+                          {pos.direction.toUpperCase()} {pos.leverage}x
+                        </span>
+                        {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
+                            {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
                           </span>
-                          {pos.entry_reason?.match(/^\[([^\]]+)\]/)?.[1] && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25 whitespace-nowrap">
-                              {pos.entry_reason.match(/^\[([^\]]+)\]/)?.[1]?.toUpperCase()}
-                            </span>
-                          )}
-                          {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
-                              MANUAL
-                            </span>
-                          )}
-                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
-                            Entry ${formatPrice(pos.entry_price)}
+                        )}
+                        {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-pink-500/15 text-pink-400 border border-pink-500/25 whitespace-nowrap">
+                            MANUAL
                           </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                          <span className={`text-[11px] font-bold font-mono ${
+                        )}
+                        <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                          Entry ${formatPrice(pos.entry_price)}
+                        </span>
+                        {/* PnL + Close pushed to right */}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <span className={`text-[11px] font-bold font-mono whitespace-nowrap ${
                             pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
                           }`}>
                             {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
@@ -1289,9 +1289,10 @@ const TradingChart = ({
                               ) : "Close"}
                             </button>
                           )}
-                        </div>
+                        </span>
                       </div>
-                      <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
+                      {/* Row 2: Size, Mark, SL, TP, Trail */}
+                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[9px] text-slate-400">
                         <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
                         <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
                         {pos.stop_loss != null && (
@@ -1423,58 +1424,58 @@ const TradingChart = ({
                           : "bg-orange-500/[0.05] border-orange-500/15"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            isLong
-                              ? "bg-cyan-500/20 text-cyan-400"
-                              : "bg-orange-500/20 text-orange-400"
-                          }`}>
-                            {typeLabel}
+                      {/* Row 1: type badge + strategy + trigger price + leverage + cancel */}
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                          isLong
+                            ? "bg-cyan-500/20 text-cyan-400"
+                            : "bg-orange-500/20 text-orange-400"
+                        }`}>
+                          {typeLabel}
+                        </span>
+                        {stratMatch && (
+                          <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
+                            {stratMatch[1].toUpperCase()}
                           </span>
-                          {stratMatch && (
-                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-500/15 text-purple-400 border border-purple-500/25">
-                              {stratMatch[1].toUpperCase()}
-                            </span>
-                          )}
-                          {/* Editable trigger price */}
-                          {editingField?.orderId === order._id && editingField.field === "trigger" ? (
-                            <span className="inline-flex items-center">
-                              <span className="text-[10px] text-slate-500">@ $</span>
-                              <input
-                                type="number"
-                                autoFocus
-                                step="any"
-                                value={editingField.value}
-                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") {
-                                    const v = parseFloat(editingField.value);
-                                    if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
-                                    setEditingField(null);
-                                  } else if (e.key === "Escape") setEditingField(null);
-                                }}
-                                onBlur={() => {
+                        )}
+                        {/* Editable trigger price */}
+                        {editingField?.orderId === order._id && editingField.field === "trigger" ? (
+                          <span className="inline-flex items-center">
+                            <span className="text-[10px] text-slate-500">@ $</span>
+                            <input
+                              type="number"
+                              autoFocus
+                              step="any"
+                              value={editingField.value}
+                              onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
                                   const v = parseFloat(editingField.value);
-                                  if (v > 0 && v !== order.trigger_price && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
+                                  if (v > 0 && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
                                   setEditingField(null);
-                                }}
-                                className="w-24 text-[10px] font-mono bg-slate-700 text-white rounded px-1 py-0.5 border border-blue-500/40 outline-none focus:border-blue-400"
-                              />
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "trigger", value: String(order.trigger_price) })}
-                              className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 -mx-1 transition-colors cursor-text" : ""}`}
-                              title={onModifyPendingOrder ? "Click to edit trigger price" : undefined}
-                              disabled={!onModifyPendingOrder}
-                            >
-                              @ ${formatPrice(order.trigger_price)}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[10px] text-slate-400 font-mono">
+                                } else if (e.key === "Escape") setEditingField(null);
+                              }}
+                              onBlur={() => {
+                                const v = parseFloat(editingField.value);
+                                if (v > 0 && v !== order.trigger_price && onModifyPendingOrder) onModifyPendingOrder(order._id, { triggerPrice: v });
+                                setEditingField(null);
+                              }}
+                              className="w-24 text-[10px] font-mono bg-slate-700 text-white rounded px-1 py-0.5 border border-blue-500/40 outline-none focus:border-blue-400"
+                            />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => onModifyPendingOrder && setEditingField({ orderId: order._id, field: "trigger", value: String(order.trigger_price) })}
+                            className={`text-[10px] text-slate-300 font-mono ${onModifyPendingOrder ? "hover:text-white hover:bg-slate-700/50 rounded px-1 py-0.5 -mx-1 transition-colors cursor-text" : ""}`}
+                            title={onModifyPendingOrder ? "Click to edit trigger price" : undefined}
+                            disabled={!onModifyPendingOrder}
+                          >
+                            @ ${formatPrice(order.trigger_price)}
+                          </button>
+                        )}
+                        {/* Leverage + size + cancel pushed to right */}
+                        <span className="ml-auto flex items-center gap-1.5">
+                          <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
                             {order.leverage}x • ${order.size_usd?.toFixed(0) || "—"}
                           </span>
                           {onCancelPendingOrder && (
@@ -1485,9 +1486,10 @@ const TradingChart = ({
                               Cancel
                             </button>
                           )}
-                        </div>
+                        </span>
                       </div>
-                      <div className="flex gap-2 mt-1 text-[9px] text-slate-400">
+                      {/* Row 2: SL, TP, Trail, Expires */}
+                      <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[9px] text-slate-400">
                         {order.stop_loss != null && (
                           <span className="inline-flex items-center gap-0.5">
                             SL{" "}
