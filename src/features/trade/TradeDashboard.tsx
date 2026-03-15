@@ -1,5 +1,4 @@
 import { useState, useCallback, lazy, Suspense } from "react";
-import { useNavigate } from "react-router";
 import { APP_NAME } from "@constants/config";
 import { useEffect } from "react";
 import { useDashboardData } from "./hooks/useDashboardData";
@@ -28,9 +27,12 @@ const ChartLoader = () => (
   </div>
 );
 
-const TradeDashboard = () => {
+interface TradeDashboardProps {
+  onClose?: () => void;
+}
+
+const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
   const data = useDashboardData();
-  const navigate = useNavigate();
 
   const [tradeSheetOpen, setTradeSheetOpen] = useState(false);
   const [tradeSheetPrefill, setTradeSheetPrefill] = useState<StrategyOpportunity | null>(null);
@@ -439,15 +441,17 @@ const TradeDashboard = () => {
         loading={data.loading}
       />
 
-      {/* Link to classic view */}
-      <div className="text-center py-4">
-        <button
-          onClick={() => navigate("/trade/classic")}
-          className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
-        >
-          Classic view
-        </button>
-      </div>
+      {/* Close button — back to trade overview */}
+      {onClose && (
+        <div className="text-center py-4">
+          <button
+            onClick={onClose}
+            className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
+          >
+            ← Back to Trade
+          </button>
+        </div>
+      )}
     </div>
   );
 };

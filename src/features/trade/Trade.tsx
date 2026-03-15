@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSync,
@@ -17,7 +17,8 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
-import HighRiskDashboard from "./components/perps/HighRiskDashboard";
+import { lazy } from "react";
+const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -920,20 +921,12 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── High Risk View (admin: full access, others: read-only charts) ─── */}
-              <AnimatePresence>
-                {showHighRisk && isAdmin && (
-                  <HighRiskDashboard
-                    onClose={() => setShowHighRisk(false)}
-                  />
-                )}
-                {showHighRisk && !isAdmin && (
-                  <HighRiskDashboard
-                    readOnly
-                    onClose={() => setShowHighRisk(false)}
-                  />
-                )}
-              </AnimatePresence>
+              {/* ─── High Risk View (new trading dashboard) ─── */}
+              {showHighRisk && (
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="text-sm text-slate-400 animate-pulse">Loading dashboard...</div></div>}>
+                  <TradeDashboard onClose={() => setShowHighRisk(false)} />
+                </Suspense>
+              )}
 
               {/* ─── Holdings (hidden when any trade view is open) ── */}
               {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
