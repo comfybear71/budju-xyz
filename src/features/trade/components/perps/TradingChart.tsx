@@ -972,6 +972,47 @@ const TradingChart = ({
       {/* Chart container */}
       <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
+      {/* Chart overlay toggles — Trades / Positions / AI */}
+      <div className="flex items-center gap-1 mt-1.5 mb-2 px-1">
+        <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+          <button
+            onClick={() => setShowMarkers(!showMarkers)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showMarkers
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Trades
+          </button>
+          <button
+            onClick={() => setShowPositionLines(!showPositionLines)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showPositionLines
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Positions
+          </button>
+          <button
+            onClick={() => setShowPrediction(!showPrediction)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showPrediction
+                ? "text-blue-400 bg-blue-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            AI
+          </button>
+        </div>
+        {prediction && showPrediction && (
+          <span className={`text-[9px] font-bold ${prediction.direction === "up" ? "text-emerald-400" : "text-red-400"}`}>
+            {prediction.direction === "up" ? "▲" : "▼"} {prediction.confidence.toFixed(0)}%
+          </span>
+        )}
+      </div>
+
       {/* Injected trade panel (rendered immediately below chart) */}
       {children}
 
