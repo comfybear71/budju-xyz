@@ -186,18 +186,6 @@ const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading, initial
         </div>
       </div>
 
-      {/* Entry reason */}
-      <div>
-        <label className="text-[10px] text-slate-500 uppercase tracking-wider">Entry Reason (optional)</label>
-        <input
-          type="text"
-          value={entryReason}
-          onChange={(e) => setEntryReason(e.target.value)}
-          placeholder="e.g., EMA crossover + RSI oversold"
-          className="w-full mt-1 bg-slate-800/60 border border-white/[0.06] rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-red-500/40"
-        />
-      </div>
-
       {/* Submit */}
       <button
         onClick={handleSubmit}

@@ -1,25 +1,11 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useCallback, lazy, Suspense } from "react";
 import { APP_NAME } from "@constants/config";
 import { useEffect } from "react";
 import { useDashboardData } from "./hooks/useDashboardData";
-import BotControlBar from "./components/dashboard/BotControlBar";
 import MarketPills from "./components/dashboard/MarketPills";
-// SignalFeed removed — can be re-added as a tab later
-import QuickTradeSheet from "./components/dashboard/QuickTradeSheet";
 import PositionsStrip from "./components/dashboard/PositionsStrip";
-import type { StrategyOpportunity } from "./utils/strategyDetectors";
 
-// Lazy load heavy components
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
-const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
-const PerpStrategyPanel = lazy(() => import("./components/perps/PerpStrategyPanel"));
-const PerpEquityChart = lazy(() => import("./components/perps/PerpEquityChart"));
-const PerpMetricsPanel = lazy(() => import("./components/perps/PerpMetricsPanel"));
-const PerpTradeHistory = lazy(() => import("./components/perps/PerpTradeHistory"));
-const AIAnalysisPanel = lazy(() => import("./components/perps/AIAnalysisPanel"));
-const PerpPendingOrders = lazy(() => import("./components/perps/PerpPendingOrders"));
-
-type BottomPanel = "signals" | "positions" | "order" | "strategy" | "equity" | "metrics" | "history" | "ai" | "pending";
 
 const ChartLoader = () => (
   <div className="flex items-center justify-center h-full bg-slate-900/50 rounded-xl">
@@ -31,25 +17,14 @@ interface TradeDashboardProps {
   onClose?: () => void;
 }
 
-const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
+const TradeDashboard = (_props: TradeDashboardProps) => {
   const data = useDashboardData();
-
-  const [tradeSheetOpen, setTradeSheetOpen] = useState(false);
-  const [tradeSheetPrefill, setTradeSheetPrefill] = useState<StrategyOpportunity | null>(null);
-  const [activePanel, setActivePanel] = useState<BottomPanel>("order");
 
   // Page title
   useEffect(() => {
     document.title = `Dashboard - ${APP_NAME}`;
     window.scrollTo(0, 0);
   }, []);
-
-  // Handle signal trade click — open quick trade sheet
-  const handleSignalTrade = useCallback((opp: StrategyOpportunity) => {
-    setTradeSheetPrefill(opp);
-    setTradeSheetOpen(true);
-    data.setSelectedSymbol(opp.market);
-  }, [data]);
 
   // Handle chart symbol change from positions
   const handleViewChart = useCallback((symbol: string) => {
@@ -66,21 +41,9 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
     );
   }
 
-  const panelTabs: { key: BottomPanel; label: string; badge?: number }[] = [
-    { key: "order", label: "Order" },
-    { key: "positions", label: "Positions", badge: data.positions.length || undefined },
-    { key: "pending", label: "Pending" },
-    { key: "strategy", label: "Bot" },
-    { key: "equity", label: "Equity" },
-    { key: "metrics", label: "Stats" },
-    { key: "history", label: "History" },
-    { key: "ai", label: "AI" },
-  ];
-
   return (
     <div className="min-h-screen bg-[#060b18]">
-      {/* Sticky control bar */}
-      <BotControlBar data={data} />
+      {/* BotControlBar removed for clean mobile UI */}
 
       {/* Market pills */}
       <MarketPills
@@ -196,254 +159,7 @@ const TradeDashboard = ({ onClose }: TradeDashboardProps) => {
         {/* RIGHT sidebar removed — signals available via dedicated tab later */}
       </div>
 
-      {/* === MOBILE BOTTOM PANELS === */}
-      <div className="lg:hidden mt-2">
-        {/* Tab bar */}
-        <div className="flex gap-1 overflow-x-auto px-3 pb-1" style={{ scrollbarWidth: "none" }}>
-          {panelTabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActivePanel(tab.key)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
-                activePanel === tab.key
-                  ? "bg-blue-500/20 text-blue-300 border-blue-500/40"
-                  : "text-slate-400 border-transparent hover:text-white"
-              }`}
-            >
-              {tab.label}
-              {tab.badge && tab.badge > 0 && (
-                <span className="ml-1 text-[9px] bg-blue-500/30 rounded-full px-1">{tab.badge}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Active panel content */}
-        <div className="min-h-[200px]">
-          {activePanel === "positions" && (
-            <PositionsStrip
-              positions={data.positions}
-              prices={data.prices}
-              wallet={data.wallet}
-              onClose={data.handleClosePosition}
-              onModify={data.handleModifyPosition}
-              onViewChart={handleViewChart}
-              onRefresh={data.refreshData}
-            />
-          )}
-
-          {activePanel === "order" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpOrderForm
-                  markets={data.markets}
-                  prices={data.prices}
-                  maxBalance={data.account?.balance || 0}
-                  onSubmit={data.handlePlaceOrder}
-                  loading={data.loading}
-                  initialSymbol={data.selectedSymbol}
-                />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "strategy" && data.wallet && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpStrategyPanel wallet={data.wallet} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "pending" && data.wallet && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpPendingOrders wallet={data.wallet} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "equity" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpEquityChart data={data.equity} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "metrics" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpMetricsPanel metrics={data.account?.metrics || {
-                  total_trades: 0, winning_trades: 0, losing_trades: 0,
-                  win_rate: 0, profit_factor: 0, avg_rr_ratio: 0, sharpe_ratio: 0,
-                  sortino_ratio: 0, max_drawdown: 0, expectancy: 0, kelly_criterion: 0,
-                  avg_holding_period: "0h", total_pnl: 0, total_fees: 0, total_funding: 0,
-                  best_trade: 0, worst_trade: 0, avg_win: 0, avg_loss: 0,
-                  consecutive_wins: 0, consecutive_losses: 0,
-                }} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "history" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpTradeHistory trades={data.trades} onRefresh={data.refreshData} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "ai" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <AIAnalysisPanel />
-              </div>
-            </Suspense>
-          )}
-        </div>
-      </div>
-
-      {/* Desktop bottom panels — under chart */}
-      <div className="hidden lg:block border-t border-white/[0.04] bg-[#060b18]">
-        {/* Tab bar */}
-        <div className="flex gap-1 px-3 py-1.5 border-b border-white/[0.04]" style={{ scrollbarWidth: "none" }}>
-          {panelTabs.filter(t => t.key !== "signals").map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActivePanel(tab.key)}
-              className={`flex-shrink-0 px-3 py-1 rounded-lg text-[10px] font-bold transition-all border ${
-                activePanel === tab.key
-                  ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
-                  : "text-slate-500 border-transparent hover:text-white"
-              }`}
-            >
-              {tab.label}
-              {tab.badge && tab.badge > 0 && (
-                <span className="ml-1 text-[8px] bg-blue-500/30 rounded-full px-1">{tab.badge}</span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        {/* Desktop panel content */}
-        <div className="max-h-[300px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-          {activePanel === "positions" && (
-            <PositionsStrip
-              positions={data.positions}
-              prices={data.prices}
-              wallet={data.wallet}
-              onClose={data.handleClosePosition}
-              onModify={data.handleModifyPosition}
-              onViewChart={handleViewChart}
-              onRefresh={data.refreshData}
-            />
-          )}
-
-          {activePanel === "order" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpOrderForm
-                  markets={data.markets}
-                  prices={data.prices}
-                  maxBalance={data.account?.balance || 0}
-                  onSubmit={data.handlePlaceOrder}
-                  loading={data.loading}
-                  initialSymbol={data.selectedSymbol}
-                />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "strategy" && data.wallet && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpStrategyPanel wallet={data.wallet} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "pending" && data.wallet && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpPendingOrders wallet={data.wallet} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "equity" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpEquityChart data={data.equity} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "metrics" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpMetricsPanel metrics={data.account?.metrics || {
-                  total_trades: 0, winning_trades: 0, losing_trades: 0,
-                  win_rate: 0, profit_factor: 0, avg_rr_ratio: 0, sharpe_ratio: 0,
-                  sortino_ratio: 0, max_drawdown: 0, expectancy: 0, kelly_criterion: 0,
-                  avg_holding_period: "0h", total_pnl: 0, total_fees: 0, total_funding: 0,
-                  best_trade: 0, worst_trade: 0, avg_win: 0, avg_loss: 0,
-                  consecutive_wins: 0, consecutive_losses: 0,
-                }} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "history" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <PerpTradeHistory trades={data.trades} onRefresh={data.refreshData} />
-              </div>
-            </Suspense>
-          )}
-
-          {activePanel === "ai" && (
-            <Suspense fallback={<ChartLoader />}>
-              <div className="p-3">
-                <AIAnalysisPanel />
-              </div>
-            </Suspense>
-          )}
-        </div>
-      </div>
-
-      {/* Quick trade FAB (mobile) */}
-      <button
-        onClick={() => { setTradeSheetPrefill(null); setTradeSheetOpen(true); }}
-        className="lg:hidden fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-blue-500 text-white text-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-600 transition-all active:scale-95 flex items-center justify-center"
-      >
-        +
-      </button>
-
-      {/* Quick trade sheet */}
-      <QuickTradeSheet
-        isOpen={tradeSheetOpen}
-        onClose={() => setTradeSheetOpen(false)}
-        onSubmit={data.handlePlaceOrder}
-        prefill={tradeSheetPrefill}
-        markets={data.markets}
-        prices={data.prices}
-        maxBalance={data.account?.balance || 0}
-        isLive={data.isLive}
-        loading={data.loading}
-      />
-
-      {/* Close button — back to trade overview */}
-      {onClose && (
-        <div className="text-center py-4">
-          <button
-            onClick={onClose}
-            className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
-          >
-            ← Back to Trade
-          </button>
-        </div>
-      )}
+      {/* Bottom panels, FAB, trade sheet, and back button removed for clean mobile UI */}
     </div>
   );
 };
