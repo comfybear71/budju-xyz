@@ -76,7 +76,7 @@ class PriceMonitor:
                     return
 
                 data = await resp.json()
-                prices_data = data.get("data", {})
+                prices_data = data
 
                 now = time.time()
                 for symbol, asset in ASSETS.items():
