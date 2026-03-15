@@ -972,9 +972,19 @@ const TradingChart = ({
       {/* Chart container */}
       <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
-      {/* Chart overlay toggles — Trades / Positions / AI */}
+      {/* Chart overlay toggles — Vol / Trades / Positions / AI */}
       <div className="flex items-center gap-1 mt-1.5 mb-2 px-1">
         <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+          <button
+            onClick={() => setShowVolume(!showVolume)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showVolume
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Vol
+          </button>
           <button
             onClick={() => setShowMarkers(!showMarkers)}
             className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${

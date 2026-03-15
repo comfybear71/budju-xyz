@@ -142,7 +142,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
 
         {/* CENTER: Chart */}
         <div className="px-3 lg:px-0">
-          <div className="h-[50vh] lg:h-full">
+          <div className="lg:h-full">
             <Suspense fallback={<ChartLoader />}>
               <TradingChart
                 symbol={data.selectedSymbol}
