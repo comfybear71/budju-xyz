@@ -918,7 +918,7 @@ const TradingChart = ({
   const isPositive = priceChange >= 0;
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ isolation: "isolate" }}>
       {/* Header */}
       <div className={`${compact ? "mb-1" : "mb-2"}`}>
         <div className="flex items-center justify-between">
@@ -1044,7 +1044,7 @@ const TradingChart = ({
       {/* Active positions overlay removed — shown in cards below chart */}
 
       {/* Chart container */}
-      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
+      <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
 
       {/* Indicator toggles */}
       <div className="flex flex-wrap gap-1 mt-1.5" onClick={(e) => e.stopPropagation()}>
@@ -1222,10 +1222,10 @@ const TradingChart = ({
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
-        <div className="mt-2 space-y-2.5 overflow-hidden">
+        <div className="relative z-10 mt-2 space-y-2.5" style={{ isolation: "isolate" }}>
 
           {/* Active positions for this market */}
-          {(() => {
+          {showPositionLines && (() => {
             const marketPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
             if (marketPositions.length === 0) return null;
             return (
@@ -1237,8 +1237,8 @@ const TradingChart = ({
                       key={pos._id}
                       className={`rounded-lg border p-2.5 overflow-hidden ${
                         pos.direction === "long"
-                          ? "bg-emerald-500/[0.05] border-emerald-500/15"
-                          : "bg-red-500/[0.05] border-red-500/15"
+                          ? "bg-[#0d1a14] border-emerald-500/15"
+                          : "bg-[#1a0d0d] border-red-500/15"
                       }`}
                     >
                       {/* Row 1: direction + strategy + PnL */}
@@ -1442,8 +1442,8 @@ const TradingChart = ({
                       key={order._id}
                       className={`rounded-lg border p-2.5 overflow-hidden ${
                         isLong
-                          ? "bg-cyan-500/[0.05] border-cyan-500/15"
-                          : "bg-orange-500/[0.05] border-orange-500/15"
+                          ? "bg-[#0d1517] border-cyan-500/15"
+                          : "bg-[#1a150d] border-orange-500/15"
                       }`}
                     >
                       {/* Row 1: type badge + strategy */}
@@ -1626,7 +1626,7 @@ const TradingChart = ({
 
           {/* AI prediction & strategy breakdown */}
           {showPrediction && prediction?.strategies && (
-            <div className="rounded-lg border border-blue-500/15 bg-slate-900/60 p-2 space-y-1.5">
+            <div className="rounded-lg border border-blue-500/15 bg-slate-900 p-2 space-y-1.5">
               {/* Signal + reasoning */}
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
@@ -1741,7 +1741,7 @@ const TradingChart = ({
               .slice(0, 5);
             if (marketTrades.length === 0) return null;
             return (
-              <div className="rounded-lg border border-white/[0.04] bg-slate-800/30 p-2">
+              <div className="rounded-lg border border-white/[0.06] bg-slate-800 p-2">
                 <div className="text-[8px] text-slate-400 uppercase tracking-wider mb-1">Recent Trades</div>
                 <div className="space-y-0.5">
                   {marketTrades.map((t, i) => (

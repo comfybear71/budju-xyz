@@ -723,14 +723,14 @@ function analyzeMarket(candles: CandleData[], base: string, symbol: string): Str
 // ── Color Helpers ───────────────────────────────────────────
 
 const COLOR_MAP: Record<string, { bg: string; border: string; text: string; glow: string }> = {
-  blue:    { bg: "bg-blue-500/10",    border: "border-blue-500/25",    text: "text-blue-400",    glow: "shadow-blue-500/10" },
-  purple:  { bg: "bg-purple-500/10",  border: "border-purple-500/25",  text: "text-purple-400",  glow: "shadow-purple-500/10" },
-  orange:  { bg: "bg-orange-500/10",  border: "border-orange-500/25",  text: "text-orange-400",  glow: "shadow-orange-500/10" },
-  yellow:  { bg: "bg-yellow-500/10",  border: "border-yellow-500/25",  text: "text-yellow-400",  glow: "shadow-yellow-500/10" },
-  cyan:    { bg: "bg-cyan-500/10",    border: "border-cyan-500/25",    text: "text-cyan-400",    glow: "shadow-cyan-500/10" },
-  pink:    { bg: "bg-pink-500/10",    border: "border-pink-500/25",    text: "text-pink-400",    glow: "shadow-pink-500/10" },
-  emerald: { bg: "bg-emerald-500/10", border: "border-emerald-500/25", text: "text-emerald-400", glow: "shadow-emerald-500/10" },
-  slate:   { bg: "bg-slate-500/10",   border: "border-slate-500/25",   text: "text-slate-400",   glow: "shadow-slate-500/10" },
+  blue:    { bg: "bg-[#0d1320]",  border: "border-blue-500/25",    text: "text-blue-400",    glow: "shadow-blue-500/10" },
+  purple:  { bg: "bg-[#150d20]",  border: "border-purple-500/25",  text: "text-purple-400",  glow: "shadow-purple-500/10" },
+  orange:  { bg: "bg-[#1a150d]",  border: "border-orange-500/25",  text: "text-orange-400",  glow: "shadow-orange-500/10" },
+  yellow:  { bg: "bg-[#1a1a0d]",  border: "border-yellow-500/25",  text: "text-yellow-400",  glow: "shadow-yellow-500/10" },
+  cyan:    { bg: "bg-[#0d1517]",  border: "border-cyan-500/25",    text: "text-cyan-400",    glow: "shadow-cyan-500/10" },
+  pink:    { bg: "bg-[#1a0d15]",  border: "border-pink-500/25",    text: "text-pink-400",    glow: "shadow-pink-500/10" },
+  emerald: { bg: "bg-[#0d1a14]",  border: "border-emerald-500/25", text: "text-emerald-400", glow: "shadow-emerald-500/10" },
+  slate:   { bg: "bg-slate-900",  border: "border-slate-500/25",   text: "text-slate-400",   glow: "shadow-slate-500/10" },
 };
 
 // ── Component ───────────────────────────────────────────────
@@ -783,7 +783,7 @@ const StrategySpotlight = () => {
 
   if (loading && !opportunities.length) {
     return (
-      <div className="rounded-lg border border-blue-500/15 bg-slate-900/60 p-3">
+      <div className="rounded-lg border border-blue-500/15 bg-slate-900 p-3">
         <div className="text-[10px] text-slate-400 animate-pulse">Scanning strategies across all markets...</div>
       </div>
     );
@@ -791,7 +791,7 @@ const StrategySpotlight = () => {
 
   if (!opportunities.length) {
     return (
-      <div className="rounded-lg border border-slate-500/15 bg-slate-900/60 p-3">
+      <div className="rounded-lg border border-slate-500/15 bg-slate-900 p-3">
         <div className="flex items-center justify-between">
           <div className="text-[10px] text-slate-500">No strategy opportunities detected right now</div>
           <button onClick={runScan} className="text-[9px] px-2 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 transition-colors">
