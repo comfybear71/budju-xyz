@@ -10,7 +10,7 @@ from typing import Dict, Optional
 
 import aiohttp
 
-from config import ASSETS, USDC_MINT, PRICE_CHECK_INTERVAL, JUPITER_API_KEY
+from config import ASSETS, PRICE_CHECK_INTERVAL, JUPITER_API_KEY
 
 logger = logging.getLogger("price_monitor")
 
@@ -18,7 +18,7 @@ logger = logging.getLogger("price_monitor")
 class PriceMonitor:
     """Continuously monitors token prices via Jupiter Price API."""
 
-    JUPITER_PRICE_URL = "https://api.jup.ag/price/v2"
+    JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 
     def __init__(self):
         self.prices: Dict[str, float] = {}          # symbol → USD price
@@ -67,7 +67,7 @@ class PriceMonitor:
 
             async with self._session.get(
                 self.JUPITER_PRICE_URL,
-                params={"ids": mint_ids, "vsToken": USDC_MINT},
+                params={"ids": mint_ids},
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=10),
             ) as resp:
@@ -81,8 +81,8 @@ class PriceMonitor:
                 now = time.time()
                 for symbol, asset in ASSETS.items():
                     mint = asset["mint"]
-                    if mint in prices_data and prices_data[mint].get("price"):
-                        price = float(prices_data[mint]["price"])
+                    if mint in prices_data and prices_data[mint].get("usdPrice"):
+                        price = float(prices_data[mint]["usdPrice"])
                         old_price = self.prices.get(symbol)
                         self.prices[symbol] = price
 
