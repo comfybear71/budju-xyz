@@ -1,25 +1,37 @@
 /**
- * Spot Trading API — communicates with the VPS trading bot.
+ * Spot Trading API — communicates with the VPS trading bot
+ * via the Vercel proxy (/api/vps-proxy) to avoid mixed-content blocks.
  *
- * In dev, the VPS runs on localhost:8420.
- * In production, set VITE_VPS_API_URL to your VPS address.
+ * In dev, can talk directly to VPS on localhost:8420.
  */
 
-const VPS_API_URL =
+const IS_DEV = import.meta.env.DEV;
+const VPS_DIRECT_URL =
   import.meta.env.VITE_VPS_API_URL || "http://localhost:8420";
 
-const VPS_API_SECRET = import.meta.env.VITE_VPS_API_SECRET || "";
+function buildUrl(path: string): string {
+  if (IS_DEV) {
+    // In dev, talk directly to VPS
+    return `${VPS_DIRECT_URL}${path}`;
+  }
+  // In production, go through Vercel proxy
+  return `/api/vps-proxy?path=${encodeURIComponent(path)}`;
+}
 
 function headers(): HeadersInit {
   const h: HeadersInit = { "Content-Type": "application/json" };
-  if (VPS_API_SECRET) {
-    h["Authorization"] = `Bearer ${VPS_API_SECRET}`;
+  // In dev, send the secret directly to VPS
+  if (IS_DEV) {
+    const secret = import.meta.env.VITE_VPS_API_SECRET || "";
+    if (secret) {
+      h["Authorization"] = `Bearer ${secret}`;
+    }
   }
   return h;
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${VPS_API_URL}${path}`, { headers: headers() });
+  const res = await fetch(buildUrl(path), { headers: headers() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `API error ${res.status}`);
@@ -28,7 +40,7 @@ async function get<T>(path: string): Promise<T> {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${VPS_API_URL}${path}`, {
+  const res = await fetch(buildUrl(path), {
     method: "POST",
     headers: headers(),
     body: JSON.stringify(body),
