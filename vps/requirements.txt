@@ -1,0 +1,7 @@
+# VPS Trading Bot Dependencies
+aiohttp>=3.9.0
+solana>=0.34.0
+solders>=0.21.0
+base58>=2.1.0
+pymongo>=4.6.0
+python-dotenv>=1.0.0

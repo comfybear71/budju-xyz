@@ -11,6 +11,7 @@ export const ROUTES = {
   BURN: "/burn",             // New Burn page
   BALANCE: "/balance",       // Check BUDJU balance
   TRADE: "/trade",           // Trading Board
+  SPOT: "/spot",             // VPS Spot Trading
   MARKETING: "/marketing",   // Marketing materials
 };
 
@@ -26,5 +27,6 @@ export const ROUTE_NAMES = {
   [ROUTES.HOW_TO_BUY]: "How To Buy",  // Added back
   [ROUTES.BURN]: "Burn",              // Name for Burn
   [ROUTES.TRADE]: "Trade",            // Name for Trade
+  [ROUTES.SPOT]: "Spot",              // Name for Spot
   [ROUTES.MARKETING]: "Marketing",    // Name for Marketing
 };
