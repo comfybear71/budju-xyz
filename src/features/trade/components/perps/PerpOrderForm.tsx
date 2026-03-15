@@ -8,9 +8,10 @@ interface Props {
   onSubmit: (order: PerpOrderRequest) => void;
   loading: boolean;
   initialSymbol?: string;
+  hideMarketSelect?: boolean;
 }
 
-const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading, initialSymbol }: Props) => {
+const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading, initialSymbol, hideMarketSelect }: Props) => {
   const [symbol, setSymbol] = useState(initialSymbol || markets[0]?.symbol || "SOL-PERP");
 
   // Update symbol when navigated from positions
@@ -65,20 +66,22 @@ const PerpOrderForm = ({ markets, prices, maxBalance, onSubmit, loading, initial
   return (
     <div className="space-y-3">
       {/* Market selection */}
-      <div>
-        <label className="text-[10px] text-slate-500 uppercase tracking-wider">Market</label>
-        <select
-          value={symbol}
-          onChange={(e) => { setSymbol(e.target.value); setStopLoss(""); setTakeProfit(""); }}
-          className="w-full mt-1 bg-slate-800/60 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500/40"
-        >
-          {markets.map((m) => (
-            <option key={m.symbol} value={m.symbol}>
-              {m.symbol} {prices[m.symbol] ? `— $${prices[m.symbol].toLocaleString()}` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+      {!hideMarketSelect && (
+        <div>
+          <label className="text-[10px] text-slate-500 uppercase tracking-wider">Market</label>
+          <select
+            value={symbol}
+            onChange={(e) => { setSymbol(e.target.value); setStopLoss(""); setTakeProfit(""); }}
+            className="w-full mt-1 bg-slate-800/60 border border-white/[0.06] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-red-500/40"
+          >
+            {markets.map((m) => (
+              <option key={m.symbol} value={m.symbol}>
+                {m.symbol} {prices[m.symbol] ? `— $${prices[m.symbol].toLocaleString()}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Direction */}
       <div>

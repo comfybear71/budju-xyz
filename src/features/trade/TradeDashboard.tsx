@@ -171,6 +171,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             onSubmit={data.handlePlaceOrder}
             loading={data.loading}
             initialSymbol={data.selectedSymbol}
+            hideMarketSelect
           />
         </Suspense>
       </div>
