@@ -6,6 +6,7 @@ import MarketPills from "./components/dashboard/MarketPills";
 import PositionsStrip from "./components/dashboard/PositionsStrip";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
+const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
 
 const ChartLoader = () => (
   <div className="flex items-center justify-center h-full bg-slate-900/50 rounded-xl">
@@ -62,22 +63,6 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         </div>
       )}
 
-      {/* Account summary — compact row */}
-      {data.account && (
-        <div className="grid grid-cols-4 gap-1.5 px-3 mb-2">
-          {[
-            { label: "Balance", value: `$${data.account.balance.toFixed(0)}` },
-            { label: "Equity", value: `$${data.account.equity.toFixed(0)}`, color: data.account.equity >= 10000 ? "text-emerald-400" : "text-red-400" },
-            { label: "Realized", value: `${data.account.realized_pnl >= 0 ? "+" : ""}$${data.account.realized_pnl.toFixed(0)}`, color: data.account.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
-            { label: "Win Rate", value: data.account.metrics.total_trades > 0 ? `${data.account.metrics.win_rate.toFixed(0)}%` : "—" },
-          ].map((s) => (
-            <div key={s.label} className="bg-slate-800/30 rounded-lg px-2 py-1.5 border border-white/[0.03]">
-              <div className="text-[8px] text-slate-600 uppercase">{s.label}</div>
-              <div className={`text-[11px] font-bold ${s.color || "text-white"}`}>{s.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* === MAIN CONTENT === */}
       {/* Mobile: stacked | Desktop: 3-column grid */}
@@ -159,7 +144,19 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         {/* RIGHT sidebar removed — signals available via dedicated tab later */}
       </div>
 
-      {/* Bottom panels, FAB, trade sheet, and back button removed for clean mobile UI */}
+      {/* Order form — always visible */}
+      <div className="p-3">
+        <Suspense fallback={<ChartLoader />}>
+          <PerpOrderForm
+            markets={data.markets}
+            prices={data.prices}
+            maxBalance={data.account?.balance || 0}
+            onSubmit={data.handlePlaceOrder}
+            loading={data.loading}
+            initialSymbol={data.selectedSymbol}
+          />
+        </Suspense>
+      </div>
     </div>
   );
 };
