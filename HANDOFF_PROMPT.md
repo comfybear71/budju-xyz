@@ -619,4 +619,140 @@ Changes made:
 
 ---
 
-*Last updated: March 14, 2026 (Session 3: inline editing for order/position cards).*
+## 15. VPS Trading Bot (March 15, 2026)
+
+### Overview
+Standalone VPS-based trading bot running 24/7 on DigitalOcean. Monitors 15 Solana token prices via Jupiter Price API v3 and executes trades on-chain via Jupiter DEX. Separate from the Vercel serverless auto-trader (which uses Swyftx/CoinGecko).
+
+### Server Details
+- **Provider:** DigitalOcean ($4-5/month)
+- **OS:** Ubuntu 24.04 (1 vCPU, 512MB RAM)
+- **Hostname:** `ubuntu-s-1vcpu-512mb-10gb-syd1-01`
+- **Service name:** `budju-trader` (systemd)
+- **Working directory:** `/home/budju/budju-xyz/vps`
+- **Python:** System Python 3.12 + virtualenv at `/home/budju/budju-xyz/vps/venv`
+- **API port:** 8420
+- **Trading wallet:** `BCXa...TLW7`
+
+### VPS Code Structure
+```
+vps/
+├── main.py              # Entry point — starts all services
+├── config.py            # Environment config + 15 asset definitions (mints, decimals)
+├── price_monitor.py     # Jupiter Price API v3 polling (every 5s)
+├── trader.py            # Trading logic, position management, MongoDB persistence
+├── api_server.py        # HTTP API on port 8420 (health, prices, trades)
+├── requirements.txt     # Python dependencies
+├── setup-vps.sh         # Automated setup script
+├── SETUP.md             # Step-by-step setup guide
+└── HANDOFF.md           # Detailed issue log from setup session
+```
+
+### Assets Monitored (16 tokens)
+SOL, JUP, BONK, WIF, RENDER, HNT, PYTH, RAY, ORCA, PEPE, JTO, W, MOBILE, MSOL, JITOSOL, JLP
+
+### VPS .env Variables
+```
+HELIUS_API_KEY=              # Solana RPC
+MONGODB_URI=                 # Same MongoDB as Vercel
+TELEGRAM_BOT_TOKEN=          # Trade notifications
+TELEGRAM_CHAT_ID=            # Target chat
+TRADING_WALLET_KEY=          # Base58 private key (dedicated trading wallet)
+JUPITER_API_KEY=             # Required for Jupiter Price API v3
+DRY_RUN=true                 # Set false for live trading
+TRADING_ENABLED=true
+MAX_SINGLE_TRADE_USD=50
+MAX_DAILY_TRADES=50
+MAX_DAILY_LOSS_USD=200
+API_SECRET=                  # Protects the API on port 8420
+DB_NAME=flub                 # Same legacy DB name
+```
+
+### systemd Service File
+`/etc/systemd/system/budju-trader.service`:
+```ini
+[Unit]
+Description=BUDJU VPS Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/budju/budju-xyz/vps
+ExecStart=/home/budju/budju-xyz/vps/venv/bin/python main.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Useful VPS Commands
+```bash
+# View live logs (Ctrl+C to exit — does NOT stop bot)
+sudo journalctl -u budju-trader -f
+
+# View last N log lines (non-blocking)
+sudo journalctl -u budju-trader --no-pager -n 30
+
+# Restart / stop / start
+sudo systemctl restart budju-trader
+sudo systemctl stop budju-trader
+sudo systemctl start budju-trader
+
+# Check status
+sudo systemctl status budju-trader
+
+# Reload after editing service file
+sudo systemctl daemon-reload
+
+# Test API
+curl http://localhost:8420/api/health
+curl http://localhost:8420/api/prices
+
+# Update code from git
+cd ~/budju-xyz && git pull origin master
+sudo systemctl restart budju-trader
+
+# Activate venv for manual pip installs
+source /home/budju/budju-xyz/vps/venv/bin/activate
+pip install -r /home/budju/budju-xyz/vps/requirements.txt
+
+# Go live
+nano /home/budju/budju-xyz/vps/.env  # Change DRY_RUN=false
+sudo systemctl restart budju-trader
+```
+
+### Connecting the Dashboard
+Add to Vercel environment variables:
+```
+VITE_VPS_API_URL=http://YOUR_SERVER_IP:8420
+VITE_VPS_API_SECRET=your_api_secret_here
+```
+Then visit `https://budju.xyz/spot` to use the trading dashboard with live VPS prices.
+
+### Issues Fixed During VPS Setup (March 15, 2026)
+
+1. **`ModuleNotFoundError: No module named 'dotenv'`** — Ubuntu 24.04 uses PEP 668 externally-managed Python. Can't `pip install` system-wide. Fix: created virtualenv at `vps/venv/` and installed deps there. Updated systemd `ExecStart` to use venv Python.
+
+2. **Stray `y` character in systemd service file** — Accidentally typed during nano editing, caused `Missing '=', ignoring line` systemd warning. Fix: removed the stray line.
+
+3. **`NotImplementedError: Database objects do not implement truth value testing or bool()`** — pymongo 4.16.0 no longer allows `if self.db:` on Database objects. Fix: changed to `if self.db is not None:` in `vps/trader.py` (lines 69 and 342).
+
+4. **Jupiter Price API returned 401 (Unauthorized)** — Jupiter Price API now requires API key auth. Fix: added `JUPITER_API_KEY` config var and `x-api-key` header in `price_monitor.py`. Note: the .env key is `JUPITER_API_KEY` (NOT `VITE_JUPITER_API_KEY` — that's the frontend key with the Vite prefix).
+
+5. **Jupiter Price API returned 404 (Not Found)** — Jupiter deprecated Price API v2 (`https://api.jup.ag/price/v2`). Fix: updated to v3 (`https://api.jup.ag/price/v3`). Also removed `vsToken` param (v3 returns USD prices directly).
+
+6. **Prices returning empty `{}`** — Jupiter v3 response format changed. V2 wrapped results in `{"data": {...}}`, v3 returns token data at the top level. Fix: changed `prices_data = data.get("data", {})` to `prices_data = data`. Also changed price field from `"price"` to `"usdPrice"`.
+
+### Current VPS Status (as of March 15, 2026)
+- Bot is **running** in **dry run** mode
+- All 15 assets streaming live prices from Jupiter v3
+- Connected to MongoDB (database: `flub`)
+- Trading wallet loaded: `BCXa...TLW7`
+- API server active on port 8420
+
+---
+
+*Last updated: March 15, 2026 (Session 4: VPS trading bot setup and Jupiter v3 migration).*
