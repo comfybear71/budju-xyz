@@ -472,9 +472,40 @@ MAX_PENDING_ORDERS = 30          # Pending order capacity
 
 ---
 
-## 12. Recent Changes (as of March 14, 2026)
+## 12. Recent Changes (as of March 16, 2026)
 
-### Inline Editing for Pending Orders & Positions (latest session — March 14, 2026)
+### Live Unrealized P&L Fix + Strategy Scroll Filtering (March 16, 2026)
+
+**Problem:** The "Unrealized P&L" summary (shown in both `HighRiskDashboard` and `TradeDashboard`) was displaying `-$8` while the individual position cards added up to `-$16.50`. The summary was using stale `account.unrealized_pnl` from the backend (only updated when `update_account_equity()` runs in the cron), while position cards calculated live-adjusted P&L using real-time Binance WebSocket prices.
+
+**Root cause:** Two separate P&L calculation paths:
+- **Position cards** (in `PerpPositionsList.tsx`): Used `pos.unrealized_pnl + livePnlAdjustment` where `livePnlAdjustment` accounts for price movement since last server update
+- **Account summary** (in `PerpAccountSummary.tsx`): Used raw `account.unrealized_pnl` straight from the API — no live adjustment
+
+**Fix (3 files changed):**
+
+1. **`HighRiskDashboard.tsx`** — Instead of passing raw `account` to `PerpAccountSummary`, now computes live-adjusted unrealized P&L by iterating all open positions with their live prices (same formula as position cards). Passes `{ ...account, unrealized_pnl: liveUnrealized, equity: liveEquity }` so the summary always matches position cards.
+
+2. **`TradeDashboard.tsx`** — Same live P&L calculation applied to the compact 5-column account summary row. Also passes `openSymbols` to StrategyMarquee.
+
+3. **`StrategyMarquee.tsx`** — Now accepts `openSymbols?: string[]` prop. Filters out strategy opportunities for symbols that already have open positions (e.g., if you have a UI-PERP position, UI strategy suggestions are hidden). Uses `Set` for O(1) lookup. Opportunities reappear once the position is closed.
+
+**Live P&L formula (used in all 3 places):**
+```typescript
+// For each open position:
+const livePrice = prices[pos.symbol] || pos.mark_price;
+const priceDelta = pos.direction === "long"
+  ? livePrice - pos.mark_price
+  : pos.mark_price - livePrice;
+const adjustment = (priceDelta / pos.entry_price) * pos.size_usd;
+const livePnl = pos.unrealized_pnl + adjustment;
+
+// Account-level total:
+const liveUnrealized = positions.reduce((sum, pos) => sum + livePnl, 0);
+const liveEquity = account.balance + totalMargin + liveUnrealized;
+```
+
+### Inline Editing for Pending Orders & Positions (March 14, 2026)
 - **Inline editable trigger price, SL, TP on pending order cards** — In TradingChart.tsx, the trigger price (`@ $70136.57`), stop loss, and take profit values on pending order cards below the chart are now clickable. Clicking turns the value into an inline `<input>` field. Press Enter to save, Escape to cancel, or click away (blur) to auto-save. Uses existing `onModifyPendingOrder` callback — no API changes needed.
 - **Inline editable SL/TP on open position cards** — Same inline editing pattern applied to position cards. Clicking the SL or TP value opens an inline input. Uses existing `onModifySLTP` callback. The "x" remove buttons hide while editing to prevent accidental deletion.
 - **Single `editingField` state** — One state object tracks which order/position field is being edited: `{ orderId, field: "trigger"|"sl"|"tp", value, kind: "order"|"position" }`. Only one field can be edited at a time across all cards.
@@ -755,4 +786,21 @@ Then visit `https://budju.xyz/spot` to use the trading dashboard with live VPS p
 
 ---
 
-*Last updated: March 15, 2026 (Session 4: VPS trading bot setup and Jupiter v3 migration).*
+---
+
+## 16. Session Issues Log (March 16, 2026)
+
+### Bugs Fixed This Session
+
+1. **Unrealized P&L summary mismatch** — Summary showed -$8, positions totalled -$16.50. Root cause: summary used stale backend value, position cards used live-adjusted values. Fixed in HighRiskDashboard.tsx and TradeDashboard.tsx by computing live total from positions + WebSocket prices.
+
+2. **Strategy scroll showing symbols with open positions** — StrategyMarquee showed strategy opportunities for markets where the user already had open positions. Fixed by filtering opportunities against open position symbols.
+
+### Files Changed
+- `src/features/trade/components/perps/HighRiskDashboard.tsx` — Live P&L calculation for account summary
+- `src/features/trade/TradeDashboard.tsx` — Live P&L for compact summary row + pass openSymbols to StrategyMarquee
+- `src/features/trade/components/perps/StrategyMarquee.tsx` — Accept openSymbols prop, filter out traded symbols
+
+---
+
+*Last updated: March 16, 2026 (Session 5: Live unrealized P&L fix + strategy scroll filtering).*

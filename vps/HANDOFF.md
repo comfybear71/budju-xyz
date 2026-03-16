@@ -197,10 +197,17 @@ sudo systemctl restart budju-trader
 
 ---
 
-### Current Status (as of 2026-03-15 17:21 UTC)
+### Current Status (as of 2026-03-16)
 
 - Bot is **running** in **dry run** mode
 - All 15 assets streaming live prices from Jupiter v3
 - Connected to MongoDB (database: `flub`)
 - Trading wallet loaded: `BCXa...TLW7`
 - API server active on port 8420
+
+### Frontend Integration Notes (March 16, 2026)
+
+- **Unrealized P&L** in account summaries now uses live WebSocket prices (not stale backend values)
+- **Strategy scroll** filters out symbols that already have open positions
+- Both `HighRiskDashboard` and `TradeDashboard` compute live-adjusted P&L from position data + Binance WS prices
+- VPS bot runs independently of these frontend changes — it uses Jupiter prices, not Binance WS
