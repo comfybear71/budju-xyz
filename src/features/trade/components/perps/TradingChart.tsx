@@ -646,7 +646,7 @@ const TradingChart = ({
           lineWidth: 2,
           lineStyle: LineStyle.Dotted,
           axisLabelVisible: false,
-          title: "TRAIL",
+          title: "",
         }));
       }
 
