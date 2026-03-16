@@ -318,7 +318,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
                 {data.account.metrics.win_rate.toFixed(0)}%
               </span>
             </div>
-            <div className="flex gap-1 overflow-x-auto no-scrollbar">
+            <div className="flex flex-row-reverse justify-end gap-1 overflow-x-auto no-scrollbar">
               {data.trades.map((trade, i) => {
                 const win = trade.realized_pnl >= 0;
                 return (
