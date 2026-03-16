@@ -1,9 +1,10 @@
-import { useCallback, lazy, Suspense } from "react";
+import { useCallback, useState, lazy, Suspense } from "react";
 import { APP_NAME } from "@constants/config";
 import { useEffect } from "react";
 import { useDashboardData } from "./hooks/useDashboardData";
 import MarketPills from "./components/dashboard/MarketPills";
 import PositionsStrip from "./components/dashboard/PositionsStrip";
+import PerpPositionsList from "./components/perps/PerpPositionsList";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
 const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
@@ -20,6 +21,7 @@ interface TradeDashboardProps {
 
 const TradeDashboard = (_props: TradeDashboardProps) => {
   const data = useDashboardData();
+  const [showPositions, setShowPositions] = useState(true);
 
   // Page title
   useEffect(() => {
@@ -175,6 +177,46 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             wallet={data.wallet}
           />
         </Suspense>
+      </div>
+
+      {/* Positions — collapsible, below order form */}
+      <div className="px-3 pb-3">
+        <button
+          onClick={() => setShowPositions(!showPositions)}
+          className="flex items-center gap-2 w-full mb-2"
+        >
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Positions
+          </span>
+          {data.positions.length > 0 && (
+            <span className="w-4 h-4 rounded-full bg-emerald-500/30 text-emerald-400 text-[9px] flex items-center justify-center border border-emerald-500/40">
+              {data.positions.length}
+            </span>
+          )}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showPositions ? "rotate-180" : ""}`}
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {showPositions && (
+          <PerpPositionsList
+            positions={data.positions}
+            onClose={data.handleClosePosition}
+            onModify={(positionId) => data.handleModifyPosition(positionId, {})}
+            onRefresh={data.refreshData}
+            wallet={data.wallet}
+            onViewChart={handleViewChart}
+            livePrices={data.prices}
+            onNewTrade={(symbol) => {
+              data.setSelectedSymbol(symbol);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        )}
       </div>
     </div>
   );
