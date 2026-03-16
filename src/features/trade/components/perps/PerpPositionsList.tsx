@@ -363,9 +363,21 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                       <button
                         onClick={() => handleSetType(pos, posType === "core" ? "satellite" : "core")}
                         disabled={actionLoading === `type-${pos._id}`}
-                        className="text-[9px] py-1 px-2 rounded bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-colors border border-amber-500/20 disabled:opacity-40"
+                        className="relative flex items-center gap-1 text-[9px] py-1 px-1.5 rounded transition-colors border disabled:opacity-40 bg-white/[0.03] border-white/[0.06]"
                       >
-                        {actionLoading === `type-${pos._id}` ? "..." : posType === "core" ? "Satellite" : "Core"}
+                        <span className={`text-[8px] ${posType === "satellite" ? "text-slate-300 font-bold" : "text-slate-600"}`}>SAT</span>
+                        <span
+                          className={`relative w-6 h-3 rounded-full transition-all ${
+                            posType === "core" ? "bg-amber-500/40" : "bg-slate-700/60"
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-0.5 w-2 h-2 rounded-full transition-all ${
+                              posType === "core" ? "left-[14px] bg-amber-400" : "left-0.5 bg-slate-500"
+                            }`}
+                          />
+                        </span>
+                        <span className={`text-[8px] ${posType === "core" ? "text-amber-400 font-bold" : "text-slate-600"}`}>CORE</span>
                       </button>
                       <button
                         onClick={() => handleFlip(pos)}
