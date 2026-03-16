@@ -5,7 +5,6 @@ import {
   startStrategyTest,
   stopStrategyTest,
   type StrategyStatus,
-  type StrategySignal,
 } from "../../services/perpApi";
 
 interface Props {
@@ -433,37 +432,6 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
           </div>
         );
       })}
-
-      {/* Recent signals */}
-      {status.recent_signals.length > 0 && (
-        <div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Recent Signals</div>
-          <div className="space-y-1 max-h-[200px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-            {status.recent_signals.slice(0, 15).map((sig: StrategySignal, i: number) => (
-              <div
-                key={i}
-                className="bg-slate-800/30 rounded-lg px-2.5 py-1.5 border border-white/[0.02] flex items-center gap-2"
-              >
-                <span className={`text-[10px] ${sig.acted ? "text-emerald-400" : "text-slate-500"}`}>
-                  {sig.acted ? "✓" : "✗"}
-                </span>
-                <div className="flex-1 text-[10px]">
-                  <span className="text-slate-300">{sig.symbol.replace("-PERP", "")}</span>
-                  <span className={`ml-1 ${sig.direction === "long" ? "text-emerald-400" : "text-red-400"}`}>
-                    {sig.direction.toUpperCase()}
-                  </span>
-                  <span className="text-slate-500 ml-1">
-                    {STRATEGY_INFO[sig.strategy]?.name || sig.strategy}
-                  </span>
-                </div>
-                <span className="text-[9px] text-slate-600">
-                  {sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString() : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Info box */}
       <div className="bg-slate-800/20 rounded-lg p-2.5 border border-white/[0.02]">
