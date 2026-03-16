@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   fetchStrategyStatus,
-  toggleAutoTrading,
   updateStrategyConfig,
   type StrategyStatus,
   type StrategySignal,
@@ -138,7 +137,6 @@ const STRATEGY_INFO: Record<string, StrategyDetail> = {
 const PerpStrategyPanel = ({ wallet }: Props) => {
   const [status, setStatus] = useState<StrategyStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
 
@@ -158,20 +156,6 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
     const interval = setInterval(loadStatus, 30_000);
     return () => clearInterval(interval);
   }, [loadStatus]);
-
-  const handleToggle = async () => {
-    if (!status) return;
-    try {
-      setToggling(true);
-      setError(null);
-      await toggleAutoTrading(!status.auto_trading_enabled, wallet);
-      await loadStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to toggle");
-    } finally {
-      setToggling(false);
-    }
-  };
 
   const handleToggleStrategy = async (stratName: string) => {
     if (!status) return;
@@ -204,91 +188,8 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
     );
   }
 
-  // Check data readiness
-  const minCandles = status.min_candles_required;
-  const allReady = Object.values(status.candle_counts).every((c) => c >= minCandles);
-  const anyReady = Object.values(status.candle_counts).some((c) => c >= minCandles);
-
   return (
     <div className="space-y-3">
-      {/* Master toggle */}
-      <div className="bg-slate-800/40 rounded-xl p-3 border border-white/[0.04]">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-bold text-white flex items-center gap-2">
-              🤖 Auto-Trading
-              {status.auto_trading_enabled && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 animate-pulse">
-                  ACTIVE
-                </span>
-              )}
-              {status.trading_paused && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
-                  PAUSED
-                </span>
-              )}
-            </div>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              {status.auto_trading_enabled
-                ? "Strategies are actively scanning for trades every minute"
-                : "Enable to let strategies trade automatically"}
-            </p>
-          </div>
-          <button
-            onClick={handleToggle}
-            disabled={toggling}
-            className={`relative w-14 h-7 rounded-full transition-all duration-200 disabled:opacity-40 ${
-              status.auto_trading_enabled
-                ? "bg-emerald-500/40 border border-emerald-500/50"
-                : "bg-slate-700/60 border border-white/[0.08]"
-            }`}
-            aria-label="Toggle auto-trading"
-          >
-            <span
-              className={`absolute top-1 w-5 h-5 rounded-full transition-all duration-200 shadow-sm flex items-center justify-center text-[8px] font-bold ${
-                status.auto_trading_enabled
-                  ? "left-[30px] bg-emerald-400 text-emerald-900"
-                  : "left-1 bg-slate-500 text-slate-300"
-              }`}
-            >
-              {toggling ? "..." : status.auto_trading_enabled ? "ON" : ""}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* Data collection progress */}
-      <div className="bg-slate-800/40 rounded-lg p-2 border border-white/[0.04]">
-        <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">
-          Price Data Collection ({minCandles} candles needed)
-        </div>
-        <div className="grid grid-cols-2 gap-1">
-          {Object.entries(status.candle_counts).map(([symbol, count]) => {
-            const progress = Math.min(count / minCandles, 1);
-            const ready = count >= minCandles;
-            return (
-              <div key={symbol} className="flex items-center gap-1.5">
-                <span className="text-[10px] text-slate-400 w-16">{symbol.replace("-PERP", "")}</span>
-                <div className="flex-1 h-1 bg-slate-700 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${ready ? "bg-emerald-500" : "bg-amber-500"}`}
-                    style={{ width: `${progress * 100}%` }}
-                  />
-                </div>
-                <span className={`text-[9px] ${ready ? "text-emerald-400" : "text-slate-500"}`}>
-                  {count}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {!allReady && (
-          <p className="text-[10px] text-amber-400 mt-1.5">
-            Collecting price data... Strategies activate after {minCandles} candles (~{Math.round(minCandles / 60)}h).
-            {anyReady ? " Some markets ready." : ""}
-          </p>
-        )}
-      </div>
 
       {/* Error */}
       {error && (

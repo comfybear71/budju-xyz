@@ -667,6 +667,7 @@ class handler(BaseHTTPRequestHandler):
                     is_live = result.get("trading_mode") == "live"
                     mode_label = "LIVE" if is_live else "PAPER"
 
+                    # Only send wins to Telegram
                     if pnl > 0:
                         emoji = "💰"
                         msg = (
@@ -677,17 +678,11 @@ class handler(BaseHTTPRequestHandler):
                             f"👤 {wallet_short}"
                         )
                     else:
-                        msg = (
-                            f"📕 <b>{mode_label} CLOSE</b>{'  🔴' if is_live else ''}\n"
-                            f"📍 {symbol} {direction.upper()} {leverage}x\n"
-                            f"💸 P&L: <b>${pnl:.2f}</b>\n"
-                            f"🔧 Manual close\n"
-                            f"👤 {wallet_short}"
-                        )
+                        msg = None
 
                     tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
                     tg_chat = os.getenv("TELEGRAM_CHAT_ID", "-1002398835975")
-                    if tg_token:
+                    if tg_token and msg:
                         from urllib.request import Request, urlopen
                         tg_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
                         tg_payload = json.dumps({
