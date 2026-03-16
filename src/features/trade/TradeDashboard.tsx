@@ -71,18 +71,25 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         </div>
       )}
 
-      {/* Strategy opportunity marquee */}
+      {/* Strategy opportunity marquee — hide symbols with open positions */}
       <Suspense fallback={null}>
-        <StrategyMarquee />
+        <StrategyMarquee openSymbols={data.positions.map(p => p.symbol)} />
       </Suspense>
 
-      {/* Account summary — compact row */}
-      {data.account && (
+      {/* Account summary — compact row with live-adjusted unrealized P&L */}
+      {data.account && (() => {
+        const liveUnrealized = data.positions.reduce((sum, pos) => {
+          const livePrice = data.prices[pos.symbol] || pos.mark_price;
+          const delta = pos.direction === "long" ? livePrice - pos.mark_price : pos.mark_price - livePrice;
+          return sum + pos.unrealized_pnl + (delta / pos.entry_price) * pos.size_usd;
+        }, 0);
+        const liveEquity = data.account.balance + data.positions.reduce((s, p) => s + p.margin, 0) + liveUnrealized;
+        return (
         <div className="grid grid-cols-5 gap-1.5 px-3 mb-2">
           {[
             { label: "Balance", value: `$${data.account.balance.toFixed(0)}` },
-            { label: "Equity", value: `$${data.account.equity.toFixed(0)}`, color: data.account.equity >= 10000 ? "text-emerald-400" : "text-red-400" },
-            { label: "Unrealized", value: `${data.account.unrealized_pnl >= 0 ? "+" : ""}$${data.account.unrealized_pnl.toFixed(0)}`, color: data.account.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
+            { label: "Equity", value: `$${liveEquity.toFixed(0)}`, color: liveEquity >= 10000 ? "text-emerald-400" : "text-red-400" },
+            { label: "Unrealized", value: `${liveUnrealized >= 0 ? "+" : ""}$${liveUnrealized.toFixed(0)}`, color: liveUnrealized >= 0 ? "text-emerald-400" : "text-red-400" },
             { label: "Realized", value: `${data.account.realized_pnl >= 0 ? "+" : ""}$${data.account.realized_pnl.toFixed(0)}`, color: data.account.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
             { label: "Win Rate", value: data.account.metrics.total_trades > 0 ? `${data.account.metrics.win_rate.toFixed(0)}%` : "—" },
           ].map((s) => (
@@ -92,7 +99,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             </div>
           ))}
         </div>
-      )}
+        );
+      })()}
 
       {/* === MAIN CONTENT === */}
       {/* Mobile: stacked | Desktop: 3-column grid */}

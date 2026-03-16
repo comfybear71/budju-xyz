@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { scanAllMarkets, COLOR_MAP, type StrategyOpportunity } from "../../utils/strategyDetectors";
 
-const StrategyMarquee = () => {
+interface Props {
+  openSymbols?: string[];
+}
+
+const StrategyMarquee = ({ openSymbols = [] }: Props) => {
   const [opportunities, setOpportunities] = useState<StrategyOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<StrategyOpportunity | null>(null);
@@ -28,7 +32,11 @@ const StrategyMarquee = () => {
     );
   }
 
-  if (!opportunities.length) return null;
+  // Filter out opportunities for symbols that already have open positions
+  const openSet = new Set(openSymbols);
+  const filtered = opportunities.filter(opp => !openSet.has(opp.market));
+
+  if (!filtered.length) return null;
 
   const handleClick = (opp: StrategyOpportunity) => {
     setExpanded(expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey ? null : opp);
@@ -39,7 +47,7 @@ const StrategyMarquee = () => {
       {/* Horizontal scroll strip */}
       <div className="overflow-x-auto rounded-lg bg-slate-800/20 border border-white/[0.03] scrollbar-thin">
         <div className="flex whitespace-nowrap">
-          {opportunities.map((opp, i) => {
+          {filtered.map((opp, i) => {
             const colors = COLOR_MAP[opp.color] || COLOR_MAP.blue;
             const dirColor = opp.direction === "long" ? "text-emerald-400" : "text-red-400";
             const isSelected = expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey;
