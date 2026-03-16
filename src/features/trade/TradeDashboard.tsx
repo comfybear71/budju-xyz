@@ -246,6 +246,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             onRefresh={data.refreshData}
             wallet={data.wallet}
             livePrices={data.prices}
+            onViewChart={handleViewChart}
             onNewTrade={(symbol) => {
               data.setSelectedSymbol(symbol);
               setShowOrderForm(true);
