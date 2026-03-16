@@ -490,11 +490,11 @@ const Trade = () => {
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); } },
                       ] as const).map((btn) => {
                         const colorMap: Record<string, { active: string; inactive: string }> = {
-                          blue:    { active: "bg-blue-500/20 text-blue-300 border-blue-500/40", inactive: "text-slate-400 border-transparent hover:text-blue-400" },
-                          amber:   { active: "bg-amber-500/20 text-amber-300 border-amber-500/40", inactive: "text-slate-400 border-transparent hover:text-amber-400" },
-                          emerald: { active: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40", inactive: "text-slate-400 border-transparent hover:text-emerald-400" },
-                          green:   { active: "bg-green-500/20 text-green-300 border-green-500/40", inactive: "text-slate-400 border-transparent hover:text-green-400" },
-                          red:     { active: "bg-red-500/20 text-red-300 border-red-500/40", inactive: "text-slate-400 border-transparent hover:text-red-400" },
+                          blue:    { active: "bg-blue-500/25 text-blue-200 border-blue-400/60 shadow-[0_0_8px_rgba(59,130,246,0.25)]", inactive: "bg-blue-500/8 text-blue-300/70 border-blue-500/25 hover:bg-blue-500/15 hover:text-blue-200 hover:border-blue-400/50" },
+                          amber:   { active: "bg-amber-500/25 text-amber-200 border-amber-400/60 shadow-[0_0_8px_rgba(245,158,11,0.25)]", inactive: "bg-amber-500/8 text-amber-300/70 border-amber-500/25 hover:bg-amber-500/15 hover:text-amber-200 hover:border-amber-400/50" },
+                          emerald: { active: "bg-emerald-500/25 text-emerald-200 border-emerald-400/60 shadow-[0_0_8px_rgba(16,185,129,0.25)]", inactive: "bg-emerald-500/8 text-emerald-300/70 border-emerald-500/25 hover:bg-emerald-500/15 hover:text-emerald-200 hover:border-emerald-400/50" },
+                          green:   { active: "bg-green-500/25 text-green-200 border-green-400/60 shadow-[0_0_8px_rgba(34,197,94,0.25)]", inactive: "bg-green-500/8 text-green-300/70 border-green-500/25 hover:bg-green-500/15 hover:text-green-200 hover:border-green-400/50" },
+                          red:     { active: "bg-red-500/25 text-red-200 border-red-400/60 shadow-[0_0_8px_rgba(239,68,68,0.25)]", inactive: "bg-red-500/8 text-red-300/70 border-red-500/25 hover:bg-red-500/15 hover:text-red-200 hover:border-red-400/50" },
                         };
                         const colors = colorMap[btn.color] || colorMap.blue;
                         return (
