@@ -116,7 +116,11 @@ const TradeDashboard = ({ isAdmin = false }: TradeDashboardProps) => {
               const isSelected = m.symbol === data.selectedSymbol;
               const marketPositions = data.positions.filter((p) => p.symbol === m.symbol);
               const posCount = marketPositions.length;
-              const posPnl = marketPositions.reduce((sum, p) => sum + p.unrealized_pnl, 0);
+              const posPnl = marketPositions.reduce((sum, p) => {
+                const livePrice = data.prices[p.symbol] || p.mark_price;
+                const delta = p.direction === "long" ? livePrice - p.mark_price : p.mark_price - livePrice;
+                return sum + p.unrealized_pnl + (delta / p.entry_price) * p.size_usd;
+              }, 0);
               const posWinning = posPnl >= 0;
 
               return (
