@@ -371,6 +371,14 @@ const Trade = () => {
                 ? `WS LIVE ${wsState.priceCount > 0 ? `(${wsState.priceCount})` : ""}`
                 : "WS ..."}
             </span>
+            {showHighRisk && (
+              <button
+                onClick={() => setShowHighRisk(false)}
+                className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold border bg-slate-500/15 text-slate-400 border-slate-500/20 hover:bg-red-500/15 hover:text-red-300 hover:border-red-500/20 transition-all"
+              >
+                ✕ Close
+              </button>
+            )}
             {isAdmin && (
               <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
                 ADMIN

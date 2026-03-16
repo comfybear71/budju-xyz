@@ -62,7 +62,6 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
         selectedSymbol={data.selectedSymbol}
         onSelect={data.setSelectedSymbol}
         positions={data.positions}
-        onClose={onClose}
       />
 
       {/* Error banner */}

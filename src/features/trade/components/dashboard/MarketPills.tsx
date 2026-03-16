@@ -7,7 +7,6 @@ interface Props {
   selectedSymbol: string;
   onSelect: (symbol: string) => void;
   positions: PerpPosition[];
-  onClose?: () => void;
 }
 
 // Coin-specific colors for borders
@@ -23,7 +22,7 @@ const COIN_COLORS: Record<string, { border: string; selectedBg: string; selected
   JUP:    { border: "border-emerald-500/30", selectedBg: "bg-emerald-500/20", selectedBorder: "border-emerald-400/50", selectedText: "text-emerald-300" },
 };
 
-const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions, onClose }: Props) => {
+const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
 
@@ -46,12 +45,11 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions, onC
   }
 
   return (
-    <div className="flex items-center gap-1.5 py-2 px-3">
-      <div
-        ref={scrollRef}
-        className="flex gap-1.5 overflow-x-auto flex-1 min-w-0 scrollbar-hide"
-        style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-      >
+    <div
+      ref={scrollRef}
+      className="flex gap-1.5 overflow-x-auto py-2 px-3 scrollbar-hide"
+      style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+    >
         {markets.map((m) => {
           const price = prices[m.symbol] || 0;
           const isSelected = m.symbol === selectedSymbol;
@@ -95,15 +93,6 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions, onC
             </button>
           );
         })}
-      </div>
-      {onClose && (
-        <button
-          onClick={onClose}
-          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border bg-slate-800/40 text-slate-400 border-white/[0.06] hover:bg-red-500/15 hover:text-red-300 hover:border-red-500/30"
-        >
-          ✕
-        </button>
-      )}
     </div>
   );
 };
