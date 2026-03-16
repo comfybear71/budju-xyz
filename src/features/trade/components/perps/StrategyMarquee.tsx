@@ -34,19 +34,12 @@ const StrategyMarquee = () => {
     setExpanded(expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey ? null : opp);
   };
 
-  // Very fast — 0.15s per item, minimum 2s total
-  const duration = Math.max(opportunities.length * 0.15, 2);
-
   return (
     <div className="mx-3 mb-2">
-      {/* Marquee strip — NEVER pauses, always scrolling */}
-      <div className="relative overflow-hidden rounded-lg bg-slate-800/20 border border-white/[0.03]">
-        <div
-          className="flex whitespace-nowrap marquee-always-scroll"
-          style={{ animationDuration: `${duration}s` }}
-        >
-          {/* Triple the items for seamless loop at high speed */}
-          {[...opportunities, ...opportunities, ...opportunities].map((opp, i) => {
+      {/* Horizontal scroll strip */}
+      <div className="overflow-x-auto rounded-lg bg-slate-800/20 border border-white/[0.03] scrollbar-thin">
+        <div className="flex whitespace-nowrap">
+          {opportunities.map((opp, i) => {
             const colors = COLOR_MAP[opp.color] || COLOR_MAP.blue;
             const dirColor = opp.direction === "long" ? "text-emerald-400" : "text-red-400";
             const isSelected = expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey;
@@ -131,14 +124,9 @@ const StrategyMarquee = () => {
       })()}
 
       <style>{`
-        .marquee-always-scroll {
-          animation: marquee-scroll linear infinite;
-          will-change: transform;
-        }
-        @keyframes marquee-scroll {
-          0% { transform: translateX(0); }
-          100% { transform: translateX(-33.333%); }
-        }
+        .scrollbar-thin::-webkit-scrollbar { height: 2px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 1px; }
       `}</style>
     </div>
   );
