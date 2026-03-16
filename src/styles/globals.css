@@ -349,6 +349,10 @@
   }
 }
 
+/* Hide scrollbar but keep scroll */
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
 /* Scrollbar — Sleek */
 ::-webkit-scrollbar {
   width: 6px;

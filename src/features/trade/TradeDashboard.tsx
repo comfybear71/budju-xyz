@@ -318,16 +318,29 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
                 {data.account.metrics.win_rate.toFixed(0)}%
               </span>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {data.trades.map((trade, i) => (
-                <span
-                  key={i}
-                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                    trade.realized_pnl >= 0 ? "bg-emerald-400" : "bg-red-400"
-                  }`}
-                  title={`${trade.symbol} ${trade.realized_pnl >= 0 ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`}
-                />
-              ))}
+            <div className="flex gap-1 overflow-x-auto no-scrollbar">
+              {data.trades.map((trade, i) => {
+                const win = trade.realized_pnl >= 0;
+                return (
+                  <div
+                    key={i}
+                    className="flex-shrink-0 flex flex-col items-center justify-center rounded-lg px-2 py-2.5"
+                    style={{
+                      minWidth: 38,
+                      background: win ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
+                      border: `1px solid ${win ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+                    }}
+                    title={`${trade.symbol} ${win ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`}
+                  >
+                    <span className={`text-[9px] font-bold ${win ? "text-emerald-400" : "text-red-400"}`}>
+                      {trade.symbol.replace(/USDT?$/, "").slice(0, 4)}
+                    </span>
+                    <span className={`text-[8px] font-semibold mt-0.5 ${win ? "text-emerald-300" : "text-red-300"}`}>
+                      {win ? "W" : "L"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
