@@ -33,10 +33,12 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
     }
   }, [selectedSymbol]);
 
-  // Count positions per market
+  // Count positions per market and sum unrealized PnL
   const posCountMap: Record<string, number> = {};
+  const posPnlMap: Record<string, number> = {};
   for (const p of positions) {
     posCountMap[p.symbol] = (posCountMap[p.symbol] || 0) + 1;
+    posPnlMap[p.symbol] = (posPnlMap[p.symbol] || 0) + p.unrealized_pnl;
   }
 
   return (
@@ -73,11 +75,18 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
                     : `$${price.toFixed(4)}`}
               </span>
             )}
-            {posCount > 0 && (
-              <span className="w-4 h-4 rounded-full bg-emerald-500/30 text-emerald-400 text-[9px] flex items-center justify-center border border-emerald-500/40">
-                {posCount}
-              </span>
-            )}
+            {posCount > 0 && (() => {
+              const winning = (posPnlMap[m.symbol] || 0) >= 0;
+              return (
+                <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center border ${
+                  winning
+                    ? "bg-emerald-500/30 text-emerald-400 border-emerald-500/40"
+                    : "bg-red-500/30 text-red-400 border-red-500/40"
+                }`}>
+                  {posCount}
+                </span>
+              );
+            })()}
           </button>
         );
       })}

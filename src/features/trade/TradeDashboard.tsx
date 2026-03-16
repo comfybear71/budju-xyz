@@ -105,7 +105,10 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             {data.markets.map((m) => {
               const price = data.prices[m.symbol] || 0;
               const isSelected = m.symbol === data.selectedSymbol;
-              const posCount = data.positions.filter((p) => p.symbol === m.symbol).length;
+              const marketPositions = data.positions.filter((p) => p.symbol === m.symbol);
+              const posCount = marketPositions.length;
+              const posPnl = marketPositions.reduce((sum, p) => sum + p.unrealized_pnl, 0);
+              const posWinning = posPnl >= 0;
 
               return (
                 <button
@@ -120,7 +123,11 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
                   <div className="flex items-center gap-2">
                     <span className="font-bold">{m.base_asset}</span>
                     {posCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[8px] flex items-center justify-center">
+                      <span className={`w-4 h-4 rounded-full text-[8px] flex items-center justify-center ${
+                        posWinning
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-red-500/20 text-red-400"
+                      }`}>
                         {posCount}
                       </span>
                     )}
@@ -307,43 +314,79 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         )}
 
         {/* Win/Loss badges strip — always visible */}
-        {data.account && data.account.metrics.total_trades > 0 && (
-          <div className="mt-3">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Results</span>
-              <span className="text-[10px] text-slate-400">
-                {data.account.metrics.winning_trades}W / {data.account.metrics.losing_trades}L
-              </span>
-              <span className="text-[10px] font-bold text-slate-300">
-                {data.account.metrics.win_rate.toFixed(0)}%
-              </span>
+        {data.account && data.account.metrics.total_trades > 0 && (() => {
+          const reversed = [...data.trades].reverse();
+          const dur = Math.max(reversed.length * 1.2, 6);
+          const renderCard = (trade: (typeof data.trades)[0], i: number) => {
+            const win = trade.realized_pnl >= 0;
+            return (
+              <div
+                key={i}
+                className="flex-shrink-0 flex flex-col items-center justify-center rounded-lg px-2 py-2.5"
+                style={{
+                  minWidth: 38,
+                  background: win ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
+                  border: `1px solid ${win ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
+                }}
+                title={`${trade.symbol} ${win ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`}
+              >
+                <span className={`text-[9px] font-bold ${win ? "text-emerald-400" : "text-red-400"}`}>
+                  {trade.symbol.replace(/USDT?$/, "").slice(0, 4)}
+                </span>
+                <span className={`text-[8px] font-semibold mt-0.5 ${win ? "text-emerald-300" : "text-red-300"}`}>
+                  {win ? "W" : "L"}
+                </span>
+              </div>
+            );
+          };
+          return (
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Results</span>
+                <span className="text-[10px] text-slate-400">
+                  {data.account.metrics.winning_trades}W / {data.account.metrics.losing_trades}L
+                </span>
+                <span className="text-[10px] font-bold text-slate-300">
+                  {data.account.metrics.win_rate.toFixed(0)}%
+                </span>
+              </div>
+              <div
+                className="relative overflow-x-auto no-scrollbar rounded-lg"
+                onMouseEnter={(e) => {
+                  const inner = e.currentTarget.querySelector<HTMLElement>("[data-results-marquee]");
+                  if (inner) inner.style.animationPlayState = "paused";
+                }}
+                onMouseLeave={(e) => {
+                  const inner = e.currentTarget.querySelector<HTMLElement>("[data-results-marquee]");
+                  if (inner) inner.style.animationPlayState = "running";
+                }}
+                onTouchStart={(e) => {
+                  const inner = e.currentTarget.querySelector<HTMLElement>("[data-results-marquee]");
+                  if (inner) inner.style.animationPlayState = "paused";
+                }}
+                onTouchEnd={(e) => {
+                  const inner = e.currentTarget.querySelector<HTMLElement>("[data-results-marquee]");
+                  if (inner) inner.style.animationPlayState = "running";
+                }}
+              >
+                <div
+                  data-results-marquee
+                  className="flex gap-1 whitespace-nowrap"
+                  style={{ animation: `results-marquee ${dur}s linear infinite` }}
+                >
+                  {reversed.map((t, i) => renderCard(t, i))}
+                  {reversed.map((t, i) => renderCard(t, i + reversed.length))}
+                </div>
+              </div>
+              <style>{`
+                @keyframes results-marquee {
+                  0% { transform: translateX(0); }
+                  100% { transform: translateX(-50%); }
+                }
+              `}</style>
             </div>
-            <div className="flex flex-row-reverse justify-end gap-1 overflow-x-auto no-scrollbar">
-              {data.trades.map((trade, i) => {
-                const win = trade.realized_pnl >= 0;
-                return (
-                  <div
-                    key={i}
-                    className="flex-shrink-0 flex flex-col items-center justify-center rounded-lg px-2 py-2.5"
-                    style={{
-                      minWidth: 38,
-                      background: win ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)",
-                      border: `1px solid ${win ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`,
-                    }}
-                    title={`${trade.symbol} ${win ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`}
-                  >
-                    <span className={`text-[9px] font-bold ${win ? "text-emerald-400" : "text-red-400"}`}>
-                      {trade.symbol.replace(/USDT?$/, "").slice(0, 4)}
-                    </span>
-                    <span className={`text-[8px] font-semibold mt-0.5 ${win ? "text-emerald-300" : "text-red-300"}`}>
-                      {win ? "W" : "L"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Paper / Live / Kill controls */}
         {data.wallet && (
