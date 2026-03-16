@@ -209,7 +209,6 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             onModify={(positionId) => data.handleModifyPosition(positionId, {})}
             onRefresh={data.refreshData}
             wallet={data.wallet}
-            onViewChart={handleViewChart}
             livePrices={data.prices}
             onNewTrade={(symbol) => {
               data.setSelectedSymbol(symbol);
