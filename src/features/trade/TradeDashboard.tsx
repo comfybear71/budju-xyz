@@ -304,6 +304,70 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             onRefresh={data.refreshData}
           />
         )}
+
+        {/* Win/Loss badges strip — always visible */}
+        {data.account && data.account.metrics.total_trades > 0 && (
+          <div className="mt-3">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Results</span>
+              <span className="text-[10px] text-slate-400">
+                {data.account.metrics.winning_trades}W / {data.account.metrics.losing_trades}L
+              </span>
+              <span className="text-[10px] font-bold text-slate-300">
+                {data.account.metrics.win_rate.toFixed(0)}%
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {data.trades.map((trade, i) => (
+                <span
+                  key={i}
+                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                    trade.realized_pnl >= 0 ? "bg-emerald-400" : "bg-red-400"
+                  }`}
+                  title={`${trade.symbol} ${trade.realized_pnl >= 0 ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Paper / Live / Kill controls */}
+        {data.wallet && (
+          <div className="flex items-center flex-wrap gap-1.5 mt-3">
+            <button
+              onClick={data.handleKillSwitch}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                data.isKillSwitchActive
+                  ? "bg-red-600/30 text-red-200 border-red-500/60 animate-pulse"
+                  : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
+              }`}
+            >
+              {data.isKillSwitchActive ? "🚨 KILL ON" : "🚨 KILL"}
+            </button>
+            <button
+              onClick={data.handleSwitchMode}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                data.isLive
+                  ? "bg-red-500/20 text-red-300 border-red-500/40"
+                  : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40"
+              }`}
+            >
+              {data.isLive ? "🔴 LIVE" : "📝 PAPER"}
+            </button>
+            {data.autoTradingEnabled !== null && (
+              <button
+                onClick={data.handleToggleBot}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                  data.autoTradingEnabled
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                    : "bg-red-500/20 text-red-300 border-red-500/40"
+                }`}
+              >
+                {data.autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
