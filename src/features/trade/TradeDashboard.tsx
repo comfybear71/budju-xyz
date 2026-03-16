@@ -10,6 +10,7 @@ import PerpTradeHistory from "./components/perps/PerpTradeHistory";
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
 const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
 const PerpStrategyPanel = lazy(() => import("./components/perps/PerpStrategyPanel"));
+const StrategyMarquee = lazy(() => import("./components/perps/StrategyMarquee"));
 
 const ChartLoader = () => (
   <div className="flex items-center justify-center h-full bg-slate-900/50 rounded-xl">
@@ -26,6 +27,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
   const [showTradeHistory, setShowTradeHistory] = useState(false);
+  const [showOrderForm, setShowOrderForm] = useState(true);
 
   // Page title
   useEffect(() => {
@@ -69,6 +71,10 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         </div>
       )}
 
+      {/* Strategy opportunity marquee */}
+      <Suspense fallback={null}>
+        <StrategyMarquee />
+      </Suspense>
 
       {/* Account summary — compact row */}
       {data.account && (
@@ -167,20 +173,38 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         {/* RIGHT sidebar removed — signals available via dedicated tab later */}
       </div>
 
-      {/* Order form — always visible */}
-      <div className="p-3">
-        <Suspense fallback={<ChartLoader />}>
-          <PerpOrderForm
-            markets={data.markets}
-            prices={data.prices}
-            maxBalance={data.account?.balance || 0}
-            onSubmit={data.handlePlaceOrder}
-            loading={data.loading}
-            initialSymbol={data.selectedSymbol}
-            hideMarketSelect
-            wallet={data.wallet}
-          />
-        </Suspense>
+      {/* Order form — collapsible */}
+      <div className="px-3 pt-3">
+        <button
+          onClick={() => setShowOrderForm(!showOrderForm)}
+          className="flex items-center gap-2 w-full mb-2"
+        >
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Trade
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showOrderForm ? "rotate-180" : ""}`}
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {showOrderForm && (
+          <Suspense fallback={<ChartLoader />}>
+            <PerpOrderForm
+              markets={data.markets}
+              prices={data.prices}
+              maxBalance={data.account?.balance || 0}
+              onSubmit={data.handlePlaceOrder}
+              loading={data.loading}
+              initialSymbol={data.selectedSymbol}
+              hideMarketSelect
+              wallet={data.wallet}
+            />
+          </Suspense>
+        )}
       </div>
 
       {/* Positions — collapsible, below order form */}
