@@ -851,7 +851,7 @@ const Trade = () => {
               {/* ─── High Risk View (new trading dashboard) ─── */}
               {showHighRisk && (
                 <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="text-sm text-slate-400 animate-pulse">Loading dashboard...</div></div>}>
-                  <TradeDashboard onClose={() => setShowHighRisk(false)} />
+                  <TradeDashboard onClose={() => setShowHighRisk(false)} isAdmin={isAdmin} />
                 </Suspense>
               )}
 

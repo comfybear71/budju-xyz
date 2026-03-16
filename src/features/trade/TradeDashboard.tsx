@@ -20,9 +20,10 @@ const ChartLoader = () => (
 
 interface TradeDashboardProps {
   onClose?: () => void;
+  isAdmin?: boolean;
 }
 
-const TradeDashboard = (_props: TradeDashboardProps) => {
+const TradeDashboard = ({ isAdmin = false }: TradeDashboardProps) => {
   const data = useDashboardData();
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
@@ -164,6 +165,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
               onModify={data.handleModifyPosition}
               onViewChart={handleViewChart}
               onRefresh={data.refreshData}
+              readOnly={!isAdmin}
             />
           </div>
         </div>
@@ -179,8 +181,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
                 trades={data.trades.filter((t) => t.symbol === data.selectedSymbol)}
                 height={undefined}
                 strategyStatus={data.strategyStatus}
-                onModifySLTP={(positionId, mods) => data.handleModifyPosition(positionId, mods)}
-                onClosePosition={(positionId, exitPrice) => data.handleClosePosition(positionId, exitPrice)}
+                onModifySLTP={isAdmin ? (positionId, mods) => data.handleModifyPosition(positionId, mods) : undefined}
+                onClosePosition={isAdmin ? (positionId, exitPrice) => data.handleClosePosition(positionId, exitPrice) : undefined}
               />
             </Suspense>
           </div>
@@ -189,7 +191,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
         {/* RIGHT sidebar removed — signals available via dedicated tab later */}
       </div>
 
-      {/* Order form — collapsible */}
+      {/* Order form — collapsible, admin only */}
+      {isAdmin && (
       <div className="px-3 pt-3">
         <button
           onClick={() => setShowOrderForm(!showOrderForm)}
@@ -222,6 +225,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
           </Suspense>
         )}
       </div>
+      )}
 
       {/* Positions — collapsible, below order form */}
       <div className="px-3 pb-3 pt-2">
@@ -255,15 +259,17 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             wallet={data.wallet}
             livePrices={data.prices}
             onViewChart={handleViewChart}
-            onNewTrade={(symbol) => {
+            readOnly={!isAdmin}
+            onNewTrade={isAdmin ? (symbol) => {
               data.setSelectedSymbol(symbol);
               setShowOrderForm(true);
               window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
+            } : undefined}
           />
         )}
 
-        {/* Strategies — collapsible, below positions */}
+        {/* Strategies — collapsible, below positions, admin only */}
+        {isAdmin && (<>
         <button
           onClick={() => setShowStrategies(!showStrategies)}
           className="flex items-center gap-2 w-full mb-2 mt-3"
@@ -292,6 +298,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             </Suspense>
           </div>
         )}
+        </>)}
 
         {/* Trade History — collapsible, below strategies */}
         <button
@@ -398,8 +405,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
           );
         })()}
 
-        {/* Paper / Live / Kill controls */}
-        {data.wallet && (
+        {/* Paper / Live / Kill controls — admin only */}
+        {isAdmin && data.wallet && (
           <div className="flex items-center flex-wrap gap-1.5 mt-3">
             <button
               onClick={data.handleKillSwitch}
