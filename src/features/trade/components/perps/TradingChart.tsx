@@ -869,6 +869,13 @@ const TradingChart = ({
     addPositionLines();
   }, [showPositionLines, addPositionLines]);
 
+  // Re-draw position lines whenever positions change (new trade, SL/TP update)
+  useEffect(() => {
+    if (showPositionLines && positions.length > 0) {
+      addPositionLines(true);
+    }
+  }, [positions]);
+
   // ── Toggle volume visibility ───────────────────────────
 
   useEffect(() => {
