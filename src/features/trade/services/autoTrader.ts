@@ -152,6 +152,9 @@ export class AutoTrader {
   // Debounce timer for tier settings save (slider drags fire onChange rapidly)
   private _saveTierSettingsTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Pending save retry — if DB save fails, retry on next opportunity
+  private _pendingTierSave = false;
+
   // ── Computed ─────────────────────────────────────────────
 
   get isActive(): boolean {
@@ -190,8 +193,10 @@ export class AutoTrader {
     const state = await fetchTraderState();
     if (!state) return;
 
-    // Load tier settings
+    // Load tier settings — DB values take priority, localStorage is fallback
     const tierAssets = state.autoTierAssets || {};
+    const localSettings = this._loadSettingsFromLocalStorage();
+
     for (const [key, cfg] of Object.entries(tierAssets)) {
       const tierKey = key.startsWith("tier") ? key : `tier${key}`;
       if (this.tierSettings[tierKey]) {
@@ -199,6 +204,23 @@ export class AutoTrader {
           deviation: Number((cfg as any).deviation) || this.tierSettings[tierKey].deviation,
           allocation: Number((cfg as any).allocation) || this.tierSettings[tierKey].allocation,
         };
+      }
+    }
+
+    // If localStorage has different values, it means a previous DB save failed.
+    // Use localStorage values (more recent user intent) and flag for retry.
+    if (localSettings) {
+      let mismatch = false;
+      for (const [tierKey, localTier] of Object.entries(localSettings)) {
+        const dbTier = this.tierSettings[tierKey];
+        if (dbTier && (dbTier.deviation !== localTier.deviation || dbTier.allocation !== localTier.allocation)) {
+          mismatch = true;
+          this.tierSettings[tierKey] = { ...localTier };
+        }
+      }
+      if (mismatch) {
+        this._pendingTierSave = true;
+        this._log("Tier settings restored from local cache — will sync to server", "info");
       }
     }
 
@@ -378,6 +400,9 @@ export class AutoTrader {
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
     this.tierSettings[key] = { ...this.tierSettings[key], ...settings };
+
+    // Save to localStorage immediately (synchronous, can't fail)
+    this._saveSettingsToLocalStorage();
 
     // Debounce server save — slider onChange fires on every drag pixel,
     // flooding the API with concurrent POSTs that race/fail silently.
@@ -569,6 +594,11 @@ export class AutoTrader {
     if (!this.isActive || !this._isOwner) {
       this._stopMonitoring();
       return;
+    }
+
+    // Retry any pending tier settings save that previously failed
+    if (this._pendingTierSave) {
+      this.retryPendingSave();
     }
 
     this._checkCount++;
@@ -1017,10 +1047,50 @@ export class AutoTrader {
     }
 
     try {
-      await saveTraderState(this._adminWallet, { autoTiers });
-    } catch {
-      // Non-critical
+      const result = await saveTraderState(this._adminWallet, { autoTiers });
+      if (result.success) {
+        this._pendingTierSave = false;
+        // Sync localStorage to match what's now in DB
+        this._saveSettingsToLocalStorage();
+      } else {
+        this._pendingTierSave = true;
+        this._log(`Tier settings save failed: ${result.error || "unknown"} — cached locally`, "error");
+      }
+    } catch (err: any) {
+      this._pendingTierSave = true;
+      this._log(`Tier settings save error: ${err.message || "unknown"} — cached locally`, "error");
     }
+  }
+
+  /** Save tier settings to localStorage as immediate backup */
+  private _saveSettingsToLocalStorage() {
+    try {
+      const data: Record<string, TierSettings> = {};
+      for (let t = 1; t <= 3; t++) {
+        data[`tier${t}`] = { ...this.tierSettings[`tier${t}`] };
+      }
+      localStorage.setItem("budju_tier_settings", JSON.stringify(data));
+    } catch {
+      // localStorage full or unavailable — not critical
+    }
+  }
+
+  /** Load tier settings from localStorage (fallback when DB save failed) */
+  private _loadSettingsFromLocalStorage(): Record<string, TierSettings> | null {
+    try {
+      const raw = localStorage.getItem("budju_tier_settings");
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Retry any pending tier settings save (called from monitoring loop) */
+  async retryPendingSave(): Promise<void> {
+    if (!this._pendingTierSave || !this._adminWallet) return;
+    this._log("Retrying pending tier settings save...", "info");
+    await this._saveTierSettings();
   }
 
   private async _saveTierAssignments() {

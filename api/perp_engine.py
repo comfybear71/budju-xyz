@@ -165,37 +165,43 @@ def set_trading_mode(wallet: str, mode: str) -> Dict:
 
 def set_kill_switch(wallet: str, active: bool) -> Dict:
     """Activate or deactivate the kill switch.
-    When active: closes all live positions immediately and pauses trading.
+    When active: closes ALL positions (paper + live) and pauses trading.
     """
     account = get_or_create_account(wallet)
+    close_result = None
 
-    if active and account.get("trading_mode") == "live":
-        # Close all exchange positions immediately
-        try:
-            from perp_exchange import emergency_close_all
-            close_result = emergency_close_all()
-        except Exception as e:
-            close_result = {"error": str(e)}
+    if active:
+        # Close exchange positions if in live mode
+        if account.get("trading_mode") == "live":
+            try:
+                from perp_exchange import emergency_close_all
+                close_result = emergency_close_all()
+            except Exception as e:
+                close_result = {"error": str(e)}
 
-        # Also close all local DB positions
+        # Close ALL local DB positions (paper AND live)
         open_positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+        closed_count = 0
         for pos in open_positions:
             try:
                 close_position(str(pos["_id"]), pos.get("mark_price", pos["entry_price"]),
                               "kill_switch", "Emergency kill switch activated")
+                closed_count += 1
             except Exception:
-                pass
+                # Force-close if normal close fails
+                perp_positions.update_one(
+                    {"_id": pos["_id"]},
+                    {"$set": {"status": "closed", "close_reason": "kill_switch_forced",
+                              "closed_at": datetime.utcnow()}}
+                )
+                closed_count += 1
 
-        perp_accounts.update_one(
-            {"wallet": wallet},
-            {"$set": {
-                "kill_switch": True,
-                "trading_paused": True,
-                "updated_at": datetime.utcnow(),
-            }}
+        # Also cancel all pending orders
+        perp_orders.update_many(
+            {"account_id": wallet, "status": "pending"},
+            {"$set": {"status": "cancelled", "cancel_reason": "kill_switch",
+                      "updated_at": datetime.utcnow()}}
         )
-
-        return {**get_or_create_account(wallet), "exchange_close_result": close_result}
 
     perp_accounts.update_one(
         {"wallet": wallet},
@@ -205,7 +211,13 @@ def set_kill_switch(wallet: str, active: bool) -> Dict:
             "updated_at": datetime.utcnow(),
         }}
     )
-    return get_or_create_account(wallet)
+
+    result = get_or_create_account(wallet)
+    if close_result:
+        result["exchange_close_result"] = close_result
+    if active:
+        result["positions_closed"] = closed_count
+    return result
 
 
 def reset_account(wallet: str) -> Dict:
