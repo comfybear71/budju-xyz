@@ -497,7 +497,19 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
         )}
 
         {/* Account summary — visible to all (shows equity, balance, P&L) */}
-        {account && <PerpAccountSummary account={account} />}
+        {/* Compute live-adjusted unrealized P&L from positions + live prices */}
+        {account && (() => {
+          const liveUnrealized = positions.reduce((sum, pos) => {
+            const livePrice = prices[pos.symbol] || pos.mark_price;
+            const priceDelta = pos.direction === "long"
+              ? livePrice - pos.mark_price
+              : pos.mark_price - livePrice;
+            const adjustment = (priceDelta / pos.entry_price) * pos.size_usd;
+            return sum + pos.unrealized_pnl + adjustment;
+          }, 0);
+          const liveEquity = account.balance + positions.reduce((s, p) => s + p.margin, 0) + liveUnrealized;
+          return <PerpAccountSummary account={{ ...account, unrealized_pnl: liveUnrealized, equity: liveEquity }} />;
+        })()}
         {!account && !initialLoading && !effectiveReadOnly && (
           <PerpAccountSummary account={{
             wallet: wallet || "", balance: 10000, equity: 10000,
