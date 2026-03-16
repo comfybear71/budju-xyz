@@ -335,8 +335,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                             await onModify(pos._id, mods);
                             setModifyId(null);
                             onRefresh?.();
-                          } catch {
-                            setActionError("Failed to modify");
+                          } catch (err) {
+                            setActionError(err instanceof Error ? err.message : "Failed to modify");
                           } finally {
                             setActionLoading(null);
                           }

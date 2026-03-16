@@ -249,13 +249,15 @@ export function useDashboardData(): DashboardData {
     positionId: string,
     mods: { stopLoss?: number; takeProfit?: number; trailingStopPct?: number },
   ) => {
-    if (!wallet) { setError("Wallet not connected"); return; }
+    if (!wallet) { setError("Wallet not connected"); throw new Error("Wallet not connected"); }
     try {
       setActionLoading(true);
       await modifyPerpPosition(positionId, mods, wallet);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to modify");
+      const msg = err instanceof Error ? err.message : "Failed to modify";
+      setError(msg);
+      throw err;
     } finally {
       setActionLoading(false);
     }
