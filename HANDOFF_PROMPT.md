@@ -796,11 +796,38 @@ Then visit `https://budju.xyz/spot` to use the trading dashboard with live VPS p
 
 2. **Strategy scroll showing symbols with open positions** — StrategyMarquee showed strategy opportunities for markets where the user already had open positions. Fixed by filtering opportunities against open position symbols.
 
+3. **Jupiter wallet 404 error** — Jupiter wallet extension uses Wallet Standard registration (not `window.jupiter`), so it was never detected. Mobile deep link pointed to static `jup.ag/wallet` page (404). Fixed with full Wallet Standard integration via `@wallet-standard/app`.
+
+### Jupiter Wallet Integration (March 16, 2026)
+
+**Problem:** Users trying to connect via Jupiter wallet got a 404 error. Two root causes:
+- **Desktop:** Jupiter browser extension registers via Wallet Standard (`wallet-standard:register-wallet` event), not `window.jupiter`. The code only checked `window.jupiter`, so the extension was never detected.
+- **Mobile:** Deep link was `https://jup.ag/wallet` (a static marketing page), not a proper deep link. Jupiter Mobile has no public deep link scheme like Phantom/Solflare.
+
+**Solution:**
+
+1. **Installed `@wallet-standard/app`** — Provides `getWallets()` to discover Wallet Standard wallets (Jupiter extension, and any future wallets using the standard).
+
+2. **Rewrote `connection.ts`** — Added `findJupiterStandardWallet()` which queries the Wallet Standard registry for a wallet named "Jupiter" supporting `solana:` chains. Added `wrapStandardWallet()` to wrap Wallet Standard wallets into our `SolanaWallet` interface (mapping `standard:connect`, `solana:signTransaction`, `solana:signAndSendTransaction`, `solana:signMessage` features). Created centralized `getWalletProvider(walletName?)` exported function used by all files.
+
+3. **Simplified `useWallet.tsx`** — Extracted repeated ~60-line inline wallet adapter construction into `buildWalletAdapter()` helper. All 6 provider lookups now go through `getWalletProvider()`.
+
+4. **Updated all provider lookups** across `tradeApi.ts`, `useTrading.ts`, `BankJLP.tsx`, and `WalletConnect/index.tsx` to use `getWalletProvider()`.
+
+5. **Fixed mobile flow** — Instead of redirecting to a 404 page, Jupiter mobile now shows a helpful message: "Open budju.xyz in Jupiter Mobile's built-in browser to connect."
+
 ### Files Changed
 - `src/features/trade/components/perps/HighRiskDashboard.tsx` — Live P&L calculation for account summary
 - `src/features/trade/TradeDashboard.tsx` — Live P&L for compact summary row + pass openSymbols to StrategyMarquee
 - `src/features/trade/components/perps/StrategyMarquee.tsx` — Accept openSymbols prop, filter out traded symbols
+- `src/lib/web3/connection.ts` — Wallet Standard integration, centralized `getWalletProvider()`
+- `src/hooks/useWallet.tsx` — `buildWalletAdapter()` helper, uses `getWalletProvider()`
+- `src/hooks/useTrading.ts` — Uses `getWalletProvider()`
+- `src/features/trade/services/tradeApi.ts` — Uses `getWalletProvider()`
+- `src/features/bank/components/BankJLP.tsx` — Uses `getWalletProvider()`
+- `src/components/common/WalletConnect/index.tsx` — Jupiter mobile guidance, desktop Wallet Standard detection
+- `package.json` — Added `@wallet-standard/app`, `@solana/wallet-standard-features`
 
 ---
 
-*Last updated: March 16, 2026 (Session 5: Live unrealized P&L fix + strategy scroll filtering).*
+*Last updated: March 16, 2026 (Session 5: Live P&L fix + Jupiter wallet integration).*

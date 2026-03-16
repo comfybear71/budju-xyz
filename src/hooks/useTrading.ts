@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@hooks/useWallet";
+import { getWalletProvider } from "@lib/web3/connection";
 import { VersionedTransaction, Connection } from "@solana/web3.js";
 import {
   initializeTokenRegistry,
@@ -194,7 +195,7 @@ export const useTrading = (
       console.log("Signing transaction...");
 
       // For versioned transactions, we need to handle it differently based on wallet
-      const provider = window.solana || window.solflare || window.jupiter;
+      const provider = getWalletProvider();
       if (!provider) throw new Error("No wallet provider found");
 
       try {

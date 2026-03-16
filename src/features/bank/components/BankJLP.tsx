@@ -9,6 +9,7 @@ import {
 } from "react-icons/fa";
 import { useTheme } from "@/context/ThemeContext";
 import { useWallet } from "@hooks/useWallet";
+import { getWalletProvider } from "@lib/web3/connection";
 import { VersionedTransaction, Connection } from "@solana/web3.js";
 import WalletConnect from "@components/common/WalletConnect";
 import {
@@ -204,10 +205,7 @@ const BankJLP = () => {
       const versionedTx = VersionedTransaction.deserialize(txBuffer);
 
       const provider =
-        (window as any).phantom?.solana ||
-        window.solana ||
-        window.solflare ||
-        (window as any).jupiter;
+        getWalletProvider();
 
       if (!provider) throw new Error("No wallet provider found");
 

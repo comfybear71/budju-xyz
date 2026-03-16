@@ -7,6 +7,7 @@
 // ============================================================
 
 import { getActivityLog } from "./activityLog";
+import { getWalletProvider } from "@lib/web3/connection";
 const alog = getActivityLog();
 
 // ── Types ──────────────────────────────────────────────────
@@ -141,11 +142,7 @@ let _cachedAuthTime = 0;
 const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
 
 function _getWalletProvider(): any {
-  return (window as any).phantom?.solana
-    || (window as any).solana
-    || (window as any).solflare
-    || (window as any).jupiter
-    || null;
+  return getWalletProvider();
 }
 
 /**

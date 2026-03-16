@@ -14,6 +14,7 @@ import {
   disconnectWallet,
   formatWalletAddress,
   checkWalletsAvailability,
+  getWalletProvider,
   WalletInfo,
 } from "@lib/web3/connection";
 import walletService, {
@@ -88,6 +89,69 @@ const customTokens = [
   },
 ];
 
+/** Build ExtendedWallet adapter from connection state using centralized provider resolution */
+function buildWalletAdapter(
+  connectionState: ConnectionState,
+): ExtendedWallet | null {
+  if (!connectionState.connected || !connectionState.wallet) return null;
+  const walletName = connectionState.wallet.name;
+
+  return {
+    ...connectionState.wallet,
+    signTransaction: async (tx: Transaction | VersionedTransaction) => {
+      const provider = getWalletProvider(walletName);
+      if (!provider) throw new Error("No wallet provider found");
+      if (typeof provider.signTransaction !== "function") {
+        throw new Error("Wallet does not support signTransaction method");
+      }
+      return await provider.signTransaction(tx);
+    },
+    sendTransaction: async (tx: Transaction | VersionedTransaction) => {
+      const provider = getWalletProvider(walletName);
+      if (!provider) throw new Error("No wallet provider found");
+
+      if (tx instanceof Transaction) {
+        if (typeof provider.signTransaction !== "function") {
+          throw new Error("Wallet does not support signTransaction method");
+        }
+        const signedTx = await provider.signTransaction(tx);
+        const solConnection = new Connection(connectionState.rpcEndpoint);
+        return await solConnection.sendRawTransaction(signedTx.serialize());
+      }
+
+      if (typeof provider.signAndSendTransaction === "function") {
+        const result = await provider.signAndSendTransaction(tx);
+        return result.signature;
+      } else {
+        if (typeof provider.signTransaction !== "function") {
+          throw new Error("Wallet does not support signTransaction method");
+        }
+        const signedTx = await provider.signTransaction(tx);
+        const solConnection = new Connection(connectionState.rpcEndpoint);
+        return await solConnection.sendRawTransaction(signedTx.serialize());
+      }
+    },
+    signAndSendTransaction: async (tx: VersionedTransaction) => {
+      const provider = getWalletProvider(walletName);
+      if (!provider) throw new Error("No wallet provider found");
+
+      if (typeof provider.signAndSendTransaction === "function") {
+        return await provider.signAndSendTransaction(tx);
+      }
+
+      if (typeof provider.signTransaction !== "function") {
+        throw new Error("Wallet does not support signTransaction method");
+      }
+      const signedTx = await provider.signTransaction(tx);
+      const solConnection = new Connection(connectionState.rpcEndpoint);
+      const signature = await solConnection.sendRawTransaction(
+        signedTx.serialize(),
+      );
+      return { signature };
+    },
+  };
+}
+
 // Provider component
 export const WalletProvider: React.FC<{ children: ReactNode }> = ({
   children,
@@ -131,93 +195,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       try {
         setConnecting(true);
         const connectionState = await checkWalletConnection();
-        const walletAdapter: ExtendedWallet | null =
-          connectionState.connected && connectionState.wallet
-            ? {
-                ...connectionState.wallet,
-                signTransaction: async (
-                  tx: Transaction | VersionedTransaction,
-                ) => {
-                  const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                  if (!provider) throw new Error("No wallet provider found");
-
-                  // Check if the wallet has the signTransaction method
-                  if (typeof provider.signTransaction === "function") {
-                    return await provider.signTransaction(tx);
-                  }
-                  throw new Error(
-                    "Wallet does not support signTransaction method",
-                  );
-                },
-                sendTransaction: async (
-                  tx: Transaction | VersionedTransaction,
-                ) => {
-                  const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                  if (!provider) throw new Error("No wallet provider found");
-
-                  // Handle legacy transactions
-                  if (tx instanceof Transaction) {
-                    if (typeof provider.signTransaction !== "function") {
-                      throw new Error(
-                        "Wallet does not support signTransaction method",
-                      );
-                    }
-                    const signedTx = await provider.signTransaction(tx);
-                    const solConnection = new Connection(
-                      connectionState.rpcEndpoint,
-                    );
-                    return await solConnection.sendRawTransaction(
-                      signedTx.serialize(),
-                    );
-                  }
-
-                  // Handle versioned transactions
-                  // First check if the wallet supports signAndSendTransaction
-                  if (typeof provider.signAndSendTransaction === "function") {
-                    const result = await provider.signAndSendTransaction(tx);
-                    return result.signature;
-                  } else {
-                    // Otherwise handle signing and sending separately
-                    if (typeof provider.signTransaction !== "function") {
-                      throw new Error(
-                        "Wallet does not support signTransaction method",
-                      );
-                    }
-                    const signedTx = await provider.signTransaction(tx);
-                    const solConnection = new Connection(
-                      connectionState.rpcEndpoint,
-                    );
-                    return await solConnection.sendRawTransaction(
-                      signedTx.serialize(),
-                    );
-                  }
-                },
-                signAndSendTransaction: async (tx: VersionedTransaction) => {
-                  const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                  if (!provider) throw new Error("No wallet provider found");
-
-                  // If wallet supports it directly
-                  if (typeof provider.signAndSendTransaction === "function") {
-                    return await provider.signAndSendTransaction(tx);
-                  }
-
-                  // Otherwise simulate it
-                  if (typeof provider.signTransaction !== "function") {
-                    throw new Error(
-                      "Wallet does not support signTransaction method",
-                    );
-                  }
-                  const signedTx = await provider.signTransaction(tx);
-                  const solConnection = new Connection(
-                    connectionState.rpcEndpoint,
-                  );
-                  const signature = await solConnection.sendRawTransaction(
-                    signedTx.serialize(),
-                  );
-                  return { signature };
-                },
-              }
-            : null;
+        const walletAdapter = buildWalletAdapter(connectionState);
         setConnection({ ...connectionState, wallet: walletAdapter });
         if (connectionState.error) setError(connectionState.error);
         else setError(null);
@@ -259,72 +237,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
       setError(null);
 
       const connectionState = await connectWallet(walletName);
-      const walletAdapter: ExtendedWallet | null =
-        connectionState.connected && connectionState.wallet
-          ? {
-              ...connectionState.wallet,
-              signTransaction: async (
-                tx: Transaction | VersionedTransaction,
-              ) => {
-                const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                if (!provider) throw new Error("No wallet provider found");
-                return await provider.signTransaction(tx);
-              },
-              sendTransaction: async (
-                tx: Transaction | VersionedTransaction,
-              ) => {
-                const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                if (!provider) throw new Error("No wallet provider found");
-
-                // Handle legacy transactions
-                if (tx instanceof Transaction) {
-                  const signedTx = await provider.signTransaction(tx);
-                  const solConnection = new Connection(
-                    connectionState.rpcEndpoint,
-                  );
-                  return await solConnection.sendRawTransaction(
-                    signedTx.serialize(),
-                  );
-                }
-
-                // Handle versioned transactions
-                // First check if the wallet supports signAndSendTransaction
-                if (provider.signAndSendTransaction) {
-                  const { signature } =
-                    await provider.signAndSendTransaction(tx);
-                  return signature;
-                } else {
-                  // Otherwise handle signing and sending separately
-                  const signedTx = await provider.signTransaction(tx);
-                  const solConnection = new Connection(
-                    connectionState.rpcEndpoint,
-                  );
-                  return await solConnection.sendRawTransaction(
-                    signedTx.serialize(),
-                  );
-                }
-              },
-              signAndSendTransaction: async (tx: VersionedTransaction) => {
-                const provider = (window as any).phantom?.solana || window.solana || window.solflare || (window as any).jupiter;
-                if (!provider) throw new Error("No wallet provider found");
-
-                // If wallet supports it directly
-                if (provider.signAndSendTransaction) {
-                  return await provider.signAndSendTransaction(tx);
-                }
-
-                // Otherwise simulate it
-                const signedTx = await provider.signTransaction(tx);
-                const solConnection = new Connection(
-                  connectionState.rpcEndpoint,
-                );
-                const signature = await solConnection.sendRawTransaction(
-                  signedTx.serialize(),
-                );
-                return { signature };
-              },
-            }
-          : null;
+      const walletAdapter = buildWalletAdapter(connectionState);
 
       setConnection({ ...connectionState, wallet: walletAdapter });
 
