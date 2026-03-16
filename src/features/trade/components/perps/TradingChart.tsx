@@ -82,12 +82,26 @@ function formatPrice(price: number): string {
 
 type Signal = "LONG" | "SHORT" | "SCALP LONG" | "SCALP SHORT" | "HOLD";
 
+interface AIEntryZone {
+  longEntry: number;   // Price where AI would trigger a long
+  shortEntry: number;  // Price where AI would trigger a short
+  bbUpper: number;     // Upper Bollinger Band
+  bbLower: number;     // Lower Bollinger Band
+  bbMiddle: number;    // Middle band (SMA 20)
+  ema50: number;       // 50-period EMA trend filter
+  longReady: boolean;  // All conditions met for long (trend + RSI)
+  shortReady: boolean; // All conditions met for short (trend + RSI)
+  longReason: string;  // Why long is ready/blocked
+  shortReason: string; // Why short is ready/blocked
+}
+
 interface Prediction {
   points: { time: Time; value: number }[];
   signal: Signal;
   confidence: number; // 0-100
   targetPrice: number;
   strategies?: StrategyBreakdown;
+  entryZones?: AIEntryZone;
 }
 
 interface StrategyBreakdown {
@@ -219,7 +233,84 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     },
   };
 
-  return { points, signal, confidence: Math.max(confidence, 10), targetPrice, strategies };
+  // 9. AI Entry Zones — compute Bollinger Bands + EMA50 + RSI conditions
+  // Matches server-side strategy triggers: price level + RSI + trend filter must ALL align
+  const bbPeriod = 20;
+  const bbStd = 2.0;
+  const ema50Period = 50;
+
+  let entryZones: AIEntryZone | undefined;
+  if (closes.length >= bbPeriod) {  // Only need 20 candles (BB period), EMA50 adapts
+    // Bollinger Bands
+    const bbSlice = closes.slice(-bbPeriod);
+    const bbMean = bbSlice.reduce((s, v) => s + v, 0) / bbPeriod;
+    const bbVariance = bbSlice.reduce((s, v) => s + (v - bbMean) ** 2, 0) / bbPeriod;
+    const bbStdDev = Math.sqrt(bbVariance);
+    const bbUpper = bbMean + bbStd * bbStdDev;
+    const bbLower = bbMean - bbStd * bbStdDev;
+
+    // EMA 50 (trend filter) — adapts to available data, min 20 candles
+    const emaLen = Math.min(ema50Period, closes.length);
+    const ema50Slice = closes.slice(-emaLen);
+    let ema50Val = ema50Slice[0];
+    const k50 = 2 / (emaLen + 1);
+    for (let i = 1; i < ema50Slice.length; i++) {
+      ema50Val = ema50Slice[i] * k50 + ema50Val * (1 - k50);
+    }
+
+    // Long entry: blend of lower BB, EMA support, and current price — moves dynamically
+    const longBB = bbLower;
+    const longEMA = Math.min(ema50Val, currentPrice * 0.998);
+    const longEntry = longBB * 0.4 + longEMA * 0.3 + currentPrice * 0.997 * 0.3;
+    // Short entry: blend of upper BB, EMA resistance, and current price — moves dynamically
+    const shortBB = bbUpper;
+    const shortEMA = Math.max(ema50Val, currentPrice * 1.002);
+    const shortEntry = shortBB * 0.4 + shortEMA * 0.3 + currentPrice * 1.003 * 0.3;
+
+    // Check if conditions are met (matching server-side perp_strategies.py logic)
+    // Long requires: price above EMA50 (trend filter) + RSI not overbought
+    const trendAllowsLong = currentPrice > ema50Val;
+    const rsiAllowsLong = rsi < 70;
+    const longReady = trendAllowsLong && rsiAllowsLong;
+    let longReason = "";
+    if (longReady) {
+      longReason = "Trend + RSI aligned";
+    } else {
+      const blocks: string[] = [];
+      if (!trendAllowsLong) blocks.push("price below EMA50");
+      if (!rsiAllowsLong) blocks.push(`RSI overbought (${rsi.toFixed(0)})`);
+      longReason = `Blocked: ${blocks.join(", ")}`;
+    }
+
+    // Short requires: price below EMA50 (trend filter) + RSI not oversold
+    const trendAllowsShort = currentPrice < ema50Val;
+    const rsiAllowsShort = rsi > 30;
+    const shortReady = trendAllowsShort && rsiAllowsShort;
+    let shortReason = "";
+    if (shortReady) {
+      shortReason = "Trend + RSI aligned";
+    } else {
+      const blocks: string[] = [];
+      if (!trendAllowsShort) blocks.push("price above EMA50");
+      if (!rsiAllowsShort) blocks.push(`RSI oversold (${rsi.toFixed(0)})`);
+      shortReason = `Blocked: ${blocks.join(", ")}`;
+    }
+
+    entryZones = {
+      longEntry,
+      shortEntry,
+      bbUpper,
+      bbLower,
+      bbMiddle: bbMean,
+      ema50: ema50Val,
+      longReady,
+      shortReady,
+      longReason,
+      shortReason,
+    };
+  }
+
+  return { points, signal, confidence: Math.max(confidence, 10), targetPrice, strategies, entryZones };
 }
 
 // ── Component ────────────────────────────────────────────────
@@ -232,6 +323,7 @@ const TradingChart = ({
   height = 300,
   compact = false,
 }: Props) => {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -249,6 +341,7 @@ const TradingChart = ({
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(true);
   const [showStrategyInfo, setShowStrategyInfo] = useState(false);
+  const lastEntryZonesRef = useRef<AIEntryZone | null>(null);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -263,8 +356,15 @@ const TradingChart = ({
       chartRef.current = null;
     }
 
+    // On iOS Safari, clientWidth can be 0 if the element hasn't been laid out yet.
+    // Fall back to the wrapper's width or a sensible default to prevent a 0-width canvas.
+    const containerWidth = containerRef.current.clientWidth
+      || wrapperRef.current?.clientWidth
+      || containerRef.current.getBoundingClientRect().width
+      || 300;
+
     const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
+      width: containerWidth,
       height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
@@ -280,7 +380,8 @@ const TradingChart = ({
         timeVisible: true,
         secondsVisible: false,
         borderColor: "transparent",
-        rightOffset: 5,
+        rightOffset: 20,
+        barSpacing: 4,
       },
       crosshair: {
         mode: 0, // Normal crosshair
@@ -319,9 +420,11 @@ const TradingChart = ({
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
+      lastValueVisible: false,
     });
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.85, bottom: 0 },
+      drawTicks: false,
     });
 
     // ML Prediction line — blue dashed projection
@@ -341,15 +444,26 @@ const TradingChart = ({
     volumeSeriesRef.current = volumeSeries;
     predictionSeriesRef.current = predictionSeries;
 
-    // Resize handler
-    const ro = new ResizeObserver(() => {
-      if (containerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
-      }
+    // Resize handler — debounced for iOS Safari which fires rapidly during
+    // orientation changes and scroll bouncing. Guards against 0-width which
+    // causes lightweight-charts to render an invisible canvas on iOS.
+    let resizeRafId: number | null = null;
+    const ro = new ResizeObserver((entries) => {
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
+      resizeRafId = requestAnimationFrame(() => {
+        resizeRafId = null;
+        if (!containerRef.current || !chartRef.current) return;
+        const entry = entries[0];
+        const newWidth = entry?.contentRect?.width || containerRef.current.clientWidth;
+        if (newWidth > 0) {
+          chartRef.current.applyOptions({ width: newWidth });
+        }
+      });
     });
     ro.observe(containerRef.current);
 
     return () => {
+      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
@@ -384,6 +498,15 @@ const TradingChart = ({
             setPriceChange(((last.close - first.close) / first.close) * 100);
           }
         }
+
+        // Default zoom: show last ~200 candles (~3.3 hrs) for good overview
+        // Use scrollToRealTime() which respects rightOffset for right-side padding
+        if (chartRef.current && historical.length > 200) {
+          const fromTime = historical[historical.length - 200].time;
+          const toTime = historical[historical.length - 1].time;
+          chartRef.current.timeScale().setVisibleRange({ from: fromTime, to: toTime });
+          chartRef.current.timeScale().scrollToRealTime();
+        }
       }
 
       // Add trade markers
@@ -391,13 +514,17 @@ const TradingChart = ({
       // Add position lines
       addPositionLines();
 
-      // Compute initial prediction
-      if (showPrediction && historical.length >= 60) {
-        const pred = computePrediction(historical);
+      // Compute initial prediction + AI entry zones
+      if (showPrediction && historical.length >= 50) {
+        const pred = computePrediction(historical, Math.min(60, historical.length - 1));
         if (pred && predictionSeriesRef.current) {
           predictionSeriesRef.current.setData(pred.points);
           setPrediction(pred);
+          if (pred.entryZones) addAIEntryZones(pred.entryZones);
         }
+      } else if (showPrediction && lastEntryZonesRef.current) {
+        // Re-apply cached AI zones (e.g., after chart re-init)
+        addAIEntryZones(lastEntryZonesRef.current);
       }
 
       setLoading(false);
@@ -442,6 +569,7 @@ const TradingChart = ({
           if (pred && predictionSeriesRef.current) {
             predictionSeriesRef.current.setData(pred.points);
             setPrediction(pred);
+            if (pred.entryZones) addAIEntryZones(pred.entryZones);
           }
         }
       });
@@ -467,30 +595,64 @@ const TradingChart = ({
   const addTradeMarkers = useCallback(() => {
     if (!candleSeriesRef.current || trades.length === 0) return;
 
+    const candles = dataRef.current;
+    if (candles.length === 0) return;
+
+    // Build a set of valid candle timestamps for snapping
+    const candleTimes = candles.map((c) => c.time as number);
+    const chartStart = candleTimes[0];
+    const chartEnd = candleTimes[candleTimes.length - 1];
+
+    // Snap a timestamp to the nearest candle in range, or null if out of range
+    const snapToCandle = (unixSec: number): number | null => {
+      if (unixSec < chartStart || unixSec > chartEnd + 60) return null;
+      // Binary search for nearest candle
+      let lo = 0, hi = candleTimes.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (candleTimes[mid] < unixSec) lo = mid + 1;
+        else hi = mid;
+      }
+      // Check if lo or lo-1 is closer
+      if (lo > 0 && Math.abs(candleTimes[lo - 1] - unixSec) < Math.abs(candleTimes[lo] - unixSec)) {
+        return candleTimes[lo - 1];
+      }
+      return candleTimes[lo];
+    };
+
     const markers: SeriesMarker<Time>[] = [];
 
     for (const trade of trades) {
       if (trade.symbol !== symbol) continue;
 
-      // Entry marker
-      markers.push({
-        time: (Math.floor(new Date(trade.entry_time).getTime() / 1000)) as Time,
-        position: trade.direction === "long" ? "belowBar" : "aboveBar",
-        color: trade.direction === "long" ? "#22c55e" : "#ef4444",
-        shape: trade.direction === "long" ? "arrowUp" : "arrowDown",
-        text: `${trade.direction === "long" ? "L" : "S"} $${formatPrice(trade.entry_price)}`,
-      });
-
-      // Exit marker
-      if (trade.exit_time) {
-        const isProfitable = trade.realized_pnl >= 0;
+      // Snap entry time to nearest candle — skip if out of chart range
+      const entryUnix = Math.floor(new Date(trade.entry_time).getTime() / 1000);
+      const snappedEntry = snapToCandle(entryUnix);
+      if (snappedEntry !== null) {
         markers.push({
-          time: (Math.floor(new Date(trade.exit_time).getTime() / 1000)) as Time,
-          position: "aboveBar",
-          color: isProfitable ? "#a855f7" : "#f59e0b",
-          shape: "circle",
-          text: `${isProfitable ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`,
+          time: snappedEntry as Time,
+          position: trade.direction === "long" ? "belowBar" : "aboveBar",
+          color: trade.direction === "long" ? "#22c55e" : "#ef4444",
+          shape: trade.direction === "long" ? "arrowUp" : "arrowDown",
+          text: trade.direction === "long" ? "L" : "S",
         });
+      }
+
+      // Snap exit time to nearest candle
+      if (trade.exit_time) {
+        const exitUnix = Math.floor(new Date(trade.exit_time).getTime() / 1000);
+        const snappedExit = snapToCandle(exitUnix);
+        if (snappedExit !== null) {
+          const isProfitable = trade.realized_pnl >= 0;
+          const pnl = Math.abs(trade.realized_pnl);
+          markers.push({
+            time: snappedExit as Time,
+            position: "aboveBar",
+            color: isProfitable ? "#a855f7" : "#f59e0b",
+            shape: "circle",
+            text: `${isProfitable ? "+" : "-"}$${pnl < 100 ? pnl.toFixed(1) : pnl.toFixed(0)}`,
+          });
+        }
       }
     }
 
@@ -507,53 +669,93 @@ const TradingChart = ({
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
 
     for (const pos of myPositions) {
-      // Entry price line
+      // Entry price line — transparent, no axis label
+      const dirLabel = pos.direction === "long" ? "L" : "S";
       candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
-        color: pos.direction === "long" ? "#22c55e" : "#ef4444",
+        color: pos.direction === "long" ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
         lineWidth: 1,
         lineStyle: LineStyle.Solid,
-        axisLabelVisible: true,
-        title: `${pos.direction.toUpperCase()} Entry`,
+        axisLabelVisible: false,
+        title: `${dirLabel} ${pos.leverage}x`,
       });
 
-      // Stop loss line
+      // Stop loss line — transparent, no axis label
       if (pos.stop_loss) {
         candleSeriesRef.current.createPriceLine({
           price: pos.stop_loss,
-          color: "#f59e0b",
+          color: "rgba(245,158,11,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: "SL",
+          axisLabelVisible: false,
+          title: "",
         });
       }
 
-      // Take profit line
+      // Take profit line — transparent, no axis label
       if (pos.take_profit) {
         candleSeriesRef.current.createPriceLine({
           price: pos.take_profit,
-          color: "#a855f7",
+          color: "rgba(168,85,247,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: "TP",
+          axisLabelVisible: false,
+          title: "",
         });
       }
 
-      // Liquidation line
+      // Liquidation line — transparent, no axis label
       if (pos.liquidation_price) {
         candleSeriesRef.current.createPriceLine({
           price: pos.liquidation_price,
-          color: "#dc2626",
+          color: "rgba(220,38,38,0.35)",
           lineWidth: 1,
           lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: true,
-          title: "LIQ",
+          axisLabelVisible: false,
+          title: "",
         });
       }
     }
   }, [positions, symbol]);
+
+  // ── AI Entry Zone Lines ────────────────────────────────────
+
+  const aiLinesRef = useRef<any[]>([]);
+
+  const addAIEntryZones = useCallback((zones: AIEntryZone) => {
+    if (!candleSeriesRef.current) return;
+    lastEntryZonesRef.current = zones;
+
+    // Remove previous AI lines
+    for (const line of aiLinesRef.current) {
+      try { candleSeriesRef.current.removePriceLine(line); } catch { /* noop */ }
+    }
+    aiLinesRef.current = [];
+
+    // AI Long entry target — line label only, no axis price
+    aiLinesRef.current.push(
+      candleSeriesRef.current.createPriceLine({
+        price: zones.longEntry,
+        color: "#22c55e",
+        lineWidth: 2,
+        lineStyle: LineStyle.LargeDashed,
+        axisLabelVisible: false,
+        title: "",
+      })
+    );
+
+    // AI Short entry target — line label only, no axis price
+    aiLinesRef.current.push(
+      candleSeriesRef.current.createPriceLine({
+        price: zones.shortEntry,
+        color: "#ef4444",
+        lineWidth: 2,
+        lineStyle: LineStyle.LargeDashed,
+        axisLabelVisible: false,
+        title: "",
+      })
+    );
+  }, []);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -694,8 +896,28 @@ const TradingChart = ({
         </div>
       )}
 
-      {/* Chart container */}
-      <div ref={containerRef} className="w-full rounded-lg overflow-hidden" />
+      {/* Chart container — explicit height is critical for iOS Safari where
+           the absolutely-positioned canvas inside lightweight-charts doesn't
+           contribute to the parent's layout, causing the container to collapse
+           to 0px height and the chart to be invisible. */}
+      <style>{`
+        .trading-chart-wrap [class*="pane"] div[style*="position: absolute"][style*="z-index"],
+        .trading-chart-wrap td[style*="padding"] > div > div[style*="position: absolute"] {
+          border-radius: 4px !important;
+          opacity: 0.85 !important;
+        }
+        /* Ensure lightweight-charts internal table fills the container on iOS */
+        .trading-chart-wrap table {
+          width: 100% !important;
+        }
+      `}</style>
+      <div
+        ref={wrapperRef}
+        className="trading-chart-wrap w-full rounded-lg overflow-hidden relative"
+        style={{ height: `${height}px`, minHeight: `${height}px` }}
+      >
+        <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      </div>
 
       {/* ── Below-chart info panel (non-compact only) ── */}
       {!compact && (
@@ -869,6 +1091,85 @@ const TradingChart = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* AI Planned Entry Zones */}
+          {showPrediction && prediction?.entryZones && (
+            <div className="rounded-lg border border-cyan-500/15 bg-gradient-to-r from-cyan-950/20 via-slate-900/40 to-cyan-950/20 p-2">
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="text-[8px] text-cyan-500/80 uppercase tracking-wider font-bold">AI Trading Genius — Next Moves</span>
+                <span className="text-[7px] text-slate-600">Executes when price + conditions align</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {/* Long entry zone */}
+                <div className={`rounded-lg border p-2 transition-all ${
+                  prediction.entryZones.longReady
+                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
+                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
+                }`}>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px]">{"\u2191"}</span>
+                    <span className={`text-[9px] font-bold ${prediction.entryZones.longReady ? "text-emerald-400" : "text-slate-500"}`}>
+                      LONG ENTRY
+                    </span>
+                    {prediction.entryZones.longReady ? (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold animate-pulse">READY</span>
+                    ) : (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                    )}
+                  </div>
+                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.longReady ? "text-emerald-300" : "text-slate-500"}`}>
+                    ${formatPrice(prediction.entryZones.longEntry)}
+                  </div>
+                  <div className="text-[8px] text-slate-500 mt-0.5">
+                    {(() => {
+                      const dist = ((livePrice - prediction.entryZones.longEntry) / livePrice) * 100;
+                      return `${dist.toFixed(2)}% below current`;
+                    })()}
+                  </div>
+                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.longReady ? "text-emerald-500/70" : "text-amber-500/60"}`}>
+                    {prediction.entryZones.longReason}
+                  </div>
+                </div>
+                {/* Short entry zone */}
+                <div className={`rounded-lg border p-2 transition-all ${
+                  prediction.entryZones.shortReady
+                    ? "border-red-500/30 bg-red-500/[0.08]"
+                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
+                }`}>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="text-[10px]">{"\u2193"}</span>
+                    <span className={`text-[9px] font-bold ${prediction.entryZones.shortReady ? "text-red-400" : "text-slate-500"}`}>
+                      SHORT ENTRY
+                    </span>
+                    {prediction.entryZones.shortReady ? (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-red-500/20 text-red-300 font-bold animate-pulse">READY</span>
+                    ) : (
+                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
+                    )}
+                  </div>
+                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.shortReady ? "text-red-300" : "text-slate-500"}`}>
+                    ${formatPrice(prediction.entryZones.shortEntry)}
+                  </div>
+                  <div className="text-[8px] text-slate-500 mt-0.5">
+                    {(() => {
+                      const dist = ((prediction.entryZones.shortEntry - livePrice) / livePrice) * 100;
+                      return `${dist.toFixed(2)}% above current`;
+                    })()}
+                  </div>
+                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.shortReady ? "text-red-500/70" : "text-amber-500/60"}`}>
+                    {prediction.entryZones.shortReason}
+                  </div>
+                </div>
+              </div>
+              {/* BB & EMA50 reference levels */}
+              <div className="flex gap-3 mt-1.5 text-[8px] text-slate-500">
+                <span>BB Upper <span className="text-red-400/60 font-mono">${formatPrice(prediction.entryZones.bbUpper)}</span></span>
+                <span>BB Mid <span className="text-slate-400/60 font-mono">${formatPrice(prediction.entryZones.bbMiddle)}</span></span>
+                <span>BB Lower <span className="text-emerald-400/60 font-mono">${formatPrice(prediction.entryZones.bbLower)}</span></span>
+                <span>EMA50 <span className="text-cyan-400/60 font-mono">${formatPrice(prediction.entryZones.ema50)}</span></span>
+              </div>
             </div>
           )}
 

@@ -2,7 +2,7 @@
 # Perpetual Paper Trading Position Monitor
 # ==========================================
 # Runs every minute via Vercel cron to:
-#   1. Fetch live prices from CoinGecko
+#   1. Fetch live prices from Binance (CoinGecko fallback)
 #   2. Seed historical candles from Binance (cold-start elimination)
 #   3. Store price history for indicator calculations
 #   4. Update all open positions with mark prices
@@ -20,6 +20,7 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -28,28 +29,57 @@ from perp_engine import (
     perp_positions,
     update_position_price,
     close_position,
+    partial_close_position,
     snapshot_equity,
     MARKETS,
     COINGECKO_IDS,
+    INITIAL_BALANCE,
 )
 from perp_strategies import store_price, run_auto_trader, seed_all_markets
+from perp_pending_orders import check_and_execute_pending_orders, expire_stale_orders
+from perp_ninja_strategy import run_ninja_strategy
+from perp_grid_strategy import run_grid_strategy
 
 # ── Config ────────────────────────────────────────────────────────────
 
+BINANCE_URL = "https://api.binance.com/api/v3/ticker/price"
 COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 
 
-def fetch_prices() -> dict:
-    """Fetch live USD prices from CoinGecko for all perp markets."""
+def fetch_prices_binance() -> dict:
+    """Fetch live USD prices from Binance — matches the WebSocket prices shown on the chart."""
+    # Build symbol map: SOLUSDT → SOL-PERP
+    symbol_map = {}
+    for market_key, info in MARKETS.items():
+        bsym = info["symbol"] + "USDT"
+        symbol_map[bsym] = market_key
+
+    # Fetch ALL Binance ticker prices (avoids URL-encoding issues with symbols param)
+    req = Request(BINANCE_URL, headers={"Accept": "application/json"})
+    try:
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+            prices = {}
+            for item in data:
+                bsym = item["symbol"]
+                if bsym in symbol_map:
+                    prices[symbol_map[bsym]] = float(item["price"])
+            return prices
+    except Exception as e:
+        print(f"[perp-cron] Binance price fetch error: {e}")
+        return {}
+
+
+def fetch_prices_coingecko() -> dict:
+    """Fallback: fetch live USD prices from CoinGecko."""
     url = f"{COINGECKO_URL}?ids={COINGECKO_IDS}&vs_currencies=usd"
     req = Request(url, headers={"Accept": "application/json"})
     try:
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
-            # Map coingecko_id → USD price
             prices = {}
             for symbol, info in MARKETS.items():
                 cg_id = info["base"]
@@ -57,8 +87,17 @@ def fetch_prices() -> dict:
                     prices[symbol] = data[cg_id]["usd"]
             return prices
     except Exception as e:
-        print(f"[perp-cron] Price fetch error: {e}")
+        print(f"[perp-cron] CoinGecko price fetch error: {e}")
         return {}
+
+
+def fetch_prices() -> dict:
+    """Fetch prices from Binance (primary) with CoinGecko fallback."""
+    prices = fetch_prices_binance()
+    if prices:
+        return prices
+    print("[perp-cron] Binance failed, falling back to CoinGecko")
+    return fetch_prices_coingecko()
 
 
 def send_telegram(message: str):
@@ -185,16 +224,86 @@ def run_perp_monitor() -> dict:
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
 
+        # Handle pending partial closes (break-even TP1/TP2)
+        elif result.get("pending_partial_close"):
+            pct = result["pending_partial_close"]
+            pos_id = str(pos["_id"])
+            try:
+                trade = partial_close_position(pos_id, mark_price, close_pct=pct, exit_reason="auto_partial_tp")
+                wallet_short = pos["account_id"][:4] + "..." + pos["account_id"][-4:]
+                pnl = trade.get("realized_pnl", 0)
+                pnl_sign = "+" if pnl >= 0 else ""
+                mode_label = "LIVE" if pos.get("trading_mode") == "live" else "PAPER"
+                remaining = trade.get("remaining_size_usd", 0)
+                msg = (
+                    f"✂️ <b>{mode_label} PARTIAL CLOSE {pct}%</b>\n"
+                    f"📍 {pos['symbol']} {pos['direction'].upper()} {pos['leverage']}x\n"
+                    f"💰 Realized: <b>{pnl_sign}${pnl:.2f}</b>\n"
+                    f"📊 Remaining: ${remaining:.0f}\n"
+                    f"👤 {wallet_short}"
+                )
+                send_telegram(msg)
+                events.append({
+                    "type": "partial_close",
+                    "symbol": pos["symbol"],
+                    "pct": pct,
+                    "pnl": pnl,
+                    "wallet": wallet_short,
+                    "mode": mode_label,
+                })
+                # Clear the flag
+                perp_positions.update_one(
+                    {"_id": pos["_id"]},
+                    {"$unset": {"pending_partial_close": ""}}
+                )
+            except Exception as e:
+                print(f"[perp-cron] Partial close error {pos_id}: {e}")
+
+    # 4b. Check and execute pending limit/stop orders
+    pending_fills = []
+    for symbol, price in prices.items():
+        try:
+            fills = check_and_execute_pending_orders(symbol, price)
+            if fills:
+                pending_fills.extend(fills)
+                for fill in fills:
+                    wallet_short = fill["account_id"][:4] + "..." + fill["account_id"][-4:]
+                    direction = fill["direction"].upper()
+                    msg = (
+                        f"📋 <b>PENDING ORDER FILLED</b>\n"
+                        f"📍 {fill['symbol']} {direction} ({fill['order_type']})\n"
+                        f"💵 Trigger: ${fill['trigger_price']:.4f} | Fill: ${fill.get('filled_price', price):.4f}\n"
+                        f"👤 {wallet_short}"
+                    )
+                    send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Pending order check error for {symbol}: {e}")
+
+    if pending_fills:
+        print(f"[perp-cron] Filled {len(pending_fills)} pending orders")
+
+    # 4c. Expire stale pending orders
+    try:
+        expired_count = expire_stale_orders()
+        if expired_count > 0:
+            print(f"[perp-cron] Expired {expired_count} stale pending orders")
+    except Exception as e:
+        print(f"[perp-cron] Expire orders error: {e}")
+
     # 5. Run automated trading strategies for all accounts
     all_accounts = list(perp_accounts.find({}))
     auto_trade_actions = []
+    print(f"[perp-cron] Running auto-trader for {len(all_accounts)} accounts")
     for acc in all_accounts:
         # Skip auto-trading if kill switch is active
         if acc.get("kill_switch"):
+            print(f"[perp-cron] Skipping {acc['wallet'][:8]}: kill switch")
             continue
         try:
             mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
             actions = run_auto_trader(acc["wallet"], prices)
+            if actions:
+                print(f"[perp-cron] Auto-trader {acc['wallet'][:8]}: {len(actions)} actions: {actions}")
             for action in actions:
                 if action.get("action") == "opened":
                     auto_trade_actions.append(action)
@@ -216,6 +325,76 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 
+    # 5b. Run grid strategy for all accounts (refreshes once per hour internally)
+    grid_actions = []
+    for acc in all_accounts:
+        if acc.get("kill_switch"):
+            continue
+        if not acc.get("auto_trading_enabled", False):
+            continue
+        try:
+            equity = acc.get("equity", INITIAL_BALANCE)
+            peak_equity = acc.get("peak_equity", equity)
+            g_actions = run_grid_strategy(acc["wallet"], prices, equity, peak_equity)
+            if g_actions:
+                grid_actions.extend(g_actions)
+                for ga in g_actions:
+                    if ga.get("action") == "grid_placed":
+                        mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
+                        mode_emoji = " 🔴" if mode_label == "LIVE" else ""
+                        mart_label = " (martingale)" if ga.get("martingale") else ""
+                        msg = (
+                            f"📐 <b>{mode_label} GRID PLACED</b>{mode_emoji}\n"
+                            f"📍 {ga['symbol']} — {ga['orders_placed']} orders{mart_label}\n"
+                            f"💵 Center: ${ga['center_price']:.4f} | Spacing: ${ga['spacing']:.4f}\n"
+                            f"📊 {ga['buy_levels']} buys + {ga['sell_levels']} sells"
+                        )
+                        send_telegram(msg)
+        except Exception as e:
+            print(f"[perp-cron] Grid strategy error for {acc['wallet'][:8]}: {e}")
+
+    if grid_actions:
+        print(f"[perp-cron] Grid strategy: {len(grid_actions)} actions")
+
+    # 5c. Run ninja ambush strategy (once per hour — not every minute)
+    ninja_actions = []
+    current_minute = datetime.utcnow().minute
+    if current_minute == 0:  # Only on the top of each hour
+        print(f"[perp-cron] Running ninja ambush strategy for {len(all_accounts)} accounts")
+        for acc in all_accounts:
+            if acc.get("kill_switch"):
+                continue
+            if acc.get("trading_paused"):
+                continue
+            wallet = acc["wallet"]
+            acc_equity = acc.get("equity", 10000)
+            acc_peak = acc.get("peak_equity", acc_equity)
+            try:
+                n_actions = run_ninja_strategy(wallet, prices, acc_equity, acc_peak)
+                if n_actions:
+                    ninja_actions.extend(n_actions)
+                    placed = [a for a in n_actions if a.get("action") == "placed"]
+                    if placed:
+                        print(f"[perp-cron] Ninja {wallet[:8]}: {len(placed)} orders placed")
+                        mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
+                        for a in placed:
+                            direction = a.get("direction", "").upper()
+                            msg = (
+                                f"🥷 <b>{mode_label} NINJA AMBUSH SET</b>\n"
+                                f"📍 {a['symbol']} {direction} ({a['order_type']})\n"
+                                f"💵 Trigger: ${a['trigger_price']:.4f} | Size: ${a['size_usd']:.0f}\n"
+                                f"🛑 SL: ${a['stop_loss']:.4f} | 🎯 TP: ${a['take_profit']:.4f}\n"
+                                f"📊 Score: {a['score']} ({', '.join(a['sources'])})"
+                            )
+                            send_telegram(msg)
+            except Exception as e:
+                print(f"[perp-cron] Ninja error for {wallet[:8]}: {e}")
+    else:
+        print(f"[perp-cron] Skipping ninja strategy (minute={current_minute}, runs at :00)")
+
+    if ninja_actions:
+        print(f"[perp-cron] Ninja strategy: {len(ninja_actions)} actions")
+
     # 6. Snapshot equity for all active accounts
     for acc in all_accounts:
         try:
@@ -223,7 +402,7 @@ def run_perp_monitor() -> dict:
         except Exception as e:
             print(f"[perp-cron] Equity snapshot error for {acc['wallet'][:8]}: {e}")
 
-    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades")
+    print(f"[perp-cron] Done: {positions_updated} updated, {positions_closed} closed, {len(events)} events, {len(auto_trade_actions)} auto-trades, {len(pending_fills)} pending fills, {len(grid_actions)} grid actions, {len(ninja_actions)} ninja actions")
 
     return {
         "status": "ok",
@@ -233,5 +412,8 @@ def run_perp_monitor() -> dict:
         "positions_closed": positions_closed,
         "events": events,
         "auto_trades": auto_trade_actions,
+        "pending_fills": pending_fills,
+        "grid_actions": grid_actions,
+        "ninja_actions": ninja_actions,
         "accounts_snapshotted": len(all_accounts),
     }
