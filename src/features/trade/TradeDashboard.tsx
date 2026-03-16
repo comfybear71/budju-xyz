@@ -235,12 +235,13 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
           <PerpPositionsList
             positions={data.positions}
             onClose={data.handleClosePosition}
-            onModify={(positionId) => data.handleModifyPosition(positionId, {})}
+            onModify={(positionId, mods) => data.handleModifyPosition(positionId, mods)}
             onRefresh={data.refreshData}
             wallet={data.wallet}
             livePrices={data.prices}
             onNewTrade={(symbol) => {
               data.setSelectedSymbol(symbol);
+              setShowOrderForm(true);
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />

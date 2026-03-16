@@ -9,8 +9,8 @@ import {
 
 interface Props {
   positions: PerpPosition[];
-  onClose: (positionId: string, exitPrice: number) => void;
-  onModify: (positionId: string) => void;
+  onClose: (positionId: string, exitPrice: number) => void | Promise<void>;
+  onModify: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void | Promise<void>;
   onRefresh?: () => void;
   readOnly?: boolean;
   wallet?: string;
@@ -21,6 +21,9 @@ interface Props {
 
 const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart, livePrices = {}, onNewTrade }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modifyId, setModifyId] = useState<string | null>(null);
+  const [modifySL, setModifySL] = useState("");
+  const [modifyTP, setModifyTP] = useState("");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [closePct, setClosePct] = useState(50);
   const [pyramidSize, setPyramidSize] = useState(0);
@@ -253,16 +256,38 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
               <>
                 <div className="flex gap-1.5 mb-1.5">
                   <button
-                    onClick={() => onModify(pos._id)}
-                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
+                    onClick={() => {
+                      if (modifyId === pos._id) {
+                        setModifyId(null);
+                      } else {
+                        setModifyId(pos._id);
+                        setModifySL(pos.stop_loss ? String(pos.stop_loss) : "");
+                        setModifyTP(pos.take_profit ? String(pos.take_profit) : "");
+                      }
+                    }}
+                    className={`flex-1 text-[10px] py-1.5 rounded-lg transition-colors border ${
+                      modifyId === pos._id
+                        ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                        : "bg-white/[0.04] text-slate-400 hover:text-white border-white/[0.04]"
+                    }`}
                   >
-                    Modify
+                    {modifyId === pos._id ? "Cancel" : "Modify"}
                   </button>
                   <button
-                    onClick={() => onClose(pos._id, livePrice)}
-                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
+                    onClick={async () => {
+                      setActionLoading(`close-${pos._id}`);
+                      try {
+                        await onClose(pos._id, livePrice);
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={actionLoading === `close-${pos._id}`}
+                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20 disabled:opacity-40"
                   >
-                    Close
+                    {actionLoading === `close-${pos._id}` ? (
+                      <span className="animate-pulse">Closing...</span>
+                    ) : "Close"}
                   </button>
                   {onNewTrade && (
                     <button
@@ -273,6 +298,57 @@ const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly =
                     </button>
                   )}
                 </div>
+
+                {/* Modify SL/TP inline editor */}
+                {modifyId === pos._id && (
+                  <div className="mb-1.5 p-2 rounded-lg bg-slate-900/50 border border-blue-500/20 space-y-1.5">
+                    <div className="flex gap-1.5 items-center">
+                      <div className="flex-1">
+                        <label className="text-[8px] text-slate-500 uppercase">Stop Loss</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={modifySL}
+                          onChange={(e) => setModifySL(e.target.value)}
+                          placeholder="No SL"
+                          className="w-full bg-slate-800 border border-red-500/20 rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[8px] text-slate-500 uppercase">Take Profit</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={modifyTP}
+                          onChange={(e) => setModifyTP(e.target.value)}
+                          placeholder="No TP"
+                          className="w-full bg-slate-800 border border-emerald-500/20 rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setActionLoading(`modify-${pos._id}`);
+                          try {
+                            const mods: { stopLoss?: number; takeProfit?: number } = {};
+                            if (modifySL) mods.stopLoss = parseFloat(modifySL);
+                            if (modifyTP) mods.takeProfit = parseFloat(modifyTP);
+                            await onModify(pos._id, mods);
+                            setModifyId(null);
+                            onRefresh?.();
+                          } catch {
+                            setActionError("Failed to modify");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `modify-${pos._id}`}
+                        className="text-[10px] py-1 px-2.5 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors border border-blue-500/30 disabled:opacity-40 mt-3"
+                      >
+                        {actionLoading === `modify-${pos._id}` ? "..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Advanced actions row */}
                 <div className="flex gap-1">
