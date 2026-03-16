@@ -303,7 +303,7 @@ const TradingChart = ({
   const [prediction, setPrediction] = useState<Prediction | null>(null);
   const [showPrediction, setShowPrediction] = useState(false);
   const [showMarkers, setShowMarkers] = useState(false);
-  const [showPositionLines, setShowPositionLines] = useState(false);
+  const [showPositionLines, setShowPositionLines] = useState(true);
   const [showVolume, setShowVolume] = useState(false);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
