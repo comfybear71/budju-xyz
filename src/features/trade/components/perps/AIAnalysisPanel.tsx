@@ -169,12 +169,11 @@ const MARKETS = [
   { symbol: "SOL-PERP", base: "SOL" },
   { symbol: "BTC-PERP", base: "BTC" },
   { symbol: "ETH-PERP", base: "ETH" },
+  { symbol: "DOGE-PERP", base: "DOGE" },
+  { symbol: "AVAX-PERP", base: "AVAX" },
   { symbol: "LINK-PERP", base: "LINK" },
   { symbol: "SUI-PERP", base: "SUI" },
-  { symbol: "AVAX-PERP", base: "AVAX" },
-  { symbol: "BONK-PERP", base: "BONK" },
-  { symbol: "WIF-PERP", base: "WIF" },
-  { symbol: "DOGE-PERP", base: "DOGE" },
+  { symbol: "RENDER-PERP", base: "RENDER" },
   { symbol: "JUP-PERP", base: "JUP" },
 ];
 

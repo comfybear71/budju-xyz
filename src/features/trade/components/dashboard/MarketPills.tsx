@@ -9,6 +9,19 @@ interface Props {
   positions: PerpPosition[];
 }
 
+// Coin-specific colors for borders
+const COIN_COLORS: Record<string, { border: string; selectedBg: string; selectedBorder: string; selectedText: string }> = {
+  SOL:    { border: "border-purple-500/30",  selectedBg: "bg-purple-500/20",  selectedBorder: "border-purple-400/50",  selectedText: "text-purple-300" },
+  BTC:    { border: "border-orange-500/30",  selectedBg: "bg-orange-500/20",  selectedBorder: "border-orange-400/50",  selectedText: "text-orange-300" },
+  ETH:    { border: "border-blue-500/30",    selectedBg: "bg-blue-500/20",    selectedBorder: "border-blue-400/50",    selectedText: "text-blue-300" },
+  DOGE:   { border: "border-yellow-500/30",  selectedBg: "bg-yellow-500/20",  selectedBorder: "border-yellow-400/50",  selectedText: "text-yellow-300" },
+  AVAX:   { border: "border-red-500/30",     selectedBg: "bg-red-500/20",     selectedBorder: "border-red-400/50",     selectedText: "text-red-300" },
+  LINK:   { border: "border-sky-500/30",     selectedBg: "bg-sky-500/20",     selectedBorder: "border-sky-400/50",     selectedText: "text-sky-300" },
+  SUI:    { border: "border-cyan-500/30",    selectedBg: "bg-cyan-500/20",    selectedBorder: "border-cyan-400/50",    selectedText: "text-cyan-300" },
+  RENDER: { border: "border-teal-500/30",    selectedBg: "bg-teal-500/20",    selectedBorder: "border-teal-400/50",    selectedText: "text-teal-300" },
+  JUP:    { border: "border-emerald-500/30", selectedBg: "bg-emerald-500/20", selectedBorder: "border-emerald-400/50", selectedText: "text-emerald-300" },
+};
+
 const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
@@ -37,6 +50,8 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
         const isSelected = m.symbol === selectedSymbol;
         const posCount = posCountMap[m.symbol] || 0;
 
+        const coinColor = COIN_COLORS[m.base_asset];
+
         return (
           <button
             key={m.symbol}
@@ -44,13 +59,13 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
             onClick={() => onSelect(m.symbol)}
             className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border ${
               isSelected
-                ? "bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-lg shadow-blue-500/10"
-                : "bg-slate-800/40 text-slate-400 border-white/[0.04] hover:bg-slate-800/60 hover:text-white"
+                ? `${coinColor?.selectedBg || "bg-blue-500/20"} ${coinColor?.selectedText || "text-blue-300"} ${coinColor?.selectedBorder || "border-blue-500/40"} shadow-lg`
+                : `bg-slate-800/40 text-slate-400 ${coinColor?.border || "border-white/[0.04]"} hover:bg-slate-800/60 hover:text-white`
             }`}
           >
             <span>{m.base_asset}</span>
             {price > 0 && (
-              <span className={`tabular-nums ${isSelected ? "text-blue-200" : "text-slate-500"}`}>
+              <span className={`tabular-nums ${isSelected ? "opacity-80" : "text-slate-500"}`}>
                 {price >= 1000
                   ? `$${(price / 1000).toFixed(1)}k`
                   : price >= 1

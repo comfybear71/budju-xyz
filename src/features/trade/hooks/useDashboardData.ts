@@ -35,9 +35,8 @@ const DEFAULT_MARKETS: PerpMarket[] = [
   { symbol: "AVAX-PERP", base_asset: "AVAX", max_leverage: 20, tick_size: 0.01, coingecko_id: "avalanche-2" },
   { symbol: "LINK-PERP", base_asset: "LINK", max_leverage: 20, tick_size: 0.001, coingecko_id: "chainlink" },
   { symbol: "SUI-PERP", base_asset: "SUI", max_leverage: 20, tick_size: 0.001, coingecko_id: "sui" },
+  { symbol: "RENDER-PERP", base_asset: "RENDER", max_leverage: 20, tick_size: 0.001, coingecko_id: "render-token" },
   { symbol: "JUP-PERP", base_asset: "JUP", max_leverage: 10, tick_size: 0.0001, coingecko_id: "jupiter-exchange-solana" },
-  { symbol: "WIF-PERP", base_asset: "WIF", max_leverage: 10, tick_size: 0.0001, coingecko_id: "dogwifcoin" },
-  { symbol: "BONK-PERP", base_asset: "BONK", max_leverage: 10, tick_size: 0.00000001, coingecko_id: "bonk" },
 ];
 
 export interface DashboardData {

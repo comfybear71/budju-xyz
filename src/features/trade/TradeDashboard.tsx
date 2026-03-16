@@ -78,10 +78,11 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
 
       {/* Account summary — compact row */}
       {data.account && (
-        <div className="grid grid-cols-4 gap-1.5 px-3 mb-2">
+        <div className="grid grid-cols-5 gap-1.5 px-3 mb-2">
           {[
             { label: "Balance", value: `$${data.account.balance.toFixed(0)}` },
             { label: "Equity", value: `$${data.account.equity.toFixed(0)}`, color: data.account.equity >= 10000 ? "text-emerald-400" : "text-red-400" },
+            { label: "Unrealized", value: `${data.account.unrealized_pnl >= 0 ? "+" : ""}$${data.account.unrealized_pnl.toFixed(0)}`, color: data.account.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
             { label: "Realized", value: `${data.account.realized_pnl >= 0 ? "+" : ""}$${data.account.realized_pnl.toFixed(0)}`, color: data.account.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400" },
             { label: "Win Rate", value: data.account.metrics.total_trades > 0 ? `${data.account.metrics.win_rate.toFixed(0)}%` : "—" },
           ].map((s) => (
@@ -208,7 +209,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
       </div>
 
       {/* Positions — collapsible, below order form */}
-      <div className="px-3 pb-3">
+      <div className="px-3 pb-3 pt-2">
         <button
           onClick={() => setShowPositions(!showPositions)}
           className="flex items-center gap-2 w-full mb-2"

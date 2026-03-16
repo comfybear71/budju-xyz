@@ -38,7 +38,6 @@ if not DRIFT_RPC_URL:
 # Map our internal symbols to Drift perp market indices
 # Full list: https://github.com/drift-labs/protocol-v2/blob/master/sdk/src/constants/perpMarkets.ts
 SYMBOL_MAP = {
-    # High volume / majors
     "SOL-PERP":     {"market_index": 0,  "drift_symbol": "SOL"},
     "BTC-PERP":     {"market_index": 1,  "drift_symbol": "BTC"},
     "ETH-PERP":     {"market_index": 2,  "drift_symbol": "ETH"},
@@ -47,25 +46,7 @@ SYMBOL_MAP = {
     "LINK-PERP":    {"market_index": 16, "drift_symbol": "LINK"},
     "SUI-PERP":     {"market_index": 9,  "drift_symbol": "SUI"},
     "RENDER-PERP":  {"market_index": 12, "drift_symbol": "RENDER"},
-    # Solana ecosystem
     "JUP-PERP":     {"market_index": 24, "drift_symbol": "JUP"},
-    "WIF-PERP":     {"market_index": 23, "drift_symbol": "WIF"},
-    # BONK is listed as 1MBONK on Drift (price per 1M BONK)
-    "BONK-PERP":    {"market_index": 4,  "drift_symbol": "1MBONK", "bonk_divisor": 1_000_000},
-    "PYTH-PERP":    {"market_index": 18, "drift_symbol": "PYTH"},
-    "JTO-PERP":     {"market_index": 20, "drift_symbol": "JTO"},
-    "HNT-PERP":     {"market_index": 14, "drift_symbol": "HNT"},
-    "RAY-PERP":     {"market_index": 56, "drift_symbol": "RAY"},
-    "W-PERP":       {"market_index": 27, "drift_symbol": "W"},
-    "TNSR-PERP":    {"market_index": 29, "drift_symbol": "TNSR"},
-    "DRIFT-PERP":   {"market_index": 30, "drift_symbol": "DRIFT"},
-    "POPCAT-PERP":  {"market_index": 34, "drift_symbol": "POPCAT"},
-    "PENGU-PERP":   {"market_index": 62, "drift_symbol": "PENGU"},
-    "TRUMP-PERP":   {"market_index": 64, "drift_symbol": "TRUMP"},
-    "ME-PERP":      {"market_index": 61, "drift_symbol": "ME"},
-    "PNUT-PERP":    {"market_index": 55, "drift_symbol": "PNUT"},
-    "GOAT-PERP":    {"market_index": 53, "drift_symbol": "GOAT"},
-    "FARTCOIN-PERP":{"market_index": 71, "drift_symbol": "FARTCOIN"},
 }
 
 # Default slippage for market orders (0.5%)

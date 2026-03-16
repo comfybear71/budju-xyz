@@ -37,7 +37,7 @@ const StrategyMarquee = () => {
   };
 
   // Duration scales with number of items for consistent speed
-  const duration = Math.max(opportunities.length * 4, 20);
+  const duration = Math.max(opportunities.length * 2, 10);
 
   return (
     <div className="mx-3 mb-2">

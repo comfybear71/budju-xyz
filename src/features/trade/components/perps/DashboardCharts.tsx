@@ -35,33 +35,15 @@ interface MarketDef {
 // ── Constants ────────────────────────────────────────────────
 
 const MARKETS: MarketDef[] = [
-  // High volume / majors
   { symbol: "SOL-PERP", base: "SOL", label: "SOL" },
   { symbol: "BTC-PERP", base: "BTC", label: "BTC" },
   { symbol: "ETH-PERP", base: "ETH", label: "ETH" },
   { symbol: "DOGE-PERP", base: "DOGE", label: "DOGE" },
+  { symbol: "AVAX-PERP", base: "AVAX", label: "AVAX" },
   { symbol: "LINK-PERP", base: "LINK", label: "LINK" },
   { symbol: "SUI-PERP", base: "SUI", label: "SUI" },
-  { symbol: "AVAX-PERP", base: "AVAX", label: "AVAX" },
   { symbol: "RENDER-PERP", base: "RENDER", label: "RENDER" },
-  // Solana ecosystem
   { symbol: "JUP-PERP", base: "JUP", label: "JUP" },
-  { symbol: "WIF-PERP", base: "WIF", label: "WIF" },
-  { symbol: "BONK-PERP", base: "BONK", label: "BONK" },
-  { symbol: "PYTH-PERP", base: "PYTH", label: "PYTH" },
-  { symbol: "JTO-PERP", base: "JTO", label: "JTO" },
-  { symbol: "HNT-PERP", base: "HNT", label: "HNT" },
-  { symbol: "RAY-PERP", base: "RAY", label: "RAY" },
-  { symbol: "W-PERP", base: "W", label: "W" },
-  { symbol: "TNSR-PERP", base: "TNSR", label: "TNSR" },
-  { symbol: "DRIFT-PERP", base: "DRIFT", label: "DRIFT" },
-  { symbol: "POPCAT-PERP", base: "POPCAT", label: "POPCAT" },
-  { symbol: "PENGU-PERP", base: "PENGU", label: "PENGU" },
-  { symbol: "TRUMP-PERP", base: "TRUMP", label: "TRUMP" },
-  { symbol: "ME-PERP", base: "ME", label: "ME" },
-  { symbol: "PNUT-PERP", base: "PNUT", label: "PNUT" },
-  { symbol: "GOAT-PERP", base: "GOAT", label: "GOAT" },
-  { symbol: "FARTCOIN-PERP", base: "FARTCOIN", label: "FARTCOIN" },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
