@@ -315,8 +315,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
 
         {/* Win/Loss badges strip — always visible */}
         {data.account && data.account.metrics.total_trades > 0 && (() => {
-          const reversed = [...data.trades].reverse();
-          const dur = Math.max(reversed.length * 1.2, 6);
+          const last10 = data.trades.slice(0, 10).reverse();
+          const dur = Math.max(last10.length * 1.2, 6);
           const renderCard = (trade: (typeof data.trades)[0], i: number) => {
             const win = trade.realized_pnl >= 0;
             return (
@@ -352,6 +352,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
               </div>
               <div
                 className="relative overflow-x-auto no-scrollbar rounded-lg"
+                ref={(el) => { if (el) el.scrollLeft = el.scrollWidth; }}
                 onMouseEnter={(e) => {
                   const inner = e.currentTarget.querySelector<HTMLElement>("[data-results-marquee]");
                   if (inner) inner.style.animationPlayState = "paused";
@@ -374,8 +375,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
                   className="flex gap-1 whitespace-nowrap"
                   style={{ animation: `results-marquee ${dur}s linear infinite` }}
                 >
-                  {reversed.map((t, i) => renderCard(t, i))}
-                  {reversed.map((t, i) => renderCard(t, i + reversed.length))}
+                  {last10.map((t, i) => renderCard(t, i))}
+                  {last10.map((t, i) => renderCard(t, i + last10.length))}
                 </div>
               </div>
               <style>{`
