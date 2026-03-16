@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { scanAllMarkets, COLOR_MAP, type StrategyOpportunity } from "../../utils/strategyDetectors";
 
+const RESUME_DELAY = 4000; // Resume marquee 4s after interaction
+
 const StrategyMarquee = () => {
   const [opportunities, setOpportunities] = useState<StrategyOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<StrategyOpportunity | null>(null);
   const [paused, setPaused] = useState(false);
-  const marqueeRef = useRef<HTMLDivElement>(null);
+  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runScan = useCallback(async () => {
     try {
@@ -22,6 +24,18 @@ const StrategyMarquee = () => {
     return () => clearInterval(interval);
   }, [runScan]);
 
+  // Auto-resume marquee after delay
+  const pauseWithResume = useCallback(() => {
+    setPaused(true);
+    if (resumeTimer.current) clearTimeout(resumeTimer.current);
+    resumeTimer.current = setTimeout(() => setPaused(false), RESUME_DELAY);
+  }, []);
+
+  // Cleanup timer
+  useEffect(() => {
+    return () => { if (resumeTimer.current) clearTimeout(resumeTimer.current); };
+  }, []);
+
   if (loading && !opportunities.length) {
     return (
       <div className="mx-3 mb-2 h-7 rounded-lg bg-slate-800/30 border border-white/[0.03] flex items-center px-3">
@@ -33,22 +47,23 @@ const StrategyMarquee = () => {
   if (!opportunities.length) return null;
 
   const handleClick = (opp: StrategyOpportunity) => {
-    setExpanded(expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey ? null : opp);
+    const isClosing = expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey;
+    setExpanded(isClosing ? null : opp);
+    pauseWithResume();
   };
 
-  // Fast scroll — 0.8s per item, minimum 5s total
-  const duration = Math.max(opportunities.length * 0.8, 5);
+  // 5x faster — 0.15s per item (was 0.8s), minimum 3s
+  const duration = Math.max(opportunities.length * 0.15, 3);
 
   return (
     <div className="mx-3 mb-2">
       {/* Marquee strip */}
       <div
         className="relative overflow-hidden rounded-lg bg-slate-800/20 border border-white/[0.03]"
-        onMouseEnter={() => setPaused(true)}
-        onMouseLeave={() => setPaused(false)}
+        onMouseEnter={pauseWithResume}
+        onTouchStart={pauseWithResume}
       >
         <div
-          ref={marqueeRef}
           className="flex whitespace-nowrap"
           style={{
             animation: `marquee-scroll ${duration}s linear infinite`,
@@ -119,7 +134,7 @@ const StrategyMarquee = () => {
                 </span>
               </div>
               <button
-                onClick={() => setExpanded(null)}
+                onClick={() => { setExpanded(null); setPaused(false); }}
                 className="text-slate-500 hover:text-white text-[10px] px-1"
               >
                 ✕
