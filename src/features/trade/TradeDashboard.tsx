@@ -8,6 +8,7 @@ import PerpPositionsList from "./components/perps/PerpPositionsList";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
 const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
+const PerpStrategyPanel = lazy(() => import("./components/perps/PerpStrategyPanel"));
 
 const ChartLoader = () => (
   <div className="flex items-center justify-center h-full bg-slate-900/50 rounded-xl">
@@ -21,7 +22,8 @@ interface TradeDashboardProps {
 
 const TradeDashboard = (_props: TradeDashboardProps) => {
   const data = useDashboardData();
-  const [showPositions, setShowPositions] = useState(true);
+  const [showPositions, setShowPositions] = useState(false);
+  const [showStrategies, setShowStrategies] = useState(false);
 
   // Page title
   useEffect(() => {
@@ -215,6 +217,36 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
           />
+        )}
+
+        {/* Strategies — collapsible, below positions */}
+        <button
+          onClick={() => setShowStrategies(!showStrategies)}
+          className="flex items-center gap-2 w-full mb-2 mt-3"
+        >
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Strategies
+          </span>
+          {data.strategyStatus?.strategies && (
+            <span className="w-4 h-4 rounded-full bg-blue-500/30 text-blue-400 text-[9px] flex items-center justify-center border border-blue-500/40">
+              {Object.keys(data.strategyStatus.strategies).length}
+            </span>
+          )}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showStrategies ? "rotate-180" : ""}`}
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {showStrategies && data.wallet && (
+          <div className="max-h-[60vh] overflow-y-auto rounded-xl" style={{ scrollbarWidth: "thin" }}>
+            <Suspense fallback={<div className="text-[11px] text-slate-400 animate-pulse py-4 text-center">Loading strategies...</div>}>
+              <PerpStrategyPanel wallet={data.wallet} />
+            </Suspense>
+          </div>
         )}
       </div>
     </div>
