@@ -66,6 +66,8 @@ from perp_strategies import (
     get_strategy_status,
     toggle_auto_trading,
     update_strategy_config,
+    start_strategy_test,
+    stop_strategy_test,
 )
 
 # ── CORS origin check ──────────────────────────────────────────────────
@@ -747,6 +749,26 @@ class handler(BaseHTTPRequestHandler):
                     return
                 update_strategy_config(wallet, updates)
                 self._send_json(200, {"success": True})
+
+            elif path == '/api/perp/strategy/test':
+                wallet = body.get('wallet')
+                strategy = body.get('strategy')
+                action = body.get('action', 'start')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                if action == 'stop':
+                    result = stop_strategy_test(wallet)
+                else:
+                    if not strategy:
+                        self._send_json(400, {"error": "strategy required"})
+                        return
+                    duration = int(body.get('duration_minutes', 60))
+                    result = start_strategy_test(wallet, strategy, duration)
+                self._send_json(200, result)
 
             # ── Trading Mode & Kill Switch ─────────────────────────────
             elif path == '/api/perp/mode':

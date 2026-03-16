@@ -156,6 +156,14 @@ export interface StrategyPosition {
   pnl: number;
 }
 
+export interface TestMode {
+  active: boolean;
+  strategy: string;
+  started_at: string;
+  expires_at: string;
+  duration_minutes: number;
+}
+
 export interface StrategyStatus {
   auto_trading_enabled: boolean;
   trading_paused: boolean;
@@ -164,6 +172,7 @@ export interface StrategyStatus {
   recent_signals: StrategySignal[];
   candle_counts: Record<string, number>;
   min_candles_required: number;
+  test_mode?: TestMode | null;
 }
 
 // ── Strategy Endpoints ──────────────────────────────────────────────────
@@ -181,6 +190,20 @@ export async function updateStrategyConfig(
   wallet: string,
 ): Promise<{ success: boolean }> {
   return postJson(`${API_BASE}/strategy/config`, { updates, wallet });
+}
+
+export async function startStrategyTest(
+  wallet: string,
+  strategy: string,
+  durationMinutes: number = 60,
+): Promise<{ success: boolean; expires_at?: string }> {
+  return postJson(`${API_BASE}/strategy/test`, { wallet, strategy, duration_minutes: durationMinutes });
+}
+
+export async function stopStrategyTest(
+  wallet: string,
+): Promise<{ success: boolean }> {
+  return postJson(`${API_BASE}/strategy/test`, { wallet, action: "stop" });
 }
 
 // ── Trading Mode & Kill Switch ──────────────────────────────────────

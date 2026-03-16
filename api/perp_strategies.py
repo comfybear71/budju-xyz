@@ -631,6 +631,117 @@ def toggle_auto_trading(wallet: str, enabled: bool) -> Dict:
     return update_strategy_config(wallet, {"auto_trading_enabled": enabled})
 
 
+def start_strategy_test(wallet: str, strategy_name: str, duration_minutes: int = 60) -> Dict:
+    """Start a 1-hour test of a single strategy with max leverage, max size, all markets.
+
+    - Disables all other strategies
+    - Enables the target strategy with max leverage (50x, capped per market by engine)
+    - Sets markets to ALL available markets
+    - Increases max_positions to 9 (one per market)
+    - Sets test_expires_at for auto-stop
+    - Enables auto_trading
+    """
+    all_markets = list(MARKETS.keys())
+
+    config = get_strategy_config(wallet)
+    strategies = config.get("strategies", {})
+
+    if strategy_name not in strategies:
+        raise ValueError(f"Unknown strategy: {strategy_name}")
+
+    # Save original config for restoration
+    original_config = {}
+    for name, strat in strategies.items():
+        original_config[name] = {
+            "enabled": strat.get("enabled", False),
+            "leverage": strat.get("leverage", 5),
+            "max_positions": strat.get("max_positions", 2),
+            "markets": strat.get("markets", []),
+        }
+
+    # Disable all strategies, then enable only the target
+    updates = {}
+    for name in strategies:
+        updates[f"strategies.{name}.enabled"] = False
+
+    # Enable target strategy with max settings
+    updates[f"strategies.{strategy_name}.enabled"] = True
+    updates[f"strategies.{strategy_name}.leverage"] = 50  # Engine caps per market
+    updates[f"strategies.{strategy_name}.max_positions"] = len(all_markets)
+    updates[f"strategies.{strategy_name}.markets"] = all_markets
+
+    # Set test metadata
+    expires_at = datetime.utcnow() + timedelta(minutes=duration_minutes)
+    updates["auto_trading_enabled"] = True
+    updates["test_mode"] = {
+        "active": True,
+        "strategy": strategy_name,
+        "started_at": datetime.utcnow(),
+        "expires_at": expires_at,
+        "duration_minutes": duration_minutes,
+        "original_config": original_config,
+    }
+
+    update_strategy_config(wallet, updates)
+
+    return {
+        "success": True,
+        "strategy": strategy_name,
+        "markets": all_markets,
+        "leverage": 50,
+        "expires_at": expires_at.isoformat(),
+        "duration_minutes": duration_minutes,
+    }
+
+
+def stop_strategy_test(wallet: str) -> Dict:
+    """Stop an active strategy test and restore original configuration."""
+    config = get_strategy_config(wallet)
+    test_mode = config.get("test_mode")
+
+    if not test_mode or not test_mode.get("active"):
+        return {"success": False, "error": "No active test"}
+
+    original = test_mode.get("original_config", {})
+
+    # Restore original strategy configs
+    updates = {}
+    for name, orig in original.items():
+        updates[f"strategies.{name}.enabled"] = orig.get("enabled", False)
+        updates[f"strategies.{name}.leverage"] = orig.get("leverage", 5)
+        updates[f"strategies.{name}.max_positions"] = orig.get("max_positions", 2)
+        updates[f"strategies.{name}.markets"] = orig.get("markets", [])
+
+    updates["auto_trading_enabled"] = False
+    updates["test_mode"] = {"active": False}
+
+    update_strategy_config(wallet, updates)
+
+    return {"success": True, "restored": True}
+
+
+def check_test_expiry(wallet: str) -> bool:
+    """Check if a strategy test has expired and auto-stop it. Returns True if expired."""
+    config = get_strategy_config(wallet)
+    test_mode = config.get("test_mode")
+
+    if not test_mode or not test_mode.get("active"):
+        return False
+
+    expires_at = test_mode.get("expires_at")
+    if not expires_at:
+        return False
+
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+
+    if datetime.utcnow() >= expires_at:
+        stop_strategy_test(wallet)
+        return True
+
+    return False
+
+
 # ── Signal Logging ───────────────────────────────────────────────────────
 
 def log_signal(wallet: str, strategy: str, symbol: str, direction: str,
@@ -1141,6 +1252,9 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     Called by the perp-cron every minute with live prices.
     Returns list of actions taken.
     """
+    # Check if a strategy test has expired
+    check_test_expiry(wallet)
+
     config = get_strategy_config(wallet)
 
     if not config.get("auto_trading_enabled"):
@@ -1163,6 +1277,10 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     global_settings = config.get("global_settings", {})
     cooldown = global_settings.get("cooldown_minutes", COOLDOWN_MINUTES)
     min_candles = global_settings.get("min_candles", MIN_CANDLES)
+
+    # Test mode: use max position sizing (50% of equity instead of 10%)
+    test_mode = config.get("test_mode", {})
+    is_test = test_mode.get("active", False)
 
     # Record equity snapshot for equity curve trading
     record_equity_snapshot(wallet, equity)
@@ -1241,13 +1359,17 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             curr_price = prices[symbol]
 
             # Calculate position size (with drawdown + equity curve protection)
-            size_usd = calculate_position_size(
-                equity, atr_value, curr_price, strat_leverage, sl_mult
-            )
-            if dd_mult < 1.0:
-                size_usd = round(size_usd * dd_mult, 2)
-            if ec_mult < 1.0:
-                size_usd = round(size_usd * ec_mult, 2)
+            if is_test:
+                # Test mode: max position size = 50% of equity * leverage
+                size_usd = round(equity * 0.50 * strat_leverage, 2)
+            else:
+                size_usd = calculate_position_size(
+                    equity, atr_value, curr_price, strat_leverage, sl_mult
+                )
+                if dd_mult < 1.0:
+                    size_usd = round(size_usd * dd_mult, 2)
+                if ec_mult < 1.0:
+                    size_usd = round(size_usd * ec_mult, 2)
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,
@@ -1432,6 +1554,21 @@ def get_strategy_status(wallet: str) -> Dict:
             if p.get("entry_reason", "").startswith(f"[{name}]")
         ]
 
+    # Test mode info
+    test_mode = config.get("test_mode", {})
+    test_info = None
+    if test_mode.get("active"):
+        expires_at = test_mode.get("expires_at")
+        if isinstance(expires_at, datetime):
+            expires_at = expires_at.isoformat()
+        test_info = {
+            "active": True,
+            "strategy": test_mode.get("strategy"),
+            "started_at": test_mode.get("started_at").isoformat() if isinstance(test_mode.get("started_at"), datetime) else test_mode.get("started_at"),
+            "expires_at": expires_at,
+            "duration_minutes": test_mode.get("duration_minutes", 60),
+        }
+
     return {
         "auto_trading_enabled": config.get("auto_trading_enabled", False),
         "strategies": config.get("strategies", {}),
@@ -1441,4 +1578,5 @@ def get_strategy_status(wallet: str) -> Dict:
         "recent_signals": recent,
         "strategy_positions": strategy_positions,
         "trading_paused": account.get("trading_paused", False) if account else False,
+        "test_mode": test_info,
     }
