@@ -5,6 +5,7 @@ import { useDashboardData } from "./hooks/useDashboardData";
 import MarketPills from "./components/dashboard/MarketPills";
 import PositionsStrip from "./components/dashboard/PositionsStrip";
 import PerpPositionsList from "./components/perps/PerpPositionsList";
+import PerpTradeHistory from "./components/perps/PerpTradeHistory";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
 const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
@@ -24,6 +25,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
   const data = useDashboardData();
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
+  const [showTradeHistory, setShowTradeHistory] = useState(false);
 
   // Page title
   useEffect(() => {
@@ -247,6 +249,35 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
               <PerpStrategyPanel wallet={data.wallet} />
             </Suspense>
           </div>
+        )}
+
+        {/* Trade History — collapsible, below strategies */}
+        <button
+          onClick={() => setShowTradeHistory(!showTradeHistory)}
+          className="flex items-center gap-2 w-full mb-2 mt-3"
+        >
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Trade History
+          </span>
+          {data.trades.length > 0 && (
+            <span className="w-4 h-4 rounded-full bg-amber-500/30 text-amber-400 text-[9px] flex items-center justify-center border border-amber-500/40">
+              {Math.min(data.trades.length, 5)}
+            </span>
+          )}
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showTradeHistory ? "rotate-180" : ""}`}
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {showTradeHistory && (
+          <PerpTradeHistory
+            trades={data.trades.slice(0, 5)}
+            onRefresh={data.refreshData}
+          />
         )}
       </div>
     </div>
