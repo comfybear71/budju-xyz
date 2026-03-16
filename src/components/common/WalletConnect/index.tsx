@@ -21,7 +21,7 @@ import {
   FaPiggyBank,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
-import { WalletName } from "@lib/web3/connection";
+import { WalletName, getWalletProvider } from "@lib/web3/connection";
 import { TOKEN_ADDRESS, JLP_MINT } from "@constants/addresses";
 import { ROUTES } from "@/constants/routes";
 import walletService, {
@@ -138,8 +138,11 @@ const WalletConnect = ({
           extWindow.solana?.isSolflare)
       ) {
         setInAppBrowser("solflare");
-      } else if (typeof extWindow.jupiter !== "undefined") {
-        setInAppBrowser("jupiter");
+      } else if (typeof extWindow.jupiter !== "undefined" || getWalletProvider("jupiter")) {
+        // Jupiter Mobile in-app browser injects window.jupiter,
+        // Jupiter extension registers via Wallet Standard
+        if (isMobileDevice) setInAppBrowser("jupiter");
+        // On desktop, don't set inAppBrowser — let normal flow handle it
       } else {
         setInAppBrowser(null);
       }
@@ -270,25 +273,25 @@ const WalletConnect = ({
       } else if (walletName === "solflare") {
         deepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(targetUrl)}?ref=${encodeURIComponent(refUrl)}`;
       } else if (walletName === "jupiter") {
-        deepLink = `https://jup.ag/wallet`;
+        // Jupiter Mobile doesn't have a deep link scheme like Phantom/Solflare.
+        // Guide users to open the site in Jupiter Mobile's built-in browser.
+        setConnectionError(
+          "Open budju.xyz in Jupiter Mobile's built-in browser to connect. Tap the search icon in Jupiter Mobile and navigate to budju.xyz.",
+        );
+        return;
       }
       pendingNavRef.current = null;
       window.location.href = deepLink;
       setIsMenuOpen(false);
     } else {
-      let walletProvider: any = null;
-      if (walletName === "phantom") {
-        walletProvider = extWindow.phantom?.solana || extWindow.solana;
-      } else if (walletName === "solflare") {
-        walletProvider = extWindow.solflare;
-      } else if (walletName === "jupiter") {
-        walletProvider = extWindow.jupiter;
-      }
+      // Use centralized provider resolution (supports Wallet Standard for Jupiter)
+      const walletProvider = getWalletProvider(walletName);
 
       if (!walletProvider) {
-        setConnectionError(
-          `${walletConfig[walletName].name} not detected. Install it first.`,
-        );
+        const installMsg = walletName === "jupiter"
+          ? "Jupiter wallet not detected. Install the Jupiter browser extension or open budju.xyz in Jupiter Mobile's browser."
+          : `${walletConfig[walletName].name} not detected. Install it first.`;
+        setConnectionError(installMsg);
         return;
       }
 

@@ -5,6 +5,7 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import PerpAccountSummary from "./PerpAccountSummary";
 import PerpPositionsList from "./PerpPositionsList";
 import PerpOrderForm from "./PerpOrderForm";
+import PerpPendingOrders from "./PerpPendingOrders";
 import PerpMetricsPanel from "./PerpMetricsPanel";
 import PerpTradeHistory from "./PerpTradeHistory";
 import PerpEquityChart from "./PerpEquityChart";
@@ -41,7 +42,7 @@ interface Props {
   readOnly?: boolean;
 }
 
-type Tab = "charts" | "positions" | "order" | "history" | "metrics" | "equity" | "ai" | "strategy";
+type Tab = "charts" | "positions" | "order" | "pending" | "history" | "metrics" | "equity" | "ai" | "strategy";
 
 const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const { connection } = useWallet();
@@ -56,6 +57,8 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
   const [initialLoading, setInitialLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("charts");
+  const [chartSymbol, setChartSymbol] = useState<string | undefined>(undefined);
+  const [orderSymbol, setOrderSymbol] = useState<string | undefined>(undefined);
   const [modifyingId, setModifyingId] = useState<string | null>(null);
   const [modifySL, setModifySL] = useState("");
   const [modifyTP, setModifyTP] = useState("");
@@ -85,7 +88,6 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     }
   }, [wsPrices, markets]);
 
-  // Fallback markets when API hasn't loaded yet
   const DEFAULT_MARKETS: PerpMarket[] = [
     { symbol: "SOL-PERP", base_asset: "SOL", max_leverage: 50, tick_size: 0.01, coingecko_id: "solana" },
     { symbol: "BTC-PERP", base_asset: "BTC", max_leverage: 50, tick_size: 0.1, coingecko_id: "bitcoin" },
@@ -94,9 +96,8 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     { symbol: "AVAX-PERP", base_asset: "AVAX", max_leverage: 20, tick_size: 0.01, coingecko_id: "avalanche-2" },
     { symbol: "LINK-PERP", base_asset: "LINK", max_leverage: 20, tick_size: 0.001, coingecko_id: "chainlink" },
     { symbol: "SUI-PERP", base_asset: "SUI", max_leverage: 20, tick_size: 0.001, coingecko_id: "sui" },
+    { symbol: "RENDER-PERP", base_asset: "RENDER", max_leverage: 20, tick_size: 0.001, coingecko_id: "render-token" },
     { symbol: "JUP-PERP", base_asset: "JUP", max_leverage: 10, tick_size: 0.0001, coingecko_id: "jupiter-exchange-solana" },
-    { symbol: "WIF-PERP", base_asset: "WIF", max_leverage: 10, tick_size: 0.0001, coingecko_id: "dogwifcoin" },
-    { symbol: "BONK-PERP", base_asset: "BONK", max_leverage: 10, tick_size: 0.00000001, coingecko_id: "bonk" },
   ];
 
   const loadData = useCallback(async () => {
@@ -357,13 +358,14 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
     { key: "strategy", label: "Bot", icon: "⚡" },
     { key: "positions", label: "Positions", icon: "📍" },
     { key: "order", label: "New Order", icon: "📝" },
+    { key: "pending", label: "Orders", icon: "📋" },
     { key: "equity", label: "Equity", icon: "💹" },
     { key: "metrics", label: "Metrics", icon: "📊" },
     { key: "history", label: "History", icon: "📋" },
     { key: "ai", label: "AI", icon: "🤖" },
   ];
   // Read-only users see everything except New Order and Strategy (admin-only)
-  const readOnlyExclude: Tab[] = ["order", "strategy"];
+  const readOnlyExclude: Tab[] = ["order", "pending", "strategy"];
   const tabs = effectiveReadOnly ? allTabs.filter((t) => !readOnlyExclude.includes(t.key)) : allTabs;
 
   if (!wallet && !effectiveReadOnly) {
@@ -383,35 +385,45 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
       className="rounded-2xl border border-red-500/20 bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden"
     >
       {/* Header */}
-      <div className={`px-4 py-3 border-b flex items-center justify-between ${
+      <div className={`px-4 py-3 border-b ${
         isLive ? "border-red-500/30 bg-red-950/20" : "border-red-500/10"
       }`}>
-        <div className="flex items-center gap-2">
-          <span className="text-lg">{isLive ? "🔴" : "🔥"}</span>
-          <div>
-            <h3 className="text-sm font-bold text-red-400">
-              {effectiveReadOnly
-                ? "LIVE CHARTS"
-                : isLive
-                  ? "HIGH RISK — LIVE TRADING"
-                  : "HIGH RISK — PAPER TRADING"}
-            </h3>
-            <p className="text-[10px] text-slate-500">
-              {effectiveReadOnly
-                ? "Real-time charts with AI predictions • Read only"
-                : isLive
-                  ? "Real funds on Drift Protocol • Trades use real money"
-                  : "Simulated perpetual futures • No real funds at risk"}
-            </p>
+        {/* Top: title + close button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-lg flex-shrink-0">{isLive ? "🔴" : "🔥"}</span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-red-400 truncate">
+                {effectiveReadOnly
+                  ? "LIVE CHARTS"
+                  : isLive
+                    ? "HIGH RISK — LIVE TRADING"
+                    : "HIGH RISK — PAPER TRADING"}
+              </h3>
+              <p className="text-[10px] text-slate-500 truncate">
+                {effectiveReadOnly
+                  ? "Real-time charts with AI predictions • Read only"
+                  : isLive
+                    ? "Real funds on Drift Protocol • Trades use real money"
+                    : "Simulated perpetual futures • No real funds at risk"}
+              </p>
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-white transition-colors text-sm flex-shrink-0 ml-2"
+          >
+            ✕
+          </button>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Kill Switch */}
-          {!effectiveReadOnly && wallet && (
+        {/* Action buttons row — wraps on narrow screens */}
+        {!effectiveReadOnly && wallet && (
+          <div className="flex items-center flex-wrap gap-1.5 mt-2">
+            {/* Kill Switch */}
             <button
               onClick={handleKillSwitch}
               disabled={togglingKillSwitch}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
                 isKillSwitchActive
                   ? "bg-red-600/30 text-red-200 border-red-500/60 animate-pulse"
                   : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
@@ -420,14 +432,12 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               {togglingKillSwitch ? "..." : isKillSwitchActive ? "🚨 KILL ON" : "🚨 KILL"}
             </button>
-          )}
 
-          {/* Paper/Live Mode Toggle */}
-          {!effectiveReadOnly && wallet && (
+            {/* Paper/Live Mode Toggle */}
             <button
               onClick={handleSwitchMode}
               disabled={switchingMode}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
                 isLive
                   ? "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-slate-800/50 hover:text-slate-300"
                   : "bg-slate-800/50 text-slate-400 border-slate-600/30 hover:bg-amber-500/20 hover:text-amber-300 hover:border-amber-500/40"
@@ -436,29 +446,27 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               {switchingMode ? "..." : isLive ? "🔴 LIVE" : "📝 PAPER"}
             </button>
-          )}
 
-          {/* Auto-trading START/STOP — always visible when wallet connected */}
-          {!effectiveReadOnly && wallet && autoTradingEnabled !== null && (
-            <button
-              onClick={handleToggleBot}
-              disabled={togglingBot}
-              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
-                autoTradingEnabled
-                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
-                  : "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
-              } disabled:opacity-40`}
-              title={autoTradingEnabled ? "Click to STOP auto-trading" : "Click to START auto-trading"}
-            >
-              {togglingBot ? "..." : autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
-            </button>
-          )}
-          {!effectiveReadOnly && account?.trading_paused && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
-              PAUSED
-            </span>
-          )}
-          {!effectiveReadOnly && (
+            {/* Auto-trading START/STOP */}
+            {autoTradingEnabled !== null && (
+              <button
+                onClick={handleToggleBot}
+                disabled={togglingBot}
+                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                  autoTradingEnabled
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40"
+                    : "bg-red-500/20 text-red-300 border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-300 hover:border-emerald-500/40"
+                } disabled:opacity-40`}
+                title={autoTradingEnabled ? "Click to STOP auto-trading" : "Click to START auto-trading"}
+              >
+                {togglingBot ? "..." : autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
+              </button>
+            )}
+            {account?.trading_paused && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                PAUSED
+              </span>
+            )}
             <button
               onClick={handleReset}
               className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors"
@@ -466,14 +474,8 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             >
               Reset
             </button>
-          )}
-          <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-white transition-colors text-sm"
-          >
-            ✕
-          </button>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Live mode warning banner */}
@@ -495,7 +497,19 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
         )}
 
         {/* Account summary — visible to all (shows equity, balance, P&L) */}
-        {account && <PerpAccountSummary account={account} />}
+        {/* Compute live-adjusted unrealized P&L from positions + live prices */}
+        {account && (() => {
+          const liveUnrealized = positions.reduce((sum, pos) => {
+            const livePrice = prices[pos.symbol] || pos.mark_price;
+            const priceDelta = pos.direction === "long"
+              ? livePrice - pos.mark_price
+              : pos.mark_price - livePrice;
+            const adjustment = (priceDelta / pos.entry_price) * pos.size_usd;
+            return sum + pos.unrealized_pnl + adjustment;
+          }, 0);
+          const liveEquity = account.balance + positions.reduce((s, p) => s + p.margin, 0) + liveUnrealized;
+          return <PerpAccountSummary account={{ ...account, unrealized_pnl: liveUnrealized, equity: liveEquity }} />;
+        })()}
         {!account && !initialLoading && !effectiveReadOnly && (
           <PerpAccountSummary account={{
             wallet: wallet || "", balance: 10000, equity: 10000,
@@ -547,7 +561,10 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             positions={positions}
             trades={trades}
             metrics={account?.metrics}
+            wallet={wallet}
             onClose={() => setActiveTab(effectiveReadOnly ? "positions" : "order")}
+            initialSymbol={chartSymbol}
+            onRefresh={loadData}
           />
         )}
 
@@ -556,7 +573,18 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             positions={positions}
             onClose={handleClosePosition}
             onModify={handleModifyPosition}
+            onRefresh={loadData}
             readOnly={effectiveReadOnly}
+            wallet={wallet}
+            livePrices={prices}
+            onViewChart={(symbol) => {
+              setChartSymbol(symbol);
+              setActiveTab("charts");
+            }}
+            onNewTrade={(symbol) => {
+              setOrderSymbol(symbol);
+              setActiveTab("order");
+            }}
           />
         )}
 
@@ -567,7 +595,12 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
             maxBalance={account?.balance || 0}
             onSubmit={handlePlaceOrder}
             loading={loading}
+            initialSymbol={orderSymbol}
           />
+        )}
+
+        {activeTab === "pending" && wallet && (
+          <PerpPendingOrders wallet={wallet} readOnly={effectiveReadOnly} />
         )}
 
         {activeTab === "equity" && (
@@ -593,7 +626,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
         )}
 
         {activeTab === "history" && (
-          <PerpTradeHistory trades={trades} />
+          <PerpTradeHistory trades={trades} onRefresh={loadData} />
         )}
 
         {activeTab === "ai" && (

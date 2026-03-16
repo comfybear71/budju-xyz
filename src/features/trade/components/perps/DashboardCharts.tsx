@@ -8,10 +8,11 @@
 //   - Win/loss heatmap by hour-of-day
 // ============================================================
 
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import TradingChart from "./TradingChart";
 import { useLivePrices } from "@hooks/useLivePrices";
-import type { PerpPosition, PerpTrade, PerpMetrics } from "../../types/perps";
+import { fetchStrategyStatus, fetchPendingOrders, placePerpOrder, createPendingOrder, modifyPerpPosition, modifyPendingOrder, cancelPendingOrder, closePerpPosition, type StrategyStatus } from "../../services/perpApi";
+import type { PerpPosition, PerpTrade, PerpMetrics, PerpPendingOrder, PerpOrderRequest } from "../../types/perps";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -19,7 +20,10 @@ interface Props {
   positions: PerpPosition[];
   trades: PerpTrade[];
   metrics?: PerpMetrics | null;
+  wallet?: string;
   onClose: () => void;
+  initialSymbol?: string;
+  onRefresh?: () => void;
 }
 
 interface MarketDef {
@@ -34,9 +38,12 @@ const MARKETS: MarketDef[] = [
   { symbol: "SOL-PERP", base: "SOL", label: "SOL" },
   { symbol: "BTC-PERP", base: "BTC", label: "BTC" },
   { symbol: "ETH-PERP", base: "ETH", label: "ETH" },
+  { symbol: "DOGE-PERP", base: "DOGE", label: "DOGE" },
+  { symbol: "AVAX-PERP", base: "AVAX", label: "AVAX" },
   { symbol: "LINK-PERP", base: "LINK", label: "LINK" },
   { symbol: "SUI-PERP", base: "SUI", label: "SUI" },
-  { symbol: "AVAX-PERP", base: "AVAX", label: "AVAX" },
+  { symbol: "RENDER-PERP", base: "RENDER", label: "RENDER" },
+  { symbol: "JUP-PERP", base: "JUP", label: "JUP" },
 ];
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -67,6 +74,12 @@ const LazyChart = ({
   trades,
   height,
   compact,
+  strategyStatus,
+  pendingOrders,
+  onModifySLTP,
+  onModifyPendingOrder,
+  onCancelPendingOrder,
+  onClosePosition,
 }: {
   symbol: string;
   base: string;
@@ -74,6 +87,12 @@ const LazyChart = ({
   trades: PerpTrade[];
   height: number;
   compact: boolean;
+  strategyStatus?: StrategyStatus | null;
+  pendingOrders?: PerpPendingOrder[];
+  onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string; stopLoss?: number; takeProfit?: number }) => void;
+  onCancelPendingOrder?: (orderId: string) => void;
+  onClosePosition?: (positionId: string, exitPrice: number) => void;
 }) => {
   const ref = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -111,6 +130,12 @@ const LazyChart = ({
           trades={trades}
           height={height}
           compact={compact}
+          strategyStatus={strategyStatus}
+          pendingOrders={pendingOrders}
+          onModifySLTP={onModifySLTP}
+          onModifyPendingOrder={onModifyPendingOrder}
+          onCancelPendingOrder={onCancelPendingOrder}
+          onClosePosition={onClosePosition}
         />
       ) : (
         <div
@@ -124,32 +149,332 @@ const LazyChart = ({
   );
 };
 
-// Detect mobile/small screen for limiting concurrent charts
-function useIsMobile(breakpoint = 768): boolean {
-  const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth < breakpoint : false,
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    setIsMobile(mq.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [breakpoint]);
-  return isMobile;
-}
+// ── Quick Trade Panel (focus mode only) ─────────────────────
 
+type OrderMode = "market" | "limit" | "stop";
+
+const QuickTradePanel = ({
+  symbol,
+  price,
+  wallet,
+  onOrderPlaced,
+}: {
+  symbol: string;
+  price: number;
+  wallet: string;
+  onOrderPlaced: () => void;
+}) => {
+  const [mode, setMode] = useState<OrderMode>("market");
+  const [sizeUsd, setSizeUsd] = useState("500");
+  const [leverage, setLeverage] = useState(3);
+  const [triggerPrice, setTriggerPrice] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  // Auto-fill trigger price when switching modes
+  useEffect(() => {
+    if (price > 0 && !triggerPrice) {
+      setTriggerPrice(price >= 1000 ? price.toFixed(2) : price >= 1 ? price.toFixed(4) : price.toFixed(6));
+    }
+  }, [mode, price]);
+
+  const showFeedback = (msg: string, ok: boolean) => {
+    setFeedback({ msg, ok });
+    setTimeout(() => setFeedback(null), 3000);
+  };
+
+  const placeMarketOrder = async (direction: "long" | "short") => {
+    if (!price || loading) return;
+    setLoading(true);
+    try {
+      const size = parseFloat(sizeUsd) || 500;
+      const slPct = direction === "long" ? 0.98 : 1.02;
+      const tpPct = direction === "long" ? 1.04 : 0.96;
+      const order: PerpOrderRequest = {
+        symbol,
+        direction,
+        leverage,
+        sizeUsd: size,
+        entryPrice: price,
+        stopLoss: price * slPct,
+        takeProfit: price * tpPct,
+        entryReason: "[manual] quick trade",
+      };
+      await placePerpOrder(order, wallet);
+      showFeedback(`${direction.toUpperCase()} $${size} filled`, true);
+      onOrderPlaced();
+    } catch (e: any) {
+      showFeedback(e?.message || "Order failed", false);
+    }
+    setLoading(false);
+  };
+
+  const placePendingOrderHandler = async (direction: "long" | "short", orderType: "limit" | "stop") => {
+    if (!triggerPrice || loading) return;
+    const trigger = parseFloat(triggerPrice);
+    if (!trigger || trigger <= 0) return;
+    setLoading(true);
+    try {
+      const size = parseFloat(sizeUsd) || 500;
+      const slPct = direction === "long" ? 0.98 : 1.02;
+      const tpPct = direction === "long" ? 1.04 : 0.96;
+      await createPendingOrder({
+        symbol,
+        direction,
+        leverage,
+        sizeUsd: size,
+        orderType,
+        triggerPrice: trigger,
+        stopLoss: trigger * slPct,
+        takeProfit: trigger * tpPct,
+        entryReason: `[manual] ${orderType} order`,
+        expiryHours: 24,
+      }, wallet);
+      const label = direction === "long"
+        ? (orderType === "limit" ? "BUY LIMIT" : "BUY STOP")
+        : (orderType === "limit" ? "SELL LIMIT" : "SELL STOP");
+      showFeedback(`${label} @ $${trigger.toFixed(2)} placed`, true);
+      onOrderPlaced();
+    } catch (e: any) {
+      showFeedback(e?.message || "Order failed", false);
+    }
+    setLoading(false);
+  };
+
+  return (
+    <div className="mt-2 bg-slate-800 rounded-xl border border-white/[0.08] p-2.5 space-y-2">
+      {/* Mode tabs */}
+      <div className="flex items-center gap-1">
+        <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+          {(["market", "limit", "stop"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-2 py-1 text-[10px] font-bold transition-colors capitalize ${
+                mode === m
+                  ? "text-blue-400 bg-blue-500/15"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        {/* Size input */}
+        <div className="flex items-center gap-1 ml-auto">
+          <span className="text-[9px] text-slate-500">$</span>
+          <input
+            type="number"
+            value={sizeUsd}
+            onChange={(e) => setSizeUsd(e.target.value)}
+            className="w-16 bg-slate-900/60 border border-white/[0.08] rounded px-1.5 py-1 text-[11px] text-white font-mono text-right focus:outline-none focus:border-blue-500/40"
+          />
+          {/* Quick size buttons */}
+          {[250, 500, 1000].map((s) => (
+            <button
+              key={s}
+              onClick={() => setSizeUsd(String(s))}
+              className={`px-1.5 py-1 text-[9px] rounded border transition-colors ${
+                sizeUsd === String(s)
+                  ? "text-white bg-white/10 border-white/20"
+                  : "text-slate-500 border-transparent hover:text-slate-300"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+          {/* Leverage */}
+          <span className="text-[9px] text-slate-500 ml-1">Lev</span>
+          <select
+            value={leverage}
+            onChange={(e) => setLeverage(Number(e.target.value))}
+            className="bg-slate-900/60 border border-white/[0.08] rounded px-1 py-1 text-[11px] text-white font-mono focus:outline-none"
+          >
+            {[2, 3, 5, 10, 20].map((l) => (
+              <option key={l} value={l}>{l}x</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Trigger price (limit/stop only) */}
+      {mode !== "market" && (
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-slate-500 w-16">Trigger $</span>
+          <input
+            type="number"
+            value={triggerPrice}
+            onChange={(e) => setTriggerPrice(e.target.value)}
+            placeholder={price > 0 ? price.toFixed(4) : "0.00"}
+            className="flex-1 bg-slate-900/60 border border-white/[0.08] rounded px-2 py-1 text-[11px] text-white font-mono focus:outline-none focus:border-blue-500/40"
+          />
+          <button
+            onClick={() => setTriggerPrice(price >= 1000 ? price.toFixed(2) : price >= 1 ? price.toFixed(4) : price.toFixed(6))}
+            className="text-[9px] text-slate-500 hover:text-white px-1.5 py-1 rounded border border-white/[0.06] hover:bg-white/5"
+          >
+            Mark
+          </button>
+        </div>
+      )}
+
+      {/* Action buttons — large tap targets for mobile */}
+      <div className="flex gap-2">
+        {mode === "market" ? (
+          <>
+            <button
+              onClick={() => placeMarketOrder("long")}
+              disabled={loading || !price}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/40 active:bg-emerald-500/50 disabled:opacity-40 transition-colors"
+            >
+              LONG
+            </button>
+            <button
+              onClick={() => placeMarketOrder("short")}
+              disabled={loading || !price}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-red-600/30 text-red-300 border border-red-500/40 hover:bg-red-500/40 active:bg-red-500/50 disabled:opacity-40 transition-colors"
+            >
+              SHORT
+            </button>
+          </>
+        ) : mode === "limit" ? (
+          <>
+            <button
+              onClick={() => placePendingOrderHandler("long", "limit")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/40 active:bg-emerald-500/50 disabled:opacity-40 transition-colors"
+            >
+              BUY LIMIT
+            </button>
+            <button
+              onClick={() => placePendingOrderHandler("short", "limit")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-red-600/30 text-red-300 border border-red-500/40 hover:bg-red-500/40 active:bg-red-500/50 disabled:opacity-40 transition-colors"
+            >
+              SELL LIMIT
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => placePendingOrderHandler("long", "stop")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/40 active:bg-cyan-500/50 disabled:opacity-40 transition-colors"
+            >
+              BUY STOP
+            </button>
+            <button
+              onClick={() => placePendingOrderHandler("short", "stop")}
+              disabled={loading || !triggerPrice}
+              className="flex-1 py-3 rounded-lg text-sm font-bold bg-orange-600/30 text-orange-300 border border-orange-500/40 hover:bg-orange-500/40 active:bg-orange-500/50 disabled:opacity-40 transition-colors"
+            >
+              SELL STOP
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* Margin info + feedback */}
+      <div className="flex items-center justify-between text-[9px]">
+        <span className="text-slate-500">
+          Margin: ${((parseFloat(sizeUsd) || 0) / leverage).toFixed(2)} | Size: ${sizeUsd || "0"} @ {leverage}x
+        </span>
+        {feedback && (
+          <span className={`font-bold ${feedback.ok ? "text-emerald-400" : "text-red-400"}`}>
+            {feedback.msg}
+          </span>
+        )}
+        {loading && <span className="text-blue-400 animate-pulse">Placing...</span>}
+      </div>
+    </div>
+  );
+};
+
+// Detect mobile/small screen for limiting concurrent charts
 // ── Component ────────────────────────────────────────────────
 
-const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
-  const [viewMode, setViewMode] = useState<"grid" | "focus">("grid");
-  const [focusedSymbol, setFocusedSymbol] = useState<string>("SOL-PERP");
+const DashboardCharts = ({ positions, trades, metrics, wallet, onClose, initialSymbol, onRefresh }: Props) => {
+  // Default to focus mode on mobile (window width < 640px) for better UX
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+  const [viewMode, setViewMode] = useState<"grid" | "focus">(initialSymbol || isMobile ? "focus" : "grid");
+  const [focusedSymbol, setFocusedSymbol] = useState<string>(initialSymbol || "SOL-PERP");
   const { prices: wsPrices, wsState } = useLivePrices(500);
+
+  // When navigated from positions card, jump to that symbol's chart
+  useEffect(() => {
+    if (initialSymbol) {
+      setFocusedSymbol(initialSymbol);
+      setViewMode("focus");
+    }
+  }, [initialSymbol]);
+  const [strategyStatus, setStrategyStatus] = useState<StrategyStatus | null>(null);
+  const [pendingOrders, setPendingOrders] = useState<PerpPendingOrder[]>([]);
+
+  // Fetch strategy status + pending orders
+  useEffect(() => {
+    if (!wallet) return;
+    const load = async () => {
+      try {
+        const [s, orders] = await Promise.all([
+          fetchStrategyStatus(wallet),
+          fetchPendingOrders(wallet),
+        ]);
+        setStrategyStatus(s);
+        setPendingOrders(orders.orders.filter(o => o.status === "pending"));
+      } catch { /* ignore */ }
+    };
+    load();
+    const interval = setInterval(load, 30_000);
+    return () => clearInterval(interval);
+  }, [wallet]);
 
   // Compute stats
   const openPositions = positions.filter((p) => p.status === "open");
   const totalPnl = openPositions.reduce((s, p) => s + p.unrealized_pnl, 0);
   const hourlyStats = useMemo(() => getHourlyWinRate(trades), [trades]);
+
+  // Handler for dragging SL/TP lines on charts
+  const handleModifySLTP = useCallback(async (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => {
+    if (!wallet) return;
+    try {
+      await modifyPerpPosition(positionId, mods, wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] SL/TP modify failed:", err);
+    }
+  }, [wallet, onRefresh]);
+
+  // Handler for dragging pending order trigger price
+  const handleModifyPendingOrder = useCallback(async (orderId: string, mods: { triggerPrice?: number; direction?: string }) => {
+    if (!wallet) return;
+    try {
+      await modifyPendingOrder(orderId, mods, wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] Pending order modify failed:", err);
+    }
+  }, [wallet, onRefresh]);
+
+  // Handler for cancelling a pending order
+  const handleCancelPendingOrder = useCallback(async (orderId: string) => {
+    if (!wallet) return;
+    try {
+      await cancelPendingOrder(orderId, wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] Cancel pending order failed:", err);
+    }
+  }, [wallet, onRefresh]);
+
+  // Handler for closing a position from the chart panel
+  const handleClosePosition = useCallback(async (positionId: string, exitPrice: number) => {
+    if (!wallet) return;
+    try {
+      await closePerpPosition(positionId, exitPrice, "manual", wallet);
+      onRefresh?.();
+    } catch (err) {
+      console.error("[DashboardCharts] Close position failed:", err);
+    }
+  }, [wallet, onRefresh]);
 
   // Per-market position count
   const positionsBySymbol = useMemo(() => {
@@ -161,12 +486,45 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
     return map;
   }, [positions]);
 
-  const isMobile = useIsMobile();
-  const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
+  // Track price direction for red/green card borders
+  const prevPricesRef = useRef<Record<string, number>>({});
+  const [priceDirection, setPriceDirection] = useState<Record<string, "up" | "down" | null>>({});
 
-  // On mobile, limit grid to 4 charts to stay within iOS Safari's
-  // WebSocket connection limit (~6 total, minus the shared price stream).
-  const gridMarkets = isMobile ? MARKETS.slice(0, 4) : MARKETS;
+  useEffect(() => {
+    const prev = prevPricesRef.current;
+    const dirs: Record<string, "up" | "down" | null> = {};
+
+    for (const m of MARKETS) {
+      const oldPrice = prev[m.base];
+      const newPrice = wsPrices[m.base];
+      if (oldPrice !== undefined && newPrice !== undefined && oldPrice !== newPrice) {
+        dirs[m.base] = newPrice > oldPrice ? "up" : "down";
+      } else {
+        dirs[m.base] = null;
+      }
+    }
+
+    setPriceDirection(dirs);
+    // Snapshot current prices
+    const snapshot: Record<string, number> = {};
+    for (const m of MARKETS) {
+      if (wsPrices[m.base]) snapshot[m.base] = wsPrices[m.base];
+    }
+    prevPricesRef.current = snapshot;
+
+    // Clear direction after 3 seconds
+    const timer = setTimeout(() => setPriceDirection({}), 3000);
+    return () => clearTimeout(timer);
+  }, [wsPrices]);
+
+  const getCardBorder = useCallback((base: string) => {
+    const dir = priceDirection[base];
+    if (dir === "up") return "border-green-500/60 shadow-[0_0_12px_rgba(34,197,94,0.15)]";
+    if (dir === "down") return "border-red-500/60 shadow-[0_0_12px_rgba(239,68,68,0.15)]";
+    return "border-white/[0.04]";
+  }, [priceDirection]);
+
+  const focusMarket = MARKETS.find((m) => m.symbol === focusedSymbol) || MARKETS[0];
 
   return (
     <div className="space-y-3">
@@ -280,26 +638,110 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
             })}
           </div>
 
-          {/* Single focused chart */}
-          <div className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-3">
+          {/* Single focused chart with trade panel injected below canvas */}
+          <div className={`bg-slate-800/30 rounded-xl border p-3 transition-all duration-300 ${getCardBorder(focusMarket.base)}`}>
             <TradingChart
               symbol={focusMarket.symbol}
               baseAsset={focusMarket.base}
               positions={positions}
               trades={trades}
               height={350}
-            />
+              strategyStatus={strategyStatus}
+              pendingOrders={pendingOrders}
+              onModifySLTP={wallet ? handleModifySLTP : undefined}
+              onModifyPendingOrder={wallet ? handleModifyPendingOrder : undefined}
+              onCancelPendingOrder={wallet ? handleCancelPendingOrder : undefined}
+              onClosePosition={wallet ? handleClosePosition : undefined}
+            >
+              {/* Trade panel — immediately below chart canvas */}
+              {wallet && <QuickTradePanel
+                symbol={focusMarket.symbol}
+                price={wsPrices[focusMarket.base] || 0}
+                wallet={wallet}
+                onOrderPlaced={() => {
+                  fetchPendingOrders(wallet).then(r =>
+                    setPendingOrders(r.orders.filter(o => o.status === "pending"))
+                  ).catch(() => {});
+                  onRefresh?.();
+                }}
+              />}
+
+              {/* Compact open positions for this market */}
+              {(() => {
+                const marketPos = positions.filter(
+                  (p) => p.symbol === focusMarket.symbol && p.status === "open"
+                );
+                if (marketPos.length === 0) return null;
+                return (
+                  <div className="mt-2 space-y-1.5">
+                    <div className="text-[9px] text-slate-500 uppercase tracking-wider">
+                      Open Positions ({marketPos.length})
+                    </div>
+                    {marketPos.map((pos) => {
+                      const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
+                      return (
+                        <div
+                          key={pos._id}
+                          className={`flex items-center justify-between rounded-lg border px-2.5 py-2 ${
+                            pos.direction === "long"
+                              ? "bg-[#0d1a14] border-emerald-500/15"
+                              : "bg-[#1a0d0d] border-red-500/15"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${
+                              pos.direction === "long"
+                                ? "bg-emerald-500/20 text-emerald-400"
+                                : "bg-red-500/20 text-red-400"
+                            }`}>
+                              {pos.direction.toUpperCase()} {pos.leverage}x
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+                              ${pos.entry_price >= 1000 ? pos.entry_price.toFixed(2) : pos.entry_price >= 1 ? pos.entry_price.toFixed(4) : pos.entry_price.toFixed(6)}
+                            </span>
+                            <span className="text-[9px] text-slate-500">${pos.size_usd?.toFixed(0) || "—"}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className={`text-[11px] font-bold font-mono ${
+                              pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
+                            }`}>
+                              {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
+                              <span className="text-[9px] ml-0.5 opacity-70">
+                                ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
+                              </span>
+                            </span>
+                            {wallet && (
+                              <button
+                                onClick={async () => {
+                                  try {
+                                    await handleClosePosition(pos._id, pos.mark_price);
+                                    onRefresh?.();
+                                  } catch { /* handled in handler */ }
+                                }}
+                                className="text-[9px] font-bold px-2 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/30 transition-colors whitespace-nowrap"
+                              >
+                                Close
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </TradingChart>
           </div>
         </>
       ) : (
         /* Grid view — 2 columns on desktop, 1 on mobile.
            Uses LazyChart to defer WebSocket connections until visible,
            preventing iOS Safari from exceeding its connection limit. */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {gridMarkets.map((m) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {MARKETS.map((m) => (
             <div
               key={m.symbol}
-              className="bg-slate-800/30 rounded-xl border border-white/[0.04] p-2 cursor-pointer hover:border-blue-500/20 transition-colors"
+              className={`bg-slate-800/30 rounded-xl border p-2 cursor-pointer hover:border-blue-500/20 transition-all duration-300 ${getCardBorder(m.base)}`}
               onClick={() => {
                 setFocusedSymbol(m.symbol);
                 setViewMode("focus");
@@ -312,6 +754,12 @@ const DashboardCharts = ({ positions, trades, metrics, onClose }: Props) => {
                 trades={trades}
                 height={180}
                 compact
+                strategyStatus={strategyStatus}
+                pendingOrders={pendingOrders}
+                onModifySLTP={wallet ? handleModifySLTP : undefined}
+                onModifyPendingOrder={wallet ? handleModifyPendingOrder : undefined}
+                onCancelPendingOrder={wallet ? handleCancelPendingOrder : undefined}
+                onClosePosition={wallet ? handleClosePosition : undefined}
               />
             </div>
           ))}

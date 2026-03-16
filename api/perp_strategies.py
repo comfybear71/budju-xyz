@@ -53,15 +53,14 @@ DEFAULT_STRATEGIES = {
         "fast_ema": 9,
         "slow_ema": 21,
         "rsi_period": 14,
-        "rsi_oversold": 30,        # Tighter — only enter on genuine oversold
-        "rsi_overbought": 70,      # Tighter — only enter on genuine overbought
+        "rsi_oversold": 35,
+        "rsi_overbought": 65,
         "atr_period": 14,
-        "sl_atr_mult": 2.5,        # Wider SL — room to breathe
-        "tp_atr_mult": 8.0,        # Wide TP — trailing stop is primary exit
-        "trailing_stop_pct": 2.0,   # 2% trail distance
-        "trailing_activation_pct": 3.0,  # Activate after +3% (room for winners to run)
-        "leverage": 3,              # Reduced from 5x — less risk
-        "max_positions": 1,         # Reduced from 2
+        "sl_atr_mult": 2.0,       # Stop loss = 2x ATR
+        "tp_atr_mult": 8.0,       # Wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 1.5,  # 1.5% trailing stop (activates after +1.5%)
+        "leverage": 5,
+        "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
     },
     "mean_reversion": {
@@ -69,46 +68,106 @@ DEFAULT_STRATEGIES = {
         "bb_period": 20,
         "bb_std": 2.0,
         "rsi_period": 14,
-        "rsi_oversold": 25,         # Tighter — genuine oversold only
-        "rsi_overbought": 75,       # Tighter — genuine overbought only
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
         "atr_period": 14,
-        "sl_atr_mult": 2.0,         # Slightly wider SL
-        "tp_atr_mult": 4.0,         # Wider TP — let BB bounce play out
-        "trailing_stop_pct": 1.5,    # 1.5% trail distance
-        "trailing_activation_pct": 2.5,  # Activate after +2.5%
-        "leverage": 2,               # Reduced from 3x
-        "max_positions": 1,          # Reduced from 2
+        "sl_atr_mult": 1.5,       # Tighter SL for mean reversion
+        "tp_atr_mult": 3.0,       # TP at 3x ATR (~1.5-2% from entry)
+        "trailing_stop_pct": 1.0,  # 1% trailing to lock in BB bounce profit
+        "leverage": 3,
+        "max_positions": 2,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "AVAX-PERP", "LINK-PERP"],
     },
     "momentum": {
         "enabled": True,
         "lookback": 20,
-        "breakout_mult": 1.5,      # 1.5x avg range for breakout
+        "breakout_mult": 1.5,     # 1.5x avg range for breakout
         "rsi_period": 14,
-        "rsi_threshold": 55,        # Raised — need stronger RSI confirmation
+        "rsi_threshold": 50,      # RSI must confirm direction
         "atr_period": 14,
-        "sl_atr_mult": 3.0,         # Wider SL for breakouts
-        "tp_atr_mult": 10.0,        # Very wide TP — trailing stop is primary exit
-        "trailing_stop_pct": 2.5,    # 2.5% trail distance
-        "trailing_activation_pct": 4.0,  # Activate after +4%
-        "leverage": 3,               # Reduced from 5x
+        "sl_atr_mult": 2.5,       # Wider SL for breakouts
+        "tp_atr_mult": 10.0,      # Very wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 2.0,  # 2% trailing stop (activates after +2%)
+        "leverage": 5,
         "max_positions": 1,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
     },
     "scalping": {
-        "enabled": False,            # DISABLED — was the biggest fee bleeder
+        "enabled": False,          # Disabled — 1-min data is pure noise for scalping
         "fast_ema": 5,
         "rsi_period": 7,
-        "rsi_oversold": 25,          # Much tighter — only extreme RSI
-        "rsi_overbought": 75,        # Much tighter
+        "rsi_oversold": 30,        # Tighter: was 35
+        "rsi_overbought": 70,      # Tighter: was 65
         "atr_period": 10,
-        "sl_atr_mult": 2.0,          # Wider SL
-        "tp_atr_mult": 4.0,          # Wider TP — was 2.5x (too small after fees)
-        "trailing_stop_pct": 1.2,     # 1.2% trail
-        "trailing_activation_pct": 2.0,  # Activate after +2%
-        "leverage": 3,                # Reduced from 5x
-        "max_positions": 1,           # Reduced from 3
+        "sl_atr_mult": 1.5,
+        "tp_atr_mult": 2.5,
+        "trailing_stop_pct": 1.5,  # Was 0.8% — too tight, exits at breakeven
+        "leverage": 3,             # Was 5x — reduced
+        "max_positions": 2,        # Was 3 — reduced
+        "markets": ["SOL-PERP", "BTC-PERP"],
+    },
+    "ninja": {
+        "enabled": False,          # Ninja Ambush — pending orders at key levels
+        "leverage": 2,
+        "sl_atr_mult": 2.5,
+        "tp_atr_mult": 6.0,
+        "trailing_stop_pct": 2.0,
+        "max_positions": 8,        # Max pending orders
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
+    },
+    "grid": {
+        "enabled": False,          # Grid Trading — ATR-based grid of limit orders
+        "leverage": 2,
+        "sl_atr_mult": 3.0,       # Catastrophic stop at 3x grid spacing
+        "tp_atr_mult": 1.0,       # TP one grid level away
+        "trailing_stop_pct": 0,
+        "max_positions": 10,       # 5 buy + 5 sell levels
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
+    },
+    "keltner": {
+        "enabled": False,          # Keltner Channel — mean reversion + squeeze breakout
+        "leverage": 3,
+        "sl_atr_mult": 1.5,
+        "tp_atr_mult": 3.0,       # Mean reversion: 3x ATR to middle
+        "trailing_stop_pct": 1.0,
+        "max_positions": 3,
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP"],
+    },
+    "bb_squeeze": {
+        "enabled": False,          # Bollinger Squeeze — volatility compression breakout
+        "leverage": 4,
+        "sl_atr_mult": 2.0,
+        "tp_atr_mult": 8.0,       # Wide TP — trailing stop is primary exit
+        "trailing_stop_pct": 2.5,
+        "max_positions": 2,
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP"],
+    },
+    "zone_recovery": {
+        "enabled": False,          # Zone Recovery — hedge recovery with escalating lots
+        "leverage": 3,
+        "sl_atr_mult": 2.0,
+        "tp_atr_mult": 3.0,
+        "trailing_stop_pct": 0,
+        "max_positions": 4,        # 2 zones × 2 sides
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP"],
+    },
+    "hf_scalper": {
+        "enabled": False,          # High-Frequency Scalper — lots of small quick trades
+        "leverage": 5,
+        "sl_atr_mult": 0.5,        # Very tight stop
+        "tp_atr_mult": 1.0,        # Quick target
+        "trailing_stop_pct": 0.5,
+        "max_positions": 15,       # Many small positions
+        "markets": list(MARKETS.keys()),  # All markets
+    },
+    "sr_reversal": {
+        "enabled": False,          # S/R Reversal — 15-min support/resistance bounces
+        "leverage": 3,
+        "sl_atr_mult": 1.5,        # Tight SL behind the level
+        "tp_atr_mult": 3.0,        # Target back toward middle
+        "trailing_stop_pct": 1.0,
+        "max_positions": 3,
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
     },
 }
 
@@ -117,7 +176,27 @@ MIN_CANDLES = 30
 # Max position size as pct of equity
 MAX_POSITION_PCT = 0.10  # 10% per auto trade (conservative)
 # Minimum minutes between trades on same market
-COOLDOWN_MINUTES = 120  # 2 hours — prevents re-entering same chop after stop-out
+COOLDOWN_MINUTES = 120  # 2 hours — prevents re-entering the same chop
+# Correlated assets — max 1 position across each group
+CORRELATION_GROUPS = [
+    {"BTC-PERP", "ETH-PERP", "SOL-PERP"},  # Major caps move together
+]
+# Drawdown protection
+DRAWDOWN_HALF_SIZE_PCT = 5.0   # Half position size at 5% drawdown
+DRAWDOWN_STOP_PCT = 10.0       # Stop trading at 10% drawdown
+
+# ── Equity Curve Trading (Meta-Filter) ──────────────────────────────────
+# Monitors the strategy's own equity curve. If the equity curve is trending
+# down (below its own moving average), reduce or pause trading. This is a
+# "strategy of strategies" concept from forex EA design.
+#
+# How it works:
+#   - Track equity snapshots at each cron run
+#   - Calculate EMA of equity curve
+#   - If equity < equity_EMA → "cold streak" → reduce size or pause
+#   - If equity > equity_EMA → "hot streak" → trade normal or increase
+EQUITY_CURVE_EMA_PERIOD = 20     # 20 cron runs (~20 minutes or ~100 min at 5-min cron)
+EQUITY_CURVE_ENABLED = True      # Master switch for equity curve filter
 
 # ── Binance symbol mapping for historical candle seeding ────────────────
 BINANCE_SYMBOLS = {
@@ -128,9 +207,8 @@ BINANCE_SYMBOLS = {
     "AVAX-PERP": "AVAXUSDT",
     "LINK-PERP": "LINKUSDT",
     "SUI-PERP": "SUIUSDT",
+    "RENDER-PERP": "RENDERUSDT",
     "JUP-PERP": "JUPUSDT",
-    "WIF-PERP": "WIFUSDT",
-    "BONK-PERP": "BONKUSDT",
 }
 
 
@@ -168,6 +246,132 @@ def get_price_series(symbol: str, count: int = 100) -> List[float]:
 def get_candle_count(symbol: str) -> int:
     """How many candles we have stored for a symbol."""
     return perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
+
+
+def get_price_series_15m(symbol: str, count: int = 100) -> List[float]:
+    """Get the last N 15-minute close prices for a symbol.
+
+    Aggregates from stored 1-minute data by taking the last price
+    in each 15-minute bucket. If 15m candles were directly seeded,
+    uses those instead.
+    """
+    # First try directly stored 15m candles
+    docs_15m = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "15m"},
+        {"price": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(count))
+
+    if len(docs_15m) >= count:
+        return [d["price"] for d in reversed(docs_15m)]
+
+    # Fallback: aggregate from 1-minute data
+    # Need count * 15 one-minute candles to build count 15-min bars
+    needed_1m = count * 15 + 15  # Extra buffer
+    docs_1m = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "1m"},
+        {"price": 1, "timestamp": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(needed_1m))
+
+    if len(docs_1m) < 15:
+        return [d["price"] for d in reversed(docs_15m)] if docs_15m else []
+
+    # Group by 15-minute buckets
+    docs_1m.reverse()  # Chronological order
+    buckets = {}
+    for doc in docs_1m:
+        ts = doc["timestamp"]
+        # Round down to nearest 15-minute boundary
+        bucket_min = (ts.minute // 15) * 15
+        bucket_ts = ts.replace(minute=bucket_min, second=0, microsecond=0)
+        bucket_key = bucket_ts.isoformat()
+        buckets[bucket_key] = doc["price"]  # Last price in bucket = close
+
+    # Get the last N buckets
+    sorted_keys = sorted(buckets.keys())
+    prices_15m = [buckets[k] for k in sorted_keys[-count:]]
+    return prices_15m
+
+
+def seed_15m_candles(symbol: str, count: int = 200) -> int:
+    """Seed 15-minute historical candles from Binance for S/R analysis.
+
+    15-min candles give better support/resistance levels than 1-min noise.
+    """
+    existing = perp_price_history.count_documents(
+        {"symbol": symbol, "interval": "15m"}
+    )
+    if existing >= count:
+        return 0
+
+    binance_symbol = BINANCE_SYMBOLS.get(symbol)
+    if not binance_symbol:
+        return 0
+
+    needed = count - existing
+    url = (
+        f"https://api.binance.com/api/v3/klines"
+        f"?symbol={binance_symbol}&interval=15m&limit={min(needed, 500)}"
+    )
+    req = Request(url, headers={
+        "Accept": "application/json",
+        "User-Agent": "BudjuBot/1.0",
+    })
+
+    try:
+        with urlopen(req, timeout=10) as resp:
+            klines = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"[seed] Binance 15m fetch failed for {symbol}: {e}")
+        return 0
+
+    seeded = 0
+    for kline in klines:
+        open_time_ms = kline[0]
+        close_price = float(kline[4])
+        high_price = float(kline[2])
+        low_price = float(kline[3])
+        ts = datetime.utcfromtimestamp(open_time_ms / 1000)
+        ts = ts.replace(second=0, microsecond=0)
+
+        perp_price_history.update_one(
+            {"symbol": symbol, "timestamp": ts, "interval": "15m"},
+            {"$setOnInsert": {
+                "symbol": symbol,
+                "timestamp": ts,
+                "interval": "15m",
+                "price": close_price,
+                "high": high_price,
+                "low": low_price,
+                "updated_at": datetime.utcnow(),
+                "source": "binance_seed",
+            }},
+            upsert=True,
+        )
+        seeded += 1
+
+    if seeded > 0:
+        print(f"[seed] Seeded {seeded} 15m candles for {symbol}")
+    return seeded
+
+
+def get_15m_hlc(symbol: str, count: int = 100):
+    """Get 15-minute High, Low, Close arrays for S/R detection.
+
+    Returns (highs, lows, closes) lists.
+    """
+    docs = list(perp_price_history.find(
+        {"symbol": symbol, "interval": "15m"},
+        {"price": 1, "high": 1, "low": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(count))
+
+    if not docs:
+        return [], [], []
+
+    docs.reverse()
+    highs = [d.get("high", d["price"]) for d in docs]
+    lows = [d.get("low", d["price"]) for d in docs]
+    closes = [d["price"] for d in docs]
+    return highs, lows, closes
 
 
 def seed_historical_candles(symbol: str, count: int = 120) -> int:
@@ -237,6 +441,8 @@ def seed_all_markets(min_candles: int = None):
     for symbol in BINANCE_SYMBOLS:
         try:
             total_seeded += seed_historical_candles(symbol, fetch_count)
+            # Also seed 15-minute candles for S/R analysis
+            total_seeded += seed_15m_candles(symbol, 200)
         except Exception as e:
             print(f"[seed] Error seeding {symbol}: {e}")
     if total_seeded > 0:
@@ -365,11 +571,30 @@ def trend_filter(prices: List[float], direction: str) -> bool:
 # ── Strategy Config ──────────────────────────────────────────────────────
 
 def get_strategy_config(wallet: str) -> Dict:
-    """Get strategy configuration for an account."""
+    """Get strategy configuration for an account.
+
+    Merges any new strategies from DEFAULT_STRATEGIES into existing configs
+    so that accounts created before new strategies were added still see them.
+    """
     config = perp_strategy_config.find_one({"wallet": wallet})
     if config:
         result = dict(config)
         result.pop("_id", None)
+
+        # Merge in any new strategies that didn't exist when this account was created
+        saved_strategies = result.get("strategies", {})
+        updated = False
+        for name, defaults in DEFAULT_STRATEGIES.items():
+            if name not in saved_strategies:
+                saved_strategies[name] = dict(defaults)
+                updated = True
+        if updated:
+            result["strategies"] = saved_strategies
+            perp_strategy_config.update_one(
+                {"wallet": wallet},
+                {"$set": {"strategies": saved_strategies, "updated_at": datetime.utcnow()}},
+            )
+
         return result
 
     # Create default config
@@ -439,20 +664,10 @@ def get_recent_signals(wallet: str, limit: int = 50) -> List[Dict]:
 # ── Position Sizing ──────────────────────────────────────────────────────
 
 def calculate_position_size(equity: float, atr_value: float, price: float,
-                            leverage: int, sl_atr_mult: float,
-                            peak_equity: float = None) -> float:
-    """Calculate position size based on risk (ATR-based) with drawdown scaling."""
-    # Base risk: 1% of equity per trade (reduced from 1.5%)
-    risk_pct = 0.01
-
-    # Drawdown protection: reduce size as equity drops from peak
-    if peak_equity and peak_equity > 0:
-        drawdown_pct = (peak_equity - equity) / peak_equity * 100
-        if drawdown_pct >= 10:
-            return 0  # Stop trading at 10% drawdown
-        elif drawdown_pct >= 5:
-            risk_pct *= 0.5  # Half-size at 5% drawdown
-
+                            leverage: int, sl_atr_mult: float) -> float:
+    """Calculate position size based on risk (ATR-based)."""
+    # Risk 1-2% of equity per trade
+    risk_pct = 0.015  # 1.5% of equity
     risk_amount = equity * risk_pct
 
     # Stop distance in USD
@@ -539,30 +754,27 @@ def strategy_trend_following(prices: List[float], config: Dict) -> Optional[Dict
         "price": curr_price,
     }
 
-    # Bullish: require actual EMA crossover (prev_fast <= prev_slow, now fast > slow)
-    # This is much more selective than just "fast > slow + accelerating"
-    crossover_up = prev_fast <= prev_slow and curr_fast > curr_slow
+    # Bullish crossover: fast crosses above slow
+    if prev_fast <= prev_slow and curr_fast > curr_slow:
+        if curr_rsi > rsi_os and curr_rsi < rsi_ob:
+            if trend_filter(prices, "long"):
+                return {
+                    "direction": "long",
+                    "signal": "ema_cross_up",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
-    if crossover_up and curr_rsi > rsi_os and curr_rsi < 75:
-        if trend_filter(prices, "long"):
-            return {
-                "direction": "long",
-                "signal": "ema_cross_up",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
-
-    # Bearish: require actual EMA crossover (prev_fast >= prev_slow, now fast < slow)
-    crossover_down = prev_fast >= prev_slow and curr_fast < curr_slow
-
-    if crossover_down and curr_rsi < rsi_ob and curr_rsi > 25:
-        if trend_filter(prices, "short"):
-            return {
-                "direction": "short",
-                "signal": "ema_cross_down",
-                "indicators": indicators,
-                "atr": curr_atr,
-            }
+    # Bearish crossover: fast crosses below slow
+    if prev_fast >= prev_slow and curr_fast < curr_slow:
+        if curr_rsi < rsi_ob and curr_rsi > rsi_os:
+            if trend_filter(prices, "short"):
+                return {
+                    "direction": "short",
+                    "signal": "ema_cross_down",
+                    "indicators": indicators,
+                    "atr": curr_atr,
+                }
 
     return None
 
@@ -607,14 +819,11 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
         "price": curr_price,
     }
 
-    # Mean reversion does NOT use trend filter — it's designed to trade
-    # counter-trend (buy dips at lower BB, sell rallies at upper BB).
-    # The trend filter was blocking the exact entries this strategy needs.
-    bb_width = curr_upper - curr_lower
-    bb_tolerance = bb_width * 0.10  # 10% of band width (tighter than before)
-
-    # Price near lower band + RSI genuinely oversold → LONG
-    if curr_price <= curr_lower + bb_tolerance and curr_rsi <= rsi_os:
+    # Price at or below lower band + RSI oversold → LONG
+    # NOTE: No trend filter for mean reversion — the whole point is to fade
+    # overextensions. The trend filter blocks the exact trades this strategy
+    # is designed to take (buying dips below EMA).
+    if curr_price <= curr_lower and curr_rsi <= rsi_os:
         return {
             "direction": "long",
             "signal": "bb_lower_bounce",
@@ -623,8 +832,8 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
             "tp_override": curr_middle,  # Target middle band
         }
 
-    # Price near upper band + RSI genuinely overbought → SHORT
-    if curr_price >= curr_upper - bb_tolerance and curr_rsi >= rsi_ob:
+    # Price at or above upper band + RSI overbought → SHORT
+    if curr_price >= curr_upper and curr_rsi >= rsi_ob:
         return {
             "direction": "short",
             "signal": "bb_upper_bounce",
@@ -681,8 +890,8 @@ def strategy_momentum(prices: List[float], config: Dict) -> Optional[Dict]:
     # Current candle range
     curr_range = abs(curr_price - prev_price)
 
-    # Breakout above recent high — relaxed: just needs to break high, RSI confirms momentum
-    if curr_price > recent_high:
+    # Breakout above recent high with strong move
+    if curr_price > recent_high and curr_range > avg_range * breakout_mult:
         if curr_rsi > rsi_threshold:
             if trend_filter(prices, "long"):
                 return {
@@ -692,8 +901,8 @@ def strategy_momentum(prices: List[float], config: Dict) -> Optional[Dict]:
                     "atr": curr_atr,
                 }
 
-    # Breakout below recent low
-    if curr_price < recent_low:
+    # Breakout below recent low with strong move
+    if curr_price < recent_low and curr_range > avg_range * breakout_mult:
         if curr_rsi < rsi_threshold:
             if trend_filter(prices, "short"):
                 return {
@@ -753,8 +962,7 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
         "price": curr_price,
     }
 
-    # SCALP LONG: RSI genuinely oversold + EMA rising + price bouncing
-    # Reduced from 6 entry signals to 2 — only strongest setups
+    # SCALP LONG: RSI was oversold or dipping + EMA is rising + price bouncing up
     if curr_rsi <= rsi_os and ema_rising and price_momentum > 0:
         if trend_filter(prices, "long"):
             return {
@@ -764,7 +972,17 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
                 "atr": curr_atr,
             }
 
-    # SCALP SHORT: RSI genuinely overbought + EMA falling + price dropping
+    # Also LONG: RSI crossing up from oversold (recovery)
+    if prev_rsi < rsi_os and curr_rsi > rsi_os and curr_price > curr_ema:
+        if trend_filter(prices, "long"):
+            return {
+                "direction": "long",
+                "signal": "scalp_rsi_recovery",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
+
+    # SCALP SHORT: RSI was overbought or spiking + EMA is falling + price dropping
     if curr_rsi >= rsi_ob and not ema_rising and price_momentum < 0:
         if trend_filter(prices, "short"):
             return {
@@ -774,7 +992,106 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
                 "atr": curr_atr,
             }
 
+    # Also SHORT: RSI crossing down from overbought (exhaustion)
+    if prev_rsi > rsi_ob and curr_rsi < rsi_ob and curr_price < curr_ema:
+        if trend_filter(prices, "short"):
+            return {
+                "direction": "short",
+                "signal": "scalp_rsi_exhaustion",
+                "indicators": indicators,
+                "atr": curr_atr,
+            }
+
     return None
+
+
+# ── Keltner Channel + BB Squeeze (EA strategies) ────────────────────────
+
+def strategy_keltner_wrapper(prices: List[float], config: Dict) -> Optional[Dict]:
+    """Wrapper to lazy-import and run Keltner Channel strategy."""
+    try:
+        from perp_keltner import strategy_keltner
+        return strategy_keltner(prices, config)
+    except Exception as e:
+        print(f"[strategy] Keltner error: {e}")
+        return None
+
+
+def strategy_bb_squeeze_wrapper(prices: List[float], config: Dict) -> Optional[Dict]:
+    """Wrapper to lazy-import and run BB Squeeze strategy."""
+    try:
+        from perp_bb_squeeze import strategy_bb_squeeze
+        return strategy_bb_squeeze(prices, config)
+    except Exception as e:
+        print(f"[strategy] BB Squeeze error: {e}")
+        return None
+
+
+# ── Equity Curve Trading (Meta-Filter) ──────────────────────────────────
+
+perp_equity_curve = db["perp_equity_curve"]
+perp_equity_curve.create_index([("account_id", 1), ("timestamp", -1)])
+
+
+def record_equity_snapshot(wallet: str, equity: float):
+    """Record an equity snapshot for equity curve analysis."""
+    perp_equity_curve.insert_one({
+        "account_id": wallet,
+        "equity": equity,
+        "timestamp": datetime.utcnow(),
+    })
+    # Keep only last 200 snapshots to avoid bloat
+    count = perp_equity_curve.count_documents({"account_id": wallet})
+    if count > 200:
+        oldest = list(perp_equity_curve.find(
+            {"account_id": wallet},
+            {"_id": 1},
+        ).sort("timestamp", 1).limit(count - 200))
+        if oldest:
+            perp_equity_curve.delete_many({"_id": {"$in": [o["_id"] for o in oldest]}})
+
+
+def get_equity_curve_multiplier(wallet: str) -> float:
+    """Calculate position size multiplier based on equity curve health.
+
+    Returns:
+        1.0 — equity above its EMA (hot streak, trade normally)
+        0.5 — equity below its EMA (cold streak, half size)
+        0.0 — equity significantly below EMA (deep cold streak, pause)
+    """
+    if not EQUITY_CURVE_ENABLED:
+        return 1.0
+
+    snapshots = list(perp_equity_curve.find(
+        {"account_id": wallet},
+        {"equity": 1, "_id": 0},
+    ).sort("timestamp", -1).limit(EQUITY_CURVE_EMA_PERIOD + 5))
+
+    if len(snapshots) < EQUITY_CURVE_EMA_PERIOD:
+        return 1.0  # Not enough data yet — trade normally
+
+    # Reverse to chronological order
+    equities = [s["equity"] for s in reversed(snapshots)]
+
+    # Calculate EMA of equity curve
+    equity_ema_vals = ema(equities, EQUITY_CURVE_EMA_PERIOD)
+    if not equity_ema_vals:
+        return 1.0
+
+    curr_equity = equities[-1]
+    curr_ema = equity_ema_vals[-1]
+
+    if curr_ema <= 0:
+        return 1.0
+
+    ratio = curr_equity / curr_ema
+
+    if ratio >= 1.0:
+        return 1.0   # Hot streak — trade normally
+    elif ratio >= 0.97:
+        return 0.5   # Cooling off — half size
+    else:
+        return 0.25  # Cold streak — quarter size (don't fully stop to allow recovery)
 
 
 # ── Main Auto-Trader ─────────────────────────────────────────────────────
@@ -784,7 +1101,38 @@ STRATEGY_FUNCS = {
     "mean_reversion": strategy_mean_reversion,
     "momentum": strategy_momentum,
     "scalping": strategy_scalping,
+    "keltner": strategy_keltner_wrapper,
+    "bb_squeeze": strategy_bb_squeeze_wrapper,
 }
+
+
+def _check_correlation(symbol: str, open_symbols: set) -> bool:
+    """Check if opening a position in symbol would violate correlation limits.
+    Returns True if the trade is allowed, False if blocked.
+    """
+    for group in CORRELATION_GROUPS:
+        if symbol in group:
+            # Check if any correlated symbol already has a position
+            if open_symbols & group:
+                return False
+    return True
+
+
+def _get_drawdown_multiplier(account: Dict) -> float:
+    """Get position size multiplier based on current drawdown.
+    Returns 1.0 (full size), 0.5 (half size), or 0.0 (stop trading).
+    """
+    peak = account.get("peak_equity", INITIAL_BALANCE)
+    equity = account.get("equity", INITIAL_BALANCE)
+    if peak <= 0:
+        return 1.0
+    drawdown_pct = ((peak - equity) / peak) * 100
+
+    if drawdown_pct >= DRAWDOWN_STOP_PCT:
+        return 0.0
+    elif drawdown_pct >= DRAWDOWN_HALF_SIZE_PCT:
+        return 0.5
+    return 1.0
 
 
 def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
@@ -805,34 +1153,35 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     if account.get("trading_paused"):
         return [{"action": "skipped", "reason": "Trading paused — daily loss limit"}]
 
+    # Drawdown protection
+    dd_mult = _get_drawdown_multiplier(account)
+    if dd_mult <= 0:
+        return [{"action": "skipped", "reason": f"Drawdown protection: >{DRAWDOWN_STOP_PCT}% drawdown, trading halted"}]
+
     equity = account.get("equity", INITIAL_BALANCE)
     balance = account.get("balance", 0)
-    peak_equity = account.get("peak_equity", equity)
     global_settings = config.get("global_settings", {})
     cooldown = global_settings.get("cooldown_minutes", COOLDOWN_MINUTES)
     min_candles = global_settings.get("min_candles", MIN_CANDLES)
+
+    # Record equity snapshot for equity curve trading
+    record_equity_snapshot(wallet, equity)
+
+    actions = []
+
+    # Equity curve meta-filter: reduce size during cold streaks
+    ec_mult = get_equity_curve_multiplier(wallet)
+    if ec_mult < 1.0:
+        actions.append({
+            "action": "equity_curve",
+            "multiplier": ec_mult,
+            "reason": f"Equity curve filter: {ec_mult}x sizing",
+        })
 
     # Get current open positions
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     open_count = len(open_pos)
     open_symbols = set(p["symbol"] for p in open_pos)
-
-    # Correlation groups — assets that move together
-    # Max 1 position per correlation group to avoid stacking the same directional bet
-    CORRELATION_GROUPS = [
-        {"BTC-PERP", "ETH-PERP", "SOL-PERP"},  # Major L1s — highly correlated
-        {"SUI-PERP", "AVAX-PERP", "LINK-PERP"},  # Alt L1/infra — moderately correlated
-    ]
-
-    def is_correlated_open(symbol: str) -> bool:
-        """Check if a correlated asset already has an open position."""
-        for group in CORRELATION_GROUPS:
-            if symbol in group:
-                if open_symbols & group:  # Any overlap
-                    return True
-        return False
-
-    actions = []
 
     for strategy_name, strategy_func in STRATEGY_FUNCS.items():
         strat_config = config.get("strategies", {}).get(strategy_name, {})
@@ -862,8 +1211,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if symbol in open_symbols:
                 continue
 
-            # Skip if a correlated asset already has a position
-            if is_correlated_open(symbol):
+            # Correlation guard — max 1 position across correlated groups
+            if not _check_correlation(symbol, open_symbols):
                 continue
 
             # Check total position limit
@@ -891,11 +1240,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             atr_value = signal.get("atr", 0)
             curr_price = prices[symbol]
 
-            # Calculate position size (with drawdown scaling)
+            # Calculate position size (with drawdown + equity curve protection)
             size_usd = calculate_position_size(
-                equity, atr_value, curr_price, strat_leverage, sl_mult,
-                peak_equity=peak_equity
+                equity, atr_value, curr_price, strat_leverage, sl_mult
             )
+            if dd_mult < 1.0:
+                size_usd = round(size_usd * dd_mult, 2)
+            if ec_mult < 1.0:
+                size_usd = round(size_usd * ec_mult, 2)
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,
@@ -910,16 +1262,22 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                           f"Insufficient balance: need ${margin_needed:.2f}, have ${balance:.2f}")
                 continue
 
+            # Use signal-specific SL/TP multipliers if provided (Keltner/BB Squeeze)
+            sig_sl_mult = signal.get("sl_mult", sl_mult)
+            sig_tp_mult = signal.get("tp_mult", tp_mult)
+
             # Calculate SL/TP
             if direction == "long":
-                stop_loss = curr_price - (atr_value * sl_mult)
-                take_profit = signal.get("tp_override", curr_price + (atr_value * tp_mult))
+                stop_loss = curr_price - (atr_value * sig_sl_mult)
+                take_profit = signal.get("tp_override", curr_price + (atr_value * sig_tp_mult))
             else:
-                stop_loss = curr_price + (atr_value * sl_mult)
-                take_profit = signal.get("tp_override", curr_price - (atr_value * tp_mult))
+                stop_loss = curr_price + (atr_value * sig_sl_mult)
+                take_profit = signal.get("tp_override", curr_price - (atr_value * sig_tp_mult))
+
+            # Use signal-specific trailing stop if provided
+            sig_trailing = signal.get("trailing_stop_pct", trailing_pct)
 
             entry_reason = f"[{strategy_name}] {signal['signal']}"
-            trailing_activation = strat_config.get("trailing_activation_pct", 0)
 
             # Place the trade
             try:
@@ -932,8 +1290,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     entry_price=curr_price,
                     stop_loss=stop_loss,
                     take_profit=take_profit,
-                    trailing_stop_pct=trailing_pct if trailing_pct > 0 else None,
-                    trailing_activation_pct=trailing_activation if trailing_activation > 0 else None,
+                    trailing_stop_pct=sig_trailing if sig_trailing > 0 else None,
                     entry_reason=entry_reason,
                 )
 
@@ -950,7 +1307,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     "entry_price": curr_price,
                     "stop_loss": round(stop_loss, 6),
                     "take_profit": round(take_profit, 6),
-                    "trailing_stop_pct": trailing_pct if trailing_pct > 0 else None,
+                    "trailing_stop_pct": sig_trailing if sig_trailing > 0 else None,
                     "signal": signal["signal"],
                 })
 
@@ -969,6 +1326,76 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     "symbol": symbol,
                     "error": str(e),
                 })
+
+    # ── Run Ninja Ambush strategy (pending orders at key levels) ──
+    ninja_config = config.get("strategies", {}).get("ninja", {})
+    if ninja_config.get("enabled"):
+        try:
+            from perp_ninja_strategy import run_ninja_strategy
+            peak_equity = account.get("peak_equity", equity)
+            ninja_actions = run_ninja_strategy(wallet, prices, equity, peak_equity)
+            for a in ninja_actions:
+                a["strategy"] = "ninja"
+            actions.extend(ninja_actions)
+        except Exception as e:
+            print(f"[auto_trader] Ninja strategy error: {e}")
+            actions.append({"action": "error", "strategy": "ninja", "error": str(e)})
+
+    # ── Run Grid Trading strategy (ATR-based grid of limit orders) ──
+    grid_config = config.get("strategies", {}).get("grid", {})
+    if grid_config.get("enabled"):
+        try:
+            from perp_grid_strategy import run_grid_strategy
+            peak_equity = account.get("peak_equity", equity)
+            grid_actions = run_grid_strategy(wallet, prices, equity, peak_equity)
+            for a in grid_actions:
+                a["strategy"] = "grid"
+            actions.extend(grid_actions)
+        except Exception as e:
+            print(f"[auto_trader] Grid strategy error: {e}")
+            actions.append({"action": "error", "strategy": "grid", "error": str(e)})
+
+    # ── Run Zone Recovery strategy (hedge recovery with escalating lots) ──
+    zone_config = config.get("strategies", {}).get("zone_recovery", {})
+    if zone_config.get("enabled"):
+        try:
+            from perp_zone_recovery import run_zone_recovery
+            peak_equity = account.get("peak_equity", equity)
+            zone_actions = run_zone_recovery(wallet, prices, equity, peak_equity)
+            for a in zone_actions:
+                a["strategy"] = "zone_recovery"
+            actions.extend(zone_actions)
+        except Exception as e:
+            print(f"[auto_trader] Zone recovery error: {e}")
+            actions.append({"action": "error", "strategy": "zone_recovery", "error": str(e)})
+
+    # ── Run HF Scalper (high-frequency, own cooldown/position rules) ──
+    hf_config = config.get("strategies", {}).get("hf_scalper", {})
+    if hf_config.get("enabled"):
+        try:
+            from perp_hf_scalper import run_hf_scalper
+            peak_equity = account.get("peak_equity", equity)
+            hf_actions = run_hf_scalper(wallet, prices, equity, peak_equity)
+            for a in hf_actions:
+                a["strategy"] = "hf_scalper"
+            actions.extend(hf_actions)
+        except Exception as e:
+            print(f"[auto_trader] HF Scalper error: {e}")
+            actions.append({"action": "error", "strategy": "hf_scalper", "error": str(e)})
+
+    # ── Run S/R Reversal (15-min support/resistance reversal trading) ──
+    sr_config = config.get("strategies", {}).get("sr_reversal", {})
+    if sr_config.get("enabled"):
+        try:
+            from perp_sr_reversal import run_sr_reversal
+            peak_equity = account.get("peak_equity", equity)
+            sr_actions = run_sr_reversal(wallet, prices, equity, peak_equity)
+            for a in sr_actions:
+                a["strategy"] = "sr_reversal"
+            actions.extend(sr_actions)
+        except Exception as e:
+            print(f"[auto_trader] S/R Reversal error: {e}")
+            actions.append({"action": "error", "strategy": "sr_reversal", "error": str(e)})
 
     return actions
 
@@ -993,7 +1420,8 @@ def get_strategy_status(wallet: str) -> Dict:
     # Active strategy positions
     open_pos = list(perp_positions.find({"account_id": wallet, "status": "open"}))
     strategy_positions = {}
-    for name in STRATEGY_FUNCS:
+    all_strategy_names = list(STRATEGY_FUNCS.keys()) + ["ninja", "grid", "zone_recovery", "hf_scalper", "sr_reversal"]
+    for name in all_strategy_names:
         strategy_positions[name] = [
             {
                 "symbol": p["symbol"],

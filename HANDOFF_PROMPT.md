@@ -11,7 +11,7 @@
 - **Live site:** https://budju.xyz
 - **Token:** `2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump` (1B supply, 6 decimals)
 - **Created:** January 31, 2025
-- **Codebase:** ~40,600 lines across ~100 TypeScript/Python files
+- **Codebase:** ~45,000 lines across ~110 TypeScript/Python files
 
 ---
 
@@ -54,7 +54,9 @@ src/
 │   ├── home/                # Landing page (Hero, Ecosystem, Roadmap)
 │   ├── trade/               # Trading platform + auto-trader
 │   │   ├── components/      # AutoTraderView, Leaderboard, Portfolio, etc.
-│   │   └── services/        # autoTrader.ts, tradeApi.ts, activityLog.ts
+│   │   │   └── perps/       # HighRiskDashboard, PerpStrategyPanel, charts, etc.
+│   │   ├── services/        # autoTrader.ts, tradeApi.ts, perpApi.ts
+│   │   └── types/           # perps.ts (TypeScript types for perp system)
 │   ├── bank/                # Bank of BUDJU (deposits, JLP)
 │   ├── pool/                # Liquidity pool management
 │   ├── swap/                # Token swap interface (Jupiter)
@@ -77,9 +79,20 @@ src/
 └── styles/                  # globals.css
 
 api/
-├── index.py                 # Main API (user, deposit, trade, pool, admin endpoints)
+├── index.py                 # Main API (user, deposit, trade, pool, admin, perp endpoints)
 ├── database.py              # MongoDB + share-based pool accounting (NAV system)
-├── auto-trade-cron.py       # Auto-trading cron (every 5 min)
+├── auto-trade-cron.py       # Auto-trading cron (every 5 min) — spot/Swyftx
+├── perp-cron.py             # Perp paper trading cron (every 1 min)
+├── perp_engine.py           # Perp engine: positions, PnL, fees, liquidation, orders
+├── perp_strategies.py       # Strategy engine: indicators, auto-trader runner, config
+├── perp_ninja_strategy.py   # Ninja Ambush: confluence-based pending orders
+├── perp_grid_strategy.py    # Grid Trading: ATR-based grid with smooth martingale
+├── perp_keltner.py          # Keltner Channel: mean reversion + squeeze breakout
+├── perp_bb_squeeze.py       # Bollinger Squeeze: volatility compression breakout
+├── perp_zone_recovery.py    # Zone Recovery: hedge recovery with escalating lots
+├── perp_hf_scalper.py       # HF Scalper: high-frequency small-profit trades
+├── perp_backtest.py         # Backtesting engine
+├── perp_exchange.py         # Drift Protocol integration (live trading, future)
 ├── telegram.ts              # Telegram bot webhook (commands, AI Q&A, moderation)
 ├── telegram-cron.ts         # Scheduled Telegram messages (4x daily + price updates)
 ├── proxy.ts                 # Swyftx exchange proxy (token auth, order placement)
@@ -144,6 +157,7 @@ Plus `<Analytics />` from `@vercel/analytics/react`.
 - **chartApi.ts** — OHLCV candle data from GeckoTerminal (2-min cache)
 - **depositService.ts** — USDC deposits to pool wallet
 - **tokenRegistry.ts** — Token lookup from Solana token list CDN
+- **perpApi.ts** — Full perp trading API client (positions, orders, strategies, backtest)
 
 ---
 
@@ -190,7 +204,10 @@ Allocation %: (userShares / totalShares) × 100
 - `/api/admin/import-user` — Import user
 - `/api/admin/recalibrate` — Snapshot/reset pool P&L
 
-### Auto-Trade Cron (api/auto-trade-cron.py) — Every 5 Minutes
+**Perp Trading API:**
+- See Section 11 for full perp endpoint list
+
+### Auto-Trade Cron (api/auto-trade-cron.py) — Every 5 Minutes (Spot)
 
 **Flow:**
 1. Check trading enabled & bot active in trader_state
@@ -202,17 +219,6 @@ Allocation %: (userShares / totalShares) × 100
    - SELL if price ≥ sell target (83.3% of allocation × balance)
 6. Record trades, update targets, set 24h cooldowns
 7. Send Telegram notifications
-
-**Circuit Breakers (env vars):**
-- `MAX_SINGLE_TRADE_USDC` — default $500
-- `MAX_DAILY_TRADES` — default 20/24h
-- `MAX_DAILY_LOSS_USDC` — default $2000 sold/24h
-- `TRADING_ENABLED` — kill switch
-- `DRY_RUN` — simulate mode
-
-**Tier System:**
-- Each tier has `deviation%` (how much to move targets after trade) and `allocation%` (trade size)
-- Coins assigned to tiers via `autoTierAssignments`
 
 ### Telegram Bot (api/telegram.ts)
 
@@ -281,7 +287,7 @@ VITE_ANALYTICS_ID=            # Google Analytics
 - **vercel.json** defines:
   - No-cache headers on all routes (fresh deploys)
   - Rewrites: API routes → serverless functions, SPA catch-all → `/index.html`
-  - Crons: auto-trade every 5min, telegram-cron 4x daily
+  - Crons: perp-cron every 1 min, auto-trade every 5 min, telegram-cron 4x daily
 - **Python runtime:** api/*.py files auto-detected
 - **TypeScript runtime:** api/*.ts files auto-detected
 - **Static:** dist/ from Vite build
@@ -297,10 +303,11 @@ VITE_ANALYTICS_ID=            # Google Analytics
 4. **Device heartbeat** in auto-trade prevents conflicts between browser and cron trades.
 5. **CORS** restricted to budju.xyz, www.budju.xyz, localhost in production.
 6. **Rate limiting:** 30/min GET, 10/min POST on main API; 60/min on RPC; 20/min on Jupiter.
-7. **Trade log field naming:** Server-side uses `timestamp`, client-side autoTrader.ts uses `time`. The view (`AutoTraderView.tsx`) checks both `entry.timestamp || entry.time`.
+7. **Trade log field naming:** Server-side uses `timestamp`, client-side autoTrader.ts uses `time`. The view checks both.
 8. **Share accounting is NAV-based** — deposits issue shares at current NAV, not 1:1 with USD amount.
 9. **Swyftx token** is cached 50 minutes in proxy.ts warm instances.
 10. **Admin wallet default:** `AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq` — excluded from leaderboards and allocations.
+11. **Strategy config merge** — `get_strategy_config()` auto-merges new strategies into existing accounts so old configs get new strategies on next load.
 
 ---
 
@@ -315,7 +322,6 @@ VITE_ANALYTICS_ID=            # Google Analytics
 - **Raydium AMM pool:** `FxHfhKyXkLRCRGqhasqW2fU1iPJ8Cs1DSAUEmcx3dLmN`
 - **DEX link:** https://dexscreener.com/solana/fxhfhkyxklrcrgqhasqw2fu1ipj8cs1dsauemcx3dlmn
 - **Social links:** Facebook, Telegram, Instagram, Twitter, TikTok, Pump.fun (defined in `src/constants/config.ts`)
-- **Referral links:** Swyftx, Coinbase, CoinSpot, Tokocrypto (defined in `src/constants/addresses.ts`)
 
 ---
 
@@ -328,34 +334,66 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  FRONTEND: HighRiskDashboard                            │
-│  Real-time Binance WebSocket prices + TradingView chart │
-│  Tabs: Chart, Positions, Orders, Trades, Strategy, AI   │
+│  Real-time Binance WebSocket prices                     │
+│  Desktop: TradingView (lightweight-charts)              │
+│  Mobile: SVG MobileAreaChart (iOS Safari compatible)    │
+│  Tabs: Chart, Bot, Positions, Orders, Trades, AI        │
+│  Strategy toggles: slide switches with live status      │
 ├─────────────────────────────────────────────────────────┤
 │  API: api/index.py (perp endpoints)                     │
 │  POST /api/perp/order — Open position                   │
 │  POST /api/perp/close — Close position                  │
 │  POST /api/perp/modify — Modify SL/TP/trailing          │
+│  POST /api/perp/partial-close — Partial close (1-99%)   │
+│  POST /api/perp/pyramid — Add to winning position       │
+│  POST /api/perp/flip — Close + reverse direction        │
+│  POST /api/perp/position-type — Set core/satellite      │
+│  POST /api/perp/pending-order — Create limit/stop order │
+│  POST /api/perp/pending-order/cancel — Cancel order     │
+│  POST /api/perp/strategy/toggle — Enable/disable bot    │
+│  POST /api/perp/strategy/config — Update strategy cfg   │
+│  GET  /api/perp/strategy/status — Strategy status + pos │
+│  GET  /api/perp/backtest — Run strategy backtest        │
 │  GET  /api/perp/positions — Open positions               │
 │  GET  /api/perp/account — Account info + equity          │
+│  GET  /api/perp/pending-orders — Pending orders          │
+│  GET  /api/perp/metrics — Trading metrics                │
+│  GET  /api/perp/public — Public read-only data           │
 ├─────────────────────────────────────────────────────────┤
 │  ENGINE: api/perp_engine.py                              │
-│  Position lifecycle, PnL, liquidation, fees, equity      │
+│  Position lifecycle, PnL, liquidation, fees, equity,     │
+│  pending orders, pyramiding, partial close, flip,        │
+│  position types, funding analysis, re-entry candidates   │
+│  Position limits: 5 per side per symbol (5L + 5S each)   │
+│  Pending order limit: 30 max                             │
 ├─────────────────────────────────────────────────────────┤
 │  CRON: api/perp-cron.py (every 1 minute)                │
-│  Fetch Binance prices (CoinGecko fallback) →            │
-│  update positions →             │
-│  check SL/TP/liquidation/trailing → auto-close →         │
-│  run auto-trader strategies → snapshot equity            │
+│  Fetch CoinGecko prices → store price history →          │
+│  check pending orders → update positions → check         │
+│  SL/TP/liquidation/trailing → auto-close → run           │
+│  auto-trader strategies → equity snapshot                 │
 ├─────────────────────────────────────────────────────────┤
-│  STRATEGIES: api/perp_strategies.py                      │
-│  4 strategies: Trend Following, Mean Reversion,          │
-│  Momentum Breakout, Scalping                             │
-│  ATR-based SL/TP, Kelly position sizing                  │
+│  STRATEGY ENGINE: api/perp_strategies.py                 │
+│  10 strategies (6 in main loop, 4 separate runners)      │
+│  Equity curve meta-filter, ATR-based sizing,             │
+│  drawdown protection, Binance historical seeding         │
+├─────────────────────────────────────────────────────────┤
+│  STRATEGY FILES:                                         │
+│  perp_strategies.py — Core 6: trend, mean_rev, momentum, │
+│    scalping, keltner, bb_squeeze                         │
+│  perp_ninja_strategy.py — Ninja Ambush (confluence)      │
+│  perp_grid_strategy.py — Grid (ATR + smooth martingale)  │
+│  perp_zone_recovery.py — Zone Recovery (hedge recovery)  │
+│  perp_hf_scalper.py — HF Scalper (high-frequency)        │
+│  perp_keltner.py — Keltner Channel indicators            │
+│  perp_bb_squeeze.py — BB Squeeze detection               │
+│  perp_backtest.py — Backtesting engine                    │
 ├─────────────────────────────────────────────────────────┤
 │  DB Collections: perp_accounts, perp_positions,          │
 │  perp_orders, perp_trades, perp_equity, perp_funding,    │
 │  perp_price_history, perp_strategy_config,               │
-│  perp_strategy_signals                                   │
+│  perp_strategy_signals, perp_pending_orders,             │
+│  perp_grid_state, perp_zone_state, perp_equity_curve     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -368,150 +406,428 @@ Full perpetual futures paper trading system at `/trade`. Users trade with $10K v
 ### Key Engine Constants (perp_engine.py)
 ```python
 INITIAL_BALANCE = 10_000.0       # $10K USDC starting balance
-OPEN_CLOSE_FEE_PCT = 0.0006     # 0.06%
-BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr
-MAINTENANCE_MARGIN_PCT = 0.05   # 5% base (scaled down for high leverage)
 MAX_LEVERAGE = 50
-MAX_OPEN_POSITIONS = 5
+MAX_POSITIONS_PER_SIDE = 5       # Max 5 longs + 5 shorts per symbol
+MAX_OPEN_POSITIONS = 50          # Soft global cap (10 symbols × 5 per side)
 MAX_POSITION_PCT = 0.50          # Max 50% equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause trading
+MAX_PENDING_ORDERS = 30          # Pending order capacity
 ```
 
-### Auto-Trader Strategies (perp_strategies.py) — OVERHAULED March 14, 2026
-| Strategy | Signal | Leverage | SL (ATR) | TP (ATR) | Trail | Trail Activation | Status |
-|----------|--------|----------|----------|----------|-------|-----------------|--------|
-| Trend Following | EMA 9/21 actual crossover + RSI | 3x | 2.5 | 8.0 | 2.0% | 3.0% | Active |
-| Mean Reversion | Price at BB band (10% tolerance) + RSI extreme | 2x | 2.0 | 4.0 | 1.5% | 2.5% | Active, NO trend filter |
-| Momentum | Price breaks 20-candle high/low + RSI >55 | 3x | 3.0 | 10.0 | 2.5% | 4.0% | Active |
-| Scalping | Extreme RSI (25/75) + EMA slope + momentum | 3x | 2.0 | 4.0 | 1.2% | 2.0% | **DISABLED** |
+### All 10 Auto-Trading Strategies
 
-**Key changes from original:**
-- **Trailing stop activation is now SEPARATE from trail distance** — e.g., 3% activation + 2% trail means winners must move +3% before locking in, then trail from high-water mark with 2% buffer. Prevents the old bug where activation=trail=0.8% meant winners always exited at breakeven.
-- **Mean reversion has NO trend filter** — it was blocking the exact counter-trend entries the strategy needs (buy dips below EMA, sell rallies above EMA).
-- **Scalping DISABLED** — was the biggest fee bleeder. 6 loose entry signals on 1-min data = random entries + 0.3% fee drag per round trip.
-- **Trend following requires actual EMA crossover** — not just "fast > slow + accelerating" which fired constantly.
-- **Leverage reduced across all strategies** — 5x→3x, 3x→2x. Less risk per trade.
-- **Correlation guard** — max 1 position per correlated group: {BTC,ETH,SOL} and {SUI,AVAX,LINK}. Prevents triple stop-out on market-wide moves.
-- **Drawdown protection** — half position size at 5% drawdown from peak, stop trading at 10%.
-- **Risk per trade reduced** — 1.5%→1.0% of equity.
-- **Cooldown increased** — 15 min→2 hours. Prevents re-entering same adverse regime.
-- RSI thresholds tightened — only genuine extremes trigger entries.
-- ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR
-- Historical candles seeded from Binance public API (eliminates cold-start)
+| # | Strategy | Type | Signal | Lev | SL | TP | Trail | Cooldown | Default |
+|---|----------|------|--------|-----|----|----|-------|----------|---------|
+| 1 | Trend Following | Main loop | EMA 9/21 cross + RSI | 5x | 2.0x | 8.0x | 1.5% | 2hr | ON |
+| 2 | Mean Reversion | Main loop | BB bounce + RSI 30/70 | 3x | 1.5x | 3.0x | 1.0% | 2hr | ON |
+| 3 | Momentum | Main loop | Breakout + range expansion | 5x | 2.5x | 10.0x | 2.0% | 2hr | ON |
+| 4 | Scalping | Main loop | RSI 5 + EMA slope | 3x | 1.5x | 2.5x | 1.5% | 2hr | OFF |
+| 5 | Keltner Channel | Main loop | KC bounce / squeeze breakout | 3x | 1.5x | 3-5x | 1-2% | 2hr | OFF |
+| 6 | BB Squeeze | Main loop | Squeeze release + momentum | 4x | 2.0x | 8.0x | 2.5% | 2hr | OFF |
+| 7 | Ninja Ambush | Separate | Confluence pending orders | 2x | 2.5x | 6.0x | 2.0% | N/A | OFF |
+| 8 | Grid Trading | Separate | ATR-based grid levels | 2x | 3.0x | 1.0x | — | 1hr | OFF |
+| 9 | Zone Recovery | Separate | Hedge + escalating lots | 3x | 2.0x | 3.0x | — | 2hr | OFF |
+| 10 | HF Scalper | Separate | 4 fast signals, all markets | 5x | 0.5x | 1.0x | 0.5% | **5min** | OFF |
 
-### Pending Limit/Stop Orders (perp_pending_orders.py) — NEW March 14, 2026
-Pre-placed orders that wait at key levels like "ninjas" ready to execute:
-- **limit_buy** — below current price, fills on dip (catches red candles)
-- **limit_sell** — above current price, fills on pump
-- **buy_stop** — above current price, fills on breakout
-- **sell_stop** — below current price, fills on breakdown
-- Checked every cron tick (1 min). Orders auto-expire after 24h.
-- Each order has bracket: auto-places SL/TP when filled.
-- DB collection: `perp_pending_orders`
+**SL/TP values are ATR multipliers.** ATR is 1-minute data scaled by `sqrt(60)` to approximate 1-hour ATR.
 
-### Trigger Execution (perp-cron.py → perp_engine.py)
-Checked every minute in priority order (independent checks, not elif):
-1. **Liquidation** — mark_price crosses liquidation price
-2. **Stop Loss** — mark_price crosses SL level
-3. **Take Profit** — mark_price crosses TP level
-4. **Trailing Stop** — mark_price crosses trailing stop price (ratchets on favorable moves)
+### Meta-Features
+- **Equity Curve Trading** — Monitors EMA of equity curve. If equity falls below its EMA, reduces position sizing (0.5x at -3%, 0.25x at deeper drawdown). Applied to all strategies automatically.
+- **50-period EMA Trend Filter** — Trend following, momentum, scalping require trade direction aligned with 50 EMA. Mean reversion exempted (it fades overextensions by design).
+- **Drawdown Protection** — Half-size at 5% drawdown from equity peak, stop trading at 10% drawdown.
+- **Correlation Guard** — Max 1 position across BTC/ETH/SOL group (not applied to HF Scalper).
+- **Historical Seeding** — Price history auto-seeded from Binance public API to eliminate cold-start.
+
+### Strategy Flow (how it all connects)
+```
+1. UI: PerpStrategyPanel.tsx — slide toggle switches
+   ↓ POST /api/perp/strategy/config {strategies.{name}.enabled: true}
+2. Backend: update_strategy_config() → MongoDB perp_strategy_config
+3. Cron: perp-cron.py runs every 1 minute
+   ↓ calls run_auto_trader(wallet, prices)
+4. Auto-trader: perp_strategies.py
+   ↓ Checks each enabled strategy for signals
+   ↓ Applies equity curve filter, drawdown protection
+   ↓ Calculates position size, SL/TP from ATR
+5. Execution: open_position() in perp_engine.py
+   ↓ Creates position document in MongoDB
+6. Monitoring: perp-cron.py checks SL/TP/liquidation every minute
+   ↓ Auto-closes positions when triggered
+```
+
+### Advanced Position Management
+- **Partial Close** — Close 1-99% of a position; updates remaining size/margin
+- **Pyramiding** — Add to winning positions (max 3 levels, 50% size decrease per level)
+- **Position Flipping** — Close + reverse direction in one operation
+- **Core/Satellite Tracking** — Tag positions, get separate P&L summary
+- **Pending Orders** — Limit/stop orders with trigger price, SL/TP, optional expiry
+- **Funding Rate Analysis** — Per-position funding cost breakdown
+- **Re-entry Candidates** — Detects recent profitable exits with pullback from exit price
 
 ### Live Trading (FUTURE — not yet active)
 - `perp_exchange.py` has Drift Protocol integration (Solana-native)
 - All Drift imports are lazy (`if is_live:` guards) — won't crash without deps
-- Drift deps (`driftpy`, `solana`, `solders`, `anchorpy`) removed from requirements.txt — they exceed Vercel's 500MB Lambda limit
-- **When ready:** will need separate deployment strategy (e.g., dedicated VM, Railway, or Vercel split functions)
-- Live mode has extra safety: kill switch, max $500 position, max 3 positions, exchange reconciliation
+- Drift deps exceed Vercel's 500MB Lambda limit — needs separate infra
+- Live mode has extra safety: kill switch, max $500 position, max 3 positions
 
 ---
 
-## 12. Recent Changes (as of March 14, 2026)
+## 12. Recent Changes (as of March 16, 2026)
 
-- **Full perpetual paper trading system** — 10 markets, 4 auto-trading strategies, real-time Binance WebSocket charts
-- **Critical bug fix: TP never triggered when SL was set** — `elif` chain in trigger checks meant a set-but-not-hit SL blocked TP evaluation entirely. Changed to independent `if not action` checks.
-- **Critical bug fix: Liquidation formula broken for >20x leverage** — 5% maintenance margin exceeded initial margin at high leverage (e.g., 50x long had liq price ABOVE entry → immediate liquidation). Fixed with scaled maintenance margin: `min(5%, 50%/leverage)`.
-- **SL/TP validation added** — `open_position()` and `modify_position()` now reject invalid SL/TP (e.g., long SL above entry, short TP above entry).
-- **Daily loss limit now scales with equity** — was fixed at 20% of $10K regardless of account growth.
-- **ATR scaling widened from sqrt(15) to sqrt(60)** — 1-min ATR was too small (~0.4% SL), causing every trade to stop out on normal noise. Now approximates 1-hour ATR for meaningful stop distances.
-- **50-period EMA trend filter added** — All 4 strategies now check that trade direction aligns with the higher-timeframe trend. Prevents shorting into rallies and longing into dumps.
-- **Profit-activated trailing stops** — Trailing stop no longer starts from entry (which made it a tighter SL than the ATR-based one). Now activates only after price moves favorably by the trailing %, then ratchets from the high-water mark. This lets winners run while locking in profit.
-- **TP widened for trailing stop strategies** — Trend following TP: 4x→8x ATR. Momentum TP: 5x→10x ATR. The trailing stop is now the primary exit for these strategies, with TP as a distant backstop.
-- **Mean reversion gets trailing stop** — Added 1.0% trailing to lock in Bollinger Band bounce profits.
-- **Cron prices switched from CoinGecko to Binance** — Chart shows Binance WebSocket prices but cron used CoinGecko, causing TP/SL triggers to miss when prices differed. Now uses Binance REST API (matches chart) with CoinGecko as fallback.
-- **Trade markers fixed to correct chart positions** — Markers were bunched at the start because trade timestamps fell outside the chart's ~8hr candle range. Now snaps to nearest candle via binary search and skips out-of-range trades entirely.
-- **AI Trading Genius entry zones on chart** — Two dashed price lines show where the AI auto-trader would execute its next LONG (green, lower BB/EMA50 support) and SHORT (red, upper BB/EMA50 resistance) entries. Lines are condition-aware: bright with "READY" badge when RSI + EMA50 trend filter align, dimmed with "BLOCKED" + reason when conditions prevent execution. Lines update live every completed candle. Below-chart panel shows exact prices, distance from current price, and BB/EMA50 reference levels.
-- **Chart default zoom improved** — Charts now default to showing ~200 candles (~3.3 hrs) with `barSpacing: 4` for better overview instead of being zoomed too close. `rightOffset: 20` + `scrollToRealTime()` adds empty space after the last candle so price action isn't pressed against the right edge.
-- **AI entry zone lines always visible** — Blocked lines raised from 25% to 55% opacity and always lineWidth 2, so both LONG and SHORT lines are clearly visible even when conditions aren't met. The ready/blocked state is still indicated by line style (dashed vs dotted) and the info panel below.
-- **Fixed Binance price fetch in cron** — `fetch_prices_binance()` was passing a JSON array in the URL without encoding, likely causing 400 errors and falling back to CoinGecko. Now fetches all Binance tickers and filters, which is simpler and reliable.
-- **Relaxed strategy conditions** — Strategies were too restrictive for 1-min data and rarely fired:
-  - Trend following: no longer requires exact EMA crossover candle — now fires while fast EMA is above/below slow AND accelerating
-  - Mean reversion: price within 20% of BB width from the band (not AT the band), RSI threshold +10 tolerance
-  - Momentum: removed `breakout_mult` candle-size requirement — just price breaking recent high/low with RSI confirmation
-  - Scalping: added pullback entry signals (RSI dipping in uptrend / elevated in downtrend), relaxed AND to OR on conditions
-  - Cooldown reduced from 30 to 15 minutes
-- **AI entry zones cached across re-renders** — `lastEntryZonesRef` persists computed entry zones so they survive chart re-initialization. Minimum candle requirement lowered to 20 (BB period) with EMA50 adapting to available data. Fallback re-applies cached zones if prediction can't recompute.
-- **Drift Protocol deps removed** from requirements.txt to fix Vercel deploy (661MB exceeded 500MB limit). Paper trading unaffected.
-- Added Vercel Analytics (`@vercel/analytics/react`)
-- Added date/time stamps to trade log entries
-- Added Dependabot, ErrorBoundary, TanStack Query caching
-- Enhanced Telegram bot with interactive menus, AI Q&A, and moderation
+### Live Unrealized P&L Fix + Strategy Scroll Filtering (March 16, 2026)
 
-### Changes March 14, 2026 — Strategy Overhaul & Chart Fixes
-- **Major strategy overhaul** — All 4 strategies retuned after overnight loss analysis (7-8% returns → 0.01% equity). See strategy table above for new parameters.
-- **Scalping strategy disabled** — Was generating 10-20 round-trip trades/day with no edge, bleeding ~$15-60/day in fees alone.
-- **Trailing stop activation separated from trail distance** — `trailing_activation_pct` (new param on `open_position()`) lets winners run before locking in. E.g., activate at +3%, trail at 2%.
-- **Correlation guard added** — Max 1 position per correlated asset group ({BTC,ETH,SOL}, {SUI,AVAX,LINK}). Prevents triple stop-out on market-wide moves.
-- **Drawdown protection** — Position sizing halved at 5% drawdown from peak equity, trading stops at 10%.
-- **Mean reversion trend filter removed** — It was blocking the counter-trend entries the strategy is designed to take.
-- **Trend following tightened** — Now requires actual EMA crossover (not just fast>slow+accelerating).
-- **Cooldown increased 15min → 2 hours** — Prevents re-entering same choppy regime after stop-out.
-- **Pending limit/stop order system** — New `perp_pending_orders.py` module. Pre-placed orders at key levels, checked every cron tick. Supports limit_buy, limit_sell, buy_stop, sell_stop with auto-expiry and bracket orders.
-- **iPhone chart fix** — Charts weren't loading on iOS Safari. Fixed container height collapse (explicit wrapper height), zero-width fallback, debounced ResizeObserver, lazy chart loading with IntersectionObserver, mobile capped at 4 charts (iOS ~6 WebSocket limit).
-- **Chart label cleanup** — Removed arrow labels from AI lines, hidden axis price labels on position lines, added CSS border-radius + transparency to axis labels. Position lines at 35% opacity so AI target lines stand out.
-- **AI entry zone panels always bright** — Both LONG/SHORT cards show full color regardless of ready/blocked state (later reverted to show READY/BLOCKED by user request for monitoring).
+**Problem:** The "Unrealized P&L" summary (shown in both `HighRiskDashboard` and `TradeDashboard`) was displaying `-$8` while the individual position cards added up to `-$16.50`. The summary was using stale `account.unrealized_pnl` from the backend (only updated when `update_account_equity()` runs in the cron), while position cards calculated live-adjusted P&L using real-time Binance WebSocket prices.
+
+**Root cause:** Two separate P&L calculation paths:
+- **Position cards** (in `PerpPositionsList.tsx`): Used `pos.unrealized_pnl + livePnlAdjustment` where `livePnlAdjustment` accounts for price movement since last server update
+- **Account summary** (in `PerpAccountSummary.tsx`): Used raw `account.unrealized_pnl` straight from the API — no live adjustment
+
+**Fix (3 files changed):**
+
+1. **`HighRiskDashboard.tsx`** — Instead of passing raw `account` to `PerpAccountSummary`, now computes live-adjusted unrealized P&L by iterating all open positions with their live prices (same formula as position cards). Passes `{ ...account, unrealized_pnl: liveUnrealized, equity: liveEquity }` so the summary always matches position cards.
+
+2. **`TradeDashboard.tsx`** — Same live P&L calculation applied to the compact 5-column account summary row. Also passes `openSymbols` to StrategyMarquee.
+
+3. **`StrategyMarquee.tsx`** — Now accepts `openSymbols?: string[]` prop. Filters out strategy opportunities for symbols that already have open positions (e.g., if you have a UI-PERP position, UI strategy suggestions are hidden). Uses `Set` for O(1) lookup. Opportunities reappear once the position is closed.
+
+**Live P&L formula (used in all 3 places):**
+```typescript
+// For each open position:
+const livePrice = prices[pos.symbol] || pos.mark_price;
+const priceDelta = pos.direction === "long"
+  ? livePrice - pos.mark_price
+  : pos.mark_price - livePrice;
+const adjustment = (priceDelta / pos.entry_price) * pos.size_usd;
+const livePnl = pos.unrealized_pnl + adjustment;
+
+// Account-level total:
+const liveUnrealized = positions.reduce((sum, pos) => sum + livePnl, 0);
+const liveEquity = account.balance + totalMargin + liveUnrealized;
+```
+
+### Inline Editing for Pending Orders & Positions (March 14, 2026)
+- **Inline editable trigger price, SL, TP on pending order cards** — In TradingChart.tsx, the trigger price (`@ $70136.57`), stop loss, and take profit values on pending order cards below the chart are now clickable. Clicking turns the value into an inline `<input>` field. Press Enter to save, Escape to cancel, or click away (blur) to auto-save. Uses existing `onModifyPendingOrder` callback — no API changes needed.
+- **Inline editable SL/TP on open position cards** — Same inline editing pattern applied to position cards. Clicking the SL or TP value opens an inline input. Uses existing `onModifySLTP` callback. The "x" remove buttons hide while editing to prevent accidental deletion.
+- **Single `editingField` state** — One state object tracks which order/position field is being edited: `{ orderId, field: "trigger"|"sl"|"tp", value, kind: "order"|"position" }`. Only one field can be edited at a time across all cards.
+- **Why:** Chart drag-to-modify for SL/TP/trigger was buggy and would move all positions around. Direct input editing is more reliable and precise.
+
+### Critical Bug Fixes (previous session — March 14, 2026)
+- **CRITICAL: Take Profit exits losing money** — TP/SL exits in paper mode used `mark_price - slippage` as fill price. This meant a TP trigger at $110 could fill at $109.89 after slippage, then fees pushed P&L negative. Fix: TP exits now fill at the TP target price (like a real limit order), SL exits at SL target price. Market/manual/trailing exits still apply slippage.
+- **Settings persistence bug** — Partial tier updates (e.g., changing tier1 deviation) used MongoDB `$set` which overwrote the entire `autoTiers` field, deleting tier2/tier3. Fix: `save_trader_state()` now deep-merges autoTiers; `get_trader_state()` merges defaults for missing keys.
+- **iPhone charts failing to load** — Content blockers on iPhone Safari pattern-match on "binance" in URLs, blocking both `api.binance.com` AND our `/api/binance` proxy. Fix: Renamed proxy to `/api/klines` (neutral name), all chart components now use `/api/klines`. Added staggered loading (300ms between charts on mobile) to prevent 6 simultaneous fetches overwhelming the connection.
+- **Trade history refresh** — Added manual refresh button to PerpTradeHistory, kill_switch exit type label, and amber warning flag on TP exits with negative P&L.
+
+### EA-Inspired Strategies (latest session)
+- **Keltner Channel strategy** (`perp_keltner.py`) — ATR-based channels with auto mode switching: mean reversion (bounce off channel) when normal, breakout mode when BB Squeeze detected
+- **Bollinger Squeeze strategy** (`perp_bb_squeeze.py`) — Detects volatility compression (BB inside Keltner Channel), trades the explosive breakout with momentum + RSI + range expansion confirmation
+- **Zone Recovery strategy** (`perp_zone_recovery.py`) — Forex EA-inspired hedge recovery. Opens opposing trades with escalating lot sizes (smooth martingale 1.3x, D'Alembert, or Fibonacci sizing modes). Max 5 recovery levels per zone, 2 active zones max.
+- **HF Scalper strategy** (`perp_hf_scalper.py`) — High-frequency trading across all 10 markets. 5-minute cooldown, no correlation guard, 4 signal types (micro EMA cross, RSI snap, wick rejection, momentum burst). Tight 0.5x ATR SL / 1.0x ATR TP for quick $1-3 profits.
+- **Equity Curve Trading meta-filter** — Monitors EMA of strategy equity curve, auto-reduces sizing during cold streaks
+- **Smooth martingale** option added to grid strategy (1.3x vs classic 2x doubling)
+- **Strategy config auto-merge** — `get_strategy_config()` now merges new strategies into existing account configs so old accounts see new strategies
+- **UI toggle switches** — Converted ON/OFF buttons to proper slide toggle switches for clearer visual feedback
+- **Removed unimplemented UI cards** — Removed swing_trading, grid_bot, funding_arb cards that had no backend
+
+### Strategy Integration (previous session)
+- **Ninja Ambush** and **Grid Trading** integrated into cron runner with lazy imports
+- **Backtest API endpoint** added: `GET /api/perp/backtest?strategy=&symbol=&periods=&balance=`
+- **Position limits changed** to 5 per side per currency (5 longs + 5 shorts per symbol)
+- **Pending order limit** increased to 30 (ninja + grid need room)
+- **Position action buttons** added to position cards: partial close, pyramid, flip, core/satellite
+
+### Chart System (March 14, 2026 — IMPORTANT)
+
+**What works:**
+- **DashboardCharts.tsx** — ALWAYS uses TradingChart (candle charts) for ALL devices. Uses `LazyChart` wrapper with IntersectionObserver to defer WebSocket connections until chart scrolls into view (prevents iOS Safari WebSocket limit). Mobile gets 4 charts in grid, desktop gets 6. Grid and focus chart cards flash green/red borders + glow shadow on real-time price changes.
+- **TradingChart.tsx** — TradingView `lightweight-charts` candle chart with live Binance WebSocket streaming, AI prediction line, signal badges, position overlays (SL/TP/Liq lines), strategy labels. Default interval is 1h (was 15m). Toggle buttons (Vol/Trades/Positions/AI/Strats, Candle/Line, signal badge) have `stopPropagation()` to prevent accidental view switching in grid mode. New "Strats" button shows a strategy popup with active strategies per market.
+- **MobileAreaChart.tsx** — Exists as a standalone SVG chart component but is NOT used by DashboardCharts. Can be used for other contexts if needed.
+- **api/klines.ts** — Proxy at `/api/klines` with cascade: Binance.US -> OKX -> Binance Global. Works from any location.
+- **TradingChart data source** — Tries `/api/klines` proxy first (works from any VPN/location), then falls back to direct `api.binance.com` (faster when not geo-blocked).
+- **binanceWs.ts** — WebSocket streams cycle through 3 fallback endpoints (`stream.binance.com` → `data-stream.binance.com` → `stream.binance.us`) on disconnect. Fixes geo-blocking in AU/US.
+
+**What went wrong (DO NOT REPEAT):**
+1. Added MobileAreaChart as a conditional replacement for TradingChart in DashboardCharts based on screen width detection. This caused desktop to show area charts instead of candles through 5+ broken iterations.
+2. Multiple `isMobile()` detection functions all failed — they matched Mac Safari as mobile (due to `ontouchend`, `maxTouchPoints`, etc).
+3. Even `window.innerWidth < 768` should have worked but the real issue was never confirmed — possibly TradingChart was crashing silently when fetching from geo-blocked Binance API (user had US VPN on), making the chart appear blank.
+4. **Root cause:** DashboardCharts should NEVER conditionally swap TradingChart for MobileAreaChart. The working version (from branch `claude/apply-cleanup-workflow-changes-NfvoU`) always uses TradingChart. Period.
+5. **Geo-blocking:** Binance Global (`api.binance.com`) returns HTTP 451 from US IPs. This affects both Vercel servers (US region) AND users with US VPN. Solution: TradingChart now tries proxy first.
+6. **Content blockers:** iPhone content blockers block URLs containing "binance" — both `api.binance.com` AND paths like `/api/binance`. Solution: proxy renamed to `/api/klines`.
+
+### Live Charts & Trading UX Improvements (March 14, 2026 — Session 2)
+
+Changes made:
+
+1. **WebSocket fallback endpoints** — `binanceWs.ts` now cycles through 3 WebSocket endpoints (`stream.binance.com` → `data-stream.binance.com` → `stream.binance.us`) on disconnect. Both `BinancePriceStream` and `BinanceKlineStream` use this fallback logic. Fixes geo-blocking in AU/US.
+
+2. **WS LIVE badge always visible** — The WS badge in Trade.tsx header now always shows: amber "WS ..." while connecting, green "WS LIVE (count)" when connected. Previously hidden when disconnected.
+
+3. **Live price border colors on chart cards** — DashboardCharts grid and focus chart cards flash green/red borders + glow shadow on real-time price changes (3-second duration). Uses `prevPricesRef` to track price direction per market.
+
+4. **Signal badge repositioned** — In TradingChart, the signal badge (e.g. "SCALP SHORT 21%") moved from cramped header row to its own line below the currency label (BTC/USDT). Works in both compact (grid) and full (focus) mode. Compact mode now shows full text badge instead of just a colored dot.
+
+5. **Default chart interval changed to 1h** — Both `fetchHistoricalKlines` and `BinanceKlineStream` in TradingChart now use "1h" interval instead of "15m".
+
+6. **Toggle button click fix** — Added `stopPropagation()` to Vol/Trades/Positions/AI toggle buttons, Candle/Line buttons, and signal badge in TradingChart. Previously clicking these in grid view would bubble up to the parent card's onClick and switch to focus mode.
+
+7. **Pages scroll to top on cold start** — Added `window.history.scrollRestoration = "manual"` in Layout component to prevent browser overriding the manual `scrollTo(0,0)` on route change.
+
+8. **Hover effects on all buttons** — Added hover effects to all buttons missing them:
+   - Trade page: Orders, Auto Trader, Live Charts cards → `hover:scale-[1.02] hover:brightness-125`
+   - FAQ section: background highlight on hover
+   - NFT detail: like button scale on hover
+   - Carousel dots (NFTShowcase + ShopOfBudjusPreview): scale up + brighten on hover
+
+9. **Brighter chart text** — All chart overlay text brightened: `slate-600` → `slate-400`, `slate-500` → `slate-300` across strategy breakdown panel, position info, recent trades, and toggle button off-states.
+
+10. **Default toggle states** — Trades & Positions buttons now default OFF on cold start. Vol & AI remain ON.
+
+11. **Strategy popup menu on charts** — New "Strats" button next to AI in the chart toggle bar:
+    - Purple themed with green badge showing count of active strategies on that market
+    - Slide-up popup panel shows each active strategy: icon, name, ACTIVE badge, leverage, max positions
+    - Coin row with SOL/BTC/ETH/SUI/AVAX/LINK badges — GREEN if strategy trades that coin, highlighted if current chart's market
+    - Shows active positions with direction + P&L for each strategy on the market
+    - Footer: "X strategies enabled total · Y on {coin}"
+    - DashboardCharts fetches `fetchStrategyStatus(wallet)` every 30s and passes to all TradingChart instances
+    - New `STRATEGY_META` constant maps strategy keys to display names and icons
+    - New `slideUp` CSS keyframe animation in globals.css
+
+### Core System (earlier sessions)
+- Full perpetual paper trading system with 10 markets, real-time Binance WebSocket charts
+- Critical bug fixes: TP trigger chain, liquidation formula, ATR scaling
+- Advanced position management: partial close, pyramiding, flipping, core/satellite
+- Pending orders with limit/stop types, trigger execution, expiry
+- Trailing stops profit-activated (not from entry)
 
 ---
 
-## 13. Lessons Learned (Critical for Strategy Development)
+## 13. Known Tech Debt & Considerations
 
-These lessons were discovered through live paper trading March 13-14, 2026. **Anyone working on trading strategies MUST read this.**
-
-### Trading Strategy Lessons
-1. **1-minute candles are pure noise for indicators.** EMA crossovers, RSI, and BB on 1-min data fire constantly with no predictive edge. The "50-period EMA trend filter" was only 50 MINUTES — not a real trend. Use 15m or 1h candle data for signal generation.
-2. **Trailing stop activation MUST be wider than trail distance.** If both are 0.8%, the trail activates and the stop is immediately at breakeven. Winners exit for $0 minus fees. Every winning trade became a losing trade after fees.
-3. **Mean reversion and trend filters are fundamentally incompatible.** Mean reversion buys dips (price below average) and sells rallies (price above average). A trend filter that blocks longs when price is below EMA blocks the exact entries MR needs.
-4. **"Relaxed" conditions = random entries.** Every relaxation we added (don't require crossover, RSI ±10, 20% BB tolerance, OR instead of AND) destroyed signal quality. On 1-min data, loose conditions fire every few minutes → pure fee bleed.
-5. **Scalping on 1-min data with 0.3% round-trip fees has no edge.** The math: need >0.06% favorable move just to break even at 5x leverage. On 1-min candles, ~50% of moves exceed this by chance → net zero before fees → guaranteed loss after fees.
-6. **Correlated assets are secretly one position.** BTC/ETH/SOL have 0.85+ correlation. Three "different" long positions = 3x the same directional bet.
-7. **Short cooldowns create death spirals.** Stop out → re-enter same regime 15min later → stop again → repeat. Each cycle costs 0.3%+ in fees.
-8. **Leverage amplifies losses faster than gains.** At 5x, a 2% adverse move = 10% loss on margin. Reduced to 2-3x.
-9. **Pre-placed limit orders > reactive market orders.** Limit orders at support levels catch overnight wicks that market orders miss entirely. Also earn maker rebates instead of paying taker fees.
-10. **The best trade is the one you don't take.** Reducing from ~20 trades/day to ~3-5 quality setups dramatically reduces fee drag and increases per-trade edge.
-
-### Frontend/Chart Lessons
-1. **iOS Safari canvas height collapse** — lightweight-charts uses absolute positioning. Must wrap in explicit-height container.
-2. **iOS WebSocket limit (~6)** — Lazy load charts with IntersectionObserver. Cap mobile to 4.
-3. **Chart labels should be minimal** — Hide axis labels on everything except current price and prediction. Use line color/style to convey info, not text labels.
-
----
-
-## 14. Known Tech Debt & Considerations
-
-1. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID with `setTimeout`. Real deposits go through `depositService.ts`.
-2. **Trade log field inconsistency** — `timestamp` (server/API) vs `time` (client autoTrader.ts). View now handles both but root cause should be unified.
-3. **Bundle size warning** — Main chunk >500KB. Could benefit from more aggressive code splitting or `manualChunks` in Vite config.
-4. **No automated tests for frontend** — Only Python tests exist (`npm run test` runs pytest).
+1. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra.
+2. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks.
+3. **Bundle size warning** — Main chunk >500KB. Could benefit from code splitting.
+4. **No automated tests for frontend** — Only Python tests exist.
 5. **Legacy DB name "flub"** — Consider migrating to "budju" for clarity.
-6. **Google Analytics + Vercel Analytics** — Both are now active. Consider consolidating to just Vercel Analytics.
-7. **React 19 strict mode not enabled** — `main.tsx` uses `createRoot` without `<StrictMode>`.
-8. **tokenService.ts (940 lines)** — Large utility file in `src/lib/utils/` that could be broken up.
-9. **window.solana / window.solflare globals** — Direct wallet provider access alongside adapter pattern. Works but fragile.
-10. **No TypeScript on Python API** — Python endpoints lack type hints in some handler functions.
-11. **Drift Protocol live trading blocked by Vercel limits** — deps are 661MB vs 500MB limit. Needs separate infra (VM, Railway, or split Vercel functions).
-12. **Cron-based trigger monitoring (1-min interval)** — Price can gap past SL/TP between ticks. Inherent limitation of polling architecture. Now uses Binance prices (same source as chart) to minimize price discrepancy.
-13. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors before submission.
-14. **Trailing stop activation stored as price level** — `trailing_stop_activation` field on position doc. Existing positions opened before this change won't have it (they'll have `trailing_stop_price` set from entry — old behavior still works, just not profit-gated).
+6. **`executeDeposit` in useTrading.ts is a mock** — returns fake tx ID. Real deposits use depositService.ts.
+7. **No client-side SL/TP pre-validation** — Server rejects invalid values but frontend doesn't show inline errors. (Note: SL/TP/trigger are now inline-editable in the chart cards — validation still server-side only.)
+8. **Pending orders UI lacks real-time price for all markets** — Uses Binance WS for selected symbol only.
+9. **HF Scalper can generate many positions** — Max 15 concurrent, but monitor account balance consumption.
+10. **Zone Recovery can accumulate exposure** — 15% equity cap per zone, but monitor if multiple zones stress the balance.
+11. **Equity curve requires ~20 cron ticks of data** — New accounts trade at full size until enough snapshots accumulate.
 
 ---
 
-*Last updated: March 14, 2026.*
+## 14. Session Issues Log (March 14, 2026)
+
+### Issues Caused by This Session
+
+1. **Desktop candle charts replaced with area charts (5 failed fix attempts)**
+   - **Root cause:** Added conditional `MobileAreaChart` swap in DashboardCharts based on screen width detection
+   - **Why it kept failing:** Multiple `isMobile()` implementations all incorrectly matched Mac Safari as mobile
+   - **Real fix:** Restored DashboardCharts to always use TradingChart (as the working branch had it)
+   - **Lesson:** Never conditionally swap chart components. The LazyChart + TradingChart pattern works on all devices.
+
+2. **Chart data fetch failures from US VPN**
+   - **Root cause:** TradingChart fetched directly from `api.binance.com` which returns 451 from US IPs
+   - **Fix:** TradingChart now tries `/api/klines` proxy first, then direct Binance
+   - **Lesson:** Always use the proxy for initial data fetch. WebSocket streaming still goes direct to Binance (not geo-blocked for WS).
+
+3. **Klines proxy server-side failures**
+   - **Root cause:** Original proxy used Bybit as fallback, but Bybit returns 403 from Vercel US servers
+   - **Fix:** Replaced Bybit with OKX (verified working from US). Cascade: Binance.US -> OKX -> Binance Global.
+
+4. **Incorrectly told user to merge to master**
+   - **Root cause:** Assumed Vercel only deploys from main/master branch
+   - **Reality:** User's Vercel IS configured to deploy from the feature branch
+   - **Lesson:** Ask the user about their Vercel deployment config before making assumptions.
+
+### Bugs Fixed This Session (confirmed working)
+
+1. **TP exits losing money** — Fixed in `perp_engine.py`: TP exits now fill at TP target price, SL at SL target price (no slippage on limit-like exits)
+2. **Settings overwritten on partial update** — Fixed in `database.py`: deep-merge for autoTiers instead of `$set` overwrite
+3. **Auto-trader crash (`actions` NameError)** — Fixed in `perp_strategies.py`: moved `actions = []` above equity curve filter
+4. **Strategy labels on positions** — Added regex extraction of `[STRATEGY]` from `entry_reason` in PerpPositionsList and TradingChart
+5. **AI prediction dots on mobile** — Added to MobileAreaChart with tappable info popup
+
+---
+
+## 15. VPS Trading Bot (March 15, 2026)
+
+### Overview
+Standalone VPS-based trading bot running 24/7 on DigitalOcean. Monitors 15 Solana token prices via Jupiter Price API v3 and executes trades on-chain via Jupiter DEX. Separate from the Vercel serverless auto-trader (which uses Swyftx/CoinGecko).
+
+### Server Details
+- **Provider:** DigitalOcean ($4-5/month)
+- **OS:** Ubuntu 24.04 (1 vCPU, 512MB RAM)
+- **Hostname:** `ubuntu-s-1vcpu-512mb-10gb-syd1-01`
+- **Service name:** `budju-trader` (systemd)
+- **Working directory:** `/home/budju/budju-xyz/vps`
+- **Python:** System Python 3.12 + virtualenv at `/home/budju/budju-xyz/vps/venv`
+- **API port:** 8420
+- **Trading wallet:** `BCXa...TLW7`
+
+### VPS Code Structure
+```
+vps/
+├── main.py              # Entry point — starts all services
+├── config.py            # Environment config + 15 asset definitions (mints, decimals)
+├── price_monitor.py     # Jupiter Price API v3 polling (every 5s)
+├── trader.py            # Trading logic, position management, MongoDB persistence
+├── api_server.py        # HTTP API on port 8420 (health, prices, trades)
+├── requirements.txt     # Python dependencies
+├── setup-vps.sh         # Automated setup script
+├── SETUP.md             # Step-by-step setup guide
+└── HANDOFF.md           # Detailed issue log from setup session
+```
+
+### Assets Monitored (16 tokens)
+SOL, JUP, BONK, WIF, RENDER, HNT, PYTH, RAY, ORCA, PEPE, JTO, W, MOBILE, MSOL, JITOSOL, JLP
+
+### VPS .env Variables
+```
+HELIUS_API_KEY=              # Solana RPC
+MONGODB_URI=                 # Same MongoDB as Vercel
+TELEGRAM_BOT_TOKEN=          # Trade notifications
+TELEGRAM_CHAT_ID=            # Target chat
+TRADING_WALLET_KEY=          # Base58 private key (dedicated trading wallet)
+JUPITER_API_KEY=             # Required for Jupiter Price API v3
+DRY_RUN=true                 # Set false for live trading
+TRADING_ENABLED=true
+MAX_SINGLE_TRADE_USD=50
+MAX_DAILY_TRADES=50
+MAX_DAILY_LOSS_USD=200
+API_SECRET=                  # Protects the API on port 8420
+DB_NAME=flub                 # Same legacy DB name
+```
+
+### systemd Service File
+`/etc/systemd/system/budju-trader.service`:
+```ini
+[Unit]
+Description=BUDJU VPS Trading Bot
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/budju/budju-xyz/vps
+ExecStart=/home/budju/budju-xyz/vps/venv/bin/python main.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Useful VPS Commands
+```bash
+# View live logs (Ctrl+C to exit — does NOT stop bot)
+sudo journalctl -u budju-trader -f
+
+# View last N log lines (non-blocking)
+sudo journalctl -u budju-trader --no-pager -n 30
+
+# Restart / stop / start
+sudo systemctl restart budju-trader
+sudo systemctl stop budju-trader
+sudo systemctl start budju-trader
+
+# Check status
+sudo systemctl status budju-trader
+
+# Reload after editing service file
+sudo systemctl daemon-reload
+
+# Test API
+curl http://localhost:8420/api/health
+curl http://localhost:8420/api/prices
+
+# Update code from git
+cd ~/budju-xyz && git pull origin master
+sudo systemctl restart budju-trader
+
+# Activate venv for manual pip installs
+source /home/budju/budju-xyz/vps/venv/bin/activate
+pip install -r /home/budju/budju-xyz/vps/requirements.txt
+
+# Go live
+nano /home/budju/budju-xyz/vps/.env  # Change DRY_RUN=false
+sudo systemctl restart budju-trader
+```
+
+### Connecting the Dashboard
+Add to Vercel environment variables:
+```
+VITE_VPS_API_URL=http://YOUR_SERVER_IP:8420
+VITE_VPS_API_SECRET=your_api_secret_here
+```
+Then visit `https://budju.xyz/spot` to use the trading dashboard with live VPS prices.
+
+### Issues Fixed During VPS Setup (March 15, 2026)
+
+1. **`ModuleNotFoundError: No module named 'dotenv'`** — Ubuntu 24.04 uses PEP 668 externally-managed Python. Can't `pip install` system-wide. Fix: created virtualenv at `vps/venv/` and installed deps there. Updated systemd `ExecStart` to use venv Python.
+
+2. **Stray `y` character in systemd service file** — Accidentally typed during nano editing, caused `Missing '=', ignoring line` systemd warning. Fix: removed the stray line.
+
+3. **`NotImplementedError: Database objects do not implement truth value testing or bool()`** — pymongo 4.16.0 no longer allows `if self.db:` on Database objects. Fix: changed to `if self.db is not None:` in `vps/trader.py` (lines 69 and 342).
+
+4. **Jupiter Price API returned 401 (Unauthorized)** — Jupiter Price API now requires API key auth. Fix: added `JUPITER_API_KEY` config var and `x-api-key` header in `price_monitor.py`. Note: the .env key is `JUPITER_API_KEY` (NOT `VITE_JUPITER_API_KEY` — that's the frontend key with the Vite prefix).
+
+5. **Jupiter Price API returned 404 (Not Found)** — Jupiter deprecated Price API v2 (`https://api.jup.ag/price/v2`). Fix: updated to v3 (`https://api.jup.ag/price/v3`). Also removed `vsToken` param (v3 returns USD prices directly).
+
+6. **Prices returning empty `{}`** — Jupiter v3 response format changed. V2 wrapped results in `{"data": {...}}`, v3 returns token data at the top level. Fix: changed `prices_data = data.get("data", {})` to `prices_data = data`. Also changed price field from `"price"` to `"usdPrice"`.
+
+### Current VPS Status (as of March 15, 2026)
+- Bot is **running** in **dry run** mode
+- All 15 assets streaming live prices from Jupiter v3
+- Connected to MongoDB (database: `flub`)
+- Trading wallet loaded: `BCXa...TLW7`
+- API server active on port 8420
+
+---
+
+---
+
+## 16. Session Issues Log (March 16, 2026)
+
+### Bugs Fixed This Session
+
+1. **Unrealized P&L summary mismatch** — Summary showed -$8, positions totalled -$16.50. Root cause: summary used stale backend value, position cards used live-adjusted values. Fixed in HighRiskDashboard.tsx and TradeDashboard.tsx by computing live total from positions + WebSocket prices.
+
+2. **Strategy scroll showing symbols with open positions** — StrategyMarquee showed strategy opportunities for markets where the user already had open positions. Fixed by filtering opportunities against open position symbols.
+
+3. **Jupiter wallet 404 error** — Jupiter wallet extension uses Wallet Standard registration (not `window.jupiter`), so it was never detected. Mobile deep link pointed to static `jup.ag/wallet` page (404). Fixed with full Wallet Standard integration via `@wallet-standard/app`.
+
+### Jupiter Wallet Integration (March 16, 2026)
+
+**Problem:** Users trying to connect via Jupiter wallet got a 404 error. Two root causes:
+- **Desktop:** Jupiter browser extension registers via Wallet Standard (`wallet-standard:register-wallet` event), not `window.jupiter`. The code only checked `window.jupiter`, so the extension was never detected.
+- **Mobile:** Deep link was `https://jup.ag/wallet` (a static marketing page), not a proper deep link. Jupiter Mobile has no public deep link scheme like Phantom/Solflare.
+
+**Solution:**
+
+1. **Installed `@wallet-standard/app`** — Provides `getWallets()` to discover Wallet Standard wallets (Jupiter extension, and any future wallets using the standard).
+
+2. **Rewrote `connection.ts`** — Added `findJupiterStandardWallet()` which queries the Wallet Standard registry for a wallet named "Jupiter" supporting `solana:` chains. Added `wrapStandardWallet()` to wrap Wallet Standard wallets into our `SolanaWallet` interface (mapping `standard:connect`, `solana:signTransaction`, `solana:signAndSendTransaction`, `solana:signMessage` features). Created centralized `getWalletProvider(walletName?)` exported function used by all files.
+
+3. **Simplified `useWallet.tsx`** — Extracted repeated ~60-line inline wallet adapter construction into `buildWalletAdapter()` helper. All 6 provider lookups now go through `getWalletProvider()`.
+
+4. **Updated all provider lookups** across `tradeApi.ts`, `useTrading.ts`, `BankJLP.tsx`, and `WalletConnect/index.tsx` to use `getWalletProvider()`.
+
+5. **Fixed mobile flow** — Instead of redirecting to a 404 page, Jupiter mobile now shows a helpful message: "Open budju.xyz in Jupiter Mobile's built-in browser to connect."
+
+### Files Changed
+- `src/features/trade/components/perps/HighRiskDashboard.tsx` — Live P&L calculation for account summary
+- `src/features/trade/TradeDashboard.tsx` — Live P&L for compact summary row + pass openSymbols to StrategyMarquee
+- `src/features/trade/components/perps/StrategyMarquee.tsx` — Accept openSymbols prop, filter out traded symbols
+- `src/lib/web3/connection.ts` — Wallet Standard integration, centralized `getWalletProvider()`
+- `src/hooks/useWallet.tsx` — `buildWalletAdapter()` helper, uses `getWalletProvider()`
+- `src/hooks/useTrading.ts` — Uses `getWalletProvider()`
+- `src/features/trade/services/tradeApi.ts` — Uses `getWalletProvider()`
+- `src/features/bank/components/BankJLP.tsx` — Uses `getWalletProvider()`
+- `src/components/common/WalletConnect/index.tsx` — Jupiter mobile guidance, desktop Wallet Standard detection
+- `package.json` — Added `@wallet-standard/app`, `@solana/wallet-standard-features`
+
+---
+
+*Last updated: March 16, 2026 (Session 5: Live P&L fix + Jupiter wallet integration).*

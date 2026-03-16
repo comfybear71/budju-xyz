@@ -35,6 +35,24 @@ const CODE_TO_BINANCE: Record<string, string> = {
   TAO: "taousdt",
   PEPE: "pepeusdt",
   LUNA: "lunausdt",
+  BONK: "bonkusdt",
+  WIF: "wifusdt",
+  JUP: "jupusdt",
+  // Solana ecosystem (perps)
+  PYTH: "pythusdt",
+  JTO: "jtousdt",
+  HNT: "hntusdt",
+  RAY: "rayusdt",
+  W: "wusdt",
+  DRIFT: "driftusdt",
+  POPCAT: "popcatusdt",
+  PENGU: "penguusdt",
+  TRUMP: "trumpusdt",
+  ME: "meusdt",
+  PNUT: "pnutusdt",
+  GOAT: "goatusdt",
+  FARTCOIN: "fartcoinusdt",
+  TNSR: "tnsrusdt",
 };
 
 // Reverse map: binance symbol → our code
@@ -43,7 +61,13 @@ for (const [code, sym] of Object.entries(CODE_TO_BINANCE)) {
   BINANCE_TO_CODE[sym] = code;
 }
 
-const WS_BASE = "wss://stream.binance.com:9443/ws";
+// Try multiple Binance WebSocket endpoints — stream.binance.com is geo-blocked
+// in some countries (AU, US). Binance.US and data-stream work as fallbacks.
+const WS_ENDPOINTS = [
+  "wss://stream.binance.com:9443/ws",
+  "wss://data-stream.binance.com/ws",
+  "wss://stream.binance.us:9443/ws",
+];
 const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
 
 export interface BinanceWsState {
@@ -58,6 +82,7 @@ export class BinancePriceStream {
   private _callbacks = new Set<PriceCallback>();
   private _stateCallbacks = new Set<(state: BinanceWsState) => void>();
   private _reconnectAttempt = 0;
+  private _endpointIndex = 0;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _destroyed = false;
   private _connected = false;
@@ -67,12 +92,13 @@ export class BinancePriceStream {
     if (this._ws || this._destroyed) return;
 
     const streams = Object.values(CODE_TO_BINANCE).map((s) => `${s}@miniTicker`);
-    // Binance combined stream URL
-    const url = `${WS_BASE}/${streams.join("/")}`;
+    const base = WS_ENDPOINTS[this._endpointIndex % WS_ENDPOINTS.length];
+    const url = `${base}/${streams.join("/")}`;
 
     try {
       this._ws = new WebSocket(url);
     } catch {
+      this._endpointIndex++;
       this._scheduleReconnect();
       return;
     }
@@ -109,6 +135,8 @@ export class BinancePriceStream {
       this._connected = false;
       this._notifyState();
       if (!this._destroyed) {
+        // Try next endpoint on disconnect
+        this._endpointIndex++;
         this._scheduleReconnect();
       }
     };
@@ -224,6 +252,7 @@ export class BinanceKlineStream {
   private _ws: WebSocket | null = null;
   private _callbacks = new Set<KlineCallback>();
   private _reconnectAttempt = 0;
+  private _endpointIndex = 0;
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _destroyed = false;
   private _connected = false;
@@ -242,11 +271,13 @@ export class BinanceKlineStream {
   connect() {
     if (this._ws || this._destroyed) return;
 
-    const url = `${WS_BASE}/${this._symbol}@kline_${this._interval}`;
+    const base = WS_ENDPOINTS[this._endpointIndex % WS_ENDPOINTS.length];
+    const url = `${base}/${this._symbol}@kline_${this._interval}`;
 
     try {
       this._ws = new WebSocket(url);
     } catch {
+      this._endpointIndex++;
       this._scheduleReconnect();
       return;
     }
@@ -281,7 +312,10 @@ export class BinanceKlineStream {
     this._ws.onclose = () => {
       this._ws = null;
       this._connected = false;
-      if (!this._destroyed) this._scheduleReconnect();
+      if (!this._destroyed) {
+        this._endpointIndex++;
+        this._scheduleReconnect();
+      }
     };
 
     this._ws.onerror = () => {

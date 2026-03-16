@@ -10,7 +10,7 @@
 //   - Toggle between line and candlestick mode
 // ============================================================
 
-import { useRef, useEffect, useState, useCallback } from "react";
+import { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import {
   createChart,
   IChartApi,
@@ -25,7 +25,8 @@ import {
   CODE_TO_BINANCE,
   type KlineBar,
 } from "@lib/services/binanceWs";
-import type { PerpPosition, PerpTrade } from "../../types/perps";
+import type { PerpPosition, PerpTrade, PerpPendingOrder } from "../../types/perps";
+import type { StrategyStatus } from "../../services/perpApi";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -34,8 +35,28 @@ interface Props {
   baseAsset: string; // e.g. "SOL"
   positions?: PerpPosition[];
   trades?: PerpTrade[];
+  pendingOrders?: PerpPendingOrder[];
   height?: number;
   compact?: boolean;
+  loadDelay?: number; // accepted for compatibility with MobileAreaChart
+  strategyStatus?: StrategyStatus | null;
+  onModifySLTP?: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void;
+  onModifyPendingOrder?: (orderId: string, mods: { triggerPrice?: number; direction?: string; stopLoss?: number; takeProfit?: number }) => void;
+  onCancelPendingOrder?: (orderId: string) => void;
+  onClosePosition?: (positionId: string, exitPrice: number) => void;
+  /** Injected content rendered immediately after the chart canvas (before toggles/expandable panels) */
+  children?: React.ReactNode;
+}
+
+// Drag state for SL/TP/pending order lines
+interface DragState {
+  active: boolean;
+  type: "sl" | "tp" | "pending";
+  positionId: string; // position or order ID
+  priceLine: any;
+  startPrice: number;
+  orderType?: string; // "stop" | "limit" — for pending orders
+  orderDirection?: string; // "long" | "short" — for pending orders
 }
 
 interface CandleData {
@@ -44,11 +65,14 @@ interface CandleData {
   high: number;
   low: number;
   close: number;
+  volume?: number;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const BINANCE_REST = "https://api.binance.com/api/v3/klines";
+// Try our own proxy first (works from any location/VPN), then direct Binance.
+// The proxy at /api/klines cascades through Binance.US, OKX, and Binance Global.
+// Direct Binance works from most countries but returns 451 from US IPs.
 
 async function fetchHistoricalKlines(
   binanceSymbol: string,
@@ -56,18 +80,34 @@ async function fetchHistoricalKlines(
   limit = 500,
 ): Promise<CandleData[]> {
   const symbol = binanceSymbol.toUpperCase();
-  const url = `${BINANCE_REST}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map((k: any[]) => ({
-    time: (Math.floor(k[0] / 1000)) as Time,
-    open: parseFloat(k[1]),
-    high: parseFloat(k[2]),
-    low: parseFloat(k[3]),
-    close: parseFloat(k[4]),
-  }));
+
+  // Try proxy first (always works), then direct Binance (faster when not geo-blocked)
+  const urls = [
+    `/api/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (!Array.isArray(data) || data.length === 0) continue;
+      return data.map((k: any[]) => ({
+        time: (Math.floor(k[0] / 1000)) as Time,
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        volume: parseFloat(k[5]) || 0,
+      }));
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
+
 
 function formatPrice(price: number): string {
   if (price >= 1000) return price.toFixed(2);
@@ -82,26 +122,12 @@ function formatPrice(price: number): string {
 
 type Signal = "LONG" | "SHORT" | "SCALP LONG" | "SCALP SHORT" | "HOLD";
 
-interface AIEntryZone {
-  longEntry: number;   // Price where AI would trigger a long
-  shortEntry: number;  // Price where AI would trigger a short
-  bbUpper: number;     // Upper Bollinger Band
-  bbLower: number;     // Lower Bollinger Band
-  bbMiddle: number;    // Middle band (SMA 20)
-  ema50: number;       // 50-period EMA trend filter
-  longReady: boolean;  // All conditions met for long (trend + RSI)
-  shortReady: boolean; // All conditions met for short (trend + RSI)
-  longReason: string;  // Why long is ready/blocked
-  shortReason: string; // Why short is ready/blocked
-}
-
 interface Prediction {
   points: { time: Time; value: number }[];
   signal: Signal;
   confidence: number; // 0-100
   targetPrice: number;
   strategies?: StrategyBreakdown;
-  entryZones?: AIEntryZone;
 }
 
 interface StrategyBreakdown {
@@ -187,7 +213,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
   ];
 
   for (let i = 1; i <= futureCandles; i++) {
-    const futureTime = (lastTime + i * 60) as Time; // 1m candles
+    const futureTime = (lastTime + i * 900) as Time; // 15m candles
     const projected = currentPrice * (1 + clampedRate * i);
     points.push({ time: futureTime, value: projected });
   }
@@ -233,84 +259,7 @@ function computePrediction(candles: CandleData[], lookback = 60, futureCandles =
     },
   };
 
-  // 9. AI Entry Zones — compute Bollinger Bands + EMA50 + RSI conditions
-  // Matches server-side strategy triggers: price level + RSI + trend filter must ALL align
-  const bbPeriod = 20;
-  const bbStd = 2.0;
-  const ema50Period = 50;
-
-  let entryZones: AIEntryZone | undefined;
-  if (closes.length >= bbPeriod) {  // Only need 20 candles (BB period), EMA50 adapts
-    // Bollinger Bands
-    const bbSlice = closes.slice(-bbPeriod);
-    const bbMean = bbSlice.reduce((s, v) => s + v, 0) / bbPeriod;
-    const bbVariance = bbSlice.reduce((s, v) => s + (v - bbMean) ** 2, 0) / bbPeriod;
-    const bbStdDev = Math.sqrt(bbVariance);
-    const bbUpper = bbMean + bbStd * bbStdDev;
-    const bbLower = bbMean - bbStd * bbStdDev;
-
-    // EMA 50 (trend filter) — adapts to available data, min 20 candles
-    const emaLen = Math.min(ema50Period, closes.length);
-    const ema50Slice = closes.slice(-emaLen);
-    let ema50Val = ema50Slice[0];
-    const k50 = 2 / (emaLen + 1);
-    for (let i = 1; i < ema50Slice.length; i++) {
-      ema50Val = ema50Slice[i] * k50 + ema50Val * (1 - k50);
-    }
-
-    // Long entry: blend of lower BB, EMA support, and current price — moves dynamically
-    const longBB = bbLower;
-    const longEMA = Math.min(ema50Val, currentPrice * 0.998);
-    const longEntry = longBB * 0.4 + longEMA * 0.3 + currentPrice * 0.997 * 0.3;
-    // Short entry: blend of upper BB, EMA resistance, and current price — moves dynamically
-    const shortBB = bbUpper;
-    const shortEMA = Math.max(ema50Val, currentPrice * 1.002);
-    const shortEntry = shortBB * 0.4 + shortEMA * 0.3 + currentPrice * 1.003 * 0.3;
-
-    // Check if conditions are met (matching server-side perp_strategies.py logic)
-    // Long requires: price above EMA50 (trend filter) + RSI not overbought
-    const trendAllowsLong = currentPrice > ema50Val;
-    const rsiAllowsLong = rsi < 70;
-    const longReady = trendAllowsLong && rsiAllowsLong;
-    let longReason = "";
-    if (longReady) {
-      longReason = "Trend + RSI aligned";
-    } else {
-      const blocks: string[] = [];
-      if (!trendAllowsLong) blocks.push("price below EMA50");
-      if (!rsiAllowsLong) blocks.push(`RSI overbought (${rsi.toFixed(0)})`);
-      longReason = `Blocked: ${blocks.join(", ")}`;
-    }
-
-    // Short requires: price below EMA50 (trend filter) + RSI not oversold
-    const trendAllowsShort = currentPrice < ema50Val;
-    const rsiAllowsShort = rsi > 30;
-    const shortReady = trendAllowsShort && rsiAllowsShort;
-    let shortReason = "";
-    if (shortReady) {
-      shortReason = "Trend + RSI aligned";
-    } else {
-      const blocks: string[] = [];
-      if (!trendAllowsShort) blocks.push("price above EMA50");
-      if (!rsiAllowsShort) blocks.push(`RSI oversold (${rsi.toFixed(0)})`);
-      shortReason = `Blocked: ${blocks.join(", ")}`;
-    }
-
-    entryZones = {
-      longEntry,
-      shortEntry,
-      bbUpper,
-      bbLower,
-      bbMiddle: bbMean,
-      ema50: ema50Val,
-      longReady,
-      shortReady,
-      longReason,
-      shortReason,
-    };
-  }
-
-  return { points, signal, confidence: Math.max(confidence, 10), targetPrice, strategies, entryZones };
+  return { points, signal, confidence: Math.max(confidence, 10), targetPrice, strategies };
 }
 
 // ── Component ────────────────────────────────────────────────
@@ -322,8 +271,12 @@ const TradingChart = ({
   trades = [],
   height = 300,
   compact = false,
+  pendingOrders = [],
+  onModifySLTP,
+  onModifyPendingOrder,
+  onCancelPendingOrder,
+  children,
 }: Props) => {
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -332,16 +285,26 @@ const TradingChart = ({
   const predictionSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const klineStreamRef = useRef<BinanceKlineStream | null>(null);
   const dataRef = useRef<CandleData[]>([]);
+  const priceLinesRef = useRef<any[]>([]);
+  const positionFingerprintRef = useRef<string>("");
 
+  // SL/TP/pending draggable line refs — separate from priceLinesRef so we can identify them
+  const slTpLinesRef = useRef<Map<string, { type: "sl" | "tp" | "pending"; positionId: string; priceLine: any; orderType?: string; orderDirection?: string }>>(new Map());
+  const dragRef = useRef<DragState | null>(null);
+  const [dragPrice, setDragPrice] = useState<{ type: "sl" | "tp" | "pending"; price: number } | null>(null);
+
+  const [timeframe, setTimeframe] = useState<"5m" | "30m" | "1h">("1h");
   const [chartMode, setChartMode] = useState<"candle" | "line">("candle");
   const [livePrice, setLivePrice] = useState(0);
+  const livePriceRef = useRef(0);
   const [priceChange, setPriceChange] = useState(0);
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [prediction, setPrediction] = useState<Prediction | null>(null);
-  const [showPrediction, setShowPrediction] = useState(true);
-  const [showStrategyInfo, setShowStrategyInfo] = useState(false);
-  const lastEntryZonesRef = useRef<AIEntryZone | null>(null);
+  const [showPrediction, setShowPrediction] = useState(false);
+  const [showMarkers, setShowMarkers] = useState(false);
+  const [showPositionLines, setShowPositionLines] = useState(true);
+  const [showVolume, setShowVolume] = useState(false);
 
   const binanceSymbol = CODE_TO_BINANCE[baseAsset] || `${baseAsset.toLowerCase()}usdt`;
 
@@ -356,15 +319,8 @@ const TradingChart = ({
       chartRef.current = null;
     }
 
-    // On iOS Safari, clientWidth can be 0 if the element hasn't been laid out yet.
-    // Fall back to the wrapper's width or a sensible default to prevent a 0-width canvas.
-    const containerWidth = containerRef.current.clientWidth
-      || wrapperRef.current?.clientWidth
-      || containerRef.current.getBoundingClientRect().width
-      || 300;
-
     const chart = createChart(containerRef.current, {
-      width: containerWidth,
+      width: containerRef.current.clientWidth,
       height,
       layout: {
         background: { type: ColorType.Solid, color: "transparent" },
@@ -380,8 +336,7 @@ const TradingChart = ({
         timeVisible: true,
         secondsVisible: false,
         borderColor: "transparent",
-        rightOffset: 20,
-        barSpacing: 4,
+        rightOffset: 5,
       },
       crosshair: {
         mode: 0, // Normal crosshair
@@ -420,11 +375,10 @@ const TradingChart = ({
     const volumeSeries = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
-      lastValueVisible: false,
+      visible: false,
     });
     chart.priceScale("volume").applyOptions({
       scaleMargins: { top: 0.85, bottom: 0 },
-      drawTicks: false,
     });
 
     // ML Prediction line — blue dashed projection
@@ -444,26 +398,15 @@ const TradingChart = ({
     volumeSeriesRef.current = volumeSeries;
     predictionSeriesRef.current = predictionSeries;
 
-    // Resize handler — debounced for iOS Safari which fires rapidly during
-    // orientation changes and scroll bouncing. Guards against 0-width which
-    // causes lightweight-charts to render an invisible canvas on iOS.
-    let resizeRafId: number | null = null;
-    const ro = new ResizeObserver((entries) => {
-      if (resizeRafId) cancelAnimationFrame(resizeRafId);
-      resizeRafId = requestAnimationFrame(() => {
-        resizeRafId = null;
-        if (!containerRef.current || !chartRef.current) return;
-        const entry = entries[0];
-        const newWidth = entry?.contentRect?.width || containerRef.current.clientWidth;
-        if (newWidth > 0) {
-          chartRef.current.applyOptions({ width: newWidth });
-        }
-      });
+    // Resize handler
+    const ro = new ResizeObserver(() => {
+      if (containerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({ width: containerRef.current.clientWidth });
+      }
     });
     ro.observe(containerRef.current);
 
     return () => {
-      if (resizeRafId) cancelAnimationFrame(resizeRafId);
       ro.disconnect();
       chart.remove();
       chartRef.current = null;
@@ -479,8 +422,8 @@ const TradingChart = ({
     (async () => {
       setLoading(true);
 
-      // Fetch historical 1m klines from Binance REST
-      const historical = await fetchHistoricalKlines(binanceSymbol, "1m", 500);
+      // Fetch historical klines from Binance REST
+      const historical = await fetchHistoricalKlines(binanceSymbol, timeframe, 500);
       dataRef.current = historical;
 
       if (candleSeriesRef.current && historical.length > 0) {
@@ -488,24 +431,23 @@ const TradingChart = ({
         lineSeriesRef.current?.setData(
           historical.map((c) => ({ time: c.time, value: c.close })),
         );
+        volumeSeriesRef.current?.setData(
+          historical.map((c) => ({
+            time: c.time,
+            value: c.volume || 0,
+            color: c.close >= c.open ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+          })),
+        );
 
         // Set initial price
         const last = historical[historical.length - 1];
         if (last) {
           setLivePrice(last.close);
+          livePriceRef.current = last.close;
           if (historical.length > 1) {
             const first = historical[0];
             setPriceChange(((last.close - first.close) / first.close) * 100);
           }
-        }
-
-        // Default zoom: show last ~200 candles (~3.3 hrs) for good overview
-        // Use scrollToRealTime() which respects rightOffset for right-side padding
-        if (chartRef.current && historical.length > 200) {
-          const fromTime = historical[historical.length - 200].time;
-          const toTime = historical[historical.length - 1].time;
-          chartRef.current.timeScale().setVisibleRange({ from: fromTime, to: toTime });
-          chartRef.current.timeScale().scrollToRealTime();
         }
       }
 
@@ -514,29 +456,26 @@ const TradingChart = ({
       // Add position lines
       addPositionLines();
 
-      // Compute initial prediction + AI entry zones
-      if (showPrediction && historical.length >= 50) {
-        const pred = computePrediction(historical, Math.min(60, historical.length - 1));
+      // Compute initial prediction
+      if (showPrediction && historical.length >= 60) {
+        const pred = computePrediction(historical);
         if (pred && predictionSeriesRef.current) {
           predictionSeriesRef.current.setData(pred.points);
           setPrediction(pred);
-          if (pred.entryZones) addAIEntryZones(pred.entryZones);
         }
-      } else if (showPrediction && lastEntryZonesRef.current) {
-        // Re-apply cached AI zones (e.g., after chart re-init)
-        addAIEntryZones(lastEntryZonesRef.current);
       }
 
       setLoading(false);
 
       // Start kline WebSocket
-      const stream = new BinanceKlineStream(binanceSymbol, "1m");
+      const stream = new BinanceKlineStream(binanceSymbol, timeframe);
       klineStreamRef.current = stream;
       stream.connect();
 
       const unsub = stream.onBar((bar: KlineBar) => {
         setConnected(true);
         setLivePrice(bar.close);
+        livePriceRef.current = bar.close;
 
         const candle: CandleData = {
           time: bar.time as Time,
@@ -569,7 +508,6 @@ const TradingChart = ({
           if (pred && predictionSeriesRef.current) {
             predictionSeriesRef.current.setData(pred.points);
             setPrediction(pred);
-            if (pred.entryZones) addAIEntryZones(pred.entryZones);
           }
         }
       });
@@ -588,174 +526,335 @@ const TradingChart = ({
         klineStreamRef.current = null;
       }
     };
-  }, [binanceSymbol, initChart]);
+  }, [binanceSymbol, timeframe, initChart]);
 
   // ── Trade Markers ──────────────────────────────────────────
 
   const addTradeMarkers = useCallback(() => {
-    if (!candleSeriesRef.current || trades.length === 0) return;
-
-    const candles = dataRef.current;
-    if (candles.length === 0) return;
-
-    // Build a set of valid candle timestamps for snapping
-    const candleTimes = candles.map((c) => c.time as number);
-    const chartStart = candleTimes[0];
-    const chartEnd = candleTimes[candleTimes.length - 1];
-
-    // Snap a timestamp to the nearest candle in range, or null if out of range
-    const snapToCandle = (unixSec: number): number | null => {
-      if (unixSec < chartStart || unixSec > chartEnd + 60) return null;
-      // Binary search for nearest candle
-      let lo = 0, hi = candleTimes.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (candleTimes[mid] < unixSec) lo = mid + 1;
-        else hi = mid;
-      }
-      // Check if lo or lo-1 is closer
-      if (lo > 0 && Math.abs(candleTimes[lo - 1] - unixSec) < Math.abs(candleTimes[lo] - unixSec)) {
-        return candleTimes[lo - 1];
-      }
-      return candleTimes[lo];
-    };
+    if (!candleSeriesRef.current) return;
+    if (!showMarkers || trades.length === 0) {
+      candleSeriesRef.current.setMarkers([]);
+      return;
+    }
 
     const markers: SeriesMarker<Time>[] = [];
 
     for (const trade of trades) {
       if (trade.symbol !== symbol) continue;
 
-      // Snap entry time to nearest candle — skip if out of chart range
-      const entryUnix = Math.floor(new Date(trade.entry_time).getTime() / 1000);
-      const snappedEntry = snapToCandle(entryUnix);
-      if (snappedEntry !== null) {
-        markers.push({
-          time: snappedEntry as Time,
-          position: trade.direction === "long" ? "belowBar" : "aboveBar",
-          color: trade.direction === "long" ? "#22c55e" : "#ef4444",
-          shape: trade.direction === "long" ? "arrowUp" : "arrowDown",
-          text: trade.direction === "long" ? "L" : "S",
-        });
-      }
+      // Entry marker
+      markers.push({
+        time: (Math.floor(new Date(trade.entry_time).getTime() / 1000)) as Time,
+        position: trade.direction === "long" ? "belowBar" : "aboveBar",
+        color: trade.direction === "long" ? "#22c55e" : "#ef4444",
+        shape: trade.direction === "long" ? "arrowUp" : "arrowDown",
+        text: `${trade.direction === "long" ? "L" : "S"} $${formatPrice(trade.entry_price)}`,
+      });
 
-      // Snap exit time to nearest candle
+      // Exit marker
       if (trade.exit_time) {
-        const exitUnix = Math.floor(new Date(trade.exit_time).getTime() / 1000);
-        const snappedExit = snapToCandle(exitUnix);
-        if (snappedExit !== null) {
-          const isProfitable = trade.realized_pnl >= 0;
-          const pnl = Math.abs(trade.realized_pnl);
-          markers.push({
-            time: snappedExit as Time,
-            position: "aboveBar",
-            color: isProfitable ? "#a855f7" : "#f59e0b",
-            shape: "circle",
-            text: `${isProfitable ? "+" : "-"}$${pnl < 100 ? pnl.toFixed(1) : pnl.toFixed(0)}`,
-          });
-        }
+        const isProfitable = trade.realized_pnl >= 0;
+        markers.push({
+          time: (Math.floor(new Date(trade.exit_time).getTime() / 1000)) as Time,
+          position: "aboveBar",
+          color: isProfitable ? "#a855f7" : "#f59e0b",
+          shape: "circle",
+          text: `${isProfitable ? "+" : ""}$${trade.realized_pnl.toFixed(2)}`,
+        });
       }
     }
 
     // Sort by time (required by lightweight-charts)
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     candleSeriesRef.current.setMarkers(markers);
-  }, [trades, symbol]);
+  }, [trades, symbol, showMarkers]);
 
   // ── Position Lines (entry price, SL, TP) ───────────────────
 
-  const addPositionLines = useCallback(() => {
+  const addPositionLines = useCallback((force = false) => {
     if (!candleSeriesRef.current) return;
 
+    // Build fingerprint to avoid rebuilding lines when nothing changed
     const myPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
+    const myOrders = pendingOrders.filter((o) => o.symbol === symbol && o.status === "pending");
+    const fingerprint = JSON.stringify({
+      show: showPositionLines,
+      pos: myPositions.map((p) => `${p._id}:${p.entry_price}:${p.stop_loss}:${p.take_profit}:${p.trailing_stop_price}`),
+      ord: myOrders.map((o) => `${o._id}:${o.trigger_price}`),
+    });
+    if (!force && fingerprint === positionFingerprintRef.current) return;
+    positionFingerprintRef.current = fingerprint;
+
+    // Remove existing price lines
+    for (const line of priceLinesRef.current) {
+      try { candleSeriesRef.current.removePriceLine(line); } catch { /* already removed */ }
+    }
+    priceLinesRef.current = [];
+    slTpLinesRef.current.clear();
+
+    if (!showPositionLines) return;
 
     for (const pos of myPositions) {
-      // Entry price line — transparent, no axis label
-      const dirLabel = pos.direction === "long" ? "L" : "S";
-      candleSeriesRef.current.createPriceLine({
+      const isLong = pos.direction === "long";
+      // Entry — thin dotted line, short label
+      priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
         price: pos.entry_price,
-        color: pos.direction === "long" ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
+        color: isLong ? "rgba(34, 197, 94, 0.6)" : "rgba(239, 68, 68, 0.6)",
         lineWidth: 1,
-        lineStyle: LineStyle.Solid,
+        lineStyle: LineStyle.Dotted,
         axisLabelVisible: false,
-        title: `${dirLabel} ${pos.leverage}x`,
+        title: isLong ? "L" : "S",
+      }));
+
+      // SL — draggable line
+      if (pos.stop_loss) {
+        const slLine = candleSeriesRef.current.createPriceLine({
+          price: pos.stop_loss,
+          color: onModifySLTP ? "rgba(245, 158, 11, 0.7)" : "rgba(245, 158, 11, 0.4)",
+          lineWidth: onModifySLTP ? 2 : 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: "SL",
+        });
+        priceLinesRef.current.push(slLine);
+        if (onModifySLTP) {
+          slTpLinesRef.current.set(`sl-${pos._id}`, { type: "sl", positionId: pos._id, priceLine: slLine });
+        }
+      }
+
+      // TP — draggable line
+      if (pos.take_profit) {
+        const tpLine = candleSeriesRef.current.createPriceLine({
+          price: pos.take_profit,
+          color: onModifySLTP ? "rgba(168, 85, 247, 0.7)" : "rgba(168, 85, 247, 0.4)",
+          lineWidth: onModifySLTP ? 2 : 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: "TP",
+        });
+        priceLinesRef.current.push(tpLine);
+        if (onModifySLTP) {
+          slTpLinesRef.current.set(`tp-${pos._id}`, { type: "tp", positionId: pos._id, priceLine: tpLine });
+        }
+      }
+
+      // Trailing Stop — light blue dotted line
+      if (pos.trailing_stop_price) {
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+          price: pos.trailing_stop_price,
+          color: "rgba(135, 206, 250, 0.7)",
+          lineWidth: 2,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: "",
+        }));
+      }
+
+      // LIQ — faint dotted, only if within 15% of price
+      if (pos.liquidation_price) {
+        const liqDist = Math.abs(pos.liquidation_price - pos.entry_price) / pos.entry_price;
+        if (liqDist < 0.15) {
+          priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+            price: pos.liquidation_price,
+            color: "rgba(220, 38, 38, 0.3)",
+            lineWidth: 1,
+            lineStyle: LineStyle.SparseDotted,
+            axisLabelVisible: false,
+            title: "",
+          }));
+        }
+      }
+    }
+    // ── Pending Orders — draggable trigger price lines ──
+    for (const order of myOrders) {
+      const isLong = order.direction === "long";
+      const canDrag = !!onModifyPendingOrder;
+      const label = order.order_type === "limit"
+        ? (isLong ? "B LMT" : "S LMT")
+        : (isLong ? "B STP" : "S STP");
+
+      const pendingLine = candleSeriesRef.current.createPriceLine({
+        price: order.trigger_price,
+        color: isLong
+          ? (canDrag ? "rgba(6, 182, 212, 0.7)" : "rgba(6, 182, 212, 0.5)")
+          : (canDrag ? "rgba(249, 115, 22, 0.7)" : "rgba(249, 115, 22, 0.5)"),
+        lineWidth: canDrag ? 2 : 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: false,
+        title: label,
+      });
+      priceLinesRef.current.push(pendingLine);
+      if (canDrag) {
+        slTpLinesRef.current.set(`pending-${order._id}`, { type: "pending" as any, positionId: order._id, priceLine: pendingLine, orderType: order.order_type, orderDirection: order.direction });
+      }
+    }
+  }, [positions, pendingOrders, symbol, showPositionLines, onModifySLTP, onModifyPendingOrder]);
+
+  // ── SL/TP Drag Handlers ──────────────────────────────────
+  useEffect(() => {
+    const container = containerRef.current;
+    const chart = chartRef.current;
+    const series = candleSeriesRef.current;
+    if (!container || !chart || !series || (!onModifySLTP && !onModifyPendingOrder)) return;
+
+    const SNAP_PX = 20; // pixels proximity to grab a line
+
+    const getPrice = (y: number): number | null => {
+      try {
+        const price = series.coordinateToPrice(y);
+        return typeof price === "number" && isFinite(price) ? price : null;
+      } catch { return null; }
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const mousePrice = getPrice(y);
+      if (!mousePrice) return;
+
+      // Find nearest SL/TP line within snap distance
+      let nearest: { key: string; dist: number } | null = null;
+      for (const [key, info] of slTpLinesRef.current) {
+        const linePrice = info.priceLine.options().price;
+        const lineY = series.priceToCoordinate(linePrice);
+        if (lineY === null) continue;
+        const dist = Math.abs(y - lineY);
+        if (dist < SNAP_PX && (!nearest || dist < nearest.dist)) {
+          nearest = { key, dist };
+        }
+      }
+
+      if (!nearest) return;
+      const info = slTpLinesRef.current.get(nearest.key)!;
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Disable chart scrolling during drag
+      chart.applyOptions({
+        handleScroll: { mouseWheel: false, pressedMouseMove: false },
+        handleScale: { mouseWheel: false, pinch: false },
       });
 
-      // Stop loss line — transparent, no axis label
-      if (pos.stop_loss) {
-        candleSeriesRef.current.createPriceLine({
-          price: pos.stop_loss,
-          color: "rgba(245,158,11,0.35)",
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: false,
-          title: "",
-        });
+      dragRef.current = {
+        active: true,
+        type: info.type,
+        positionId: info.positionId,
+        priceLine: info.priceLine,
+        startPrice: info.priceLine.options().price,
+        orderType: info.orderType,
+        orderDirection: info.orderDirection,
+      };
+      container.style.cursor = "ns-resize";
+      setDragPrice({ type: info.type, price: info.priceLine.options().price });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag?.active) {
+        // Show grab cursor when hovering near SL/TP lines
+        const rect = container.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        let nearLine = false;
+        for (const [, info] of slTpLinesRef.current) {
+          const lineY = series.priceToCoordinate(info.priceLine.options().price);
+          if (lineY !== null && Math.abs(y - lineY) < SNAP_PX) {
+            nearLine = true;
+            break;
+          }
+        }
+        container.style.cursor = nearLine ? "ns-resize" : "";
+        return;
       }
 
-      // Take profit line — transparent, no axis label
-      if (pos.take_profit) {
-        candleSeriesRef.current.createPriceLine({
-          price: pos.take_profit,
-          color: "rgba(168,85,247,0.35)",
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: false,
-          title: "",
-        });
+      const rect = container.getBoundingClientRect();
+      const y = e.clientY - rect.top;
+      const newPrice = getPrice(y);
+      if (!newPrice || newPrice <= 0) return;
+
+      e.preventDefault();
+
+      // For pending orders, update label/color when dragged across current price
+      const curPrice = livePriceRef.current;
+      if (drag.type === "pending" && drag.orderType && drag.orderDirection && curPrice > 0) {
+        let effectiveDir = drag.orderDirection;
+        if (drag.orderType === "stop") {
+          if (drag.orderDirection === "long" && newPrice < curPrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice > curPrice) effectiveDir = "long";
+        } else if (drag.orderType === "limit") {
+          if (drag.orderDirection === "long" && newPrice > curPrice) effectiveDir = "short";
+          else if (drag.orderDirection === "short" && newPrice < curPrice) effectiveDir = "long";
+        }
+        const label = drag.orderType === "limit"
+          ? (effectiveDir === "long" ? "B LMT" : "S LMT")
+          : (effectiveDir === "long" ? "B STP" : "S STP");
+        const color = effectiveDir === "long"
+          ? "rgba(6, 182, 212, 0.7)"
+          : "rgba(249, 115, 22, 0.7)";
+        drag.priceLine.applyOptions({ price: newPrice, title: label, color });
+      } else {
+        drag.priceLine.applyOptions({ price: newPrice });
+      }
+      setDragPrice({ type: drag.type, price: newPrice });
+    };
+
+    const handleMouseUp = () => {
+      const drag = dragRef.current;
+      if (!drag?.active) return;
+
+      const finalPrice = drag.priceLine.options().price;
+      container.style.cursor = "";
+
+      // Re-enable chart interaction
+      chart.applyOptions({
+        handleScroll: { mouseWheel: true, pressedMouseMove: true },
+        handleScale: { mouseWheel: true, pinch: true },
+      });
+
+      // Call modify API if price actually changed
+      if (Math.abs(finalPrice - drag.startPrice) > 0.0001) {
+        if (drag.type === "pending") {
+          const mods: { triggerPrice: number; direction?: string } = { triggerPrice: finalPrice };
+          // Auto-flip direction for stop orders when dragged across current price
+          // BUY STOP above price → drag below price = SELL STOP
+          // SELL STOP below price → drag above price = BUY STOP
+          // Same logic for limit orders (reversed)
+          const cp = livePriceRef.current;
+          if (drag.orderType === "stop" && drag.orderDirection && cp > 0) {
+            if (drag.orderDirection === "long" && finalPrice < cp) {
+              mods.direction = "short"; // BUY STOP → SELL STOP
+            } else if (drag.orderDirection === "short" && finalPrice > cp) {
+              mods.direction = "long"; // SELL STOP → BUY STOP
+            }
+          } else if (drag.orderType === "limit" && drag.orderDirection && cp > 0) {
+            if (drag.orderDirection === "long" && finalPrice > cp) {
+              mods.direction = "short"; // BUY LIMIT → SELL LIMIT
+            } else if (drag.orderDirection === "short" && finalPrice < cp) {
+              mods.direction = "long"; // SELL LIMIT → BUY LIMIT
+            }
+          }
+          onModifyPendingOrder?.(drag.positionId, mods);
+        } else {
+          const mods = drag.type === "sl"
+            ? { stopLoss: finalPrice }
+            : { takeProfit: finalPrice };
+          onModifySLTP?.(drag.positionId, mods);
+        }
       }
 
-      // Liquidation line — transparent, no axis label
-      if (pos.liquidation_price) {
-        candleSeriesRef.current.createPriceLine({
-          price: pos.liquidation_price,
-          color: "rgba(220,38,38,0.35)",
-          lineWidth: 1,
-          lineStyle: LineStyle.SparseDotted,
-          axisLabelVisible: false,
-          title: "",
-        });
-      }
-    }
-  }, [positions, symbol]);
+      dragRef.current = null;
+      setDragPrice(null);
+    };
 
-  // ── AI Entry Zone Lines ────────────────────────────────────
+    container.addEventListener("mousedown", handleMouseDown);
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
 
-  const aiLinesRef = useRef<any[]>([]);
-
-  const addAIEntryZones = useCallback((zones: AIEntryZone) => {
-    if (!candleSeriesRef.current) return;
-    lastEntryZonesRef.current = zones;
-
-    // Remove previous AI lines
-    for (const line of aiLinesRef.current) {
-      try { candleSeriesRef.current.removePriceLine(line); } catch { /* noop */ }
-    }
-    aiLinesRef.current = [];
-
-    // AI Long entry target — line label only, no axis price
-    aiLinesRef.current.push(
-      candleSeriesRef.current.createPriceLine({
-        price: zones.longEntry,
-        color: "#22c55e",
-        lineWidth: 2,
-        lineStyle: LineStyle.LargeDashed,
-        axisLabelVisible: false,
-        title: "",
-      })
-    );
-
-    // AI Short entry target — line label only, no axis price
-    aiLinesRef.current.push(
-      candleSeriesRef.current.createPriceLine({
-        price: zones.shortEntry,
-        color: "#ef4444",
-        lineWidth: 2,
-        lineStyle: LineStyle.LargeDashed,
-        axisLabelVisible: false,
-        title: "",
-      })
-    );
-  }, []);
+    return () => {
+      container.removeEventListener("mousedown", handleMouseDown);
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [onModifySLTP, onModifyPendingOrder]);
 
   // ── Toggle chart mode ──────────────────────────────────────
 
@@ -770,15 +869,41 @@ const TradingChart = ({
     predictionSeriesRef.current?.applyOptions({ visible: showPrediction });
   }, [showPrediction]);
 
+  // ── Toggle markers visibility ──────────────────────────
+
+  useEffect(() => {
+    addTradeMarkers();
+  }, [showMarkers, addTradeMarkers]);
+
+  // ── Toggle position lines visibility ───────────────────
+
+  useEffect(() => {
+    addPositionLines();
+  }, [showPositionLines, addPositionLines]);
+
+  // Re-draw position lines whenever positions change (new trade, SL/TP update)
+  useEffect(() => {
+    if (showPositionLines && positions.length > 0) {
+      addPositionLines(true);
+    }
+  }, [positions]);
+
+  // ── Toggle volume visibility ───────────────────────────
+
+  useEffect(() => {
+    volumeSeriesRef.current?.applyOptions({ visible: showVolume });
+  }, [showVolume]);
+
   // ── Render ─────────────────────────────────────────────────
 
   const isPositive = priceChange >= 0;
 
   return (
-    <div className="relative">
+    <div className="relative" style={{ isolation: "isolate" }}>
       {/* Header */}
       <div className={`${compact ? "mb-1" : "mb-2"}`}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {/* Symbol + price */}
           <div className="flex items-center gap-1.5 min-w-0">
             <span className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white whitespace-nowrap`}>
               {baseAsset}/USDT
@@ -797,73 +922,47 @@ const TradingChart = ({
               </>
             )}
           </div>
-          <div className="flex items-center gap-1 flex-shrink-0 ml-1">
-          {/* Signal badge — click for strategy breakdown */}
-          {showPrediction && prediction && !compact && (
-            <button
-              onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer transition-all ${
-                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                  ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25"
-                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                    ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
-                    : "bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25"
-              }`}
-              title="Click for strategy breakdown"
-            >
-              {prediction.signal} {prediction.confidence}%
-            </button>
-          )}
-          {/* Compact signal dot */}
-          {showPrediction && prediction && compact && (
-            <span
-              className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                  ? "bg-emerald-400"
-                  : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                    ? "bg-red-400"
-                    : "bg-slate-400"
-              }`}
-              title={`${prediction.signal} (${prediction.confidence}%)`}
-            />
-          )}
-          {/* Chart mode toggle */}
-          <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
-            <button
-              onClick={() => setChartMode("candle")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
-                chartMode === "candle"
-                  ? "text-blue-400 bg-blue-500/15"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              Candle
-            </button>
-            <button
-              onClick={() => setChartMode("line")}
-              className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
-                chartMode === "line"
-                  ? "text-blue-400 bg-blue-500/15"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              Line
-            </button>
+          {/* Timeframe + chart mode controls */}
+          <div className="flex items-center gap-1 ml-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+              {(["5m", "30m", "1h"] as const).map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => setTimeframe(tf)}
+                  className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                    timeframe === tf
+                      ? "text-emerald-400 bg-emerald-500/15"
+                      : "text-slate-500 hover:text-slate-300"
+                  }`}
+                >
+                  {tf}
+                </button>
+              ))}
+            </div>
+            <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+              <button
+                onClick={() => setChartMode("candle")}
+                className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                  chartMode === "candle"
+                    ? "text-blue-400 bg-blue-500/15"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                Candle
+              </button>
+              <button
+                onClick={() => setChartMode("line")}
+                className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+                  chartMode === "line"
+                    ? "text-blue-400 bg-blue-500/15"
+                    : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                Line
+              </button>
+            </div>
           </div>
-          {/* AI Prediction toggle */}
-          <button
-            onClick={() => setShowPrediction(!showPrediction)}
-            className={`px-1.5 py-0.5 text-[9px] font-bold rounded border transition-colors ${
-              showPrediction
-                ? "text-blue-400 bg-blue-500/15 border-blue-500/30"
-                : "text-slate-500 border-white/[0.06] hover:text-blue-400"
-            }`}
-            title="Toggle AI prediction"
-          >
-            AI
-          </button>
         </div>
-      </div>
       </div>
 
       {/* Loading overlay */}
@@ -873,338 +972,80 @@ const TradingChart = ({
         </div>
       )}
 
-      {/* Active positions overlay */}
-      {positions.filter((p) => p.symbol === symbol && p.status === "open").length > 0 && (
-        <div className="absolute top-8 left-2 z-10 space-y-0.5">
-          {positions
-            .filter((p) => p.symbol === symbol && p.status === "open")
-            .map((pos) => (
-              <div
-                key={pos._id}
-                className={`text-[9px] px-1.5 py-0.5 rounded border backdrop-blur-sm ${
-                  pos.direction === "long"
-                    ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                    : "bg-red-500/10 text-red-400 border-red-500/20"
-                }`}
-              >
-                {pos.direction.toUpperCase()} {pos.leverage}x •{" "}
-                <span className={pos.unrealized_pnl >= 0 ? "text-emerald-300" : "text-red-300"}>
-                  {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                </span>
-              </div>
-            ))}
+      {/* Drag indicator */}
+      {dragPrice && (
+        <div className="absolute top-2 right-2 z-20">
+          <div className={`text-[11px] font-bold px-2 py-1 rounded-lg border backdrop-blur-sm ${
+            dragPrice.type === "sl"
+              ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
+              : dragPrice.type === "tp"
+              ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
+              : "bg-cyan-500/20 text-cyan-300 border-cyan-500/30"
+          }`}>
+            {dragPrice.type === "sl" ? "SL" : dragPrice.type === "tp" ? "TP" : "Trigger"}: ${formatPrice(dragPrice.price)}
+          </div>
         </div>
       )}
 
-      {/* Chart container — explicit height is critical for iOS Safari where
-           the absolutely-positioned canvas inside lightweight-charts doesn't
-           contribute to the parent's layout, causing the container to collapse
-           to 0px height and the chart to be invisible. */}
-      <style>{`
-        .trading-chart-wrap [class*="pane"] div[style*="position: absolute"][style*="z-index"],
-        .trading-chart-wrap td[style*="padding"] > div > div[style*="position: absolute"] {
-          border-radius: 4px !important;
-          opacity: 0.85 !important;
-        }
-        /* Ensure lightweight-charts internal table fills the container on iOS */
-        .trading-chart-wrap table {
-          width: 100% !important;
-        }
-      `}</style>
-      <div
-        ref={wrapperRef}
-        className="trading-chart-wrap w-full rounded-lg overflow-hidden relative"
-        style={{ height: `${height}px`, minHeight: `${height}px` }}
-      >
-        <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      {/* Active positions overlay removed — shown in cards below chart */}
+
+      {/* Chart container */}
+      <div ref={containerRef} className="relative z-0 w-full rounded-lg overflow-hidden" style={{ height, minHeight: height }} />
+
+      {/* Chart overlay toggles — Vol / Trades / Positions / AI */}
+      <div className="flex items-center gap-1 mt-1.5 mb-2 px-1">
+        <div className="flex rounded bg-white/[0.04] border border-white/[0.06]">
+          <button
+            onClick={() => setShowVolume(!showVolume)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showVolume
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Vol
+          </button>
+          <button
+            onClick={() => setShowMarkers(!showMarkers)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showMarkers
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Trades
+          </button>
+          <button
+            onClick={() => setShowPositionLines(!showPositionLines)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showPositionLines
+                ? "text-emerald-400 bg-emerald-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            Positions
+          </button>
+          <button
+            onClick={() => setShowPrediction(!showPrediction)}
+            className={`px-1.5 py-0.5 text-[9px] font-bold transition-colors ${
+              showPrediction
+                ? "text-blue-400 bg-blue-500/15"
+                : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            AI
+          </button>
+        </div>
+        {prediction && showPrediction && (
+          <span className={`text-[9px] font-bold ${prediction.direction === "up" ? "text-emerald-400" : "text-red-400"}`}>
+            {prediction.direction === "up" ? "▲" : "▼"} {prediction.confidence.toFixed(0)}%
+          </span>
+        )}
       </div>
 
-      {/* ── Below-chart info panel (non-compact only) ── */}
-      {!compact && (
-        <div className="mt-2 space-y-1.5">
+      {/* Injected trade panel (rendered immediately below chart) */}
+      {children}
 
-          {/* Active positions for this market */}
-          {(() => {
-            const marketPositions = positions.filter((p) => p.symbol === symbol && p.status === "open");
-            if (marketPositions.length === 0) return null;
-            return (
-              <div className="space-y-1">
-                {marketPositions.map((pos) => {
-                  const pnlPct = pos.margin > 0 ? (pos.unrealized_pnl / pos.margin) * 100 : 0;
-                  return (
-                    <div
-                      key={pos._id}
-                      className={`rounded-lg border p-2 ${
-                        pos.direction === "long"
-                          ? "bg-emerald-500/[0.05] border-emerald-500/15"
-                          : "bg-red-500/[0.05] border-red-500/15"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                            pos.direction === "long"
-                              ? "bg-emerald-500/20 text-emerald-400"
-                              : "bg-red-500/20 text-red-400"
-                          }`}>
-                            {pos.direction.toUpperCase()} {pos.leverage}x
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            Entry ${formatPrice(pos.entry_price)}
-                          </span>
-                        </div>
-                        <span className={`text-[11px] font-bold font-mono ${
-                          pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400"
-                        }`}>
-                          {pos.unrealized_pnl >= 0 ? "+" : ""}${pos.unrealized_pnl.toFixed(2)}
-                          <span className="text-[9px] ml-0.5 opacity-70">
-                            ({pnlPct >= 0 ? "+" : ""}{pnlPct.toFixed(1)}%)
-                          </span>
-                        </span>
-                      </div>
-                      <div className="flex gap-2 mt-1 text-[9px] text-slate-500">
-                        <span>Size <span className="text-slate-400 font-mono">${pos.size_usd?.toFixed(0) || "—"}</span></span>
-                        <span>Mark <span className="text-slate-400 font-mono">${formatPrice(pos.mark_price)}</span></span>
-                        {pos.stop_loss != null && (
-                          <span>SL <span className="text-red-400/70 font-mono">${formatPrice(pos.stop_loss)}</span></span>
-                        )}
-                        {pos.take_profit != null && (
-                          <span>TP <span className="text-emerald-400/70 font-mono">${formatPrice(pos.take_profit)}</span></span>
-                        )}
-                        {pos.trailing_stop_price != null && (
-                          <span>Trail <span className="text-blue-400/70 font-mono">${formatPrice(pos.trailing_stop_price)}</span></span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-
-          {/* AI prediction & strategy breakdown */}
-          {showPrediction && prediction?.strategies && (
-            <div className="rounded-lg border border-blue-500/15 bg-slate-900/60 p-2 space-y-1.5">
-              {/* Signal + reasoning */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
-                    prediction.signal === "LONG" || prediction.signal === "SCALP LONG"
-                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
-                      : prediction.signal === "SHORT" || prediction.signal === "SCALP SHORT"
-                        ? "bg-red-500/15 text-red-400 border-red-500/30"
-                        : "bg-slate-500/15 text-slate-400 border-slate-500/30"
-                  }`}>
-                    {prediction.signal}
-                  </span>
-                  <span className="text-[10px] text-blue-400 font-bold">{prediction.confidence}% conf</span>
-                  <span className="text-[9px] text-slate-500">
-                    Target ${formatPrice(prediction.targetPrice)}
-                  </span>
-                </div>
-                <button
-                  onClick={() => setShowStrategyInfo(!showStrategyInfo)}
-                  className="text-[9px] text-slate-500 hover:text-blue-400 transition-colors"
-                >
-                  {showStrategyInfo ? "Hide details" : "Show details"}
-                </button>
-              </div>
-
-              {/* AI reasoning summary */}
-              <div className="text-[9px] text-slate-400 leading-relaxed">
-                {(() => {
-                  const s = prediction.strategies;
-                  const parts: string[] = [];
-                  if (s.trend.direction !== "flat")
-                    parts.push(`Trend is ${s.trend.direction === "up" ? "bullish" : "bearish"} (${s.trend.strength.toFixed(0)}% strength)`);
-                  else parts.push("No clear trend");
-                  parts.push(`RSI at ${s.momentum.rsi.toFixed(1)} (${s.momentum.bias})`);
-                  if (s.ema.cross !== "neutral")
-                    parts.push(`EMA ${s.ema.cross} cross (8${s.ema.cross === "bullish" ? ">" : "<"}21)`);
-                  parts.push(`${s.volatility.level} volatility (${s.volatility.value.toFixed(3)}%)`);
-                  return parts.join(" • ");
-                })()}
-              </div>
-
-              {/* Detailed strategy grid (expandable) */}
-              {showStrategyInfo && (
-                <div className="space-y-1.5 pt-1 border-t border-white/[0.04]">
-                  <div className="grid grid-cols-4 gap-1">
-                    {/* Trend */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">Trend (60%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.trend.direction === "up" ? "text-emerald-400" :
-                        prediction.strategies.trend.direction === "down" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.trend.direction === "up" ? "Bullish" :
-                         prediction.strategies.trend.direction === "down" ? "Bearish" : "Flat"}
-                      </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.trend.strength.toFixed(0)}% str</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">WLR slope: {prediction.strategies.trend.slope.toFixed(6)}</div>
-                    </div>
-
-                    {/* Momentum */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">RSI (25%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.momentum.bias === "bullish" ? "text-emerald-400" :
-                        prediction.strategies.momentum.bias === "bearish" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.momentum.rsi.toFixed(1)}
-                      </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.momentum.bias}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">
-                        {prediction.strategies.momentum.rsi > 70 ? "Overbought" :
-                         prediction.strategies.momentum.rsi < 30 ? "Oversold" : "Normal range"}
-                      </div>
-                    </div>
-
-                    {/* EMA Cross */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">EMA (15%)</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.ema.cross === "bullish" ? "text-emerald-400" :
-                        prediction.strategies.ema.cross === "bearish" ? "text-red-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.ema.cross === "bullish" ? "8 > 21" :
-                         prediction.strategies.ema.cross === "bearish" ? "8 < 21" : "Neutral"}
-                      </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.ema.cross}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">
-                        8: ${formatPrice(prediction.strategies.ema.ema8)}
-                      </div>
-                    </div>
-
-                    {/* Volatility */}
-                    <div className="rounded bg-slate-800/50 px-2 py-1.5 border border-white/[0.03]">
-                      <div className="text-[7px] text-slate-600 uppercase">Volatility</div>
-                      <div className={`text-[10px] font-bold ${
-                        prediction.strategies.volatility.level === "high" ? "text-amber-400" :
-                        prediction.strategies.volatility.level === "medium" ? "text-blue-400" : "text-slate-400"
-                      }`}>
-                        {prediction.strategies.volatility.value.toFixed(3)}%
-                      </div>
-                      <div className="text-[8px] text-slate-500">{prediction.strategies.volatility.level}</div>
-                      <div className="text-[7px] text-slate-600 mt-0.5">Std dev of returns</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Planned Entry Zones */}
-          {showPrediction && prediction?.entryZones && (
-            <div className="rounded-lg border border-cyan-500/15 bg-gradient-to-r from-cyan-950/20 via-slate-900/40 to-cyan-950/20 p-2">
-              <div className="flex items-center gap-1.5 mb-1.5">
-                <span className="text-[8px] text-cyan-500/80 uppercase tracking-wider font-bold">AI Trading Genius — Next Moves</span>
-                <span className="text-[7px] text-slate-600">Executes when price + conditions align</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {/* Long entry zone */}
-                <div className={`rounded-lg border p-2 transition-all ${
-                  prediction.entryZones.longReady
-                    ? "border-emerald-500/30 bg-emerald-500/[0.08]"
-                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
-                }`}>
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px]">{"\u2191"}</span>
-                    <span className={`text-[9px] font-bold ${prediction.entryZones.longReady ? "text-emerald-400" : "text-slate-500"}`}>
-                      LONG ENTRY
-                    </span>
-                    {prediction.entryZones.longReady ? (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold animate-pulse">READY</span>
-                    ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
-                    )}
-                  </div>
-                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.longReady ? "text-emerald-300" : "text-slate-500"}`}>
-                    ${formatPrice(prediction.entryZones.longEntry)}
-                  </div>
-                  <div className="text-[8px] text-slate-500 mt-0.5">
-                    {(() => {
-                      const dist = ((livePrice - prediction.entryZones.longEntry) / livePrice) * 100;
-                      return `${dist.toFixed(2)}% below current`;
-                    })()}
-                  </div>
-                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.longReady ? "text-emerald-500/70" : "text-amber-500/60"}`}>
-                    {prediction.entryZones.longReason}
-                  </div>
-                </div>
-                {/* Short entry zone */}
-                <div className={`rounded-lg border p-2 transition-all ${
-                  prediction.entryZones.shortReady
-                    ? "border-red-500/30 bg-red-500/[0.08]"
-                    : "border-white/[0.06] bg-white/[0.02] opacity-60"
-                }`}>
-                  <div className="flex items-center gap-1 mb-1">
-                    <span className="text-[10px]">{"\u2193"}</span>
-                    <span className={`text-[9px] font-bold ${prediction.entryZones.shortReady ? "text-red-400" : "text-slate-500"}`}>
-                      SHORT ENTRY
-                    </span>
-                    {prediction.entryZones.shortReady ? (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-red-500/20 text-red-300 font-bold animate-pulse">READY</span>
-                    ) : (
-                      <span className="text-[7px] px-1 py-0.5 rounded bg-slate-700/50 text-slate-500 font-bold">BLOCKED</span>
-                    )}
-                  </div>
-                  <div className={`text-[13px] font-bold font-mono ${prediction.entryZones.shortReady ? "text-red-300" : "text-slate-500"}`}>
-                    ${formatPrice(prediction.entryZones.shortEntry)}
-                  </div>
-                  <div className="text-[8px] text-slate-500 mt-0.5">
-                    {(() => {
-                      const dist = ((prediction.entryZones.shortEntry - livePrice) / livePrice) * 100;
-                      return `${dist.toFixed(2)}% above current`;
-                    })()}
-                  </div>
-                  <div className={`text-[7px] mt-0.5 ${prediction.entryZones.shortReady ? "text-red-500/70" : "text-amber-500/60"}`}>
-                    {prediction.entryZones.shortReason}
-                  </div>
-                </div>
-              </div>
-              {/* BB & EMA50 reference levels */}
-              <div className="flex gap-3 mt-1.5 text-[8px] text-slate-500">
-                <span>BB Upper <span className="text-red-400/60 font-mono">${formatPrice(prediction.entryZones.bbUpper)}</span></span>
-                <span>BB Mid <span className="text-slate-400/60 font-mono">${formatPrice(prediction.entryZones.bbMiddle)}</span></span>
-                <span>BB Lower <span className="text-emerald-400/60 font-mono">${formatPrice(prediction.entryZones.bbLower)}</span></span>
-                <span>EMA50 <span className="text-cyan-400/60 font-mono">${formatPrice(prediction.entryZones.ema50)}</span></span>
-              </div>
-            </div>
-          )}
-
-          {/* Recent trades for this market */}
-          {(() => {
-            const marketTrades = (trades || [])
-              .filter((t) => t.symbol === symbol)
-              .slice(0, 3);
-            if (marketTrades.length === 0) return null;
-            return (
-              <div className="rounded-lg border border-white/[0.04] bg-slate-800/30 p-2">
-                <div className="text-[8px] text-slate-600 uppercase tracking-wider mb-1">Recent Trades</div>
-                <div className="space-y-0.5">
-                  {marketTrades.map((t, i) => (
-                    <div key={i} className="flex items-center justify-between text-[9px]">
-                      <div className="flex items-center gap-1.5">
-                        <span className={t.direction === "long" ? "text-emerald-400" : "text-red-400"}>
-                          {t.direction.toUpperCase()}
-                        </span>
-                        <span className="text-slate-500">{t.leverage}x</span>
-                        <span className="text-slate-500 font-mono">${formatPrice(t.entry_price)}</span>
-                        <span className="text-slate-600">→</span>
-                        <span className="text-slate-500 font-mono">${formatPrice(t.exit_price)}</span>
-                      </div>
-                      <span className={`font-bold font-mono ${t.realized_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                        {t.realized_pnl >= 0 ? "+" : ""}${t.realized_pnl.toFixed(2)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
     </div>
   );
 };

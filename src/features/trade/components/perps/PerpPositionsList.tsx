@@ -1,14 +1,34 @@
 import { useState } from "react";
 import type { PerpPosition } from "../../types/perps";
+import {
+  partialClosePosition,
+  pyramidPosition,
+  flipPosition,
+  setPositionType,
+} from "../../services/perpApi";
 
 interface Props {
   positions: PerpPosition[];
-  onClose: (positionId: string, exitPrice: number) => void;
-  onModify: (positionId: string) => void;
+  onClose: (positionId: string, exitPrice: number) => void | Promise<void>;
+  onModify: (positionId: string, mods: { stopLoss?: number; takeProfit?: number }) => void | Promise<void>;
+  onRefresh?: () => void;
   readOnly?: boolean;
+  wallet?: string;
+  onViewChart?: (symbol: string) => void;
+  livePrices?: Record<string, number>;
+  onNewTrade?: (symbol: string) => void;
 }
 
-const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: Props) => {
+const PerpPositionsList = ({ positions, onClose, onModify, onRefresh, readOnly = false, wallet, onViewChart, livePrices = {}, onNewTrade }: Props) => {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [modifyId, setModifyId] = useState<string | null>(null);
+  const [modifySL, setModifySL] = useState("");
+  const [modifyTP, setModifyTP] = useState("");
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [closePct, setClosePct] = useState(50);
+  const [pyramidSize, setPyramidSize] = useState(0);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   if (positions.length === 0) {
     return (
       <div className="text-center py-8 text-slate-500 text-xs">
@@ -17,28 +37,168 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
     );
   }
 
+  const handlePartialClose = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`partial-${pos._id}`);
+      setActionError(null);
+      await partialClosePosition(pos._id, pos.mark_price, closePct, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to partial close");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handlePyramid = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    const size = pyramidSize || Math.round(pos.size_usd * 0.5);
+    try {
+      setActionLoading(`pyramid-${pos._id}`);
+      setActionError(null);
+      await pyramidPosition(pos._id, size, pos.mark_price, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to pyramid");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleFlip = async (pos: PerpPosition) => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`flip-${pos._id}`);
+      setActionError(null);
+      await flipPosition(pos._id, pos.mark_price, wallet);
+      setExpandedId(null);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to flip");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSetType = async (pos: PerpPosition, type: "core" | "satellite") => {
+    if (!wallet) return;
+    try {
+      setActionLoading(`type-${pos._id}`);
+      setActionError(null);
+      await setPositionType(pos._id, type, wallet);
+      onRefresh?.();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to set type");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   return (
     <div className="space-y-2">
       {positions.map((pos) => {
-        const pnlColor = pos.unrealized_pnl >= 0 ? "text-emerald-400" : "text-red-400";
+        // Use live price if available, fall back to server mark price
+        const livePrice = livePrices[pos.symbol] || pos.mark_price;
+
+        // Use server's unrealized_pnl (includes all fees, slippage, funding)
+        // and adjust for live price movement since last server update
+        const serverMarkPrice = pos.mark_price;
+        const priceDeltaFromServer = pos.direction === "long"
+          ? livePrice - serverMarkPrice
+          : serverMarkPrice - livePrice;
+        const livePnlAdjustment = (priceDeltaFromServer / pos.entry_price) * pos.size_usd;
+        const livePnl = pos.unrealized_pnl + livePnlAdjustment;
+        const livePnlPct = pos.margin > 0 ? (livePnl / pos.margin) * 100 : 0;
+
+        const pnlColor = livePnl >= 0 ? "text-emerald-400" : "text-red-400";
+        const borderColor = livePnl >= 0 ? "border-emerald-500/30" : "border-red-500/30";
         const dirColor = pos.direction === "long" ? "text-emerald-400" : "text-red-400";
         const dirBg = pos.direction === "long" ? "bg-emerald-500/10 border-emerald-500/20" : "bg-red-500/10 border-red-500/20";
-        const pnlSign = pos.unrealized_pnl >= 0 ? "+" : "";
+        const pnlSign = livePnl >= 0 ? "+" : "";
+        const isExpanded = expandedId === pos._id;
+        const posType = pos.position_type || "satellite";
 
         return (
-          <div key={pos._id} className="bg-slate-800/40 rounded-xl border border-white/[0.04] p-3">
-            {/* Header */}
+          <div key={pos._id} className={`bg-slate-800/40 rounded-xl border ${borderColor} p-3 transition-colors`}>
+            {/* Header — top row: symbol + direction/leverage + P&L */}
             <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">{pos.symbol}</span>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${dirBg} ${dirColor}`}>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm font-bold text-white whitespace-nowrap">{pos.symbol}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${dirBg} ${dirColor}`}>
                   {pos.direction.toUpperCase()} {pos.leverage}x
                 </span>
               </div>
-              <div className={`text-sm font-bold ${pnlColor}`}>
-                {pnlSign}${pos.unrealized_pnl.toFixed(2)}
-                <span className="text-[10px] ml-1">({pnlSign}{pos.unrealized_pnl_pct.toFixed(2)}%)</span>
+              <div className={`text-sm font-bold ${pnlColor} text-right flex-shrink-0 ml-2`}>
+                {pnlSign}${livePnl.toFixed(2)}
+                <span className="text-[10px] ml-1">({pnlSign}{livePnlPct.toFixed(1)}%)</span>
               </div>
+            </div>
+
+            {/* Strategy/type badges — separate row */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              <span className={`text-[9px] px-1 py-0.5 rounded border ${
+                posType === "core"
+                  ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                  : "bg-slate-700/40 text-slate-500 border-white/[0.04]"
+              }`}>
+                {posType === "core" ? "CORE" : "SAT"}
+              </span>
+              {onViewChart && (
+                <button
+                  onClick={() => onViewChart(pos.symbol)}
+                  className="text-[9px] px-1 py-0.5 rounded border bg-slate-700/40 text-slate-400 border-white/[0.04] hover:text-white hover:bg-slate-700/60 transition-colors flex items-center gap-0.5"
+                  title={`View ${pos.symbol} chart`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                    <path fillRule="evenodd" d="M1 2.75A.75.75 0 011.75 2h16.5a.75.75 0 010 1.5H18v8.75A2.75 2.75 0 0115.25 15h-1.072l.798 3.06a.75.75 0 01-1.452.38L12.637 15h-5.274l-.887 3.44a.75.75 0 01-1.452-.38L5.822 15H4.75A2.75 2.75 0 012 12.25V3.5h-.25A.75.75 0 011 2.75zM7.5 6a.75.75 0 00-.75.75v4.5a.75.75 0 001.5 0v-4.5A.75.75 0 007.5 6zm3-.75a.75.75 0 011.5 0v6.5a.75.75 0 01-1.5 0v-6.5zM14.25 8a.75.75 0 00-.75.75v2.5a.75.75 0 001.5 0v-2.5a.75.75 0 00-.75-.75z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+              {pos.entry_reason && (() => {
+                const match = pos.entry_reason.match(/^\[([^\]]+)\]/);
+                if (!match) {
+                  // Manual entry — show MANUAL badge if there's a reason text
+                  return (
+                    <span className="text-[9px] px-1 py-0.5 rounded border bg-pink-500/15 text-pink-400 border-pink-500/25" title={pos.entry_reason}>
+                      MANUAL
+                    </span>
+                  );
+                }
+                const strat = match[1];
+                const STRAT_LABELS: Record<string, { label: string; color: string }> = {
+                  ninja: { label: "NINJA", color: "bg-purple-500/15 text-purple-400 border-purple-500/25" },
+                  trend_following: { label: "TREND", color: "bg-blue-500/15 text-blue-400 border-blue-500/25" },
+                  mean_reversion: { label: "MEAN REV", color: "bg-cyan-500/15 text-cyan-400 border-cyan-500/25" },
+                  momentum: { label: "MOMENTUM", color: "bg-orange-500/15 text-orange-400 border-orange-500/25" },
+                  scalping: { label: "SCALP", color: "bg-yellow-500/15 text-yellow-400 border-yellow-500/25" },
+                  keltner: { label: "KELTNER", color: "bg-teal-500/15 text-teal-400 border-teal-500/25" },
+                  bb_squeeze: { label: "SQUEEZE", color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
+                  grid: { label: "GRID", color: "bg-indigo-500/15 text-indigo-400 border-indigo-500/25" },
+                  zone_recovery: { label: "ZONE REC", color: "bg-rose-500/15 text-rose-400 border-rose-500/25" },
+                  hf_scalper: { label: "HF", color: "bg-lime-500/15 text-lime-400 border-lime-500/25" },
+                  sr_reversal: { label: "S/R REV", color: "bg-violet-500/15 text-violet-400 border-violet-500/25" },
+                  MANUAL: { label: "MANUAL", color: "bg-pink-500/15 text-pink-400 border-pink-500/25" },
+                };
+                const s = STRAT_LABELS[strat] || { label: strat.toUpperCase(), color: "bg-slate-500/15 text-slate-400 border-slate-500/25" };
+                return (
+                  <span className={`text-[9px] px-1 py-0.5 rounded border ${s.color}`} title={pos.entry_reason}>
+                    {s.label}
+                  </span>
+                );
+              })()}
+              {pos.pyramid_level && pos.pyramid_level > 0 && (
+                <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  P{pos.pyramid_level}
+                </span>
+              )}
+              {pos.entry_reason && !pos.entry_reason.startsWith("[") && (
+                <span className="text-[9px] text-slate-500 truncate max-w-[150px]" title={pos.entry_reason}>
+                  {pos.entry_reason}
+                </span>
+              )}
             </div>
 
             {/* Details grid */}
@@ -48,8 +208,8 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
                 <div className="text-slate-300">${pos.entry_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
               </div>
               <div>
-                <span className="text-slate-500">Mark</span>
-                <div className="text-white font-medium">${pos.mark_price.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
+                <span className="text-slate-500">Price</span>
+                <div className={`font-medium ${pnlColor}`}>${livePrice.toLocaleString(undefined, { maximumFractionDigits: 6 })}</div>
               </div>
               <div>
                 <span className="text-slate-500">Liq.</span>
@@ -69,43 +229,235 @@ const PerpPositionsList = ({ positions, onClose, onModify, readOnly = false }: P
               </div>
             </div>
 
-            {/* SL/TP indicators */}
-            {(pos.stop_loss || pos.take_profit || pos.trailing_stop_price) && (
-              <div className="flex gap-2 text-[10px] mb-2">
-                {pos.stop_loss && (
-                  <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-                    SL: ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-                {pos.take_profit && (
-                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    TP: ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-                {pos.trailing_stop_price && (
-                  <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    Trail: ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 4 })}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* SL/TP/Price indicators */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[10px] mb-2">
+              {pos.stop_loss && (
+                <span className="px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 whitespace-nowrap">
+                  SL ${pos.stop_loss.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
+              )}
+              {pos.take_profit && (
+                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap">
+                  TP ${pos.take_profit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
+              )}
+              <span className={`px-1.5 py-0.5 rounded border whitespace-nowrap ${livePnl >= 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
+                Mark ${livePrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </span>
+              {pos.trailing_stop_price && (
+                <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                  Trail ${pos.trailing_stop_price.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                </span>
+              )}
+            </div>
 
             {/* Actions — hidden in read-only mode */}
             {!readOnly && (
-              <div className="flex gap-2">
-                <button
-                  onClick={() => onModify(pos._id)}
-                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-white/[0.04] text-slate-400 hover:text-white transition-colors border border-white/[0.04]"
-                >
-                  Modify
-                </button>
-                <button
-                  onClick={() => onClose(pos._id, pos.mark_price)}
-                  className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"
-                >
-                  Close Position
-                </button>
-              </div>
+              <>
+                <div className="flex gap-1.5 mb-1.5">
+                  <button
+                    onClick={() => {
+                      if (modifyId === pos._id) {
+                        setModifyId(null);
+                      } else {
+                        setModifyId(pos._id);
+                        setModifySL(pos.stop_loss ? String(pos.stop_loss) : "");
+                        setModifyTP(pos.take_profit ? String(pos.take_profit) : "");
+                      }
+                    }}
+                    className={`flex-1 text-[10px] py-1.5 rounded-lg transition-colors border ${
+                      modifyId === pos._id
+                        ? "bg-blue-500/15 text-blue-300 border-blue-500/30"
+                        : "bg-white/[0.04] text-slate-400 hover:text-white border-white/[0.04]"
+                    }`}
+                  >
+                    {modifyId === pos._id ? "Cancel" : "Modify"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setActionLoading(`close-${pos._id}`);
+                      try {
+                        await onClose(pos._id, livePrice);
+                      } finally {
+                        setActionLoading(null);
+                      }
+                    }}
+                    disabled={actionLoading === `close-${pos._id}`}
+                    className="flex-1 text-[10px] py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20 disabled:opacity-40"
+                  >
+                    {actionLoading === `close-${pos._id}` ? (
+                      <span className="animate-pulse">Closing...</span>
+                    ) : "Close"}
+                  </button>
+                  {onNewTrade && (
+                    <button
+                      onClick={() => onNewTrade(pos.symbol)}
+                      className="flex-1 text-[10px] py-1.5 rounded-lg bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors border border-blue-500/20"
+                    >
+                      + Trade
+                    </button>
+                  )}
+                </div>
+
+                {/* Modify SL/TP inline editor */}
+                {modifyId === pos._id && (
+                  <div className="mb-1.5 p-2 rounded-lg bg-slate-900/50 border border-blue-500/20 space-y-1.5">
+                    <div className="flex gap-1.5 items-center">
+                      <div className="flex-1">
+                        <label className="text-[8px] text-slate-500 uppercase">Stop Loss</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={modifySL}
+                          onChange={(e) => setModifySL(e.target.value)}
+                          placeholder="No SL"
+                          className="w-full bg-slate-800 border border-red-500/20 rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[8px] text-slate-500 uppercase">Take Profit</label>
+                        <input
+                          type="number"
+                          step="any"
+                          value={modifyTP}
+                          onChange={(e) => setModifyTP(e.target.value)}
+                          placeholder="No TP"
+                          className="w-full bg-slate-800 border border-emerald-500/20 rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setActionLoading(`modify-${pos._id}`);
+                          try {
+                            const mods: { stopLoss?: number; takeProfit?: number } = {};
+                            if (modifySL) mods.stopLoss = parseFloat(modifySL);
+                            if (modifyTP) mods.takeProfit = parseFloat(modifyTP);
+                            await onModify(pos._id, mods);
+                            setModifyId(null);
+                            onRefresh?.();
+                          } catch (err) {
+                            setActionError(err instanceof Error ? err.message : "Failed to modify");
+                          } finally {
+                            setActionLoading(null);
+                          }
+                        }}
+                        disabled={actionLoading === `modify-${pos._id}`}
+                        className="text-[10px] py-1 px-2.5 rounded bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 transition-colors border border-blue-500/30 disabled:opacity-40 mt-3"
+                      >
+                        {actionLoading === `modify-${pos._id}` ? "..." : "Save"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Advanced actions row */}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : pos._id)}
+                    className="flex-1 text-[9px] py-1 rounded bg-white/[0.03] text-slate-500 hover:text-slate-300 transition-colors border border-white/[0.03]"
+                  >
+                    {isExpanded ? "Less" : "More"}
+                  </button>
+                  {wallet && (
+                    <>
+                      <button
+                        onClick={() => handleSetType(pos, posType === "core" ? "satellite" : "core")}
+                        disabled={actionLoading === `type-${pos._id}`}
+                        className="relative flex items-center gap-1 text-[9px] py-1 px-1.5 rounded transition-colors border disabled:opacity-40 bg-white/[0.03] border-white/[0.06]"
+                      >
+                        <span className={`text-[8px] ${posType === "satellite" ? "text-slate-300 font-bold" : "text-slate-600"}`}>SAT</span>
+                        <span
+                          className={`relative w-6 h-3 rounded-full transition-all ${
+                            posType === "core" ? "bg-amber-500/40" : "bg-slate-700/60"
+                          }`}
+                        >
+                          <span
+                            className={`absolute top-0.5 w-2 h-2 rounded-full transition-all ${
+                              posType === "core" ? "left-[14px] bg-amber-400" : "left-0.5 bg-slate-500"
+                            }`}
+                          />
+                        </span>
+                        <span className={`text-[8px] ${posType === "core" ? "text-amber-400 font-bold" : "text-slate-600"}`}>CORE</span>
+                      </button>
+                      <button
+                        onClick={() => handleFlip(pos)}
+                        disabled={actionLoading === `flip-${pos._id}`}
+                        className="text-[9px] py-1 px-2 rounded bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors border border-purple-500/20 disabled:opacity-40"
+                      >
+                        {actionLoading === `flip-${pos._id}` ? "..." : "Flip"}
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                {/* Expanded actions panel */}
+                {isExpanded && wallet && (
+                  <div className="mt-2 space-y-2 p-2 rounded-lg bg-slate-900/50 border border-white/[0.04]">
+                    {actionError && (
+                      <div className="text-[10px] text-red-400 bg-red-500/10 rounded px-2 py-1 border border-red-500/20">
+                        {actionError}
+                        <button onClick={() => setActionError(null)} className="ml-1 text-slate-500">x</button>
+                      </div>
+                    )}
+
+                    {/* Partial Close */}
+                    <div>
+                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">Partial Close</div>
+                      <div className="flex gap-1.5 items-center">
+                        <input
+                          type="range"
+                          min={10}
+                          max={90}
+                          step={10}
+                          value={closePct}
+                          onChange={(e) => setClosePct(Number(e.target.value))}
+                          className="flex-1 h-1 accent-red-400"
+                        />
+                        <span className="text-[10px] text-slate-300 w-8 text-right">{closePct}%</span>
+                        <button
+                          onClick={() => handlePartialClose(pos)}
+                          disabled={actionLoading === `partial-${pos._id}`}
+                          className="text-[10px] py-1 px-2 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20 disabled:opacity-40"
+                        >
+                          {actionLoading === `partial-${pos._id}` ? "..." : `Close ${closePct}%`}
+                        </button>
+                      </div>
+                      <div className="text-[9px] text-slate-600 mt-0.5">
+                        Closes ${(pos.size_usd * closePct / 100).toFixed(2)} of ${pos.size_usd.toFixed(2)}
+                      </div>
+                    </div>
+
+                    {/* Pyramid (only if in profit) */}
+                    <div>
+                      <div className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">
+                        Pyramid (Add to Position)
+                        {pos.unrealized_pnl < 0 && (
+                          <span className="ml-1 text-red-400 normal-case">- needs profit</span>
+                        )}
+                      </div>
+                      <div className="flex gap-1.5 items-center">
+                        <input
+                          type="number"
+                          placeholder={`$${Math.round(pos.size_usd * 0.5)}`}
+                          value={pyramidSize || ""}
+                          onChange={(e) => setPyramidSize(Number(e.target.value))}
+                          className="flex-1 bg-slate-800 border border-white/[0.06] rounded px-2 py-1 text-[10px] text-white placeholder-slate-600"
+                        />
+                        <button
+                          onClick={() => handlePyramid(pos)}
+                          disabled={actionLoading === `pyramid-${pos._id}` || pos.unrealized_pnl < 0}
+                          className="text-[10px] py-1 px-2 rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-colors border border-emerald-500/20 disabled:opacity-40"
+                        >
+                          {actionLoading === `pyramid-${pos._id}` ? "..." : "Add"}
+                        </button>
+                      </div>
+                      <div className="text-[9px] text-slate-600 mt-0.5">
+                        Max 3 pyramid levels. Each level 50% of previous size.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         );

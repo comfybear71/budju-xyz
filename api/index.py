@@ -42,13 +42,23 @@ from perp_engine import (
     set_kill_switch,
     open_position,
     close_position,
-    partial_close_position,
     modify_position,
     get_open_positions,
     get_trade_history,
     get_equity_curve,
     get_markets_info,
     calculate_metrics,
+    partial_close_position,
+    pyramid_position,
+    flip_position,
+    set_position_type,
+    get_position_summary,
+    get_funding_summary,
+    get_reentry_candidates,
+    create_pending_order,
+    cancel_pending_order,
+    modify_pending_order,
+    get_pending_orders,
     MARKETS,
 )
 from database import ADMIN_WALLETS
@@ -56,14 +66,6 @@ from perp_strategies import (
     get_strategy_status,
     toggle_auto_trading,
     update_strategy_config,
-)
-from perp_backtest import run_backtest_from_db
-from perp_pending_orders import (
-    place_pending_order,
-    get_pending_orders,
-    cancel_pending_order,
-    cancel_all_pending_orders,
-    get_pending_order_count,
 )
 
 # ── CORS origin check ──────────────────────────────────────────────────
@@ -174,7 +176,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
 
@@ -359,16 +361,53 @@ class handler(BaseHTTPRequestHandler):
                 status = get_strategy_status(wallet)
                 self._send_json(200, status)
 
-            elif path == '/api/perp/orders/pending':
+            elif path == '/api/perp/pending-orders':
                 wallet = params.get('wallet')
                 if not wallet:
                     self._send_json(400, {"error": "wallet parameter required"})
                     return
-                symbol = params.get('symbol')
-                status = params.get('status', 'pending')
-                orders = get_pending_orders(wallet, symbol=symbol, status=status)
-                count = get_pending_order_count(wallet)
-                self._send_json(200, {"orders": orders, "count": len(orders), "pending_count": count})
+                orders = get_pending_orders(wallet)
+                self._send_json(200, {"orders": orders, "count": len(orders)})
+
+            elif path == '/api/perp/position-summary':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                summary = get_position_summary(wallet)
+                self._send_json(200, summary)
+
+            elif path == '/api/perp/funding-summary':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                summary = get_funding_summary(wallet)
+                self._send_json(200, summary)
+
+            elif path == '/api/perp/reentry-candidates':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                # Need live prices for re-entry analysis
+                from perp_engine import perp_positions as _pp
+                open_pos = list(_pp.find({"account_id": wallet, "status": "open"}))
+                price_map = {}
+                for p in open_pos:
+                    if p.get("mark_price"):
+                        price_map[p["symbol"]] = p["mark_price"]
+                candidates = get_reentry_candidates(wallet, price_map)
+                self._send_json(200, {"candidates": candidates, "count": len(candidates)})
+
+            elif path == '/api/perp/backtest':
+                strategy = params.get('strategy', 'trend_following')
+                symbol = params.get('symbol', 'SOL-PERP')
+                periods = int(params.get('periods', '1440'))
+                balance = float(params.get('balance', '10000'))
+                from perp_backtest import run_backtest_from_db
+                result = run_backtest_from_db(strategy, symbol, periods, balance)
+                self._send_json(200, result)
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -617,27 +656,46 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = close_position(position_id, exit_price, "manual", exit_reason)
-                self._send_json(200, result)
 
-            elif path == '/api/perp/partial-close':
-                wallet = body.get('wallet') or body.get('adminWallet')
-                if not wallet or not is_admin(wallet):
-                    self._send_json(403, {"error": "Admin access required"})
-                    return
+                # Send Telegram notification for closed trades
+                try:
+                    pnl = result.get("realized_pnl", 0)
+                    symbol = result.get("symbol", "?")
+                    direction = result.get("direction", "?")
+                    leverage = result.get("leverage", 1)
+                    wallet_short = wallet[:4] + ".." + wallet[-4:]
+                    is_live = result.get("trading_mode") == "live"
+                    mode_label = "LIVE" if is_live else "PAPER"
 
-                position_id = body.get('positionId')
-                exit_price = float(body.get('exitPrice', 0))
-                close_pct = float(body.get('closePct', 50))
-                exit_reason = body.get('exitReason', 'manual_partial')
+                    # Only send wins to Telegram
+                    if pnl > 0:
+                        emoji = "💰"
+                        msg = (
+                            f"{emoji} <b>{mode_label} WIN</b>{'  🔴' if is_live else ''}\n"
+                            f"📍 {symbol} {direction.upper()} {leverage}x\n"
+                            f"💰 P&L: <b>+${pnl:.2f}</b>\n"
+                            f"🔧 Manual close\n"
+                            f"👤 {wallet_short}"
+                        )
+                    else:
+                        msg = None
 
-                if not position_id or not exit_price:
-                    self._send_json(400, {"error": "positionId and exitPrice required"})
-                    return
-                if close_pct <= 0 or close_pct >= 100:
-                    self._send_json(400, {"error": "closePct must be between 1 and 99"})
-                    return
+                    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+                    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "-1002398835975")
+                    if tg_token and msg:
+                        from urllib.request import Request, urlopen
+                        tg_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+                        tg_payload = json.dumps({
+                            "chat_id": tg_chat,
+                            "text": msg,
+                            "parse_mode": "HTML",
+                            "disable_web_page_preview": True,
+                        }).encode()
+                        tg_req = Request(tg_url, data=tg_payload, headers={"Content-Type": "application/json"})
+                        urlopen(tg_req, timeout=10)
+                except Exception as tg_err:
+                    print(f"[perp/close] Telegram notification error: {tg_err}")
 
-                result = partial_close_position(position_id, exit_price, close_pct, exit_reason)
                 self._send_json(200, result)
 
             elif path == '/api/perp/modify':
@@ -690,28 +748,6 @@ class handler(BaseHTTPRequestHandler):
                 update_strategy_config(wallet, updates)
                 self._send_json(200, {"success": True})
 
-            elif path == '/api/perp/backtest':
-                # Run backtest against historical price data
-                strategy = body.get('strategy')
-                symbol = body.get('symbol', 'BTC-PERP')
-                periods = int(body.get('periods', 1440))
-                initial_balance = float(body.get('initialBalance', 10000))
-
-                if not strategy:
-                    self._send_json(400, {"error": "strategy required (trend_following, mean_reversion, momentum, scalping)"})
-                    return
-
-                if periods > 10080:  # Cap at 7 days of 1-min data
-                    self._send_json(400, {"error": "periods capped at 10080 (7 days)"})
-                    return
-
-                result = run_backtest_from_db(strategy, symbol, periods, initial_balance)
-                # Trim trade list for API response (keep last 200)
-                if len(result.get("trades", [])) > 200:
-                    result["trades"] = result["trades"][-200:]
-                    result["trades_trimmed"] = True
-                self._send_json(200, result)
-
             # ── Trading Mode & Kill Switch ─────────────────────────────
             elif path == '/api/perp/mode':
                 wallet = body.get('wallet') or body.get('adminWallet')
@@ -747,78 +783,109 @@ class handler(BaseHTTPRequestHandler):
                 if live_status["ready"]:
                     live_status["exchange_balance"] = get_exchange_balance()
                     live_status["exchange_positions"] = get_exchange_positions()
-                    # Reconcile with local DB
                     local_positions = list(get_open_positions(wallet))
                     live_pos = [p for p in local_positions if p.get("trading_mode") == "live"]
                     live_status["reconciliation"] = reconcile_positions(live_pos)
                 self._send_json(200, live_status)
 
-            # ── Pending Limit/Stop Orders ─────────────────────────────
-            elif path == '/api/perp/orders/pending':
-                wallet = body.get('wallet') or body.get('adminWallet')
+            # ── Partial Close ──────────────────────────────────────────
+            elif path == '/api/perp/partial-close':
+                wallet = body.get('wallet')
                 if not wallet or not is_admin(wallet):
                     self._send_json(403, {"error": "Admin access required"})
                     return
-
-                symbol = body.get('symbol')
-                order_type = body.get('orderType')
-                trigger_price = body.get('triggerPrice')
-                size_usd = body.get('sizeUsd')
-                leverage = int(body.get('leverage', 5))
-                stop_loss = float(body['stopLoss']) if body.get('stopLoss') else None
-                take_profit = float(body['takeProfit']) if body.get('takeProfit') else None
-                trailing_stop = float(body['trailingStopPct']) if body.get('trailingStopPct') else None
-                entry_reason = body.get('entryReason', '')
-                expiry_hours = int(body.get('expiryHours', 24))
-
-                if not all([symbol, order_type, trigger_price, size_usd]):
-                    self._send_json(400, {"error": "symbol, orderType, triggerPrice, and sizeUsd required"})
-                    return
-
-                result = place_pending_order(
-                    wallet, symbol, order_type, float(trigger_price),
-                    float(size_usd), leverage, stop_loss, take_profit,
-                    trailing_stop, entry_reason, expiry_hours
+                result = partial_close_position(
+                    position_id=body.get('positionId'),
+                    exit_price=float(body.get('exitPrice', 0)),
+                    close_pct=float(body.get('closePct', 50)),
+                    exit_reason=body.get('exitReason', 'partial_tp'),
                 )
                 self._send_json(200, result)
 
-            else:
-                self._send_json(404, {"error": "Not found"})
-
-        except ValueError as e:
-            self._send_json(400, {"error": str(e)})
-        except Exception as e:
-            self._send_json(500, {"error": str(e)})
-
-    def do_DELETE(self):
-        # Rate limit check (stricter for writes)
-        client_ip = _get_client_ip(self)
-        if not _check_rate_limit(client_ip, is_write=True):
-            self._send_json(429, {"error": "Too many requests. Please try again later."})
-            return
-
-        try:
-            path = self.path.split('?')[0]
-            body = self._read_body()
-
-            if path == '/api/perp/orders/pending':
-                wallet = body.get('wallet') or body.get('adminWallet')
+            # ── Pending Orders ─────────────────────────────────────────
+            elif path == '/api/perp/pending-order':
+                wallet = body.get('wallet')
                 if not wallet or not is_admin(wallet):
                     self._send_json(403, {"error": "Admin access required"})
                     return
+                order = create_pending_order(
+                    wallet=wallet,
+                    symbol=body.get('symbol'),
+                    direction=body.get('direction'),
+                    leverage=int(body.get('leverage', 5)),
+                    size_usd=float(body.get('sizeUsd', 0)),
+                    order_type=body.get('orderType', 'limit'),
+                    trigger_price=float(body.get('triggerPrice', 0)),
+                    stop_loss=float(body['stopLoss']) if body.get('stopLoss') else None,
+                    take_profit=float(body['takeProfit']) if body.get('takeProfit') else None,
+                    trailing_stop_pct=float(body['trailingStopPct']) if body.get('trailingStopPct') else None,
+                    entry_reason=body.get('entryReason', ''),
+                    expiry_hours=float(body.get('expiryHours', 24)),
+                )
+                self._send_json(200, order)
 
+            elif path == '/api/perp/pending-order/cancel':
+                wallet = body.get('wallet')
                 order_id = body.get('orderId')
-                cancel_all = body.get('cancelAll', False)
-                symbol = body.get('symbol')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = cancel_pending_order(order_id, wallet)
+                self._send_json(200, result)
 
-                if cancel_all:
-                    result = cancel_all_pending_orders(wallet, symbol=symbol)
-                    self._send_json(200, result)
-                elif order_id:
-                    result = cancel_pending_order(order_id, reason="manual")
-                    self._send_json(200, result)
-                else:
-                    self._send_json(400, {"error": "orderId or cancelAll required"})
+            elif path == '/api/perp/pending-order/modify':
+                wallet = body.get('wallet')
+                order_id = body.get('orderId')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = modify_pending_order(
+                    order_id, wallet,
+                    trigger_price=float(body['triggerPrice']) if body.get('triggerPrice') else None,
+                    stop_loss=float(body['stopLoss']) if body.get('stopLoss') else None,
+                    take_profit=float(body['takeProfit']) if body.get('takeProfit') else None,
+                    direction=body.get('direction'),
+                )
+                self._send_json(200, result)
+
+            # ── Pyramiding ─────────────────────────────────────────────
+            elif path == '/api/perp/pyramid':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = pyramid_position(
+                    wallet=wallet,
+                    position_id=body.get('positionId'),
+                    add_size_usd=float(body.get('addSizeUsd', 0)),
+                    entry_price=float(body.get('entryPrice', 0)),
+                )
+                self._send_json(200, result)
+
+            # ── Position Flipping ──────────────────────────────────────
+            elif path == '/api/perp/flip':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = flip_position(
+                    position_id=body.get('positionId'),
+                    exit_price=float(body.get('exitPrice', 0)),
+                    new_size_usd=float(body['newSizeUsd']) if body.get('newSizeUsd') else None,
+                )
+                self._send_json(200, result)
+
+            # ── Core/Satellite Position Type ───────────────────────────
+            elif path == '/api/perp/position-type':
+                wallet = body.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                result = set_position_type(
+                    position_id=body.get('positionId'),
+                    position_type=body.get('positionType', 'core'),
+                )
+                self._send_json(200, result)
 
             else:
                 self._send_json(404, {"error": "Not found"})
@@ -835,7 +902,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(status_code)
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Content-Type', 'application/json')
         self.end_headers()

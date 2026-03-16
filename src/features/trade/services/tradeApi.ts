@@ -7,6 +7,7 @@
 // ============================================================
 
 import { getActivityLog } from "./activityLog";
+import { getWalletProvider } from "@lib/web3/connection";
 const alog = getActivityLog();
 
 // ── Types ──────────────────────────────────────────────────
@@ -118,6 +119,9 @@ export const ASSET_CONFIG: Record<
   TAO: { color: "#000000", icon: "τ", name: "Bittensor", coingeckoId: "bittensor" },
   PEPE: { color: "#00b84d", icon: "🐸", name: "Pepe", coingeckoId: "pepe" },
   LUNA: { color: "#5643c8", icon: "L", name: "Terra", coingeckoId: "terra-luna-2" },
+  BONK: { color: "#f59e0b", icon: "🐕", name: "Bonk", coingeckoId: "bonk" },
+  WIF: { color: "#a855f7", icon: "🐶", name: "dogwifhat", coingeckoId: "dogwifcoin" },
+  JUP: { color: "#22d3ee", icon: "J", name: "Jupiter", coingeckoId: "jupiter-exchange-solana" },
   USDC: { color: "#22c55e", icon: "$", name: "USD Coin", coingeckoId: "usd-coin" },
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
@@ -138,11 +142,7 @@ let _cachedAuthTime = 0;
 const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
 
 function _getWalletProvider(): any {
-  return (window as any).phantom?.solana
-    || (window as any).solana
-    || (window as any).solflare
-    || (window as any).jupiter
-    || null;
+  return getWalletProvider();
 }
 
 /**

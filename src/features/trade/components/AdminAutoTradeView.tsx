@@ -181,30 +181,43 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
       className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "rgba(16,185,129,0.15)" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
-              <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-            </svg>
+      <div className="p-4 border-b border-white/[0.06] space-y-2">
+        {/* Row 1: Title + close */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-[10px] flex items-center justify-center" style={{ background: "rgba(16,185,129,0.15)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2">
+                <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+              </svg>
+            </div>
+            <span className="text-base font-bold text-slate-200">Auto Trade</span>
           </div>
-          <span className="text-base font-bold text-slate-200">Auto Trade</span>
-          <span
-            className="text-[10px] font-bold px-2 py-0.5 rounded-xl"
-            style={{
-              background: botActive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)",
-              color: botActive ? "#22c55e" : "#ef4444",
-            }}
+          <button
+            onClick={onClose}
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.06)" }}
           >
-            {botActive ? "ACTIVE" : "INACTIVE"}
-          </span>
-          {botActive && snapshot.isOwner && (
-            <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
-              OWNER
-            </span>
-          )}
+            <FaTimes size={12} className="text-slate-400" />
+          </button>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Row 2: Status badges + stop button */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span
+              className="text-[10px] font-bold px-2 py-0.5 rounded-xl"
+              style={{
+                background: botActive ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)",
+                color: botActive ? "#22c55e" : "#ef4444",
+              }}
+            >
+              {botActive ? "ACTIVE" : "INACTIVE"}
+            </span>
+            {botActive && snapshot.isOwner && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
+                OWNER
+              </span>
+            )}
+          </div>
           <button
             onClick={botActive ? () => autoTrader.stopAll() : undefined}
             className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all"
@@ -215,13 +228,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
             }}
           >
             {botActive ? <><FaStop size={8} /> Stop All</> : "No tiers active"}
-          </button>
-          <button
-            onClick={onClose}
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "rgba(255,255,255,0.06)" }}
-          >
-            <FaTimes size={12} className="text-slate-400" />
           </button>
         </div>
       </div>

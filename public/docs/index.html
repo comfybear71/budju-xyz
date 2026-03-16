@@ -167,6 +167,7 @@
     <li><a href="#database">Database Schema (MongoDB)</a></li>
     <li><a href="#wallet">Wallet Integration</a></li>
     <li><a href="#trading">Trading Bot Architecture (AutoTrader)</a></li>
+    <li><a href="#perp-trading">Perpetual Trading Platform (Live Charts + AI) <span style="background:#e8ffe8;color:#157a15;padding:1px 6px;border-radius:8px;font-size:0.7rem;font-weight:600;">NEW</span></a></li>
     <li><a href="#addresses">Smart Contract Addresses</a></li>
     <li><a href="#integrations">External Integrations (7 Services)</a></li>
     <li><a href="#security">Security &amp; Authentication</a></li>
@@ -806,6 +807,78 @@ budjuWalletConnected - "true"</code></pre>
 
   <h3>Supported Assets (22 Crypto)</h3>
   <p>BTC, ETH, SOL, XRP, DOGE, ADA, SUI, XAUT, AVAX, DOT, LINK, POL, HBAR, UNI, NEAR, NEO, TRX, BCH, BNB, ENA, NEXO, HYPE, RENDER, FET, TAO, PEPE, LUNA</p>
+</section>
+
+<!-- ================= 9b. PERP TRADING ================= -->
+<section id="perp-trading">
+  <h2>9b. Perpetual Trading Platform (Live Charts + AI)</h2>
+
+  <div class="alert alert-info">
+    <strong>NEW — March 2026:</strong> Full perpetual futures paper trading with real-time Binance WebSocket charts, 11 automated strategies, and AI-powered signal predictions.
+  </div>
+
+  <h3>How to Use</h3>
+  <ol>
+    <li>Navigate to <code>/trade</code> and click the red <strong>"Live Charts + AI Predictions"</strong> card</li>
+    <li><strong>Grid View</strong> shows all 6 markets — click any chart for Focus View</li>
+    <li>Charts show 1-hour candles with live WebSocket updates and AI signal badges (LONG / SHORT / HOLD with confidence %)</li>
+    <li>Cards flash <span style="color:#22c55e;font-weight:bold">green</span>/<span style="color:#ef4444;font-weight:bold">red</span> borders on price changes</li>
+  </ol>
+
+  <h3>Chart Toggle Buttons</h3>
+  <table>
+    <tr><th>Button</th><th>Default</th><th>Shows</th></tr>
+    <tr><td><strong>Vol</strong></td><td>ON</td><td>Volume histogram bars</td></tr>
+    <tr><td><strong>Trades</strong></td><td>OFF</td><td>Entry/exit markers on chart</td></tr>
+    <tr><td><strong>Positions</strong></td><td>OFF</td><td>SL/TP/liquidation price lines</td></tr>
+    <tr><td><strong>AI</strong></td><td>ON</td><td>AI prediction line + signal badges</td></tr>
+    <tr><td><strong>Strats</strong></td><td>—</td><td>Strategy popup: shows which strategies are active on this market with green coin badges</td></tr>
+  </table>
+
+  <h3>Strategy Popup</h3>
+  <p>Click <strong>Strats</strong> to see a slide-up panel showing each active strategy for the current market — icon, name, leverage, max positions, and which coins it trades (green = active). The green badge count on the button shows how many strategies target this market.</p>
+
+  <h3>11 Auto-Trading Strategies</h3>
+  <table>
+    <tr><th>#</th><th>Strategy</th><th>Type</th><th>Lev</th><th>Default</th></tr>
+    <tr><td>1</td><td>📈 Trend Following</td><td>EMA crossover + RSI</td><td>5x</td><td><span style="color:#22c55e;font-weight:bold">ON</span></td></tr>
+    <tr><td>2</td><td>🎯 Mean Reversion</td><td>BB bounce + RSI extremes</td><td>3x</td><td><span style="color:#22c55e;font-weight:bold">ON</span></td></tr>
+    <tr><td>3</td><td>🚀 Momentum Breakout</td><td>Range breakout + volume</td><td>5x</td><td><span style="color:#22c55e;font-weight:bold">ON</span></td></tr>
+    <tr><td>4</td><td>⚡ Scalping</td><td>RSI bounces + EMA slope</td><td>3x</td><td>OFF</td></tr>
+    <tr><td>5</td><td>🥷 Ninja Ambush</td><td>Confluence pending orders</td><td>2x</td><td>OFF</td></tr>
+    <tr><td>6</td><td>📊 Grid Trading</td><td>ATR-based grid levels</td><td>2x</td><td>OFF</td></tr>
+    <tr><td>7</td><td>📐 Keltner Channel</td><td>KC bounce / squeeze</td><td>3x</td><td>OFF</td></tr>
+    <tr><td>8</td><td>💥 BB Squeeze</td><td>Volatility compression</td><td>4x</td><td>OFF</td></tr>
+    <tr><td>9</td><td>🏎️ HF Scalper</td><td>High-frequency micro trades</td><td>5x</td><td>OFF</td></tr>
+    <tr><td>10</td><td>🔄 Zone Recovery</td><td>Hedge + escalating lots</td><td>3x</td><td>OFF</td></tr>
+    <tr><td>11</td><td>🪃 S/R Reversal</td><td>Support/resistance levels</td><td>3x</td><td>OFF</td></tr>
+  </table>
+
+  <h3>Strategy Selection Guide</h3>
+  <table>
+    <tr><th>Market Condition</th><th>Best Strategies</th></tr>
+    <tr><td>Strong trend / rally</td><td>Trend Following, Momentum Breakout</td></tr>
+    <tr><td>Ranging / sideways</td><td>Mean Reversion, Grid Trading, Ninja Ambush</td></tr>
+    <tr><td>Low volatility</td><td>BB Squeeze, Keltner Channel</td></tr>
+    <tr><td>Clear S/R levels</td><td>Ninja Ambush, S/R Reversal</td></tr>
+  </table>
+
+  <h3>Paper Trading Engine</h3>
+  <ul>
+    <li><strong>Starting balance:</strong> $10,000 virtual USDC</li>
+    <li><strong>Markets:</strong> SOL, BTC, ETH, DOGE, AVAX, LINK, SUI, JUP, WIF, BONK</li>
+    <li><strong>Max leverage:</strong> 50x</li>
+    <li><strong>Fees:</strong> 0.06% open/close, 0.01%/hr borrow, 0.05-0.15% slippage</li>
+    <li><strong>Safety:</strong> 20% daily loss limit, drawdown auto-sizing, trailing stops</li>
+    <li><strong>Advanced:</strong> Partial close, pyramiding, position flipping, pending orders</li>
+  </ul>
+
+  <h3>Real-Time Data</h3>
+  <ul>
+    <li><strong>WebSocket:</strong> 3 fallback endpoints for geo-blocked regions (AU/US)</li>
+    <li><strong>Kline proxy:</strong> <code>/api/klines</code> — Binance.US &rarr; OKX &rarr; Binance Global</li>
+    <li><strong>Cron engine:</strong> Every 1 minute — prices, pending orders, SL/TP, auto-strategies</li>
+  </ul>
 </section>
 
 <!-- ================= 10. ADDRESSES ================= -->

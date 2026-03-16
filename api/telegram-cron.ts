@@ -113,6 +113,121 @@ const PROMO_MESSAGES = [
   `💰 <b>Why BUDJU?</b>\n\n✅ Automated DCA Trading Bot\n✅ Regular token burns\n✅ NFTs & Merch\n✅ Community-driven\n✅ Built on Solana\n\n🌐 ${WEBSITE_URL}`,
 ];
 
+// ── Strategy opportunity scanner (server-side) ──────────────
+
+interface CandleData { time: number; open: number; high: number; low: number; close: number; }
+interface Opportunity { coin: string; strategy: string; direction: "long" | "short"; hotness: number; confidence: number; headline: string; icon: string; entryZone: string; leverage: string; }
+
+const COINS: Record<string, string> = {
+  SOL: "SOLUSDT", BTC: "BTCUSDT", ETH: "ETHUSDT", DOGE: "DOGEUSDT",
+  AVAX: "AVAXUSDT", LINK: "LINKUSDT", SUI: "SUIUSDT", JUP: "JUPUSDT",
+};
+
+async function fetchBinanceKlines(symbol: string): Promise<CandleData[]> {
+  try {
+    const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1m&limit=120`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!Array.isArray(data)) return [];
+    return data.map((k: number[]) => ({ time: Math.floor(k[0] / 1000), open: +k[1], high: +k[2], low: +k[3], close: +k[4] }));
+  } catch { return []; }
+}
+
+function ema(data: number[], period: number): number[] {
+  if (data.length < period) return [];
+  const k = 2 / (period + 1);
+  const result: number[] = [];
+  let prev = data.slice(0, period).reduce((a, b) => a + b) / period;
+  result.push(prev);
+  for (let i = period; i < data.length; i++) {
+    prev = data[i] * k + prev * (1 - k);
+    result.push(prev);
+  }
+  return result;
+}
+
+function rsi(closes: number[], period = 14): number {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  if (losses === 0) return 100;
+  const rs = (gains / period) / (losses / period);
+  return 100 - 100 / (1 + rs);
+}
+
+function detectOpportunities(candles: CandleData[], coin: string): Opportunity[] {
+  if (candles.length < 30) return [];
+  const closes = candles.map(c => c.close);
+  const price = closes[closes.length - 1];
+  const opps: Opportunity[] = [];
+
+  // EMA crossover (trend following)
+  const ema9 = ema(closes, 9);
+  const ema21 = ema(closes, 21);
+  if (ema9.length > 1 && ema21.length > 1) {
+    const fast = ema9[ema9.length - 1], slow = ema21[ema21.length - 1];
+    const prevFast = ema9[ema9.length - 2], prevSlow = ema21[ema21.length - 2];
+    if (prevFast <= prevSlow && fast > slow) {
+      opps.push({ coin, strategy: "Trend Following", direction: "long", hotness: 70, confidence: 65, headline: `${coin} EMA 9/21 bullish crossover`, icon: "📈", entryZone: `$${(price * 0.998).toFixed(2)} - $${(price * 1.002).toFixed(2)}`, leverage: "5x" });
+    } else if (prevFast >= prevSlow && fast < slow) {
+      opps.push({ coin, strategy: "Trend Following", direction: "short", hotness: 70, confidence: 65, headline: `${coin} EMA 9/21 bearish crossover`, icon: "📉", entryZone: `$${(price * 0.998).toFixed(2)} - $${(price * 1.002).toFixed(2)}`, leverage: "5x" });
+    }
+  }
+
+  // RSI extremes (mean reversion)
+  const rsiVal = rsi(closes);
+  if (rsiVal < 30) {
+    opps.push({ coin, strategy: "Mean Reversion", direction: "long", hotness: Math.round(80 + (30 - rsiVal)), confidence: 60, headline: `${coin} RSI oversold at ${rsiVal.toFixed(0)}`, icon: "🔄", entryZone: `$${(price * 0.997).toFixed(2)} - $${price.toFixed(2)}`, leverage: "3x" });
+  } else if (rsiVal > 70) {
+    opps.push({ coin, strategy: "Mean Reversion", direction: "short", hotness: Math.round(80 + (rsiVal - 70)), confidence: 60, headline: `${coin} RSI overbought at ${rsiVal.toFixed(0)}`, icon: "🔄", entryZone: `$${price.toFixed(2)} - $${(price * 1.003).toFixed(2)}`, leverage: "3x" });
+  }
+
+  // Momentum breakout
+  const highs = candles.slice(-20).map(c => c.high);
+  const lows = candles.slice(-20).map(c => c.low);
+  const rangeHigh = Math.max(...highs);
+  const rangeLow = Math.min(...lows);
+  if (price > rangeHigh * 0.998 && price >= rangeHigh) {
+    opps.push({ coin, strategy: "Momentum", direction: "long", hotness: 75, confidence: 60, headline: `${coin} breaking above 20-bar high`, icon: "🚀", entryZone: `$${(rangeHigh * 0.999).toFixed(2)} - $${(rangeHigh * 1.003).toFixed(2)}`, leverage: "5x" });
+  } else if (price < rangeLow * 1.002 && price <= rangeLow) {
+    opps.push({ coin, strategy: "Momentum", direction: "short", hotness: 75, confidence: 60, headline: `${coin} breaking below 20-bar low`, icon: "📉", entryZone: `$${(rangeLow * 0.997).toFixed(2)} - $${(rangeLow * 1.001).toFixed(2)}`, leverage: "5x" });
+  }
+
+  return opps;
+}
+
+async function scanStrategies(): Promise<Opportunity[]> {
+  const allOpps: Opportunity[] = [];
+  for (const [coin, symbol] of Object.entries(COINS)) {
+    try {
+      const candles = await fetchBinanceKlines(symbol);
+      allOpps.push(...detectOpportunities(candles, coin));
+    } catch { /* skip */ }
+  }
+  allOpps.sort((a, b) => b.hotness - a.hotness);
+  return allOpps.slice(0, 5); // Top 5 opportunities
+}
+
+function formatStrategyMessage(opps: Opportunity[]): string {
+  if (opps.length === 0) return "";
+  const dirEmoji = (d: string) => d === "long" ? "🟢 LONG" : "🔴 SHORT";
+  const hotnessLabel = (h: number) => h >= 80 ? "🔥 HOT" : h >= 60 ? "🟠 WARM" : "🟡 MILD";
+
+  let msg = `🔍 <b>Strategy Opportunities</b>\n\n`;
+  for (const opp of opps) {
+    msg += `${opp.icon} <b>${opp.coin}</b> — ${opp.strategy}\n`;
+    msg += `${dirEmoji(opp.direction)} | ${opp.leverage} | ${hotnessLabel(opp.hotness)}\n`;
+    msg += `💡 ${opp.headline}\n`;
+    msg += `📍 Entry: ${opp.entryZone}\n\n`;
+  }
+  msg += `⚠️ <i>Display only — not trade signals</i>\n`;
+  msg += `🌐 <a href="${WEBSITE_URL}/trade">View on BUDJU</a>`;
+  return msg;
+}
+
 async function ensureWebhook() {
   const webhookUrl = `https://budju.xyz/api/telegram`;
   try {
@@ -179,7 +294,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const caption = PROMO_MESSAGES[Math.floor(Math.random() * PROMO_MESSAGES.length)];
         await sendMessage(GROUP_CHAT_ID, caption);
       }
-      return res.status(200).json({ ok: true, type: "price" });
+
+      // Also send strategy opportunities
+      try {
+        const opps = await scanStrategies();
+        const stratMsg = formatStrategyMessage(opps);
+        if (stratMsg) {
+          await sendMessage(GROUP_CHAT_ID, stratMsg);
+        }
+      } catch (e) {
+        console.error("Strategy scan error:", e);
+      }
+
+      return res.status(200).json({ ok: true, type: "price+strategies" });
     }
   } catch (error: any) {
     console.error("Cron error:", error);

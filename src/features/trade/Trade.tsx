@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSync,
@@ -17,7 +18,8 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
-import HighRiskDashboard from "./components/perps/HighRiskDashboard";
+import { lazy } from "react";
+const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import {
@@ -46,6 +48,7 @@ import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
 
 const Trade = () => {
+  const navigate = useNavigate();
   const { connection } = useWallet();
   const walletAddress = connection.wallet?.address || "";
   const isConnected = connection.connected && !!walletAddress;
@@ -90,6 +93,7 @@ const Trade = () => {
   const autoTrader = autoTraderRef.current;
   const activityLog = getActivityLog();
 
+
   // Fetch user role from server when wallet connects
   useEffect(() => {
     if (!isConnected || !walletAddress) {
@@ -100,6 +104,7 @@ const Trade = () => {
       if (data?.role) setUserRole(data.role);
     });
   }, [isConnected, walletAddress]);
+
 
   // ── Real-time Binance WebSocket prices ──
   const { prices: wsPrices, wsState } = useLivePrices(1000);
@@ -357,14 +362,25 @@ const Trade = () => {
                   ? "Connecting..."
                   : "Disconnected"}
             </span>
-            {wsState.connected && (
-              <span className="text-[9px] bg-emerald-500/15 text-emerald-400 px-1.5 py-0.5 rounded font-mono border border-emerald-500/20">
-                WS LIVE
-              </span>
-            )}
+            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono border ${
+              wsState.connected
+                ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
+                : "bg-amber-500/15 text-amber-400 border-amber-500/20 animate-pulse"
+            }`}>
+              {wsState.connected
+                ? `WS LIVE ${wsState.priceCount > 0 ? `(${wsState.priceCount})` : ""}`
+                : "WS ..."}
+            </span>
             {isAdmin && (
-              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold">
+              <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold flex items-center gap-1">
                 ADMIN
+                <button
+                  onClick={() => navigate("/")}
+                  className="text-amber-400 hover:text-white transition-colors ml-0.5"
+                  title="Back to home"
+                >
+                  ✕
+                </button>
               </span>
             )}
           </div>
@@ -443,10 +459,11 @@ const Trade = () => {
                 </div>
               )}
 
-              {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL) ── */}
+              {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL, hidden on perp page) ── */}
+              {!showHighRisk && (
               <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
-                {/* Admin: nav buttons — FLUB-style pills in a dark container */}
-                {isAdmin && (
+                {/* Admin: nav buttons — FLUB-style pills in a dark container (hidden on perp page) */}
+                {isAdmin && !showHighRisk && (
                   <div
                     className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
@@ -494,7 +511,7 @@ const Trade = () => {
                     <div className="flex gap-2">
                       <button
                         onClick={() => setShowTriggerView(!showTriggerView)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
                         style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
                       >
                         <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
@@ -514,7 +531,7 @@ const Trade = () => {
                       </button>
                       <button
                         onClick={() => setShowAutoTrader(true)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
                         style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
                       >
                         <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
@@ -533,7 +550,7 @@ const Trade = () => {
                     {/* Live Charts button — opens read-only dashboard */}
                     <button
                       onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
-                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all"
+                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.01] hover:brightness-125"
                       style={{
                         background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
                         border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
@@ -767,6 +784,7 @@ const Trade = () => {
                   </>
                 )}
               </div>
+              )}
 
               {/* ─── Trade Panel (admin only) ─── */}
               <AnimatePresence>
@@ -830,20 +848,12 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── High Risk View (admin: full access, others: read-only charts) ─── */}
-              <AnimatePresence>
-                {showHighRisk && isAdmin && (
-                  <HighRiskDashboard
-                    onClose={() => setShowHighRisk(false)}
-                  />
-                )}
-                {showHighRisk && !isAdmin && (
-                  <HighRiskDashboard
-                    readOnly
-                    onClose={() => setShowHighRisk(false)}
-                  />
-                )}
-              </AnimatePresence>
+              {/* ─── High Risk View (new trading dashboard) ─── */}
+              {showHighRisk && (
+                <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="text-sm text-slate-400 animate-pulse">Loading dashboard...</div></div>}>
+                  <TradeDashboard onClose={() => setShowHighRisk(false)} />
+                </Suspense>
+              )}
 
               {/* ─── Holdings (hidden when any trade view is open) ── */}
               {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
@@ -861,8 +871,8 @@ const Trade = () => {
               </div>
               )}
 
-              {/* ─── Activity Log (visible to ALL users) ──────────── */}
-              <ActivityLog />
+              {/* ─── Activity Log (visible to ALL users, hidden on perp page) ──────────── */}
+              {!showHighRisk && <ActivityLog />}
 
             </div>
           )}

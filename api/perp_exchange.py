@@ -38,17 +38,15 @@ if not DRIFT_RPC_URL:
 # Map our internal symbols to Drift perp market indices
 # Full list: https://github.com/drift-labs/protocol-v2/blob/master/sdk/src/constants/perpMarkets.ts
 SYMBOL_MAP = {
-    "SOL-PERP": {"market_index": 0, "drift_symbol": "SOL"},
-    "BTC-PERP": {"market_index": 1, "drift_symbol": "BTC"},
-    "ETH-PERP": {"market_index": 2, "drift_symbol": "ETH"},
-    "DOGE-PERP": {"market_index": 7, "drift_symbol": "DOGE"},
-    "AVAX-PERP": {"market_index": 22, "drift_symbol": "AVAX"},
-    "LINK-PERP": {"market_index": 16, "drift_symbol": "LINK"},
-    "SUI-PERP": {"market_index": 9, "drift_symbol": "SUI"},
-    "JUP-PERP": {"market_index": 24, "drift_symbol": "JUP"},
-    "WIF-PERP": {"market_index": 23, "drift_symbol": "WIF"},
-    # BONK is listed as 1MBONK on Drift (price per 1M BONK)
-    "BONK-PERP": {"market_index": 4, "drift_symbol": "1MBONK", "bonk_divisor": 1_000_000},
+    "SOL-PERP":     {"market_index": 0,  "drift_symbol": "SOL"},
+    "BTC-PERP":     {"market_index": 1,  "drift_symbol": "BTC"},
+    "ETH-PERP":     {"market_index": 2,  "drift_symbol": "ETH"},
+    "DOGE-PERP":    {"market_index": 7,  "drift_symbol": "DOGE"},
+    "AVAX-PERP":    {"market_index": 22, "drift_symbol": "AVAX"},
+    "LINK-PERP":    {"market_index": 16, "drift_symbol": "LINK"},
+    "SUI-PERP":     {"market_index": 9,  "drift_symbol": "SUI"},
+    "RENDER-PERP":  {"market_index": 12, "drift_symbol": "RENDER"},
+    "JUP-PERP":     {"market_index": 24, "drift_symbol": "JUP"},
 }
 
 # Default slippage for market orders (0.5%)

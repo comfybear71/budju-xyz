@@ -9,6 +9,8 @@
   "rewrites": [
     { "source": "/src/assets/:path*", "destination": "/assets/:path*" },
     { "source": "/api/proxy", "destination": "/api/proxy.ts" },
+    { "source": "/api/binance", "destination": "/api/klines.ts" },
+    { "source": "/api/klines", "destination": "/api/klines.ts" },
     { "source": "/api/rpc", "destination": "/api/rpc.ts" },
     { "source": "/api/jupiter", "destination": "/api/jupiter.ts" },
     { "source": "/api/marketing", "destination": "/api/marketing.ts" },
@@ -30,7 +32,8 @@
     { "source": "/api/transactions", "destination": "/api/index.py" },
     { "source": "/api/debug", "destination": "/api/index.py" },
     { "source": "/docs/:path*", "destination": "/docs/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/assets/:path*", "destination": "/assets/:path*" },
+    { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
   "crons": [
     {

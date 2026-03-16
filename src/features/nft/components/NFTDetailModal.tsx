@@ -156,7 +156,7 @@ const NFTDetailModal = ({ nft, onClose, liked, onLike }: Props) => {
               </span>
               <button
                 onClick={onLike}
-                className="flex items-center gap-1 text-xs"
+                className="flex items-center gap-1 text-xs hover:scale-110 transition-transform"
               >
                 {liked ? (
                   <FaHeart className="text-budju-pink" size={12} />

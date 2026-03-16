@@ -60,7 +60,8 @@ BORROW_FEE_PCT_HR = 0.0001      # 0.01%/hr base borrow fee
 MAINTENANCE_MARGIN_PCT = 0.05   # 5% maintenance margin
 MAX_LEVERAGE = 50                # Max 50x
 MIN_LEVERAGE = 2                 # Min 2x
-MAX_OPEN_POSITIONS = 5           # Max concurrent positions
+MAX_POSITIONS_PER_SIDE = 5       # Max 5 longs + 5 shorts per symbol
+MAX_OPEN_POSITIONS = 50          # Soft global cap (10 symbols × 5 per side)
 MAX_POSITION_PCT = 0.50          # Max 50% of equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause
 
@@ -72,16 +73,15 @@ LIVE_MAX_OPEN_POSITIONS = 3          # Fewer concurrent positions for live
 
 # Supported markets
 MARKETS = {
-    "SOL-PERP":  {"base": "solana",   "symbol": "SOL",  "max_leverage": 50, "tick": 0.01},
-    "BTC-PERP":  {"base": "bitcoin",  "symbol": "BTC",  "max_leverage": 50, "tick": 0.1},
-    "ETH-PERP":  {"base": "ethereum", "symbol": "ETH",  "max_leverage": 50, "tick": 0.01},
-    "DOGE-PERP": {"base": "dogecoin", "symbol": "DOGE", "max_leverage": 20, "tick": 0.00001},
-    "AVAX-PERP": {"base": "avalanche-2", "symbol": "AVAX", "max_leverage": 20, "tick": 0.01},
-    "LINK-PERP": {"base": "chainlink", "symbol": "LINK", "max_leverage": 20, "tick": 0.001},
-    "SUI-PERP":  {"base": "sui",      "symbol": "SUI",  "max_leverage": 20, "tick": 0.001},
-    "JUP-PERP":  {"base": "jupiter-exchange-solana", "symbol": "JUP", "max_leverage": 10, "tick": 0.0001},
-    "WIF-PERP":  {"base": "dogwifcoin", "symbol": "WIF", "max_leverage": 10, "tick": 0.0001},
-    "BONK-PERP": {"base": "bonk",     "symbol": "BONK", "max_leverage": 10, "tick": 0.00000001},
+    "SOL-PERP":     {"base": "solana",                  "symbol": "SOL",     "max_leverage": 50, "tick": 0.01},
+    "BTC-PERP":     {"base": "bitcoin",                 "symbol": "BTC",     "max_leverage": 50, "tick": 0.1},
+    "ETH-PERP":     {"base": "ethereum",                "symbol": "ETH",     "max_leverage": 50, "tick": 0.01},
+    "DOGE-PERP":    {"base": "dogecoin",                "symbol": "DOGE",    "max_leverage": 20, "tick": 0.00001},
+    "AVAX-PERP":    {"base": "avalanche-2",             "symbol": "AVAX",    "max_leverage": 20, "tick": 0.01},
+    "LINK-PERP":    {"base": "chainlink",               "symbol": "LINK",    "max_leverage": 20, "tick": 0.001},
+    "SUI-PERP":     {"base": "sui",                     "symbol": "SUI",     "max_leverage": 20, "tick": 0.001},
+    "RENDER-PERP":  {"base": "render-token",            "symbol": "RENDER",  "max_leverage": 20, "tick": 0.001},
+    "JUP-PERP":     {"base": "jupiter-exchange-solana",  "symbol": "JUP",     "max_leverage": 10, "tick": 0.0001},
 }
 
 # CoinGecko IDs for batch price fetch
@@ -302,7 +302,6 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
                   size_usd: float, entry_price: float,
                   stop_loss: float = None, take_profit: float = None,
                   trailing_stop_pct: float = None,
-                  trailing_activation_pct: float = None,
                   entry_reason: str = "") -> Dict:
     """Open a new position (paper or live depending on account mode)."""
     account = get_or_create_account(wallet)
@@ -323,13 +322,23 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
 
     # Apply different limits for live vs paper
     max_lev = LIVE_MAX_LEVERAGE if is_live else market["max_leverage"]
-    max_positions = LIVE_MAX_OPEN_POSITIONS if is_live else MAX_OPEN_POSITIONS
     leverage = max(MIN_LEVERAGE, min(leverage, max_lev))
 
-    open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
-    if open_count >= max_positions:
-        raise ValueError(f"Max {max_positions} open positions allowed" +
-                         (" (live mode limit)" if is_live else ""))
+    if is_live:
+        # Live: keep strict global limit
+        open_count = perp_positions.count_documents({"account_id": wallet, "status": "open"})
+        if open_count >= LIVE_MAX_OPEN_POSITIONS:
+            raise ValueError(f"Max {LIVE_MAX_OPEN_POSITIONS} open positions allowed (live mode limit)")
+    else:
+        # Paper: 5 per side per symbol (5 longs + 5 shorts per currency)
+        same_side_count = perp_positions.count_documents({
+            "account_id": wallet, "status": "open",
+            "symbol": symbol, "direction": direction,
+        })
+        if same_side_count >= MAX_POSITIONS_PER_SIDE:
+            raise ValueError(
+                f"Max {MAX_POSITIONS_PER_SIDE} {direction} positions on {symbol} allowed"
+            )
 
     equity = account["equity"]
     max_size = equity * MAX_POSITION_PCT
@@ -343,7 +352,7 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
     if not is_live and margin > account["balance"]:
         raise ValueError(f"Insufficient balance. Need ${margin:.2f} margin, have ${account['balance']:.2f}")
 
-    # Validate SL/TP relative to entry and direction
+    # Basic SL/TP direction validation against requested entry
     if stop_loss is not None:
         if direction == "long" and stop_loss >= entry_price:
             raise ValueError(f"Long stop loss (${stop_loss}) must be below entry (${entry_price})")
@@ -406,6 +415,28 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         open_fee = calculate_fees(size_usd)
         quantity = size_usd / fill_price
 
+    # ── Adjust SL/TP to actual fill price ──────────────────────
+    # Slippage can shift fill_price from entry_price. SL/TP were computed
+    # relative to the requested entry, so we must shift them by the same
+    # delta to keep the intended distance from the real fill.
+    if fill_price != entry_price:
+        price_shift = fill_price - entry_price
+        if stop_loss is not None:
+            stop_loss = round(stop_loss + price_shift, 6)
+        if take_profit is not None:
+            take_profit = round(take_profit + price_shift, 6)
+        # Final safety: ensure SL/TP are still on the correct side of fill
+        if stop_loss is not None:
+            if direction == "long" and stop_loss >= fill_price:
+                stop_loss = fill_price * 0.995  # Fallback: 0.5% below
+            if direction == "short" and stop_loss <= fill_price:
+                stop_loss = fill_price * 1.005  # Fallback: 0.5% above
+        if take_profit is not None:
+            if direction == "long" and take_profit <= fill_price:
+                take_profit = fill_price * 1.005
+            if direction == "short" and take_profit >= fill_price:
+                take_profit = fill_price * 0.995
+
     # Calculate derived values
     liq_price = calculate_liquidation_price(fill_price, leverage, direction)
 
@@ -420,14 +451,13 @@ def open_position(wallet: str, symbol: str, direction: str, leverage: int,
         trailing_stop_distance = trailing_stop_pct
         # Don't set trailing_stop_price yet — it starts as None
         # and only gets set once the activation price is reached.
-        # Activation threshold defaults to trailing_activation_pct if provided,
-        # otherwise falls back to trailing_stop_pct (old behavior).
-        # Having activation > trail distance lets winners run before locking in.
-        act_pct = trailing_activation_pct if trailing_activation_pct else trailing_stop_pct
+        # Activation default: 1x ATR favorable move from entry.
+        # Caller can override via trailing_stop_activation_price param.
+        # For now, we store the activation level so the cron can check it.
         if direction == "long":
-            trailing_stop_activation = fill_price * (1 + act_pct / 100)
+            trailing_stop_activation = fill_price * (1 + trailing_stop_pct / 100)
         else:
-            trailing_stop_activation = fill_price * (1 - act_pct / 100)
+            trailing_stop_activation = fill_price * (1 - trailing_stop_pct / 100)
 
     position = {
         "account_id": wallet,
@@ -537,18 +567,30 @@ def close_position(position_id: str, exit_price: float,
         slippage_pct = 0
     else:
         # ── PAPER MODE: Simulate slippage ─────────────────────────
-        slippage_pct = simulate_slippage(size_usd, exit_price)
-        if direction == "long":
-            fill_price = exit_price * (1 - slippage_pct)
+        # For TP/SL exits, use the target price as fill (like a real limit order)
+        # instead of mark_price minus slippage — a TP order on an exchange
+        # fills at the TP price, not at a worse price.
+        if exit_type == "take_profit" and pos.get("take_profit"):
+            fill_price = pos["take_profit"]
+            slippage_pct = 0
+        elif exit_type == "stop_loss" and pos.get("stop_loss"):
+            fill_price = pos["stop_loss"]
+            slippage_pct = 0
         else:
-            fill_price = exit_price * (1 + slippage_pct)
+            slippage_pct = simulate_slippage(size_usd, exit_price)
+            if direction == "long":
+                fill_price = exit_price * (1 - slippage_pct)
+            else:
+                fill_price = exit_price * (1 + slippage_pct)
         close_fee = calculate_fees(size_usd)
 
     # Calculate final P&L
+    # total_fees already includes open_fee + all accumulated borrow fees,
+    # so we do NOT subtract cumulative_funding separately (it would double-count).
     pnl_usd, pnl_pct = calculate_pnl(pos["entry_price"], fill_price, size_usd, direction)
     total_fees = pos.get("total_fees", 0) + close_fee
     cumulative_funding = pos.get("cumulative_funding", 0)
-    net_pnl = pnl_usd - total_fees - cumulative_funding
+    net_pnl = pnl_usd - total_fees
 
     # Record closed trade
     now = datetime.utcnow()
@@ -709,8 +751,9 @@ def partial_close_position(position_id: str, exit_price: float,
         "realized_pnl_pct": round(pnl_pct, 4),
         "total_funding_paid": portion_funding,
         "total_fees": portion_fees + close_fee,
-        "partial_close_pct": close_pct,
-        "remaining_size_usd": remain_size,
+        "slippage_cost": abs(fill_price - exit_price) * close_qty,
+        "max_favorable_excursion": pos.get("max_favorable_excursion", 0),
+        "max_adverse_excursion": pos.get("max_adverse_excursion", 0),
         "entry_reason": pos.get("entry_reason", ""),
         "exit_reason": exit_reason,
     }
@@ -734,9 +777,21 @@ def partial_close_position(position_id: str, exit_price: float,
     # Credit account: margin released + PnL
     margin_released = pos.get("margin", 0) * close_fraction
     credit = margin_released + net_pnl
+    is_win = net_pnl > 0
     perp_accounts.update_one(
         {"wallet": wallet},
-        {"$inc": {"balance": round(credit, 4)}}
+        {
+            "$inc": {
+                "balance": round(credit, 4),
+                "realized_pnl": net_pnl,
+                "total_fees_paid": close_fee,
+                "total_trades": 1,
+                "winning_trades": 1 if is_win else 0,
+                "losing_trades": 0 if is_win else 1,
+                "daily_pnl": net_pnl,
+            },
+            "$set": {"updated_at": now},
+        }
     )
 
     # Log the order
@@ -746,13 +801,14 @@ def partial_close_position(position_id: str, exit_price: float,
         "symbol": pos["symbol"],
         "side": "sell" if direction == "long" else "buy",
         "order_type": "partial_close",
+        "direction": direction,
+        "leverage": pos["leverage"],
         "size_usd": close_size,
         "quantity": close_qty,
-        "price": fill_price,
-        "leverage": pos["leverage"],
+        "price": exit_price,
+        "filled_price": fill_price,
         "fees": close_fee,
         "status": "filled",
-        "partial_close_pct": close_pct,
         "created_at": now,
         "filled_at": now,
     })
@@ -838,10 +894,24 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     cumulative_funding = position.get("cumulative_funding", 0) + borrow_fee
 
+    # Show net unrealized P&L (matches close_position formula exactly)
+    # total_fees includes: open_fee + borrow_fees accumulated so far
+    # cumulative_funding tracks borrow fees separately but is already included
+    # in total_fees, so we must NOT subtract it again.
+    total_fees_so_far = position.get("total_fees", 0) + borrow_fee
+    est_close_fee = calculate_fees(size_usd)
+    est_close_slippage_pct = simulate_slippage(size_usd, mark_price)
+    quantity = position.get("quantity", size_usd / mark_price if mark_price > 0 else 0)
+    est_close_slippage_usd = est_close_slippage_pct * mark_price * quantity if mark_price > 0 else 0
+    # Mirror close_position: net = gross - total_fees - close_fee - slippage
+    net_unrealized = pnl_usd - (total_fees_so_far + est_close_fee) - est_close_slippage_usd
+    margin = position.get("margin", 0)
+    net_unrealized_pct = (net_unrealized / margin) * 100 if margin > 0 else 0
+
     update = {
         "mark_price": mark_price,
-        "unrealized_pnl": round(pnl_usd, 4),
-        "unrealized_pnl_pct": round(pnl_pct, 4),
+        "unrealized_pnl": round(net_unrealized, 4),
+        "unrealized_pnl_pct": round(net_unrealized_pct, 4),
         "max_favorable_excursion": round(mfe, 4),
         "max_adverse_excursion": round(mae, 4),
         "cumulative_funding": round(cumulative_funding, 4),
@@ -895,35 +965,6 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     perp_positions.update_one({"_id": pos_id}, {"$set": update})
 
-    # ── Smart position management: break-even stop & partial TP ──
-    # After a position moves +2% in our favor, move SL to break-even (risk-free ride)
-    # After +5%, take 25% profit (partial close). After +10%, take another 25%.
-    # This lets the remaining 50% ride with break-even stop indefinitely.
-    breakeven_applied = position.get("breakeven_applied", False)
-    partial_tp1_applied = position.get("partial_tp1_applied", False)
-    partial_tp2_applied = position.get("partial_tp2_applied", False)
-
-    if not breakeven_applied and pnl_pct >= 2.0:
-        # Move SL to break-even + small buffer (0.1% above entry for long)
-        if direction == "long":
-            be_stop = entry * 1.001
-        else:
-            be_stop = entry * 0.999
-        update["stop_loss"] = be_stop
-        update["breakeven_applied"] = True
-
-    if not partial_tp1_applied and pnl_pct >= 5.0:
-        # Take 25% profit — flagged for cron to execute
-        update["partial_tp1_applied"] = True
-        update["pending_partial_close"] = 25  # Cron will call partial_close_position
-
-    if not partial_tp2_applied and pnl_pct >= 10.0:
-        # Take another 25% (now 50% closed total, 50% rides)
-        update["partial_tp2_applied"] = True
-        update["pending_partial_close"] = 25
-
-    perp_positions.update_one({"_id": pos_id}, {"$set": update})
-
     # Check triggers — each checked independently (not elif)
     # so a set-but-not-triggered SL doesn't block TP evaluation
     action = None
@@ -955,10 +996,7 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
         elif direction == "short" and mark_price >= trailing_price:
             action = "trailing_stop"
 
-    result = {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
-    if update.get("pending_partial_close"):
-        result["pending_partial_close"] = update["pending_partial_close"]
-    return result
+    return {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
 
 
 # ── Equity & Metrics ────────────────────────────────────────────────────
@@ -1121,6 +1159,479 @@ def calculate_metrics(wallet: str) -> Dict:
         "consecutive_wins": max_consec_w,
         "consecutive_losses": max_consec_l,
     }
+
+
+# ── Pending Orders ─────────────────────────────────────────────────────
+
+perp_pending_orders = db["perp_pending_orders"]
+perp_pending_orders.create_index([("account_id", 1), ("status", 1)])
+perp_pending_orders.create_index([("symbol", 1), ("status", 1)])
+
+
+def create_pending_order(wallet: str, symbol: str, direction: str, leverage: int,
+                         size_usd: float, order_type: str, trigger_price: float,
+                         stop_loss: float = None, take_profit: float = None,
+                         trailing_stop_pct: float = None,
+                         entry_reason: str = "",
+                         expiry_hours: float = 24) -> Dict:
+    """Create a pending limit/stop order that triggers at a price level."""
+    account = get_or_create_account(wallet)
+    if account.get("kill_switch"):
+        raise ValueError("Kill switch is active")
+    if account.get("trading_paused"):
+        raise ValueError("Trading paused")
+
+    market = MARKETS.get(symbol)
+    if not market:
+        raise ValueError(f"Unsupported market: {symbol}")
+    if direction not in ("long", "short"):
+        raise ValueError("Direction must be 'long' or 'short'")
+    if order_type not in ("limit", "stop"):
+        raise ValueError("Order type must be 'limit' or 'stop'")
+
+    max_lev = market["max_leverage"]
+    leverage = max(MIN_LEVERAGE, min(leverage, max_lev))
+
+    # Count existing pending orders
+    pending_count = perp_pending_orders.count_documents({
+        "account_id": wallet, "status": "pending"
+    })
+    if pending_count >= 30:
+        raise ValueError("Max 30 pending orders allowed")
+
+    order = {
+        "account_id": wallet,
+        "symbol": symbol,
+        "direction": direction,
+        "leverage": leverage,
+        "size_usd": size_usd,
+        "order_type": order_type,
+        "trigger_price": trigger_price,
+        "stop_loss": stop_loss,
+        "take_profit": take_profit,
+        "trailing_stop_pct": trailing_stop_pct,
+        "entry_reason": entry_reason,
+        "status": "pending",
+        "expires_at": datetime.utcnow() + timedelta(hours=expiry_hours),
+        "created_at": datetime.utcnow(),
+    }
+    result = perp_pending_orders.insert_one(order)
+    order["_id"] = str(result.inserted_id)
+    return _format_pending_order(order)
+
+
+def cancel_pending_order(order_id: str, wallet: str) -> Dict:
+    """Cancel a pending order."""
+    order = perp_pending_orders.find_one({
+        "_id": ObjectId(order_id), "account_id": wallet, "status": "pending"
+    })
+    if not order:
+        raise ValueError("Pending order not found")
+    perp_pending_orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow()}}
+    )
+    order["status"] = "cancelled"
+    return _format_pending_order(order)
+
+
+def modify_pending_order(order_id: str, wallet: str,
+                         trigger_price: float = None,
+                         stop_loss: float = None,
+                         take_profit: float = None,
+                         direction: str = None) -> Dict:
+    """Modify a pending order's trigger price, SL, TP, or direction."""
+    order = perp_pending_orders.find_one({
+        "_id": ObjectId(order_id), "account_id": wallet, "status": "pending"
+    })
+    if not order:
+        raise ValueError("Pending order not found")
+
+    updates = {}
+    if trigger_price is not None and trigger_price > 0:
+        updates["trigger_price"] = trigger_price
+    if stop_loss is not None:
+        updates["stop_loss"] = stop_loss if stop_loss > 0 else None
+    if take_profit is not None:
+        updates["take_profit"] = take_profit if take_profit > 0 else None
+    if direction is not None and direction in ("long", "short"):
+        updates["direction"] = direction
+
+    if not updates:
+        raise ValueError("No modifications provided")
+
+    perp_pending_orders.update_one(
+        {"_id": ObjectId(order_id)},
+        {"$set": updates}
+    )
+    order.update(updates)
+    return _format_pending_order(order)
+
+
+def cancel_all_pending_orders(wallet: str, symbol: str = None) -> Dict:
+    """Cancel all pending orders for a wallet, optionally filtered by symbol."""
+    query = {"account_id": wallet, "status": "pending"}
+    if symbol:
+        query["symbol"] = symbol
+    result = perp_pending_orders.update_many(
+        query,
+        {"$set": {"status": "cancelled", "cancelled_at": datetime.utcnow()}}
+    )
+    return {"cancelled": result.modified_count}
+
+
+def get_pending_order_count(wallet: str) -> int:
+    """Count pending orders for a wallet."""
+    return perp_pending_orders.count_documents({"account_id": wallet, "status": "pending"})
+
+
+MAX_PENDING_ORDERS = 30
+
+
+def check_pending_orders(wallet: str, prices: Dict[str, float]) -> List[Dict]:
+    """Check if any pending orders should be triggered. Called by cron."""
+    now = datetime.utcnow()
+    pending = list(perp_pending_orders.find({
+        "account_id": wallet, "status": "pending"
+    }))
+
+    triggered = []
+    for order in pending:
+        oid = order["_id"]
+        symbol = order["symbol"]
+
+        # Check expiry
+        if order.get("expires_at") and now >= order["expires_at"]:
+            perp_pending_orders.update_one(
+                {"_id": oid}, {"$set": {"status": "expired"}}
+            )
+            continue
+
+        if symbol not in prices:
+            continue
+
+        mark = prices[symbol]
+        trigger = order["trigger_price"]
+        order_type = order["order_type"]
+        direction = order["direction"]
+        should_trigger = False
+
+        if order_type == "limit":
+            # Limit buy triggers when price drops to/below trigger
+            if direction == "long" and mark <= trigger:
+                should_trigger = True
+            # Limit sell triggers when price rises to/above trigger
+            elif direction == "short" and mark >= trigger:
+                should_trigger = True
+        elif order_type == "stop":
+            # Stop buy triggers when price rises to/above trigger
+            if direction == "long" and mark >= trigger:
+                should_trigger = True
+            # Stop sell triggers when price drops to/below trigger
+            elif direction == "short" and mark <= trigger:
+                should_trigger = True
+
+        if should_trigger:
+            try:
+                position = open_position(
+                    wallet=wallet, symbol=symbol,
+                    direction=direction, leverage=order["leverage"],
+                    size_usd=order["size_usd"], entry_price=mark,
+                    stop_loss=order.get("stop_loss"),
+                    take_profit=order.get("take_profit"),
+                    trailing_stop_pct=order.get("trailing_stop_pct"),
+                    entry_reason=order.get("entry_reason", f"[pending_{order_type}]"),
+                )
+                perp_pending_orders.update_one(
+                    {"_id": oid},
+                    {"$set": {"status": "filled", "filled_at": now, "filled_price": mark}}
+                )
+                triggered.append({"order_id": str(oid), "position": position})
+            except Exception as e:
+                perp_pending_orders.update_one(
+                    {"_id": oid},
+                    {"$set": {"status": "failed", "error": str(e)}}
+                )
+    return triggered
+
+
+def get_pending_orders(wallet: str, status: str = "pending") -> List[Dict]:
+    """Get orders for a wallet, filtered by status (default: pending)."""
+    orders = list(perp_pending_orders.find(
+        {"account_id": wallet, "status": status}
+    ).sort("created_at", -1))
+    return [_format_pending_order(o) for o in orders]
+
+
+def _format_pending_order(order: Dict) -> Dict:
+    """Format pending order for API response."""
+    o = dict(order)
+    o["_id"] = str(o["_id"]) if "_id" in o else None
+    for key in ("created_at", "expires_at", "filled_at", "cancelled_at"):
+        if key in o and isinstance(o[key], datetime):
+            o[key] = o[key].isoformat()
+    return o
+
+
+# ── Pyramiding (Adding to Winners) ────────────────────────────────────
+
+def pyramid_position(wallet: str, position_id: str, add_size_usd: float,
+                     entry_price: float) -> Dict:
+    """Add to an existing winning position (pyramid).
+    Opens a new linked position in the same market/direction.
+    Tracks the pyramid chain via parent_position_id.
+    """
+    parent = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not parent:
+        raise ValueError("Position not found or already closed")
+
+    # Only pyramid into winners
+    if parent.get("unrealized_pnl", 0) <= 0:
+        raise ValueError("Can only pyramid into winning positions (positive P&L required)")
+
+    wallet = parent["account_id"]
+    symbol = parent["symbol"]
+    direction = parent["direction"]
+    leverage = parent["leverage"]
+
+    # Max 3 pyramid levels
+    pyramid_level = parent.get("pyramid_level", 1)
+    if pyramid_level >= 3:
+        raise ValueError("Max 3 pyramid levels reached")
+
+    # Pyramid size should decrease (50% of previous level)
+    max_pyramid_size = parent["size_usd"] * 0.5
+    if add_size_usd > max_pyramid_size:
+        raise ValueError(f"Pyramid size must be <= 50% of parent (${max_pyramid_size:.2f})")
+
+    # Calculate tighter SL for pyramid — trail the original SL up
+    # Use parent's entry or current trailing stop, whichever is more favorable
+    parent_sl = parent.get("stop_loss")
+    parent_tp = parent.get("take_profit")
+    parent_trail = parent.get("trailing_stop_pct")
+
+    position = open_position(
+        wallet=wallet, symbol=symbol, direction=direction,
+        leverage=leverage, size_usd=add_size_usd,
+        entry_price=entry_price,
+        stop_loss=parent_sl, take_profit=parent_tp,
+        trailing_stop_pct=parent_trail,
+        entry_reason=f"[pyramid_L{pyramid_level + 1}] adding to {position_id[:8]}",
+    )
+
+    # Mark new position as pyramid
+    perp_positions.update_one(
+        {"_id": ObjectId(position["_id"])},
+        {"$set": {
+            "parent_position_id": position_id,
+            "pyramid_level": pyramid_level + 1,
+            "position_type": "satellite",
+        }}
+    )
+
+    # Update parent pyramid level
+    perp_positions.update_one(
+        {"_id": ObjectId(position_id)},
+        {"$set": {
+            "pyramid_level": pyramid_level,
+            "position_type": parent.get("position_type", "core"),
+        }}
+    )
+
+    position["pyramid_level"] = pyramid_level + 1
+    position["parent_position_id"] = position_id
+    return position
+
+
+# ── Position Flipping (Cut and Reverse) ────────────────────────────────
+
+def flip_position(position_id: str, exit_price: float,
+                  new_size_usd: float = None) -> Dict:
+    """Close a position and immediately open one in the opposite direction.
+    If new_size_usd is None, uses the same size as the closed position.
+    """
+    pos = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not pos:
+        raise ValueError("Position not found or already closed")
+
+    wallet = pos["account_id"]
+    symbol = pos["symbol"]
+    old_direction = pos["direction"]
+    new_direction = "short" if old_direction == "long" else "long"
+    leverage = pos["leverage"]
+    size = new_size_usd or pos["size_usd"]
+
+    # Close the existing position
+    trade = close_position(position_id, exit_price, "manual",
+                          f"Position flip to {new_direction}")
+
+    # Open in opposite direction with same SL/TP structure
+    # Mirror the SL/TP around entry
+    old_sl_dist = None
+    old_tp_dist = None
+    if pos.get("stop_loss"):
+        old_sl_dist = abs(pos["entry_price"] - pos["stop_loss"])
+    if pos.get("take_profit"):
+        old_tp_dist = abs(pos["entry_price"] - pos["take_profit"])
+
+    new_sl = None
+    new_tp = None
+    if old_sl_dist:
+        new_sl = exit_price + old_sl_dist if new_direction == "short" else exit_price - old_sl_dist
+    if old_tp_dist:
+        new_tp = exit_price - old_tp_dist if new_direction == "short" else exit_price + old_tp_dist
+
+    new_pos = open_position(
+        wallet=wallet, symbol=symbol, direction=new_direction,
+        leverage=leverage, size_usd=size, entry_price=exit_price,
+        stop_loss=new_sl, take_profit=new_tp,
+        trailing_stop_pct=pos.get("trailing_stop_distance"),
+        entry_reason=f"[flip] reversed from {old_direction}",
+    )
+
+    return {
+        "closed_trade": trade,
+        "new_position": new_pos,
+    }
+
+
+# ── Core + Satellite Position Tracking ─────────────────────────────────
+
+def set_position_type(position_id: str, position_type: str) -> Dict:
+    """Tag a position as 'core' or 'satellite'."""
+    if position_type not in ("core", "satellite"):
+        raise ValueError("Position type must be 'core' or 'satellite'")
+
+    pos = perp_positions.find_one({"_id": ObjectId(position_id), "status": "open"})
+    if not pos:
+        raise ValueError("Position not found or already closed")
+
+    perp_positions.update_one(
+        {"_id": ObjectId(position_id)},
+        {"$set": {"position_type": position_type, "last_updated": datetime.utcnow()}}
+    )
+    pos["position_type"] = position_type
+    return _format_position(pos)
+
+
+def get_position_summary(wallet: str) -> Dict:
+    """Get summary of positions broken down by core/satellite."""
+    positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+
+    core = [p for p in positions if p.get("position_type", "core") == "core"]
+    satellite = [p for p in positions if p.get("position_type") == "satellite"]
+
+    core_pnl = sum(p.get("unrealized_pnl", 0) for p in core)
+    sat_pnl = sum(p.get("unrealized_pnl", 0) for p in satellite)
+    core_size = sum(p.get("size_usd", 0) for p in core)
+    sat_size = sum(p.get("size_usd", 0) for p in satellite)
+
+    return {
+        "core": {
+            "count": len(core),
+            "total_size_usd": round(core_size, 2),
+            "unrealized_pnl": round(core_pnl, 2),
+            "positions": [_format_position(p) for p in core],
+        },
+        "satellite": {
+            "count": len(satellite),
+            "total_size_usd": round(sat_size, 2),
+            "unrealized_pnl": round(sat_pnl, 2),
+            "positions": [_format_position(p) for p in satellite],
+        },
+    }
+
+
+# ── Funding Rate Management ────────────────────────────────────────────
+
+def get_funding_summary(wallet: str) -> Dict:
+    """Get funding rate summary for all open positions."""
+    positions = list(perp_positions.find({"account_id": wallet, "status": "open"}))
+
+    total_funding = 0.0
+    position_funding = []
+    for pos in positions:
+        funding = pos.get("cumulative_funding", 0)
+        hours_open = 0
+        if isinstance(pos.get("opened_at"), datetime):
+            hours_open = (datetime.utcnow() - pos["opened_at"]).total_seconds() / 3600
+
+        hourly_rate = BORROW_FEE_PCT_HR * pos["size_usd"]
+        daily_cost = hourly_rate * 24
+        total_funding += funding
+
+        position_funding.append({
+            "position_id": str(pos["_id"]),
+            "symbol": pos["symbol"],
+            "direction": pos["direction"],
+            "size_usd": pos["size_usd"],
+            "cumulative_funding": round(funding, 4),
+            "hours_open": round(hours_open, 1),
+            "hourly_cost": round(hourly_rate, 4),
+            "daily_cost": round(daily_cost, 4),
+            "funding_pct_of_pnl": round(
+                (funding / abs(pos.get("unrealized_pnl", 0.01))) * 100, 1
+            ) if pos.get("unrealized_pnl", 0) != 0 else 0,
+        })
+
+    return {
+        "total_funding_paid": round(total_funding, 4),
+        "positions": position_funding,
+        "borrow_rate_per_hour": BORROW_FEE_PCT_HR,
+    }
+
+
+# ── Re-entry After Trailing Stop ──────────────────────────────────────
+
+def get_reentry_candidates(wallet: str, prices: Dict[str, float],
+                           lookback_hours: int = 4) -> List[Dict]:
+    """Find recent trailing stop exits that may be re-entry candidates.
+    Returns trades that exited via trailing stop where price has since
+    pulled back (creating a potential re-entry opportunity).
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=lookback_hours)
+    trail_exits = list(perp_trades.find({
+        "account_id": wallet,
+        "exit_type": "trailing_stop",
+        "exit_time": {"$gte": cutoff},
+        "realized_pnl": {"$gt": 0},  # Only profitable trailing stop exits
+    }).sort("exit_time", -1))
+
+    candidates = []
+    for trade in trail_exits:
+        symbol = trade["symbol"]
+        if symbol not in prices:
+            continue
+
+        current_price = prices[symbol]
+        exit_price = trade["exit_price"]
+        direction = trade["direction"]
+
+        # Calculate pullback from exit
+        if direction == "long":
+            pullback_pct = ((exit_price - current_price) / exit_price) * 100
+            # Re-entry if price pulled back 0.5-3% (not too much, not too little)
+            is_candidate = 0.5 <= pullback_pct <= 3.0
+        else:
+            pullback_pct = ((current_price - exit_price) / exit_price) * 100
+            is_candidate = 0.5 <= pullback_pct <= 3.0
+
+        if is_candidate:
+            candidates.append({
+                "symbol": symbol,
+                "direction": direction,
+                "original_entry": trade["entry_price"],
+                "exit_price": exit_price,
+                "current_price": current_price,
+                "pullback_pct": round(pullback_pct, 2),
+                "original_pnl": trade["realized_pnl"],
+                "original_strategy": trade.get("entry_reason", ""),
+                "exit_time": trade["exit_time"].isoformat() if isinstance(trade["exit_time"], datetime) else trade["exit_time"],
+                "suggested_size_usd": round(trade["size_usd"] * 0.75, 2),  # 75% of original
+                "leverage": trade["leverage"],
+            })
+
+    return candidates
 
 
 # ── Query Helpers ────────────────────────────────────────────────────────
