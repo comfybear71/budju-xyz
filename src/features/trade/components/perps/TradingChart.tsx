@@ -579,7 +579,7 @@ const TradingChart = ({
     const myOrders = pendingOrders.filter((o) => o.symbol === symbol && o.status === "pending");
     const fingerprint = JSON.stringify({
       show: showPositionLines,
-      pos: myPositions.map((p) => `${p._id}:${p.entry_price}:${p.stop_loss}:${p.take_profit}`),
+      pos: myPositions.map((p) => `${p._id}:${p.entry_price}:${p.stop_loss}:${p.take_profit}:${p.trailing_stop_price}`),
       ord: myOrders.map((o) => `${o._id}:${o.trigger_price}`),
     });
     if (!force && fingerprint === positionFingerprintRef.current) return;
@@ -636,6 +636,18 @@ const TradingChart = ({
         if (onModifySLTP) {
           slTpLinesRef.current.set(`tp-${pos._id}`, { type: "tp", positionId: pos._id, priceLine: tpLine });
         }
+      }
+
+      // Trailing Stop — light blue dotted line
+      if (pos.trailing_stop_price) {
+        priceLinesRef.current.push(candleSeriesRef.current.createPriceLine({
+          price: pos.trailing_stop_price,
+          color: "rgba(135, 206, 250, 0.7)",
+          lineWidth: 2,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: "TRAIL",
+        }));
       }
 
       // LIQ — faint dotted, only if within 15% of price
