@@ -585,10 +585,12 @@ def close_position(position_id: str, exit_price: float,
         close_fee = calculate_fees(size_usd)
 
     # Calculate final P&L
+    # total_fees already includes open_fee + all accumulated borrow fees,
+    # so we do NOT subtract cumulative_funding separately (it would double-count).
     pnl_usd, pnl_pct = calculate_pnl(pos["entry_price"], fill_price, size_usd, direction)
     total_fees = pos.get("total_fees", 0) + close_fee
     cumulative_funding = pos.get("cumulative_funding", 0)
-    net_pnl = pnl_usd - total_fees - cumulative_funding
+    net_pnl = pnl_usd - total_fees
 
     # Record closed trade
     now = datetime.utcnow()
@@ -894,13 +896,15 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
 
     # Show net unrealized P&L (matches close_position formula exactly)
     # total_fees includes: open_fee + borrow_fees accumulated so far
+    # cumulative_funding tracks borrow fees separately but is already included
+    # in total_fees, so we must NOT subtract it again.
     total_fees_so_far = position.get("total_fees", 0) + borrow_fee
     est_close_fee = calculate_fees(size_usd)
     est_close_slippage_pct = simulate_slippage(size_usd, mark_price)
     quantity = position.get("quantity", size_usd / mark_price if mark_price > 0 else 0)
     est_close_slippage_usd = est_close_slippage_pct * mark_price * quantity if mark_price > 0 else 0
-    # Mirror close_position: net = gross - (total_fees + close_fee) - cumulative_funding - slippage
-    net_unrealized = pnl_usd - (total_fees_so_far + est_close_fee) - cumulative_funding - est_close_slippage_usd
+    # Mirror close_position: net = gross - total_fees - close_fee - slippage
+    net_unrealized = pnl_usd - (total_fees_so_far + est_close_fee) - est_close_slippage_usd
     margin = position.get("margin", 0)
     net_unrealized_pct = (net_unrealized / margin) * 100 if margin > 0 else 0
 

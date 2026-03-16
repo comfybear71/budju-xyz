@@ -1,14 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { scanAllMarkets, COLOR_MAP, type StrategyOpportunity } from "../../utils/strategyDetectors";
-
-const RESUME_DELAY = 4000; // Resume marquee 4s after interaction
 
 const StrategyMarquee = () => {
   const [opportunities, setOpportunities] = useState<StrategyOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<StrategyOpportunity | null>(null);
-  const [paused, setPaused] = useState(false);
-  const resumeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runScan = useCallback(async () => {
     try {
@@ -24,18 +20,6 @@ const StrategyMarquee = () => {
     return () => clearInterval(interval);
   }, [runScan]);
 
-  // Auto-resume marquee after delay
-  const pauseWithResume = useCallback(() => {
-    setPaused(true);
-    if (resumeTimer.current) clearTimeout(resumeTimer.current);
-    resumeTimer.current = setTimeout(() => setPaused(false), RESUME_DELAY);
-  }, []);
-
-  // Cleanup timer
-  useEffect(() => {
-    return () => { if (resumeTimer.current) clearTimeout(resumeTimer.current); };
-  }, []);
-
   if (loading && !opportunities.length) {
     return (
       <div className="mx-3 mb-2 h-7 rounded-lg bg-slate-800/30 border border-white/[0.03] flex items-center px-3">
@@ -47,31 +31,22 @@ const StrategyMarquee = () => {
   if (!opportunities.length) return null;
 
   const handleClick = (opp: StrategyOpportunity) => {
-    const isClosing = expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey;
-    setExpanded(isClosing ? null : opp);
-    pauseWithResume();
+    setExpanded(expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey ? null : opp);
   };
 
-  // 5x faster — 0.15s per item (was 0.8s), minimum 3s
-  const duration = Math.max(opportunities.length * 0.15, 3);
+  // Very fast — 0.15s per item, minimum 2s total
+  const duration = Math.max(opportunities.length * 0.15, 2);
 
   return (
     <div className="mx-3 mb-2">
-      {/* Marquee strip */}
-      <div
-        className="relative overflow-hidden rounded-lg bg-slate-800/20 border border-white/[0.03]"
-        onMouseEnter={pauseWithResume}
-        onTouchStart={pauseWithResume}
-      >
+      {/* Marquee strip — NEVER pauses, always scrolling */}
+      <div className="relative overflow-hidden rounded-lg bg-slate-800/20 border border-white/[0.03]">
         <div
-          className="flex whitespace-nowrap"
-          style={{
-            animation: `marquee-scroll ${duration}s linear infinite`,
-            animationPlayState: paused ? "paused" : "running",
-          }}
+          className="flex whitespace-nowrap marquee-always-scroll"
+          style={{ animationDuration: `${duration}s` }}
         >
-          {/* Double the items for seamless loop */}
-          {[...opportunities, ...opportunities].map((opp, i) => {
+          {/* Triple the items for seamless loop at high speed */}
+          {[...opportunities, ...opportunities, ...opportunities].map((opp, i) => {
             const colors = COLOR_MAP[opp.color] || COLOR_MAP.blue;
             const dirColor = opp.direction === "long" ? "text-emerald-400" : "text-red-400";
             const isSelected = expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey;
@@ -88,7 +63,6 @@ const StrategyMarquee = () => {
                 <span className={`text-[9px] font-bold uppercase ${colors.text}`}>{opp.strategy}</span>
                 <span className="text-[10px] font-bold text-slate-300">{opp.base}</span>
                 <span className={`text-[9px] font-bold ${dirColor}`}>{opp.direction.toUpperCase()}</span>
-                {/* Hotness dot */}
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   opp.hotness >= 80 ? "bg-red-400" : opp.hotness >= 60 ? "bg-orange-400" : "bg-yellow-400"
                 }`} />
@@ -106,7 +80,6 @@ const StrategyMarquee = () => {
 
         return (
           <div className={`mt-1.5 rounded-lg border ${colors.border} bg-slate-900/90 p-2.5 space-y-1.5 animate-in fade-in duration-200`}>
-            {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs">{expanded.icon}</span>
@@ -116,7 +89,6 @@ const StrategyMarquee = () => {
                   {expanded.direction.toUpperCase()}
                 </span>
                 <span className="text-[9px] text-slate-500">{expanded.leverage}</span>
-                {/* Hotness */}
                 <span className="flex items-center gap-1">
                   <span className="w-8 h-1.5 rounded-full bg-slate-700 overflow-hidden inline-block">
                     <span
@@ -134,17 +106,13 @@ const StrategyMarquee = () => {
                 </span>
               </div>
               <button
-                onClick={() => { setExpanded(null); setPaused(false); }}
+                onClick={() => setExpanded(null)}
                 className="text-slate-500 hover:text-white text-[10px] px-1"
               >
                 ✕
               </button>
             </div>
-
-            {/* Headline — why this is a good opportunity */}
             <div className="text-[10px] text-slate-200 font-medium">{expanded.headline}</div>
-
-            {/* Details */}
             <div className="space-y-0.5">
               {expanded.details.map((d, i) => (
                 <div key={i} className="text-[9px] text-slate-400 flex items-start gap-1.5">
@@ -153,23 +121,23 @@ const StrategyMarquee = () => {
                 </div>
               ))}
             </div>
-
-            {/* Entry & confidence */}
             <div className="flex gap-3 text-[9px] pt-0.5">
               <span className="text-slate-400">Entry: <span className="text-slate-300">{expanded.entryZone}</span></span>
               <span className="text-slate-400">Confidence: <span className={colors.text}>{expanded.confidence}%</span></span>
             </div>
-
             <div className="text-[8px] text-slate-600 italic">Display only — not an active trade signal</div>
           </div>
         );
       })()}
 
-      {/* CSS keyframes for marquee */}
       <style>{`
+        .marquee-always-scroll {
+          animation: marquee-scroll linear infinite;
+          will-change: transform;
+        }
         @keyframes marquee-scroll {
           0% { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+          100% { transform: translateX(-33.333%); }
         }
       `}</style>
     </div>
