@@ -36,8 +36,8 @@ const StrategyMarquee = () => {
     setExpanded(expanded?.market === opp.market && expanded?.strategyKey === opp.strategyKey ? null : opp);
   };
 
-  // Duration scales with number of items for consistent speed
-  const duration = Math.max(opportunities.length * 2, 10);
+  // Fast scroll — 0.8s per item, minimum 5s total
+  const duration = Math.max(opportunities.length * 0.8, 5);
 
   return (
     <div className="mx-3 mb-2">
