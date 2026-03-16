@@ -46,60 +46,62 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions, onC
   }
 
   return (
-    <div
-      ref={scrollRef}
-      className="flex gap-1.5 overflow-x-auto py-2 px-3 scrollbar-hide"
-      style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
-    >
-      {markets.map((m) => {
-        const price = prices[m.symbol] || 0;
-        const isSelected = m.symbol === selectedSymbol;
-        const posCount = posCountMap[m.symbol] || 0;
+    <div className="flex items-center gap-1.5 py-2 px-3">
+      <div
+        ref={scrollRef}
+        className="flex gap-1.5 overflow-x-auto flex-1 min-w-0 scrollbar-hide"
+        style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+      >
+        {markets.map((m) => {
+          const price = prices[m.symbol] || 0;
+          const isSelected = m.symbol === selectedSymbol;
+          const posCount = posCountMap[m.symbol] || 0;
 
-        const coinColor = COIN_COLORS[m.base_asset];
+          const coinColor = COIN_COLORS[m.base_asset];
 
-        return (
-          <button
-            key={m.symbol}
-            ref={isSelected ? selectedRef : undefined}
-            onClick={() => onSelect(m.symbol)}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border ${
-              isSelected
-                ? `${coinColor?.selectedBg || "bg-blue-500/20"} ${coinColor?.selectedText || "text-blue-300"} ${coinColor?.selectedBorder || "border-blue-500/40"} shadow-lg`
-                : `bg-slate-800/40 text-slate-400 ${coinColor?.border || "border-white/[0.04]"} hover:bg-slate-800/60 hover:text-white`
-            }`}
-          >
-            <span>{m.base_asset}</span>
-            {price > 0 && (
-              <span className={`tabular-nums ${isSelected ? "opacity-80" : "text-slate-500"}`}>
-                {price >= 1000
-                  ? `$${(price / 1000).toFixed(1)}k`
-                  : price >= 1
-                    ? `$${price.toFixed(2)}`
-                    : `$${price.toFixed(4)}`}
-              </span>
-            )}
-            {posCount > 0 && (() => {
-              const winning = (posPnlMap[m.symbol] || 0) >= 0;
-              return (
-                <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center border ${
-                  winning
-                    ? "bg-emerald-500/30 text-emerald-400 border-emerald-500/40"
-                    : "bg-red-500/30 text-red-400 border-red-500/40"
-                }`}>
-                  {posCount}
+          return (
+            <button
+              key={m.symbol}
+              ref={isSelected ? selectedRef : undefined}
+              onClick={() => onSelect(m.symbol)}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border ${
+                isSelected
+                  ? `${coinColor?.selectedBg || "bg-blue-500/20"} ${coinColor?.selectedText || "text-blue-300"} ${coinColor?.selectedBorder || "border-blue-500/40"} shadow-lg`
+                  : `bg-slate-800/40 text-slate-400 ${coinColor?.border || "border-white/[0.04]"} hover:bg-slate-800/60 hover:text-white`
+              }`}
+            >
+              <span>{m.base_asset}</span>
+              {price > 0 && (
+                <span className={`tabular-nums ${isSelected ? "opacity-80" : "text-slate-500"}`}>
+                  {price >= 1000
+                    ? `$${(price / 1000).toFixed(1)}k`
+                    : price >= 1
+                      ? `$${price.toFixed(2)}`
+                      : `$${price.toFixed(4)}`}
                 </span>
-              );
-            })()}
-          </button>
-        );
-      })}
+              )}
+              {posCount > 0 && (() => {
+                const winning = (posPnlMap[m.symbol] || 0) >= 0;
+                return (
+                  <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center border ${
+                    winning
+                      ? "bg-emerald-500/30 text-emerald-400 border-emerald-500/40"
+                      : "bg-red-500/30 text-red-400 border-red-500/40"
+                  }`}>
+                    {posCount}
+                  </span>
+                );
+              })()}
+            </button>
+          );
+        })}
+      </div>
       {onClose && (
         <button
           onClick={onClose}
           className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border bg-slate-800/40 text-slate-400 border-white/[0.06] hover:bg-red-500/15 hover:text-red-300 hover:border-red-500/30"
         >
-          ✕ Close
+          ✕
         </button>
       )}
     </div>
