@@ -7,6 +7,7 @@ interface Props {
   selectedSymbol: string;
   onSelect: (symbol: string) => void;
   positions: PerpPosition[];
+  onClose?: () => void;
 }
 
 // Coin-specific colors for borders
@@ -22,7 +23,7 @@ const COIN_COLORS: Record<string, { border: string; selectedBg: string; selected
   JUP:    { border: "border-emerald-500/30", selectedBg: "bg-emerald-500/20", selectedBorder: "border-emerald-400/50", selectedText: "text-emerald-300" },
 };
 
-const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: Props) => {
+const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions, onClose }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
 
@@ -33,12 +34,15 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
     }
   }, [selectedSymbol]);
 
-  // Count positions per market and sum unrealized PnL
+  // Count positions per market and sum live PnL
   const posCountMap: Record<string, number> = {};
   const posPnlMap: Record<string, number> = {};
   for (const p of positions) {
     posCountMap[p.symbol] = (posCountMap[p.symbol] || 0) + 1;
-    posPnlMap[p.symbol] = (posPnlMap[p.symbol] || 0) + p.unrealized_pnl;
+    const livePrice = prices[p.symbol] || p.mark_price;
+    const delta = p.direction === "long" ? livePrice - p.mark_price : p.mark_price - livePrice;
+    const livePnl = p.unrealized_pnl + (delta / p.entry_price) * p.size_usd;
+    posPnlMap[p.symbol] = (posPnlMap[p.symbol] || 0) + livePnl;
   }
 
   return (
@@ -90,6 +94,14 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
           </button>
         );
       })}
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border bg-slate-800/40 text-slate-400 border-white/[0.06] hover:bg-red-500/15 hover:text-red-300 hover:border-red-500/30"
+        >
+          ✕ Close
+        </button>
+      )}
     </div>
   );
 };

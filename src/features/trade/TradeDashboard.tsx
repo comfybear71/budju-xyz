@@ -23,7 +23,7 @@ interface TradeDashboardProps {
   isAdmin?: boolean;
 }
 
-const TradeDashboard = ({ isAdmin = false }: TradeDashboardProps) => {
+const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
   const data = useDashboardData();
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
@@ -62,6 +62,7 @@ const TradeDashboard = ({ isAdmin = false }: TradeDashboardProps) => {
         selectedSymbol={data.selectedSymbol}
         onSelect={data.setSelectedSymbol}
         positions={data.positions}
+        onClose={onClose}
       />
 
       {/* Error banner */}
