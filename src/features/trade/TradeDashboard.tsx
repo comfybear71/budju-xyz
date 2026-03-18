@@ -105,10 +105,10 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
 
       {/* === MAIN CONTENT === */}
       {/* Mobile: stacked | Desktop: 3-column grid */}
-      <div className="lg:grid lg:grid-cols-[1fr_2fr_1fr] lg:gap-0 lg:h-[calc(100vh-180px)]">
+      <div className="xl:grid xl:grid-cols-[1fr_2fr_1fr] xl:gap-0 xl:h-[calc(100vh-180px)]">
 
         {/* LEFT: Markets sidebar (desktop only) — we already have pills on mobile */}
-        <div className="hidden lg:block border-r border-white/[0.04] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+        <div className="hidden xl:block border-r border-white/[0.04] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
           {/* Desktop market list */}
           <div className="p-2 space-y-0.5">
             {data.markets.map((m) => {
@@ -175,8 +175,8 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
         </div>
 
         {/* CENTER: Chart */}
-        <div className="px-3 lg:px-0">
-          <div className="lg:h-full">
+        <div className="px-3 xl:px-0">
+          <div className="xl:h-full">
             <Suspense fallback={<ChartLoader />}>
               <TradingChart
                 symbol={data.selectedSymbol}
