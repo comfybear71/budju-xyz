@@ -574,8 +574,9 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
 DEFAULT_TRADER_STATE = {
     "pendingOrders": [],
     "autoTiers": {
-        "tier1": {"deviation": 2, "allocation": 10},
-        "tier2": {"deviation": 5, "allocation": 5},
+        "tier1": {"deviation": 1, "allocation": 5},
+        "tier2": {"deviation": 2, "allocation": 5},
+        "tier3": {"deviation": 2, "allocation": 5},
     },
     "autoCooldowns": {},
     "autoTradeLog": [],

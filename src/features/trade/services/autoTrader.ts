@@ -106,9 +106,9 @@ export class AutoTrader {
   targets: Record<string, CoinTargets> = {};
   cooldowns: Record<string, number> = {};
   tierSettings: Record<string, TierSettings> = {
-    tier1: { deviation: 2, allocation: 10 },
-    tier2: { deviation: 5, allocation: 5 },
-    tier3: { deviation: 8, allocation: 3 },
+    tier1: { deviation: 1, allocation: 5 },
+    tier2: { deviation: 2, allocation: 5 },
+    tier3: { deviation: 2, allocation: 5 },
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
@@ -194,7 +194,7 @@ export class AutoTrader {
     if (!state) return;
 
     // Load tier settings — DB values take priority, localStorage is fallback
-    const tierAssets = state.autoTierAssets || {};
+    const tierAssets = state.autoTiers || state.autoTierAssets || {};
     const localSettings = this._loadSettingsFromLocalStorage();
 
     for (const [key, cfg] of Object.entries(tierAssets)) {
