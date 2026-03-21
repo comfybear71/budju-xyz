@@ -348,40 +348,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   </div>
                 )}
 
-                {/* Dev + Alloc sliders */}
-                <div className="flex gap-3 mb-3">
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Dev</span>
-                      <span className="text-[11px] font-bold text-blue-400">{tier.settings.deviation}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={tier.cfg.devMin}
-                      max={tier.cfg.devMax}
-                      step={0.5}
-                      value={tier.settings.deviation}
-                      onChange={(e) => handleUpdateDeviation(tier.num, Number(e.target.value))}
-                      className="w-full h-1.5"
-                      style={{ accentColor: "#3b82f6" }}
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Alloc</span>
-                      <span className="text-[11px] font-bold text-green-400">{tier.settings.allocation}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={tier.cfg.allocMin}
-                      max={tier.cfg.allocMax}
-                      step={1}
-                      value={tier.settings.allocation}
-                      onChange={(e) => handleUpdateAllocation(tier.num, Number(e.target.value))}
-                      className="w-full h-1.5"
-                      style={{ accentColor: "#22c55e" }}
-                    />
-                  </div>
+                {/* Dev + Alloc (hardcoded — not adjustable) */}
+                <div className="flex gap-3 mb-3 text-[10px] text-slate-500">
+                  <span>Dev <span className="font-bold text-blue-400">{tier.settings.deviation}%</span></span>
+                  <span>Alloc <span className="font-bold text-green-400">{tier.settings.allocation}%</span></span>
                 </div>
 
                 {/* Start / Stop / Override buttons */}

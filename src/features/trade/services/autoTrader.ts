@@ -193,36 +193,13 @@ export class AutoTrader {
     const state = await fetchTraderState();
     if (!state) return;
 
-    // Load tier settings — DB values take priority, localStorage is fallback
-    const tierAssets = state.autoTiers || state.autoTierAssets || {};
-    const localSettings = this._loadSettingsFromLocalStorage();
-
-    for (const [key, cfg] of Object.entries(tierAssets)) {
-      const tierKey = key.startsWith("tier") ? key : `tier${key}`;
-      if (this.tierSettings[tierKey]) {
-        this.tierSettings[tierKey] = {
-          deviation: Number((cfg as any).deviation) || this.tierSettings[tierKey].deviation,
-          allocation: Number((cfg as any).allocation) || this.tierSettings[tierKey].allocation,
-        };
-      }
-    }
-
-    // If localStorage has different values, it means a previous DB save failed.
-    // Use localStorage values (more recent user intent) and flag for retry.
-    if (localSettings) {
-      let mismatch = false;
-      for (const [tierKey, localTier] of Object.entries(localSettings)) {
-        const dbTier = this.tierSettings[tierKey];
-        if (dbTier && (dbTier.deviation !== localTier.deviation || dbTier.allocation !== localTier.allocation)) {
-          mismatch = true;
-          this.tierSettings[tierKey] = { ...localTier };
-        }
-      }
-      if (mismatch) {
-        this._pendingTierSave = true;
-        this._log("Tier settings restored from local cache — will sync to server", "info");
-      }
-    }
+    // Hardcoded tier settings — T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc
+    // These are fixed and cannot be changed via DB or localStorage.
+    this.tierSettings = {
+      tier1: { deviation: 1, allocation: 5 },
+      tier2: { deviation: 2, allocation: 5 },
+      tier3: { deviation: 2, allocation: 5 },
+    };
 
     // Load tier assignments (FLUB uses numeric, BUDJU uses "tierN" keys)
     const rawAssignments = state.autoTierAssignments || {};
@@ -397,23 +374,9 @@ export class AutoTrader {
 
   // ── Tier Settings Update ────────────────────────────────
 
-  updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
-    const key = `tier${tierNum}`;
-    this.tierSettings[key] = { ...this.tierSettings[key], ...settings };
-
-    // Save to localStorage immediately (synchronous, can't fail)
-    this._saveSettingsToLocalStorage();
-
-    // Debounce server save — slider onChange fires on every drag pixel,
-    // flooding the API with concurrent POSTs that race/fail silently.
-    // In-memory update is immediate so the UI stays responsive.
-    if (this._saveTierSettingsTimer) clearTimeout(this._saveTierSettingsTimer);
-    this._saveTierSettingsTimer = setTimeout(() => {
-      this._saveTierSettingsTimer = null;
-      this._saveTierSettings();
-    }, 500);
-
-    this._notifyChange();
+  updateTierSettings(_tierNum: number, _settings: Partial<TierSettings>) {
+    // Tier settings are hardcoded — T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc
+    // No-op: ignore any UI attempts to change them.
   }
 
   // ── Start / Stop ────────────────────────────────────────

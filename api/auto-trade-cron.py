@@ -251,13 +251,12 @@ def _tier_num(value):
 
 
 def _tier_settings(tier_assets, tier_num):
-    """Get deviation and allocation % for a tier."""
-    cfg = tier_assets.get(f"tier{tier_num}", {})
-    # Defaults: T1=1% dev, T2/T3=2% dev, all 5% alloc
-    default_dev = 1 if tier_num == 1 else 2
+    """Get hardcoded deviation and allocation % for a tier.
+    T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc.
+    DB values are ignored — these are fixed."""
     return {
-        "deviation": float(cfg.get("deviation", default_dev)),
-        "allocation": float(cfg.get("allocation", 5)),
+        "deviation": 1.0 if tier_num == 1 else 2.0,
+        "allocation": 5.0,
     }
 
 
