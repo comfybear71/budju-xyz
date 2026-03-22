@@ -251,12 +251,14 @@ def _tier_num(value):
 
 
 def _tier_settings(tier_assets, tier_num):
-    """Get hardcoded deviation and allocation % for a tier.
-    T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc.
-    DB values are ignored — these are fixed."""
+    """Get deviation and allocation % for a tier from DB, with defaults.
+    Defaults: T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc."""
+    key = f"tier{tier_num}"
+    db_settings = tier_assets.get(key, {}) if isinstance(tier_assets, dict) else {}
+    default_dev = 1.0 if tier_num == 1 else 2.0
     return {
-        "deviation": 1.0 if tier_num == 1 else 2.0,
-        "allocation": 5.0,
+        "deviation": float(db_settings.get("deviation", default_dev)),
+        "allocation": float(db_settings.get("allocation", 5.0)),
     }
 
 
@@ -458,9 +460,10 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Move buy target down, sell stays
+                # Reset BOTH targets from trade price so they stay within deviation %
                 targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
-                log.append(f"{code}: new buy target ${targets[code]['buy']:.2f}")
+                targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
+                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000
@@ -553,9 +556,10 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Move sell target up, buy stays
+                # Reset BOTH targets from trade price so they stay within deviation %
+                targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
                 targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
-                log.append(f"{code}: new sell target ${targets[code]['sell']:.2f}")
+                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000

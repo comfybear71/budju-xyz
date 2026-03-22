@@ -348,10 +348,40 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                   </div>
                 )}
 
-                {/* Dev + Alloc (hardcoded — not adjustable) */}
-                <div className="flex gap-3 mb-3 text-[10px] text-slate-500">
-                  <span>Dev <span className="font-bold text-blue-400">{tier.settings.deviation}%</span></span>
-                  <span>Alloc <span className="font-bold text-green-400">{tier.settings.allocation}%</span></span>
+                {/* Dev + Alloc sliders */}
+                <div className="mb-3 space-y-2">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-500">Deviation</span>
+                      <span className="text-[10px] font-bold text-blue-400">{tier.settings.deviation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="10"
+                      step="0.5"
+                      value={tier.settings.deviation}
+                      onChange={(e) => handleUpdateDeviation(tier.num, parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ background: `linear-gradient(to right, #3b82f6 ${((tier.settings.deviation - 0.5) / 9.5) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.deviation - 0.5) / 9.5) * 100}%)` }}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-500">Allocation</span>
+                      <span className="text-[10px] font-bold text-green-400">{tier.settings.allocation}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="20"
+                      step="1"
+                      value={tier.settings.allocation}
+                      onChange={(e) => handleUpdateAllocation(tier.num, parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
+                    />
+                  </div>
                 </div>
 
                 {/* Start / Stop / Override buttons */}

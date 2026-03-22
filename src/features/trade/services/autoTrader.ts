@@ -193,13 +193,22 @@ export class AutoTrader {
     const state = await fetchTraderState();
     if (!state) return;
 
-    // Hardcoded tier settings — T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc
-    // These are fixed and cannot be changed via DB or localStorage.
-    this.tierSettings = {
+    // Load tier settings from DB, falling back to defaults
+    const dbTiers = state.autoTiers || state.autoTierAssets || {};
+    const defaults: Record<string, TierSettings> = {
       tier1: { deviation: 1, allocation: 5 },
       tier2: { deviation: 2, allocation: 5 },
       tier3: { deviation: 2, allocation: 5 },
     };
+    this.tierSettings = {} as any;
+    for (let t = 1; t <= 3; t++) {
+      const key = `tier${t}`;
+      const db = dbTiers[key] || {};
+      this.tierSettings[key] = {
+        deviation: Number(db.deviation) || defaults[key].deviation,
+        allocation: Number(db.allocation) || defaults[key].allocation,
+      };
+    }
 
     // Load tier assignments (FLUB uses numeric, BUDJU uses "tierN" keys)
     const rawAssignments = state.autoTierAssignments || {};
@@ -374,9 +383,40 @@ export class AutoTrader {
 
   // ── Tier Settings Update ────────────────────────────────
 
-  updateTierSettings(_tierNum: number, _settings: Partial<TierSettings>) {
-    // Tier settings are hardcoded — T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc
-    // No-op: ignore any UI attempts to change them.
+  updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
+    const key = `tier${tierNum}`;
+    const current = this.tierSettings[key];
+    if (!current) return;
+
+    const oldDeviation = current.deviation;
+    Object.assign(current, settings);
+
+    // If deviation changed and tier is active, recalculate all targets for this tier
+    if (settings.deviation !== undefined && settings.deviation !== oldDeviation && this.tierActive[tierNum]) {
+      const tierCoins = this.getCoinsForTier(tierNum);
+      for (const code of tierCoins) {
+        const price = this._cachedPrices[code];
+        if (price && price > 0) {
+          this.targets[code] = {
+            buy: price * (1 - settings.deviation / 100),
+            sell: price * (1 + settings.deviation / 100),
+          };
+        }
+      }
+      this._log(`Tier ${tierNum} deviation changed to ${settings.deviation}% — targets recalculated`, "info");
+    }
+
+    this._notifyChange();
+
+    // Debounce save to DB (sliders fire onChange rapidly)
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+    }
+    this._saveTierSettingsTimer = setTimeout(() => {
+      this._saveTierSettingsTimer = null;
+      this._saveTierSettings();
+      this._saveActiveState();
+    }, 500);
   }
 
   // ── Start / Stop ────────────────────────────────────────
@@ -690,11 +730,13 @@ export class AutoTrader {
         this._recordTradeInDB(code, "buy", quantity, currentPrice);
         this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
-        // Move buy target down, keep sell target
+        // Reset BOTH targets from trade price so they stay within deviation %
         const oldBuy = this.targets[code].buy;
+        const oldSell = this.targets[code].sell;
         this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
+        this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
         this._log(
-          `${code} buy target: $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)} (sell stays $${this.targets[code].sell.toFixed(2)})`,
+          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
           "info",
         );
       } else {
@@ -738,11 +780,13 @@ export class AutoTrader {
         this._recordTradeInDB(code, "sell", quantity, currentPrice);
         this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
-        // Move sell target up, keep buy target
+        // Reset BOTH targets from trade price so they stay within deviation %
+        const oldBuy = this.targets[code].buy;
         const oldSell = this.targets[code].sell;
+        this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
         this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
         this._log(
-          `${code} sell target: $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)} (buy stays $${this.targets[code].buy.toFixed(2)})`,
+          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
           "info",
         );
       } else {
