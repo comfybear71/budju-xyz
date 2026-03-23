@@ -137,54 +137,45 @@ interface AdminAuth {
   adminMessage: string;
 }
 
-let _cachedAdminAuth: AdminAuth | null = null;
-let _cachedAuthTime = 0;
-const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
-
 function _getWalletProvider(): any {
   return getWalletProvider();
 }
 
 /**
  * Get admin auth fields (signature + message) for an admin API request.
- * Caches the signature so the wallet popup only appears once per ~50 min.
+ * Generates a fresh timestamp + signature each time so the backend nonce
+ * check never rejects a reused message. The wallet adapter typically
+ * auto-approves signMessage within a connected session.
  * Returns null if the wallet provider doesn't support signMessage.
  */
 export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
-  // Return cached auth if still valid
-  if (_cachedAdminAuth && _cachedAdminAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_TTL_MS) {
-    return _cachedAdminAuth;
-  }
-
   const provider = _getWalletProvider();
   if (!provider || typeof provider.signMessage !== "function") {
     console.warn("Wallet provider does not support signMessage");
     return null;
   }
 
+  // Fresh timestamp each call — backend nonce check rejects reused messages
   const timestamp = Date.now();
   const message = `BUDJU_ADMIN:${timestamp}`;
   const encoded = new TextEncoder().encode(message);
 
   try {
     const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
-    _cachedAdminAuth = {
+    return {
       adminWallet,
       adminSignature: Array.from(signatureBytes),
       adminMessage: message,
     };
-    _cachedAuthTime = Date.now();
-    return _cachedAdminAuth;
   } catch (err) {
     console.error("Admin signature request denied:", err);
     return null;
   }
 }
 
-/** Clear cached admin auth (call on wallet disconnect) */
+/** No-op — auth is no longer cached (fresh signature per request) */
 export function clearAdminAuth() {
-  _cachedAdminAuth = null;
-  _cachedAuthTime = 0;
+  // Kept for API compatibility
 }
 
 // ── API helpers ────────────────────────────────────────────
