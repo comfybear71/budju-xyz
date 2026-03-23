@@ -146,6 +146,12 @@ export class AutoTrader {
   // Pending save retry — if DB save fails, retry on next opportunity
   private _pendingTierSave = false;
 
+  // Guard against concurrent _checkPrices execution
+  private _priceCheckRunning = false;
+
+  // Debounce timer for trigger-crossing immediate checks
+  private _triggerCheckTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ── Computed ─────────────────────────────────────────────
 
   get isActive(): boolean {
@@ -621,6 +627,18 @@ export class AutoTrader {
       return;
     }
 
+    // Prevent concurrent execution (e.g. interval + trigger-crossing check)
+    if (this._priceCheckRunning) return;
+    this._priceCheckRunning = true;
+    try {
+      await this._checkPricesInner();
+    } finally {
+      this._priceCheckRunning = false;
+    }
+  }
+
+  private async _checkPricesInner() {
+
     // Retry any pending tier settings save that previously failed
     if (this._pendingTierSave) {
       this.retryPendingSave();
@@ -935,9 +953,33 @@ export class AutoTrader {
     }
   }
 
-  /** Update cached prices externally (from parent component's price ticker) */
+  /** Update cached prices externally (from parent component's price ticker).
+   *  If any price crosses a buy/sell trigger, schedule an immediate check
+   *  so trades execute within seconds instead of waiting for the 3-min interval.
+   */
   updatePrices(prices: Record<string, number>) {
     this._cachedPrices = { ...this._cachedPrices, ...prices };
+
+    if (!this.isActive || !this._isOwner || this._warmup) return;
+
+    // Check if any updated price crossed a trigger
+    let triggered = false;
+    for (const [code, price] of Object.entries(prices)) {
+      const tgt = this.targets[code];
+      if (!tgt || !price || this._isOnCooldown(code)) continue;
+      if (price <= tgt.buy || price >= tgt.sell) {
+        triggered = true;
+        break;
+      }
+    }
+
+    if (triggered && !this._triggerCheckTimer) {
+      // Debounce 2s to batch rapid WebSocket updates, then execute
+      this._triggerCheckTimer = setTimeout(() => {
+        this._triggerCheckTimer = null;
+        this._checkPrices();
+      }, 2000);
+    }
   }
 
   updateAssets(assets: PortfolioAsset[]) {
