@@ -940,13 +940,19 @@ export class AutoTrader {
       // from a failed Swyftx call was silently blocking every buy.
       clearCacheKeys("portfolio", "prices", "cash");
 
-      const [assets, prices, cash] = await Promise.all([
+      // Snapshot current WebSocket prices before fetching API prices.
+      // WebSocket prices are real-time; CoinGecko prices lag by up to 30s.
+      // We use API prices as a base, then overlay the fresher WS prices.
+      const wsPrices = { ...this._cachedPrices };
+
+      const [assets, apiPrices, cash] = await Promise.all([
         fetchPortfolio(),
         fetchPrices(),
         fetchCashBalances(),
       ]);
       this._cachedAssets = assets;
-      this._cachedPrices = prices;
+      // Start with API prices, then overlay WebSocket prices (more current)
+      this._cachedPrices = { ...apiPrices, ...wsPrices };
       this._cachedUsdcBalance = cash.usdc;
     } catch (error: any) {
       this._log(`Data refresh error: ${error.message}`, "error");
