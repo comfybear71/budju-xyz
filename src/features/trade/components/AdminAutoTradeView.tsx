@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB } from "../services/tradeApi";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, clearAdminAuth } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
 interface Props {
@@ -152,6 +152,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const handleSaveSettings = async (tierNum: number) => {
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
     setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
+    clearAdminAuth(); // Reset denied state so retry prompts for signature again
     const result = await autoTrader.saveTierSettingsForTier(tierNum);
     if (result.ok) {
       setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
