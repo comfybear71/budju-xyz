@@ -386,6 +386,7 @@ export class AutoTrader {
 
   // ── Tier Settings Update ────────────────────────────────
 
+  /** Update tier settings in memory + localStorage only. Call saveTierSettingsNow() to persist to DB. */
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
     const current = this.tierSettings[key];
@@ -394,8 +395,7 @@ export class AutoTrader {
     const oldDeviation = current.deviation;
     Object.assign(current, settings);
 
-    // Always save to localStorage immediately so values survive page refresh
-    // even if the debounced DB save hasn't fired yet
+    // Save to localStorage immediately so values survive page refresh
     this._saveSettingsToLocalStorage();
 
     // If deviation changed and tier is active, recalculate all targets for this tier
@@ -414,27 +414,26 @@ export class AutoTrader {
     }
 
     this._notifyChange();
+  }
 
-    // Debounce save to DB (sliders fire onChange rapidly)
+  /** Explicitly save all tier settings to DB. Returns true on success. */
+  async saveTierSettingsNow(): Promise<boolean> {
+    // Cancel any pending debounced save
     if (this._saveTierSettingsTimer) {
       clearTimeout(this._saveTierSettingsTimer);
-    }
-    this._saveTierSettingsTimer = setTimeout(() => {
       this._saveTierSettingsTimer = null;
-      this._saveTierSettings();
-      this._saveActiveState();
-    }, 500);
+    }
+    await this._saveTierSettings();
+    await this._saveActiveState();
+    return !this._pendingTierSave;
   }
 
   // ── Start / Stop ────────────────────────────────────────
 
   async startTier(tierNum: number): Promise<{ success: boolean; error?: string }> {
-    // Flush any pending debounced tier settings save before starting
-    if (this._saveTierSettingsTimer) {
-      clearTimeout(this._saveTierSettingsTimer);
-      this._saveTierSettingsTimer = null;
-      await this._saveTierSettings();
-    }
+    // Always save current tier settings to DB before starting
+    // (catches case where user adjusted sliders but forgot to click Save)
+    await this._saveTierSettings();
 
     // Refresh data first
     await this._refreshData();

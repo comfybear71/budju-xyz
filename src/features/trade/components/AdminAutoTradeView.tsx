@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync } from "react-icons/fa";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
@@ -117,6 +117,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
@@ -139,10 +140,24 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleUpdateDeviation = (tierNum: number, deviation: number) => {
     autoTrader.updateTierSettings(tierNum, { deviation });
+    setSaveStatus("idle"); // Reset save indicator when settings change
   };
 
   const handleUpdateAllocation = (tierNum: number, allocation: number) => {
     autoTrader.updateTierSettings(tierNum, { allocation });
+    setSaveStatus("idle"); // Reset save indicator when settings change
+  };
+
+  const handleSaveSettings = async () => {
+    setSaveStatus("saving");
+    const ok = await autoTrader.saveTierSettingsNow();
+    if (ok) {
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 3000);
+    } else {
+      setSaveStatus("error");
+      setTimeout(() => setSaveStatus("idle"), 4000);
+    }
   };
 
   const handleAddCoin = (tierNum: number, coin: string) => {
@@ -386,6 +401,39 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                       style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
                     />
                   </div>
+                </div>
+
+                {/* Save Settings button */}
+                <div className="mb-3">
+                  <button
+                    onClick={handleSaveSettings}
+                    disabled={saveStatus === "saving"}
+                    className="w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                    style={{
+                      background: saveStatus === "saved" ? "rgba(34,197,94,0.2)" :
+                                  saveStatus === "error" ? "rgba(239,68,68,0.2)" :
+                                  saveStatus === "saving" ? "rgba(59,130,246,0.15)" :
+                                  "rgba(59,130,246,0.2)",
+                      border: `1px solid ${
+                        saveStatus === "saved" ? "rgba(34,197,94,0.4)" :
+                        saveStatus === "error" ? "rgba(239,68,68,0.4)" :
+                        "rgba(59,130,246,0.4)"
+                      }`,
+                      color: saveStatus === "saved" ? "#22c55e" :
+                             saveStatus === "error" ? "#ef4444" :
+                             "#3b82f6",
+                    }}
+                  >
+                    {saveStatus === "saving" ? (
+                      <>Saving...</>
+                    ) : saveStatus === "saved" ? (
+                      <><FaCheck size={10} /> Saved to DB</>
+                    ) : saveStatus === "error" ? (
+                      <>Save Failed — Retry</>
+                    ) : (
+                      <><FaSave size={10} /> Save Settings</>
+                    )}
+                  </button>
                 </div>
 
                 {/* Start / Stop / Override buttons */}
