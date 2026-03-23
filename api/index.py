@@ -271,12 +271,13 @@ class handler(BaseHTTPRequestHandler):
                 if not wallet:
                     self._send_json(400, {"error": "wallet parameter required"})
                     return
-                admin_req = is_admin(wallet)
+                # Admin view only when explicitly requested via ?admin=true
+                admin_req = is_admin(wallet) and params.get('admin') == 'true'
                 txns = get_all_transactions(
                     wallet_address=wallet,
                     is_admin_request=admin_req
                 )
-                self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": admin_req})
+                self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": is_admin(wallet)})
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')

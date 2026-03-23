@@ -36,7 +36,7 @@ pool_state_collection = db["pool_state"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
-trades_collection.create_index([("userId", 1), ("timestamp", -1)])
+trades_collection.create_index([("timestamp", -1)])
 deposits_collection.create_index([("userId", 1), ("timestamp", -1)])
 deposits_collection.create_index("txHash", unique=True)
 trades_collection.create_index("swyftxId", unique=True, sparse=True)
@@ -552,15 +552,21 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
                 "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None
             })
 
-        for trade in trades_collection.find({}).sort("timestamp", -1):
+        # Filter trades to only those where this wallet has an allocation
+        for trade in trades_collection.find({
+            f"userAllocations.{wallet_address}": {"$exists": True}
+        }).sort("timestamp", -1):
+            user_alloc_pct = trade.get("userAllocations", {}).get(wallet_address, 0)
+            total_amount = trade.get("amount", 0)
+            user_amount = total_amount * (user_alloc_pct / 100.0) if user_alloc_pct else total_amount
             transactions.append({
                 "type": "buy" if trade.get("type") == "buy" else "sell",
                 "coin": trade.get("coin", ""),
-                "amount": trade.get("amount", 0),
+                "amount": round(user_amount, 2),
                 "price": trade.get("price", 0),
                 "timestamp": trade["timestamp"].isoformat() if trade.get("timestamp") else None,
-                "wallet": "pool",
-                "walletShort": "Pool Trade",
+                "wallet": wallet_address,
+                "walletShort": wallet_address[:4] + "..." + wallet_address[-4:] if len(wallet_address) > 8 else wallet_address,
                 "swyftxId": trade.get("swyftxId", "")
             })
 

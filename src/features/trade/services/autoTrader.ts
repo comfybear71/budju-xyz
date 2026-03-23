@@ -201,12 +201,15 @@ export class AutoTrader {
       tier3: { deviation: 2, allocation: 5 },
     };
     this.tierSettings = {} as any;
+    // Also load localStorage as fallback in case a previous DB save failed
+    const lsFallback = this._loadSettingsFromLocalStorage() || {};
     for (let t = 1; t <= 3; t++) {
       const key = `tier${t}`;
       const db = dbTiers[key] || {};
+      const ls = lsFallback[key] || {};
       this.tierSettings[key] = {
-        deviation: Number(db.deviation) || defaults[key].deviation,
-        allocation: Number(db.allocation) || defaults[key].allocation,
+        deviation: db.deviation != null ? Number(db.deviation) : (ls.deviation != null ? Number(ls.deviation) : defaults[key].deviation),
+        allocation: db.allocation != null ? Number(db.allocation) : (ls.allocation != null ? Number(ls.allocation) : defaults[key].allocation),
       };
     }
 
@@ -390,6 +393,10 @@ export class AutoTrader {
 
     const oldDeviation = current.deviation;
     Object.assign(current, settings);
+
+    // Always save to localStorage immediately so values survive page refresh
+    // even if the debounced DB save hasn't fired yet
+    this._saveSettingsToLocalStorage();
 
     // If deviation changed and tier is active, recalculate all targets for this tier
     if (settings.deviation !== undefined && settings.deviation !== oldDeviation && this.tierActive[tierNum]) {
@@ -1090,6 +1097,17 @@ export class AutoTrader {
       return JSON.parse(raw);
     } catch {
       return null;
+    }
+  }
+
+  /** Flush any pending debounced tier settings save immediately (called on page unload) */
+  flushPendingSave(): void {
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+      this._saveTierSettingsTimer = null;
+      // Fire and forget — beforeunload can't wait for async
+      this._saveTierSettings();
+      this._saveActiveState();
     }
   }
 

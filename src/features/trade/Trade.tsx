@@ -290,10 +290,17 @@ const Trade = () => {
     // Load state from server and potentially resume monitoring
     autoTrader.loadFromServer();
 
+    // Flush any pending debounced tier settings save before page unload
+    const handleBeforeUnload = () => {
+      autoTrader.flushPendingSave();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
     // Don't destroy autoTrader on unmount — monitoring must continue
     // even when the user navigates away from the Trading page.
     // Only detach UI callbacks so we don't update unmounted components.
     return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
       autoTrader.setOnStateChange(() => {});
       autoTrader.setLogger(() => {});
     };
