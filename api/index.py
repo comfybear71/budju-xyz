@@ -118,18 +118,18 @@ def _get_client_ip(handler) -> str:
 
 
 # ── Admin Signature Verification ───────────────────────────────────────
-# Validates Ed25519 signature + 5-minute timestamp window.
+# Validates Ed25519 signature + 30-minute timestamp window.
 # Nonce check removed: unreliable in serverless (resets on cold starts)
 # and the timestamp window already prevents replays beyond 5 min.
 # Removing it allows the frontend to cache one signature for multiple
 # saves within the same monitoring tick (prevents Phantom popup loops).
-_ADMIN_MSG_WINDOW_MS = 5 * 60 * 1000  # 5 minutes
+_ADMIN_MSG_WINDOW_MS = 30 * 60 * 1000  # 30 minutes
 
 def _verify_admin(body: dict, handler) -> tuple:
     """Verify admin wallet address AND Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
     Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
+    The adminMessage must contain a recent timestamp (within 30 minutes) to prevent replay attacks.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):

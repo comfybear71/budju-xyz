@@ -138,7 +138,7 @@ interface AdminAuth {
   adminMessage: string;
 }
 
-const AUTH_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+const AUTH_CACHE_MS = 30 * 60 * 1000; // 30 minutes
 let _cachedAuth: AdminAuth | null = null;
 let _cachedAuthTime = 0;
 /** True when the user denied the last signature request — prevents retry loops */

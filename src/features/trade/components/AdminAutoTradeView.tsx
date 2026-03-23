@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, clearAdminAuth } from "../services/tradeApi";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, clearAdminAuth, fetchSwyftxOrderHistory } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
 interface Props {
@@ -23,6 +23,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const [countdown, setCountdown] = useState(30);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -31,6 +32,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
     autoTrader.setOnStateChange(refresh);
     return () => autoTrader.setOnStateChange(() => {});
   }, [autoTrader, refresh]);
+
+  // Load actual Swyftx trade history on mount (no signing needed — proxy handles auth)
+  useEffect(() => {
+    fetchSwyftxOrderHistory(50).then(setSwyftxTrades).catch(() => {});
+  }, []);
 
   // Countdown timer for next price check
   useEffect(() => {
@@ -111,7 +117,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  const tradeLog = snapshot.tradeLog;
+  // Use Swyftx trades (actual exchange data) for the trade log
+  const tradeLog = swyftxTrades.map((t: any) => ({
+    time: t.timestamp || "",
+    coin: t.coin || "",
+    side: (t.type === "sell" ? "SELL" : "BUY") as "BUY" | "SELL",
+    quantity: t.quantity || 0,
+    price: t.trigger || t.price || 0,
+    amount: (t.quantity || 0) * (t.trigger || t.price || 0),
+  }));
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
   const assignedCoins = getAssignedCoins();
@@ -175,12 +189,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleSyncTrades = async () => {
     setSyncStatus("Syncing...");
+    clearAdminAuth(); // Reset denied state so cached auth refreshes if needed
     const result = await syncSwyftxTradesToDB(adminWallet);
     if (result) {
       if (result.error) {
         setSyncStatus(`Sync failed: ${result.error}`);
       } else {
         setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+        // Refresh trade log from Swyftx
+        fetchSwyftxOrderHistory(50).then(setSwyftxTrades).catch(() => {});
       }
     } else {
       setSyncStatus("Sync failed");
