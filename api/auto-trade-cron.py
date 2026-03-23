@@ -492,7 +492,12 @@ def run_auto_trade_check():
 
                 usdc_balance -= trade_amount
 
-                # Buy notifications silenced — only send wins
+                send_telegram(
+                    f"🤖 <b>Auto BUY</b>\n"
+                    f"🛒 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
+                    f"📦 ${trade_amount:,.2f} USDC\n"
+                    f"🆔 {order_id}"
+                )
             else:
                 log.append(f"{code}: BUY failed — {err}")
                 decisions.append({
