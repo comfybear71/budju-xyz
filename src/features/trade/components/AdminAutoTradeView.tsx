@@ -158,7 +158,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
     setSyncStatus("Syncing...");
     const result = await syncSwyftxTradesToDB(adminWallet);
     if (result) {
-      setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+      if (result.error) {
+        setSyncStatus(`Sync failed: ${result.error}`);
+      } else {
+        setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+      }
     } else {
       setSyncStatus("Sync failed");
     }

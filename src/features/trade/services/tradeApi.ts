@@ -919,13 +919,19 @@ export async function fetchSwyftxOrderHistory(
 /** Sync Swyftx order history to MongoDB (deduplicates by swyftxId, requires signature) */
 export async function syncSwyftxTradesToDB(
   adminWallet: string,
-): Promise<{ imported: number; skipped: number } | null> {
+): Promise<{ imported: number; skipped: number; error?: string } | null> {
   try {
     const auth = await getAdminAuth(adminWallet);
-    if (!auth) return null;
+    if (!auth) {
+      console.error("[syncSwyftxTradesToDB] Admin auth failed");
+      return { imported: 0, skipped: 0, error: "Auth failed" };
+    }
 
     const swyftxOrders = await fetchSwyftxOrderHistory(200);
-    if (swyftxOrders.length === 0) return { imported: 0, skipped: 0 };
+    if (swyftxOrders.length === 0) {
+      console.warn("[syncSwyftxTradesToDB] No Swyftx orders returned");
+      return { imported: 0, skipped: 0, error: "No orders from Swyftx" };
+    }
 
     const res = await fetch("/api/trade/sync", {
       method: "POST",
@@ -934,9 +940,12 @@ export async function syncSwyftxTradesToDB(
     });
 
     if (res.ok) return await res.json();
-    return null;
-  } catch {
-    return null;
+    const errText = await res.text().catch(() => "unknown");
+    console.error(`[syncSwyftxTradesToDB] API returned ${res.status}: ${errText}`);
+    return { imported: 0, skipped: 0, error: `API ${res.status}` };
+  } catch (err) {
+    console.error("[syncSwyftxTradesToDB] Error:", err);
+    return { imported: 0, skipped: 0, error: String(err) };
   }
 }
 

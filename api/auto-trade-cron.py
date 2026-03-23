@@ -477,10 +477,10 @@ def run_auto_trade_check():
                 if len(trade_log) > 50:
                     trade_log = trade_log[:50]
 
-                # Record in DB
+                # Record in DB (pass order_id so sync can deduplicate)
                 try:
                     allocations = calculate_pool_allocations()
-                    record_trade(code, "buy", quantity, current_price, allocations)
+                    record_trade(code, "buy", quantity, current_price, allocations, swyftx_id=order_id)
                 except Exception as e:
                     log.append(f"DB record error: {e}")
 
@@ -573,10 +573,10 @@ def run_auto_trade_check():
                 if len(trade_log) > 50:
                     trade_log = trade_log[:50]
 
-                # Record in DB
+                # Record in DB (pass order_id so sync can deduplicate)
                 try:
                     allocations = calculate_pool_allocations()
-                    record_trade(code, "sell", quantity, current_price, allocations)
+                    record_trade(code, "sell", quantity, current_price, allocations, swyftx_id=order_id)
                 except Exception as e:
                     log.append(f"DB record error: {e}")
 
