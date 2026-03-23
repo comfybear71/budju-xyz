@@ -117,7 +117,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
 
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
@@ -140,23 +140,23 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleUpdateDeviation = (tierNum: number, deviation: number) => {
     autoTrader.updateTierSettings(tierNum, { deviation });
-    setSaveStatus("idle"); // Reset save indicator when settings change
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
   const handleUpdateAllocation = (tierNum: number, allocation: number) => {
     autoTrader.updateTierSettings(tierNum, { allocation });
-    setSaveStatus("idle"); // Reset save indicator when settings change
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
-  const handleSaveSettings = async () => {
-    setSaveStatus("saving");
-    const ok = await autoTrader.saveTierSettingsNow();
+  const handleSaveSettings = async (tierNum: number) => {
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
+    const ok = await autoTrader.saveTierSettingsForTier(tierNum);
     if (ok) {
-      setSaveStatus("saved");
-      setTimeout(() => setSaveStatus("idle"), 3000);
+      setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 3000);
     } else {
-      setSaveStatus("error");
-      setTimeout(() => setSaveStatus("idle"), 4000);
+      setSaveStatus((prev) => ({ ...prev, [tierNum]: "error" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 4000);
     }
   };
 
@@ -405,35 +405,40 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
                 {/* Save Settings button */}
                 <div className="mb-3">
-                  <button
-                    onClick={handleSaveSettings}
-                    disabled={saveStatus === "saving"}
-                    className="w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                    style={{
-                      background: saveStatus === "saved" ? "rgba(34,197,94,0.2)" :
-                                  saveStatus === "error" ? "rgba(239,68,68,0.2)" :
-                                  saveStatus === "saving" ? "rgba(59,130,246,0.15)" :
-                                  "rgba(59,130,246,0.2)",
-                      border: `1px solid ${
-                        saveStatus === "saved" ? "rgba(34,197,94,0.4)" :
-                        saveStatus === "error" ? "rgba(239,68,68,0.4)" :
-                        "rgba(59,130,246,0.4)"
-                      }`,
-                      color: saveStatus === "saved" ? "#22c55e" :
-                             saveStatus === "error" ? "#ef4444" :
-                             "#3b82f6",
-                    }}
-                  >
-                    {saveStatus === "saving" ? (
-                      <>Saving...</>
-                    ) : saveStatus === "saved" ? (
-                      <><FaCheck size={10} /> Saved to DB</>
-                    ) : saveStatus === "error" ? (
-                      <>Save Failed — Retry</>
-                    ) : (
-                      <><FaSave size={10} /> Save Settings</>
-                    )}
-                  </button>
+                  {(() => {
+                    const status = saveStatus[tier.num] || "idle";
+                    return (
+                      <button
+                        onClick={() => handleSaveSettings(tier.num)}
+                        disabled={status === "saving"}
+                        className="w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                        style={{
+                          background: status === "saved" ? "rgba(34,197,94,0.2)" :
+                                      status === "error" ? "rgba(239,68,68,0.2)" :
+                                      status === "saving" ? "rgba(59,130,246,0.15)" :
+                                      "rgba(59,130,246,0.2)",
+                          border: `1px solid ${
+                            status === "saved" ? "rgba(34,197,94,0.4)" :
+                            status === "error" ? "rgba(239,68,68,0.4)" :
+                            "rgba(59,130,246,0.4)"
+                          }`,
+                          color: status === "saved" ? "#22c55e" :
+                                 status === "error" ? "#ef4444" :
+                                 "#3b82f6",
+                        }}
+                      >
+                        {status === "saving" ? (
+                          <>Saving...</>
+                        ) : status === "saved" ? (
+                          <><FaCheck size={10} /> Saved to DB</>
+                        ) : status === "error" ? (
+                          <>Save Failed — Retry</>
+                        ) : (
+                          <><FaSave size={10} /> Save Settings</>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {/* Start / Stop / Override buttons */}

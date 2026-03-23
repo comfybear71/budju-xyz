@@ -413,6 +413,35 @@ export class AutoTrader {
     return !this._pendingTierSave;
   }
 
+  /** Save only a single tier's settings (deviation + allocation) to DB. Returns true on success. */
+  async saveTierSettingsForTier(tierNum: number): Promise<boolean> {
+    if (!this._adminWallet) return false;
+    const key = `tier${tierNum}`;
+    const settings = this.tierSettings[key];
+    if (!settings) return false;
+
+    try {
+      const autoTiers: Record<string, any> = {
+        [key]: {
+          ...settings,
+          name: TIER_CONFIG[tierNum].name,
+          active: this.tierActive[tierNum],
+        },
+      };
+      const result = await saveTraderState(this._adminWallet, { autoTiers });
+      if (result.success) {
+        this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%)`, "info");
+        return true;
+      } else {
+        this._log(`Tier ${tierNum} settings save failed: ${result.error || "unknown"}`, "error");
+        return false;
+      }
+    } catch (err: any) {
+      this._log(`Tier ${tierNum} settings save error: ${err.message || "unknown"}`, "error");
+      return false;
+    }
+  }
+
   // ── Start / Stop ────────────────────────────────────────
 
   async startTier(tierNum: number): Promise<{ success: boolean; error?: string }> {
