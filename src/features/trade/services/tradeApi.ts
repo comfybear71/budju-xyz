@@ -174,7 +174,11 @@ export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | nul
   const encoded = new TextEncoder().encode(message);
 
   try {
-    const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
+    const result = await provider.signMessage(encoded, "utf8");
+    // Phantom returns { signature: Uint8Array }, other wallets may return raw Uint8Array
+    const signatureBytes: Uint8Array = result instanceof Uint8Array
+      ? result
+      : (result?.signature ?? result);
     _cachedAuth = {
       adminWallet,
       adminSignature: Array.from(signatureBytes),
