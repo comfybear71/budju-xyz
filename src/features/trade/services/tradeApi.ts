@@ -719,19 +719,16 @@ export async function fetchTraderState(): Promise<TraderState | null> {
   });
 }
 
-/** Save trader state (admin only — partial updates, requires Ed25519 signature) */
+/** Save trader state (admin only — partial updates, wallet must be in ADMIN_WALLETS) */
 export async function saveTraderState(
   adminWallet: string,
   updates: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const auth = await getAdminAuth(adminWallet);
-    if (!auth) return { success: false, error: "Admin signature required" };
-
     const res = await fetchWithRetry("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...auth, ...updates }),
+      body: JSON.stringify({ adminWallet, ...updates }),
     });
     const data = await res.json();
     // Invalidate cached trader state so next fetch gets fresh data

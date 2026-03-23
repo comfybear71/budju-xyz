@@ -511,10 +511,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/state':
-                # Admin-only: requires cryptographic signature verification
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                # Admin-only: wallet must be in ADMIN_WALLETS
+                admin_wallet = body.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
                 # Accept partial updates — only overwrite keys that are sent
