@@ -71,8 +71,8 @@ const App = () => {
     <>
     <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-      <ThemeProvider>
-        <WalletProvider>
+      <WalletProvider>
+        <ThemeProvider>
           <ErrorBoundary>
           <Suspense fallback={<LoadingFallback />}>
             <Layout>
@@ -96,8 +96,8 @@ const App = () => {
             </Layout>
           </Suspense>
           </ErrorBoundary>
-        </WalletProvider>
-      </ThemeProvider>
+        </ThemeProvider>
+      </WalletProvider>
     </BrowserRouter>
     </QueryClientProvider>
     <Analytics />

@@ -3,8 +3,15 @@ import React, {
   useContext,
   useState,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
+import { useWallet } from "@hooks/useWallet";
+import {
+  fetchUserPreferences,
+  saveUserPreferences,
+  CartItemData,
+} from "@lib/services/preferencesApi";
 
 // Product type definition
 export interface Product {
@@ -193,12 +200,46 @@ const sampleProducts: Product[] = [
   },
 ];
 
+/** Convert CartItem[] to the minimal shape stored in DB */
+function cartToDbFormat(items: CartItem[]): CartItemData[] {
+  return items.map((item) => ({
+    productId: item.product.id,
+    quantity: item.quantity,
+    selectedColor: item.selectedColor,
+    selectedSize: item.selectedSize,
+  }));
+}
+
+/** Rehydrate DB cart data back into full CartItem[] using the product catalog */
+function dbToCartItems(
+  dbCart: CartItemData[],
+  products: Product[],
+): CartItem[] {
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  return dbCart
+    .map((item) => {
+      const product = productMap.get(item.productId);
+      if (!product) return null;
+      return {
+        product,
+        quantity: item.quantity,
+        selectedColor: item.selectedColor,
+        selectedSize: item.selectedSize,
+      };
+    })
+    .filter((item): item is CartItem => item !== null);
+}
+
 // Provider component
 export const ProductProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
   const [products] = useState<Product[]>(sampleProducts);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const { connection } = useWallet();
+  const walletAddress = connection.wallet?.address;
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadedRef = useRef(false);
 
   // Get featured products (for showcase)
   const featuredProducts = products.filter(
@@ -272,22 +313,35 @@ export const ProductProvider: React.FC<{ children: ReactNode }> = ({
     setCartItems([]);
   };
 
-  // Load cart from localStorage on initial render
+  // Load cart from DB when wallet connects
   useEffect(() => {
-    const savedCart = localStorage.getItem("budjuCart");
-    if (savedCart) {
-      try {
-        setCartItems(JSON.parse(savedCart));
-      } catch (error) {
-        console.error("Failed to parse saved cart:", error);
-      }
+    if (!walletAddress) {
+      loadedRef.current = false;
+      return;
     }
-  }, []);
+    let cancelled = false;
+    fetchUserPreferences(walletAddress).then((prefs) => {
+      if (!cancelled && prefs?.cart && Array.isArray(prefs.cart)) {
+        setCartItems(dbToCartItems(prefs.cart, products));
+      }
+      loadedRef.current = true;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [walletAddress, products]);
 
-  // Save cart to localStorage when it changes
+  // Save cart to DB (debounced) when it changes
   useEffect(() => {
-    localStorage.setItem("budjuCart", JSON.stringify(cartItems));
-  }, [cartItems]);
+    if (!walletAddress || !loadedRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      saveUserPreferences(walletAddress, { cart: cartToDbFormat(cartItems) });
+    }, 500);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [cartItems, walletAddress]);
 
   return (
     <ProductContext.Provider

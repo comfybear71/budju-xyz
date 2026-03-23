@@ -114,17 +114,8 @@ export class AutoTrader {
   tradeLog: TradeLogEntry[] = [];
   recentTrades: Record<string, RecentTrade> = {};
 
-  // Device ownership — persist deviceId so page refreshes keep the same identity
-  private _deviceId = (() => {
-    if (typeof localStorage !== "undefined") {
-      const stored = localStorage.getItem("budju_bot_device_id");
-      if (stored) return stored;
-      const id = Math.random().toString(36).substring(2, 10);
-      localStorage.setItem("budju_bot_device_id", id);
-      return id;
-    }
-    return Math.random().toString(36).substring(2, 10);
-  })();
+  // Device ownership — generate fresh ID each session (tab identification only)
+  private _deviceId = Math.random().toString(36).substring(2, 10);
   private _isOwner = false;
   private _checkCount = 0;
 
@@ -201,15 +192,12 @@ export class AutoTrader {
       tier3: { deviation: 2, allocation: 5 },
     };
     this.tierSettings = {} as any;
-    // Also load localStorage as fallback in case a previous DB save failed
-    const lsFallback = this._loadSettingsFromLocalStorage() || {};
     for (let t = 1; t <= 3; t++) {
       const key = `tier${t}`;
       const db = dbTiers[key] || {};
-      const ls = lsFallback[key] || {};
       this.tierSettings[key] = {
-        deviation: db.deviation != null ? Number(db.deviation) : (ls.deviation != null ? Number(ls.deviation) : defaults[key].deviation),
-        allocation: db.allocation != null ? Number(db.allocation) : (ls.allocation != null ? Number(ls.allocation) : defaults[key].allocation),
+        deviation: db.deviation != null ? Number(db.deviation) : defaults[key].deviation,
+        allocation: db.allocation != null ? Number(db.allocation) : defaults[key].allocation,
       };
     }
 
@@ -386,7 +374,7 @@ export class AutoTrader {
 
   // ── Tier Settings Update ────────────────────────────────
 
-  /** Update tier settings in memory + localStorage only. Call saveTierSettingsNow() to persist to DB. */
+  /** Update tier settings in memory. Call saveTierSettingsNow() to persist to DB. */
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
     const current = this.tierSettings[key];
@@ -394,9 +382,6 @@ export class AutoTrader {
 
     const oldDeviation = current.deviation;
     Object.assign(current, settings);
-
-    // Save to localStorage immediately so values survive page refresh
-    this._saveSettingsToLocalStorage();
 
     // If deviation changed and tier is active, recalculate all targets for this tier
     if (settings.deviation !== undefined && settings.deviation !== oldDeviation && this.tierActive[tierNum]) {
@@ -1063,8 +1048,6 @@ export class AutoTrader {
       const result = await saveTraderState(this._adminWallet, { autoTiers });
       if (result.success) {
         this._pendingTierSave = false;
-        // Sync localStorage to match what's now in DB
-        this._saveSettingsToLocalStorage();
       } else {
         this._pendingTierSave = true;
         this._log(`Tier settings save failed: ${result.error || "unknown"} — cached locally`, "error");
@@ -1072,30 +1055,6 @@ export class AutoTrader {
     } catch (err: any) {
       this._pendingTierSave = true;
       this._log(`Tier settings save error: ${err.message || "unknown"} — cached locally`, "error");
-    }
-  }
-
-  /** Save tier settings to localStorage as immediate backup */
-  private _saveSettingsToLocalStorage() {
-    try {
-      const data: Record<string, TierSettings> = {};
-      for (let t = 1; t <= 3; t++) {
-        data[`tier${t}`] = { ...this.tierSettings[`tier${t}`] };
-      }
-      localStorage.setItem("budju_tier_settings", JSON.stringify(data));
-    } catch {
-      // localStorage full or unavailable — not critical
-    }
-  }
-
-  /** Load tier settings from localStorage (fallback when DB save failed) */
-  private _loadSettingsFromLocalStorage(): Record<string, TierSettings> | null {
-    try {
-      const raw = localStorage.getItem("budju_tier_settings");
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
     }
   }
 

@@ -241,15 +241,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
 
       setConnection({ ...connectionState, wallet: walletAdapter });
 
-      if (connectionState.connected && connectionState.wallet) {
-        localStorage.setItem(
-          "budjuWalletAddress",
-          connectionState.wallet.address,
-        );
-        localStorage.setItem("budjuWalletName", connectionState.wallet.name);
-        localStorage.setItem("budjuWalletConnected", "true");
-      }
-
       if (connectionState.error) setError(connectionState.error);
     } catch (error) {
       console.error("Error connecting to wallet:", error);
@@ -271,9 +262,6 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         network: "",
         error: null,
       });
-      localStorage.removeItem("budjuWalletAddress");
-      localStorage.removeItem("budjuWalletName");
-      localStorage.removeItem("budjuWalletConnected");
       setError(null);
     } catch (error) {
       console.error("Error disconnecting from wallet:", error);

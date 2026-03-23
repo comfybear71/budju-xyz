@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
+import { useWallet } from "@hooks/useWallet";
+import { fetchUserPreferences, saveUserPreferences } from "@lib/services/preferencesApi";
 
 interface ThemeContextType {
   isDarkMode: boolean;
@@ -7,24 +9,32 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-function getInitialTheme(): boolean {
-  if (typeof localStorage !== "undefined") {
-    const stored = localStorage.getItem("budju_dark_mode");
-    if (stored !== null) return stored === "true";
-  }
-  return true; // Default to dark mode
-}
-
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [isDarkMode, setIsDarkMode] = useState(getInitialTheme);
+  const [isDarkMode, setIsDarkMode] = useState(true); // Default to dark mode
+  const { connection } = useWallet();
+  const walletAddress = connection.wallet?.address;
 
-  const toggleTheme = () => {
+  // Load theme from DB when wallet connects
+  useEffect(() => {
+    if (!walletAddress) return;
+    let cancelled = false;
+    fetchUserPreferences(walletAddress).then((prefs) => {
+      if (!cancelled && prefs && prefs.darkMode !== undefined) {
+        setIsDarkMode(prefs.darkMode);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [walletAddress]);
+
+  const toggleTheme = useCallback(() => {
     setIsDarkMode((prev) => {
       const next = !prev;
-      try { localStorage.setItem("budju_dark_mode", String(next)); } catch {}
+      if (walletAddress) {
+        saveUserPreferences(walletAddress, { darkMode: next });
+      }
       return next;
     });
-  };
+  }, [walletAddress]);
 
   return (
     <ThemeContext.Provider value={{ isDarkMode, toggleTheme }}>

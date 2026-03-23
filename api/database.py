@@ -33,6 +33,7 @@ deposits_collection = db["deposits"]
 withdrawals_collection = db["withdrawals"]
 trader_state_collection = db["trader_state"]
 pool_state_collection = db["pool_state"]
+user_preferences_collection = db["user_preferences"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -43,6 +44,7 @@ trades_collection.create_index("swyftxId", unique=True, sparse=True)
 withdrawals_collection.create_index([("userId", 1), ("timestamp", -1)])
 trades_collection.create_index([("coin", 1), ("timestamp", -1)])
 users_collection.create_index([("isActive", 1), ("shares", -1)])
+user_preferences_collection.create_index("walletAddress", unique=True)
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -625,6 +627,33 @@ def save_trader_state(state: Dict) -> Dict:
     trader_state_collection.update_one(
         {"_id": "admin_state"},
         {"$set": state},
+        upsert=True
+    )
+    return {"success": True}
+
+
+# ── User Preferences (per-wallet) ──────────────────────────────────────────
+
+def get_user_preferences(wallet_address: str) -> Dict:
+    """Get user preferences by wallet address."""
+    doc = user_preferences_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        return {"walletAddress": wallet_address, "darkMode": True, "cart": []}
+    doc.pop("_id", None)
+    return doc
+
+
+def save_user_preferences(wallet_address: str, updates: Dict) -> Dict:
+    """Save user preferences (partial update). Allowed keys: darkMode, cart."""
+    allowed_keys = {"darkMode", "cart"}
+    filtered = {k: v for k, v in updates.items() if k in allowed_keys}
+    if not filtered:
+        return {"success": False, "error": "No valid preference keys provided"}
+
+    filtered["updatedAt"] = datetime.utcnow().isoformat()
+    user_preferences_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": filtered, "$setOnInsert": {"walletAddress": wallet_address, "createdAt": datetime.utcnow().isoformat()}},
         upsert=True
     )
     return {"success": True}

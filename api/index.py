@@ -32,7 +32,9 @@ from database import (
     sync_trades_from_swyftx,
     admin_import_user,
     recalibrate_pool,
-    verify_wallet_signature
+    verify_wallet_signature,
+    get_user_preferences,
+    save_user_preferences
 )
 
 from perp_engine import (
@@ -205,6 +207,14 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 self._send_json(200, portfolio)
+
+            elif path == '/api/user/preferences':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                prefs = get_user_preferences(wallet)
+                self._send_json(200, prefs)
 
             elif path == '/api/user/deposits':
                 wallet = params.get('wallet')
@@ -441,6 +451,18 @@ class handler(BaseHTTPRequestHandler):
                 # Signature verification is optional — allows simple registration on connect
                 user_data = register_user(wallet_address, signature, message)
                 self._send_json(200, user_data)
+
+            elif path == '/api/user/preferences':
+                wallet_address = body.get('walletAddress')
+                preferences = body.get('preferences')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                if not preferences or not isinstance(preferences, dict):
+                    self._send_json(400, {"error": "preferences object required"})
+                    return
+                result = save_user_preferences(wallet_address, preferences)
+                self._send_json(200, result)
 
             elif path == '/api/user-deposit':
                 # User self-service deposit — user sends USDC on-chain, then records here
