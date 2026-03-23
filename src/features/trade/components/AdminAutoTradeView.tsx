@@ -85,6 +85,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
         const target = snapshot.targets[coin];
         const inCooldown = autoTrader._isOnCooldown(coin);
         const recentTrade = autoTrader.getRecentTrade(coin);
+        const diag = snapshot.coinDiagnostics[coin];
+        const cronDiag = snapshot.cronDiagnostics[coin];
         items.push({
           coin,
           tierNum: t,
@@ -97,6 +99,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
           inCooldown,
           hasTarget: !!target,
           recentTrade,
+          diagnostic: diag?.reason || cronDiag || null,
+          diagLevel: diag?.level || (cronDiag ? "warn" : null),
         });
       }
     }
@@ -267,6 +271,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
             {botActive && snapshot.isOwner && (
               <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
                 OWNER
+              </span>
+            )}
+            {botActive && !snapshot.isOwner && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-yellow-500/15 text-yellow-400">
+                CRON-MANAGED
               </span>
             )}
           </div>
@@ -750,22 +759,37 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                           </span>
                         </div>
                       ) : item.hasTarget && !item.inCooldown ? (
-                        <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                          <span className="text-[9px] font-mono" style={{
-                            color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
-                              : isHot ? "#f97316"
-                              : "#64748b",
-                          }}>
-                            {nearestPct.toFixed(1)}% to {nearestSide}
-                          </span>
-                          {estAmount > 0 && (
+                        <div className="space-y-1 mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                          <div className="flex justify-between items-center">
                             <span className="text-[9px] font-mono" style={{
                               color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
                                 : isHot ? "#f97316"
                                 : "#64748b",
                             }}>
-                              ~{formatPrice(estAmount)} {nearestSide === "buy" ? "USDC" : "value"}
+                              {nearestPct.toFixed(1)}% to {nearestSide}
                             </span>
+                            {estAmount > 0 && (
+                              <span className="text-[9px] font-mono" style={{
+                                color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
+                                  : isHot ? "#f97316"
+                                  : "#64748b",
+                              }}>
+                                ~{formatPrice(estAmount)} {nearestSide === "buy" ? "USDC" : "value"}
+                              </span>
+                            )}
+                          </div>
+                          {/* Diagnostic reason when trade should fire but isn't */}
+                          {item.diagnostic && isCritical && (
+                            <div className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
+                              background: item.diagLevel === "error" ? "rgba(239,68,68,0.12)"
+                                : item.diagLevel === "warn" ? "rgba(234,179,8,0.12)"
+                                : "rgba(100,116,139,0.12)",
+                              color: item.diagLevel === "error" ? "#f87171"
+                                : item.diagLevel === "warn" ? "#facc15"
+                                : "#94a3b8",
+                            }}>
+                              {item.diagnostic}
+                            </div>
                           )}
                         </div>
                       ) : null}

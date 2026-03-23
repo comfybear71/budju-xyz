@@ -440,7 +440,9 @@ def run_auto_trade_check():
             trade_amount = max(trade_amount, MIN_ORDER_USDC)
 
             if usdc_balance - trade_amount < MIN_USDC_RESERVE:
-                log.append(f"{code}: BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)")
+                reason = f"BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)"
+                log.append(f"{code}: {reason}")
+                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": reason, "error": reason})
                 continue
 
             quantity = round(trade_amount / current_price, 8)
@@ -450,6 +452,7 @@ def run_auto_trade_check():
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
             if not cb_ok:
                 log.append(f"{code}: BUY BLOCKED — {cb_reason}")
+                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": cb_reason, "error": cb_reason})
                 continue
 
             # Dry-run: simulate without executing
@@ -526,7 +529,9 @@ def run_auto_trade_check():
             quantity = round((sell_pct / 100) * asset_balance, 8)
 
             if quantity <= 0:
-                log.append(f"{code}: SELL signal but no balance")
+                reason = f"SELL signal but no balance on Swyftx ({code} = 0)"
+                log.append(f"{code}: {reason}")
+                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
                 continue
 
             sell_value = quantity * current_price
@@ -542,7 +547,9 @@ def run_auto_trade_check():
                     quantity = round(asset_balance, 8)
                     sell_value = quantity * current_price
                     if sell_value < MIN_ORDER_USDC:
-                        log.append(f"{code}: SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum")
+                        reason = f"SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum"
+                        log.append(f"{code}: {reason}")
+                        decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
                         continue
 
             log.append(f"{code}: SELL at ${current_price:.2f} (target ${sell_target:.2f}) — {quantity:.8f} (${sell_value:.2f})")
@@ -551,6 +558,7 @@ def run_auto_trade_check():
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
             if not cb_ok:
                 log.append(f"{code}: SELL BLOCKED — {cb_reason}")
+                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": cb_reason, "error": cb_reason})
                 continue
 
             # Dry-run: simulate without executing
@@ -640,6 +648,11 @@ def run_auto_trade_check():
         "autoActive": auto_active,
         "autoCooldowns": cooldowns,
         "autoTradeLog": trade_log,
+        "autoCronLog": {
+            "decisions": decisions,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "tradesExecuted": len(trades_executed),
+        },
     })
 
     log.append(f"Done: {len(trades_executed)} trade(s) executed")

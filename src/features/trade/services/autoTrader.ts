@@ -69,6 +69,12 @@ export interface RecentTrade {
   time: number; // Date.now() when trade executed
 }
 
+export interface CoinDiagnostic {
+  reason: string;
+  level: "info" | "warn" | "error";
+  timestamp: number;
+}
+
 export interface AutoTraderSnapshot {
   isActive: boolean;
   tierActive: Record<number, boolean>;
@@ -80,6 +86,8 @@ export interface AutoTraderSnapshot {
   recentTrades: Record<string, RecentTrade>;
   isOwner: boolean;
   deviceId: string;
+  coinDiagnostics: Record<string, CoinDiagnostic>;
+  cronDiagnostics: Record<string, string>;
 }
 
 type LogFn = (message: string, level?: "info" | "success" | "error") => void;
@@ -113,6 +121,8 @@ export class AutoTrader {
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
+  coinDiagnostics: Record<string, CoinDiagnostic> = {};
+  cronDiagnostics: Record<string, string> = {};
   recentTrades: Record<string, RecentTrade> = {};
 
   // Device ownership — generate fresh ID each session (tab identification only)
@@ -241,6 +251,19 @@ export class AutoTrader {
       price: Number(e.price) || 0,
       amount: (Number(e.qty ?? e.quantity) || 0) * (Number(e.price) || 0),
     }));
+
+    // Load cron diagnostics (saved by server-side cron for UI display)
+    const cronLog = state.autoCronLog || {};
+    this.cronDiagnostics = {};
+    if (cronLog.decisions && Array.isArray(cronLog.decisions)) {
+      for (const d of cronLog.decisions) {
+        if (d.coin && d.reason) {
+          this.cronDiagnostics[d.coin] = d.reason;
+        } else if (d.coin && d.action) {
+          this.cronDiagnostics[d.coin] = d.error || d.action;
+        }
+      }
+    }
 
     // Load bot active state and resume monitoring automatically
     if (state.autoBotActive || state._rawAutoActive) {
@@ -696,7 +719,10 @@ export class AutoTrader {
     let tradeExecuted = false;
 
     for (const code of Object.keys(this.targets)) {
-      if (this._isOnCooldown(code)) continue;
+      if (this._isOnCooldown(code)) {
+        this._setDiagnostic(code, `Cooldown: ${this.getCooldownRemaining(code)}`, "info");
+        continue;
+      }
 
       const tier = this.getTier(code);
       if (!this.tierActive[tier]) continue;
@@ -706,6 +732,8 @@ export class AutoTrader {
       const tgt = this.targets[code];
 
       if (!tgt || !currentPrice) {
+        const reason = !currentPrice ? "No price data" : "No target set";
+        this._setDiagnostic(code, reason, "error");
         this._log(`${code}: no target or price data (price=${currentPrice}, target=${!!tgt})`, "error");
         continue;
       }
@@ -715,6 +743,7 @@ export class AutoTrader {
 
       // BUY: price dropped below buy target
       if (currentPrice <= tgt.buy) {
+        this._setDiagnostic(code, "Executing BUY...", "info");
         this._log(
           `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
           "success",
@@ -724,6 +753,7 @@ export class AutoTrader {
       }
       // SELL: price rose above sell target
       else if (currentPrice >= tgt.sell) {
+        this._setDiagnostic(code, "Executing SELL...", "info");
         this._log(
           `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
           "success",
@@ -732,6 +762,7 @@ export class AutoTrader {
         tradeExecuted = true;
       }
       else {
+        this._setDiagnostic(code, `${pctToSell}% to sell, ${pctToBuy}% to buy`, "info");
         this._log(
           `${code}: $${currentPrice.toFixed(2)} — ${pctToBuy}% to buy ($${tgt.buy.toFixed(2)}), ${pctToSell}% to sell ($${tgt.sell.toFixed(2)})`,
           "info",
@@ -762,6 +793,7 @@ export class AutoTrader {
 
     const tradeAmount = (settings.allocation / 100) * usdcBalance;
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
+      this._setDiagnostic(code, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
       this._log(`Skipping ${code} buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve (alloc ${settings.allocation}%)`, "error");
       return;
     }
@@ -781,6 +813,7 @@ export class AutoTrader {
       });
 
       if (result.success) {
+        this._setDiagnostic(code, "BUY executed!", "info");
         this._log(`${code} buy executed!`, "success");
         this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
         this._setCooldown(code);
@@ -797,9 +830,11 @@ export class AutoTrader {
           "info",
         );
       } else {
+        this._setDiagnostic(code, `BUY failed: ${result.error}`, "error");
         this._log(`${code} buy failed: ${result.error}`, "error");
       }
     } catch (error: any) {
+      this._setDiagnostic(code, `BUY error: ${error.message}`, "error");
       this._log(`${code} buy error: ${error.message}`, "error");
     }
   }
@@ -812,6 +847,7 @@ export class AutoTrader {
     const quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
 
     if (quantity <= 0) {
+      this._setDiagnostic(code, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
       this._log(`Skipping ${code} sell — insufficient balance`, "error");
       return;
     }
@@ -831,6 +867,7 @@ export class AutoTrader {
       });
 
       if (result.success) {
+        this._setDiagnostic(code, "SELL executed!", "info");
         this._log(`${code} sell executed!`, "success");
         this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
         this._setCooldown(code);
@@ -847,9 +884,11 @@ export class AutoTrader {
           "info",
         );
       } else {
+        this._setDiagnostic(code, `SELL failed: ${result.error}`, "error");
         this._log(`${code} sell failed: ${result.error}`, "error");
       }
     } catch (error: any) {
+      this._setDiagnostic(code, `SELL error: ${error.message}`, "error");
       this._log(`${code} sell error: ${error.message}`, "error");
     }
   }
@@ -994,6 +1033,19 @@ export class AutoTrader {
    */
   updatePrices(prices: Record<string, number>) {
     this._cachedPrices = { ...this._cachedPrices, ...prices };
+
+    // Set diagnostics for non-owner mode so UI shows why trades aren't executing
+    if (this.isActive && !this._isOwner) {
+      for (const [code, price] of Object.entries(prices)) {
+        const tgt = this.targets[code];
+        if (!tgt || !price || this._isOnCooldown(code)) continue;
+        if (price >= tgt.sell) {
+          this._setDiagnostic(code, "Not owner — cron-managed", "warn");
+        } else if (price <= tgt.buy) {
+          this._setDiagnostic(code, "Not owner — cron-managed", "warn");
+        }
+      }
+    }
 
     if (!this.isActive || !this._isOwner || this._warmup) return;
 
@@ -1258,6 +1310,10 @@ export class AutoTrader {
 
   // ── Snapshot for UI ─────────────────────────────────────
 
+  private _setDiagnostic(code: string, reason: string, level: CoinDiagnostic["level"] = "info") {
+    this.coinDiagnostics[code] = { reason, level, timestamp: Date.now() };
+  }
+
   getSnapshot(): AutoTraderSnapshot {
     return {
       isActive: this.isActive,
@@ -1270,6 +1326,8 @@ export class AutoTrader {
       recentTrades: { ...this.recentTrades },
       isOwner: this._isOwner,
       deviceId: this._deviceId,
+      coinDiagnostics: { ...this.coinDiagnostics },
+      cronDiagnostics: { ...this.cronDiagnostics },
     };
   }
 
