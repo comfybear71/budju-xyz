@@ -262,12 +262,11 @@ export class AutoTrader {
         }
       }
 
-      // Remove coins on cooldown from targets
-      for (const code of Object.keys(this.targets)) {
-        if (this._isOnCooldown(code)) {
-          delete this.targets[code];
-        }
-      }
+      // NOTE: Do NOT delete targets for cooldown coins here.
+      // _checkPrices already skips cooldown coins, and deleting targets
+      // causes them to be permanently lost from the DB when _saveActiveState
+      // writes back. After cooldown expires, the coin would have no target
+      // and never trade again.
 
       // Device ownership check
       const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
@@ -671,6 +670,23 @@ export class AutoTrader {
     // was causing buys to be skipped ("would break $100 reserve")
     this._log("Refreshing prices...", "info");
     await this._refreshData();
+
+    // Regenerate targets for assigned coins that lost them (e.g. after
+    // cooldown expired but target was previously deleted from DB).
+    for (const [code, tier] of Object.entries(this.tierAssignments)) {
+      if (!this.tierActive[tier]) continue;
+      if (this._isOnCooldown(code)) continue;
+      if (this.targets[code]) continue; // already has target
+      const price = this._cachedPrices[code];
+      if (price && price > 0) {
+        const dev = this.getTierSettings(tier).deviation;
+        this.targets[code] = {
+          buy: price * (1 - dev / 100),
+          sell: price * (1 + dev / 100),
+        };
+        this._log(`${code}: regenerated targets — buy $${this.targets[code].buy.toFixed(2)}, sell $${this.targets[code].sell.toFixed(2)}`, "info");
+      }
+    }
 
     this._log(
       `Check #${this._checkCount}: USDC $${this._cachedUsdcBalance.toFixed(2)}, monitoring ${Object.keys(this.targets).length} coins`,

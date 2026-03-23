@@ -364,7 +364,12 @@ def run_auto_trade_check():
     cooldowns = state.get("autoCooldowns", {})
     trade_log = state.get("autoTradeLog", [])
 
-    active_coins = [c for c in targets if _is_tier_active(tier_active, _tier_num(tier_assignments.get(c)))]
+    # Build active coins from tier assignments (not just targets) so coins
+    # that lost their targets after cooldown are still included.
+    active_coins = [
+        c for c, t in tier_assignments.items()
+        if _is_tier_active(tier_active, _tier_num(t))
+    ]
     log.append(f"Monitoring {len(active_coins)} coins: {', '.join(sorted(active_coins))}")
 
     # 2. Fetch prices from CoinGecko
@@ -391,11 +396,7 @@ def run_auto_trade_check():
     trades_executed = []
     decisions = []  # Structured log of every decision for debugging
 
-    for code in list(targets.keys()):
-        tgt = targets.get(code)
-        if not isinstance(tgt, dict):
-            continue
-
+    for code in active_coins:
         # Skip if on cooldown
         cooldown_expiry = cooldowns.get(code, 0)
         if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
@@ -406,13 +407,24 @@ def run_auto_trade_check():
         elif cooldown_expiry and isinstance(cooldown_expiry, (int, float)) and cooldown_expiry <= now_ms:
             del cooldowns[code]
 
-        # Check tier is active
         tier_num = _tier_num(tier_assignments.get(code))
-        if not _is_tier_active(tier_active, tier_num):
-            continue
-
         settings = _tier_settings(tier_assets, tier_num)
         current_price = prices.get(code, 0)
+
+        # Regenerate target if missing (e.g. lost after cooldown expiry)
+        tgt = targets.get(code)
+        if (not isinstance(tgt, dict) or not tgt) and current_price > 0:
+            dev = settings["deviation"]
+            tgt = {
+                "buy": current_price * (1 - dev / 100),
+                "sell": current_price * (1 + dev / 100),
+            }
+            targets[code] = tgt
+            log.append(f"{code}: regenerated targets — buy ${tgt['buy']:.4f}, sell ${tgt['sell']:.4f}")
+
+        if not isinstance(tgt, dict):
+            continue
+
         buy_target = float(tgt.get("buy", 0))
         sell_target = float(tgt.get("sell", 0))
 
