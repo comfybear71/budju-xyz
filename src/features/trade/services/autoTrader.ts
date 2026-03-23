@@ -1078,7 +1078,9 @@ export class AutoTrader {
       if (result.success) {
         this._pendingTierSave = false;
       } else {
-        this._pendingTierSave = true;
+        // Don't retry on signature denial — user explicitly rejected or wallet unavailable
+        const isAuthError = result.error?.includes("signature") || result.error?.includes("Admin");
+        this._pendingTierSave = !isAuthError;
         this._log(`Tier settings save failed: ${result.error || "unknown"} — cached locally`, "error");
       }
     } catch (err: any) {

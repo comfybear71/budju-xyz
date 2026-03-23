@@ -6,6 +6,7 @@ import {
   useCallback,
   ReactNode,
 } from "react";
+import { clearAdminAuth } from "@features/trade/services/tradeApi";
 import {
   ConnectionState,
   WalletName,
@@ -254,6 +255,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
   const disconnect = useCallback(async () => {
     try {
       setConnecting(true);
+      clearAdminAuth(); // Reset cached signature & denial state
       await disconnectWallet();
       setConnection({
         connected: false,

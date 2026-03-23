@@ -128,7 +128,8 @@ export const ASSET_CONFIG: Record<
 
 // ── Admin Signature Helper ────────────────────────────────
 // Signs a timestamped message with the connected wallet's Ed25519 key.
-// Cached per session — re-signs when the cached signature is > 50 min old.
+// Cached for AUTH_CACHE_MS so multiple saves within the same monitoring
+// tick reuse one Phantom popup instead of spamming the user.
 // The backend verifies this signature on all admin write endpoints.
 
 interface AdminAuth {
@@ -137,45 +138,64 @@ interface AdminAuth {
   adminMessage: string;
 }
 
+const AUTH_CACHE_MS = 5 * 60 * 1000; // 5 minutes
+let _cachedAuth: AdminAuth | null = null;
+let _cachedAuthTime = 0;
+/** True when the user denied the last signature request — prevents retry loops */
+let _signatureDenied = false;
+
 function _getWalletProvider(): any {
   return getWalletProvider();
 }
 
 /**
  * Get admin auth fields (signature + message) for an admin API request.
- * Generates a fresh timestamp + signature each time so the backend nonce
- * check never rejects a reused message. The wallet adapter typically
- * auto-approves signMessage within a connected session.
- * Returns null if the wallet provider doesn't support signMessage.
+ * Caches the signature for AUTH_CACHE_MS to avoid repeated Phantom popups
+ * during the monitoring loop. If the user denies the signature, further
+ * requests return null until clearAdminAuth() is called (e.g. on reconnect).
  */
 export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
+  // If user denied signing, don't keep pestering them
+  if (_signatureDenied) return null;
+
+  // Return cached auth if still valid
+  if (_cachedAuth && _cachedAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_CACHE_MS) {
+    return _cachedAuth;
+  }
+
   const provider = _getWalletProvider();
   if (!provider || typeof provider.signMessage !== "function") {
     console.warn("Wallet provider does not support signMessage");
     return null;
   }
 
-  // Fresh timestamp each call — backend nonce check rejects reused messages
   const timestamp = Date.now();
   const message = `BUDJU_ADMIN:${timestamp}`;
   const encoded = new TextEncoder().encode(message);
 
   try {
     const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
-    return {
+    _cachedAuth = {
       adminWallet,
       adminSignature: Array.from(signatureBytes),
       adminMessage: message,
     };
+    _cachedAuthTime = Date.now();
+    _signatureDenied = false;
+    return _cachedAuth;
   } catch (err) {
     console.error("Admin signature request denied:", err);
+    _signatureDenied = true;
+    _cachedAuth = null;
     return null;
   }
 }
 
-/** No-op — auth is no longer cached (fresh signature per request) */
+/** Clear cached auth (call on wallet disconnect/reconnect to reset denial state) */
 export function clearAdminAuth() {
-  // Kept for API compatibility
+  _cachedAuth = null;
+  _cachedAuthTime = 0;
+  _signatureDenied = false;
 }
 
 // ── API helpers ────────────────────────────────────────────
