@@ -144,18 +144,19 @@ def fetch_portfolio():
     balances = _http_json(SWYFTX_BASE + "/user/balance/", headers=headers)
     assets_list = _http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
 
-    # Build asset ID → code map
+    # Build asset ID → code map — use String keys to avoid int/string mismatch
     asset_map = {}
     if isinstance(assets_list, list):
         for a in assets_list:
-            asset_map[a.get("id")] = a.get("code", "")
+            if a.get("id") is not None:
+                asset_map[str(a["id"])] = a.get("code", "")
 
     portfolio = {}
     usdc_balance = 0.0
 
     for item in (balances if isinstance(balances, list) else []):
         asset_id = item.get("assetId") or (item.get("asset", {}).get("id"))
-        code = item.get("asset", {}).get("code") or asset_map.get(asset_id, "")
+        code = item.get("asset", {}).get("code") or (asset_map.get(str(asset_id), "") if asset_id is not None else "")
         balance = float(item.get("availableBalance", 0) or 0)
 
         if code == "USDC":
@@ -385,7 +386,7 @@ def run_auto_trade_check():
     # 3. Fetch portfolio from Swyftx
     try:
         portfolio, usdc_balance = fetch_portfolio()
-        log.append(f"Portfolio: USDC ${usdc_balance:.2f}, {len(portfolio)} assets")
+        log.append(f"Portfolio: USDC ${usdc_balance:.2f}, {len(portfolio)} assets: {', '.join(f'{c}={b:.4f}' for c, b in sorted(portfolio.items()))}")
     except Exception as e:
         log.append(f"Portfolio fetch error: {e}")
         _save_heartbeat(auto_active, now_ms)
@@ -461,7 +462,12 @@ def run_auto_trade_check():
                 continue
 
             if code_to_id is None:
-                code_to_id = fetch_swyftx_asset_ids()
+                try:
+                    code_to_id = fetch_swyftx_asset_ids()
+                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
+                except Exception as e:
+                    log.append(f"Failed to load asset ID map: {e}")
+                    code_to_id = {}
 
             ok, order_id, err = place_market_order(code, "buy", trade_amount, code_to_id)
 
@@ -567,7 +573,12 @@ def run_auto_trade_check():
                 continue
 
             if code_to_id is None:
-                code_to_id = fetch_swyftx_asset_ids()
+                try:
+                    code_to_id = fetch_swyftx_asset_ids()
+                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
+                except Exception as e:
+                    log.append(f"Failed to load asset ID map: {e}")
+                    code_to_id = {}
 
             ok, order_id, err = place_market_order(code, "sell", sell_value, code_to_id)
 
