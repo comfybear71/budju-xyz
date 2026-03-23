@@ -30,6 +30,7 @@ import {
   type PortfolioAsset,
   type TraderState,
 } from "./tradeApi";
+import { CODE_TO_BINANCE } from "@lib/services/binanceWs";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -940,10 +941,15 @@ export class AutoTrader {
       // from a failed Swyftx call was silently blocking every buy.
       clearCacheKeys("portfolio", "prices", "cash");
 
-      // Snapshot current WebSocket prices before fetching API prices.
-      // WebSocket prices are real-time; CoinGecko prices lag by up to 30s.
-      // We use API prices as a base, then overlay the fresher WS prices.
-      const wsPrices = { ...this._cachedPrices };
+      // Snapshot only WebSocket-connected prices before the API call.
+      // WS prices are sub-second; CoinGecko lags up to 30s. For non-WS
+      // coins we WANT the fresh API price, so we only preserve WS ones.
+      const wsPrices: Record<string, number> = {};
+      for (const code of Object.keys(CODE_TO_BINANCE)) {
+        if (this._cachedPrices[code]) {
+          wsPrices[code] = this._cachedPrices[code];
+        }
+      }
 
       const [assets, apiPrices, cash] = await Promise.all([
         fetchPortfolio(),
@@ -951,8 +957,15 @@ export class AutoTrader {
         fetchCashBalances(),
       ]);
       this._cachedAssets = assets;
-      // Start with API prices, then overlay WebSocket prices (more current)
-      this._cachedPrices = { ...apiPrices, ...wsPrices };
+      // API prices as base, then overlay real-time WebSocket prices.
+      // Also capture any WS updates that arrived during the API call.
+      const freshWs: Record<string, number> = {};
+      for (const code of Object.keys(CODE_TO_BINANCE)) {
+        if (this._cachedPrices[code]) {
+          freshWs[code] = this._cachedPrices[code];
+        }
+      }
+      this._cachedPrices = { ...apiPrices, ...wsPrices, ...freshWs };
       this._cachedUsdcBalance = cash.usdc;
     } catch (error: any) {
       this._log(`Data refresh error: ${error.message}`, "error");
