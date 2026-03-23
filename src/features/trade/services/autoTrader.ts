@@ -414,11 +414,11 @@ export class AutoTrader {
   }
 
   /** Save only a single tier's settings (deviation + allocation) to DB. Returns true on success. */
-  async saveTierSettingsForTier(tierNum: number): Promise<boolean> {
-    if (!this._adminWallet) return false;
+  async saveTierSettingsForTier(tierNum: number): Promise<{ ok: boolean; error?: string }> {
+    if (!this._adminWallet) return { ok: false, error: "No admin wallet connected" };
     const key = `tier${tierNum}`;
     const settings = this.tierSettings[key];
-    if (!settings) return false;
+    if (!settings) return { ok: false, error: "Tier settings not found" };
 
     try {
       const autoTiers: Record<string, any> = {
@@ -431,14 +431,16 @@ export class AutoTrader {
       const result = await saveTraderState(this._adminWallet, { autoTiers });
       if (result.success) {
         this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%)`, "info");
-        return true;
+        return { ok: true };
       } else {
-        this._log(`Tier ${tierNum} settings save failed: ${result.error || "unknown"}`, "error");
-        return false;
+        const error = result.error || "Unknown server error";
+        this._log(`Tier ${tierNum} settings save failed: ${error}`, "error");
+        return { ok: false, error };
       }
     } catch (err: any) {
-      this._log(`Tier ${tierNum} settings save error: ${err.message || "unknown"}`, "error");
-      return false;
+      const error = err.message || "Network error";
+      this._log(`Tier ${tierNum} settings save error: ${error}`, "error");
+      return { ok: false, error };
     }
   }
 

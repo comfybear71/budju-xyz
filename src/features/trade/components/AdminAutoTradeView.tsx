@@ -118,6 +118,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const [tierError, setTierError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
+  const [saveError, setSaveError] = useState<Record<number, string>>({});
 
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
@@ -150,13 +151,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleSaveSettings = async (tierNum: number) => {
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
-    const ok = await autoTrader.saveTierSettingsForTier(tierNum);
-    if (ok) {
+    setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
+    const result = await autoTrader.saveTierSettingsForTier(tierNum);
+    if (result.ok) {
       setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
       setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 3000);
     } else {
       setSaveStatus((prev) => ({ ...prev, [tierNum]: "error" }));
-      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 4000);
+      setSaveError((prev) => ({ ...prev, [tierNum]: result.error || "Unknown error" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 6000);
     }
   };
 
@@ -432,7 +435,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                         ) : status === "saved" ? (
                           <><FaCheck size={10} /> Saved to DB</>
                         ) : status === "error" ? (
-                          <>Save Failed — Retry</>
+                          <>Failed: {saveError[tier.num] || "Unknown"} — Tap to Retry</>
                         ) : (
                           <><FaSave size={10} /> Save Settings</>
                         )}

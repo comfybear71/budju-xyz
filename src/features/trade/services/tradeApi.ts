@@ -732,7 +732,7 @@ export async function saveTraderState(
     const data = await res.json();
     // Invalidate cached trader state so next fetch gets fresh data
     delete cache["trader_state"];
-    return { success: res.ok, error: res.ok ? undefined : data.error };
+    return { success: res.ok, error: res.ok ? undefined : (data.error || `Server error (${res.status})`) };
   } catch (err: any) {
     return { success: false, error: err.message || "Save failed" };
   }
