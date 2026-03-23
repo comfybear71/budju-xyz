@@ -202,6 +202,11 @@ export function clearAdminAuth() {
   _signatureDenied = false;
 }
 
+/** Reset only the denied flag so cached auth can be reused without a new popup */
+export function resetAdminAuthDenied() {
+  _signatureDenied = false;
+}
+
 // ── API helpers ────────────────────────────────────────────
 
 async function fetchWithRetry(

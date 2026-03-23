@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, clearAdminAuth, fetchSwyftxOrderHistory } from "../services/tradeApi";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
 interface Props {
@@ -118,14 +118,26 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
   // Use Swyftx trades (actual exchange data) for the trade log
-  const tradeLog = swyftxTrades.map((t: any) => ({
-    time: t.timestamp || "",
-    coin: t.coin || "",
-    side: (t.type === "sell" ? "SELL" : "BUY") as "BUY" | "SELL",
-    quantity: t.quantity || 0,
-    price: t.trigger || t.price || 0,
-    amount: (t.quantity || 0) * (t.trigger || t.price || 0),
-  }));
+  // Swyftx BUY: 'quantity' = AUD spent, 'amount' = crypto received
+  // Swyftx SELL: 'quantity' = crypto sold, total AUD = quantity * price
+  const tradeLog = swyftxTrades.map((t: any) => {
+    const price = t.trigger || t.price || 0;
+    const isSell = t.type === "sell";
+    const cryptoQty = isSell
+      ? (t.quantity || 0)
+      : (price > 0 ? (t.quantity || 0) / price : (t.amount || 0));
+    const audTotal = isSell
+      ? (t.quantity || 0) * price
+      : (t.quantity || 0); // quantity IS the AUD amount for buys
+    return {
+      time: t.timestamp || "",
+      coin: t.coin || "",
+      side: (isSell ? "SELL" : "BUY") as "BUY" | "SELL",
+      quantity: cryptoQty,
+      price,
+      amount: audTotal,
+    };
+  });
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
   const assignedCoins = getAssignedCoins();
@@ -166,7 +178,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const handleSaveSettings = async (tierNum: number) => {
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
     setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
-    clearAdminAuth(); // Reset denied state so retry prompts for signature again
+    resetAdminAuthDenied(); // Reset denied state so retry prompts for signature again
     const result = await autoTrader.saveTierSettingsForTier(tierNum);
     if (result.ok) {
       setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
@@ -189,7 +201,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleSyncTrades = async () => {
     setSyncStatus("Syncing...");
-    clearAdminAuth(); // Reset denied state so cached auth refreshes if needed
+    resetAdminAuthDenied(); // Reset denied state so auth retries if previously denied
     const result = await syncSwyftxTradesToDB(adminWallet);
     if (result) {
       if (result.error) {
@@ -811,7 +823,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
               <div className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
                 {tradeLog.slice(0, 20).map((entry, i) => {
                   const isSell = entry.side === "SELL";
-                  const total = entry.quantity * entry.price;
+                  const total = entry.amount;
                   const coinCfg = ASSET_CONFIG[entry.coin] || { color: "#64748b" };
                   return (
                     <div key={i} className="flex items-center justify-between px-2.5 py-2">

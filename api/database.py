@@ -857,10 +857,17 @@ def sync_trades_from_swyftx(trades: List[Dict]) -> Dict:
         except (ValueError, TypeError):
             ts = datetime.utcnow()
 
+        # Swyftx BUY: quantity = AUD spent; SELL: quantity = crypto sold
+        # Store 'amount' as AUD value for consistency
+        if trade_type == "buy":
+            aud_amount = quantity  # quantity IS the AUD amount for buys
+        else:
+            aud_amount = quantity * price if price > 0 else amount
+
         trade_doc = {
             "coin": coin,
             "type": trade_type,
-            "amount": quantity if quantity > 0 else amount,
+            "amount": aud_amount,
             "price": price,
             "timestamp": ts,
             "swyftxId": swyftx_id,
