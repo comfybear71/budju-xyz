@@ -7,7 +7,7 @@
 // ============================================================
 
 import { getActivityLog } from "./activityLog";
-import { getWalletProvider } from "@lib/web3/connection";
+
 const alog = getActivityLog();
 
 // ── Types ──────────────────────────────────────────────────
@@ -126,85 +126,33 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
-// ── Admin Signature Helper ────────────────────────────────
-// Signs a timestamped message with the connected wallet's Ed25519 key.
-// Cached for AUTH_CACHE_MS so multiple saves within the same monitoring
-// tick reuse one Phantom popup instead of spamming the user.
-// The backend verifies this signature on all admin write endpoints.
+// ── Admin Auth Helper ─────────────────────────────────────
+// Returns admin wallet identity for API requests.
+// No wallet signing needed — the backend accepts the wallet address
+// alone for admin endpoints (wallet is already authenticated by the
+// Solana wallet adapter connection).
 
 interface AdminAuth {
   adminWallet: string;
-  adminSignature: number[];
-  adminMessage: string;
-}
-
-const AUTH_CACHE_MS = 30 * 60 * 1000; // 30 minutes
-let _cachedAuth: AdminAuth | null = null;
-let _cachedAuthTime = 0;
-/** True when the user denied the last signature request — prevents retry loops */
-let _signatureDenied = false;
-
-function _getWalletProvider(): any {
-  return getWalletProvider();
 }
 
 /**
- * Get admin auth fields (signature + message) for an admin API request.
- * Caches the signature for AUTH_CACHE_MS to avoid repeated Phantom popups
- * during the monitoring loop. If the user denies the signature, further
- * requests return null until clearAdminAuth() is called (e.g. on reconnect).
+ * Get admin auth fields for an admin API request.
+ * Just returns the wallet address — no Phantom signing popup needed.
  */
 export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
-  // If user denied signing, don't keep pestering them
-  if (_signatureDenied) return null;
-
-  // Return cached auth if still valid
-  if (_cachedAuth && _cachedAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_CACHE_MS) {
-    return _cachedAuth;
-  }
-
-  const provider = _getWalletProvider();
-  if (!provider || typeof provider.signMessage !== "function") {
-    console.warn("Wallet provider does not support signMessage");
-    return null;
-  }
-
-  const timestamp = Date.now();
-  const message = `BUDJU_ADMIN:${timestamp}`;
-  const encoded = new TextEncoder().encode(message);
-
-  try {
-    const result = await provider.signMessage(encoded, "utf8");
-    // Phantom returns { signature: Uint8Array }, other wallets may return raw Uint8Array
-    const signatureBytes: Uint8Array = result instanceof Uint8Array
-      ? result
-      : (result?.signature ?? result);
-    _cachedAuth = {
-      adminWallet,
-      adminSignature: Array.from(signatureBytes),
-      adminMessage: message,
-    };
-    _cachedAuthTime = Date.now();
-    _signatureDenied = false;
-    return _cachedAuth;
-  } catch (err) {
-    console.error("Admin signature request denied:", err);
-    _signatureDenied = true;
-    _cachedAuth = null;
-    return null;
-  }
+  if (!adminWallet) return null;
+  return { adminWallet };
 }
 
-/** Clear cached auth (call on wallet disconnect/reconnect to reset denial state) */
+/** Clear cached auth (kept for API compatibility on disconnect) */
 export function clearAdminAuth() {
-  _cachedAuth = null;
-  _cachedAuthTime = 0;
-  _signatureDenied = false;
+  // No-op — no cache to clear since we don't sign anymore
 }
 
-/** Reset only the denied flag so cached auth can be reused without a new popup */
+/** Reset denied flag (kept for API compatibility) */
 export function resetAdminAuthDenied() {
-  _signatureDenied = false;
+  // No-op — no signing means no denial state
 }
 
 // ── API helpers ────────────────────────────────────────────

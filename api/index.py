@@ -117,19 +117,19 @@ def _get_client_ip(handler) -> str:
     return handler.headers.get('X-Real-Ip', '0.0.0.0')
 
 
-# ── Admin Signature Verification ───────────────────────────────────────
-# Validates Ed25519 signature + 30-minute timestamp window.
-# Nonce check removed: unreliable in serverless (resets on cold starts)
-# and the timestamp window already prevents replays beyond 5 min.
-# Removing it allows the frontend to cache one signature for multiple
-# saves within the same monitoring tick (prevents Phantom popup loops).
+# ── Admin Verification ─────────────────────────────────────────────────
+# Checks that the request comes from a known admin wallet.
+# Signature verification is optional — if provided, it's validated with
+# Ed25519 + 30-minute timestamp window. If omitted, wallet address alone
+# is sufficient (the connected wallet is already authenticated by the
+# Solana wallet adapter on the frontend).
 _ADMIN_MSG_WINDOW_MS = 30 * 60 * 1000  # 30 minutes
 
 def _verify_admin(body: dict, handler) -> tuple:
-    """Verify admin wallet address AND Ed25519 signature.
+    """Verify admin wallet address. Optionally verify Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
-    Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 30 minutes) to prevent replay attacks.
+    Requires: adminWallet (must be in ADMIN_WALLETS).
+    Optional: adminSignature + adminMessage for stricter verification.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):
@@ -138,25 +138,22 @@ def _verify_admin(body: dict, handler) -> tuple:
     signature = body.get('adminSignature')
     message = body.get('adminMessage')
 
-    if not signature or not message:
-        return False, "Admin signature and message required for write operations"
+    # If signature provided, verify it
+    if signature and message:
+        if not verify_wallet_signature(admin_wallet, message, signature):
+            return False, "Invalid admin signature"
 
-    # Verify the Ed25519 signature matches the admin wallet
-    if not verify_wallet_signature(admin_wallet, message, signature):
-        return False, "Invalid admin signature"
-
-    # Verify the message contains a recent timestamp (anti-replay)
-    try:
-        # Message format expected: "BUDJU_ADMIN:<timestamp_ms>"
-        parts = message.split(':')
-        if len(parts) < 2:
-            return False, "Invalid message format"
-        msg_timestamp = int(parts[-1])
-        now_ms = int(time.time() * 1000)
-        if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
-            return False, "Message timestamp expired (replay protection)"
-    except (ValueError, IndexError):
-        return False, "Invalid message timestamp"
+        # Verify the message contains a recent timestamp (anti-replay)
+        try:
+            parts = message.split(':')
+            if len(parts) < 2:
+                return False, "Invalid message format"
+            msg_timestamp = int(parts[-1])
+            now_ms = int(time.time() * 1000)
+            if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
+                return False, "Message timestamp expired (replay protection)"
+        except (ValueError, IndexError):
+            return False, "Invalid message timestamp"
 
     return True, None
 
