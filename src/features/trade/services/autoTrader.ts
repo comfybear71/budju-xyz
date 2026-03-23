@@ -103,6 +103,7 @@ export const TIER_CONFIG: Record<number, TierConfig> = {
 const DEFAULT_T1 = ["BTC", "ETH", "SOL", "BNB", "XRP"];
 const COOLDOWN_HOURS = 24;
 const MIN_USDC_RESERVE = 100;
+const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
 const CHECK_INTERVAL_MS = 180_000; // 3 minutes
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
@@ -791,7 +792,7 @@ export class AutoTrader {
   private async _executeBuy(code: string, currentPrice: number, settings: TierSettings) {
     const usdcBalance = this._cachedUsdcBalance;
 
-    const tradeAmount = (settings.allocation / 100) * usdcBalance;
+    const tradeAmount = Math.max((settings.allocation / 100) * usdcBalance, MIN_ORDER_USDC);
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
       this._setDiagnostic(code, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
       this._log(`Skipping ${code} buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve (alloc ${settings.allocation}%)`, "error");
@@ -844,7 +845,7 @@ export class AutoTrader {
     const assetBalance = asset?.balance ?? 0;
 
     const sellPercent = settings.allocation * SELL_RATIO;
-    const quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
+    let quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
 
     if (quantity <= 0) {
       this._setDiagnostic(code, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
@@ -852,9 +853,30 @@ export class AutoTrader {
       return;
     }
 
-    const sellValue = quantity * currentPrice;
+    let sellValue = quantity * currentPrice;
+
+    // If below minimum order size, bump up to meet it (matching server-side cron logic)
+    if (sellValue < MIN_ORDER_USDC) {
+      const minQty = MIN_ORDER_USDC / currentPrice;
+      if (minQty <= assetBalance) {
+        // Sell enough to meet minimum
+        quantity = parseFloat(minQty.toFixed(8));
+        sellValue = quantity * currentPrice;
+        this._log(`${code}: bumped sell qty to ${quantity} to meet $${MIN_ORDER_USDC} minimum`, "info");
+      } else {
+        // Try selling entire balance
+        quantity = parseFloat(assetBalance.toFixed(8));
+        sellValue = quantity * currentPrice;
+        if (sellValue < MIN_ORDER_USDC) {
+          this._setDiagnostic(code, `SELL blocked: total holding ($${sellValue.toFixed(2)}) below $${MIN_ORDER_USDC} minimum`, "error");
+          this._log(`Skipping ${code} sell — total holding $${sellValue.toFixed(2)} below $${MIN_ORDER_USDC} minimum`, "error");
+          return;
+        }
+      }
+    }
+
     this._log(
-      `AUTO SELL: ${quantity} ${code} at $${currentPrice.toFixed(2)} (${sellPercent.toFixed(1)}% of holdings)`,
+      `AUTO SELL: ${quantity} ${code} at $${currentPrice.toFixed(2)} (${sellPercent.toFixed(1)}% of holdings, $${sellValue.toFixed(2)} USDC)`,
       "success",
     );
 
@@ -1289,7 +1311,7 @@ export class AutoTrader {
   getEstimatedBuyAmount(code: string): number {
     const settings = this.getSettings(code);
     const usdc = this._cachedUsdcBalance;
-    const amount = (settings.allocation / 100) * usdc;
+    const amount = Math.max((settings.allocation / 100) * usdc, MIN_ORDER_USDC);
     // Respect reserve
     if (usdc - amount < MIN_USDC_RESERVE) {
       return Math.max(0, usdc - MIN_USDC_RESERVE);
@@ -1304,8 +1326,18 @@ export class AutoTrader {
     const balance = asset?.balance ?? 0;
     const price = this._cachedPrices[code] || 0;
     const sellPercent = settings.allocation * SELL_RATIO;
-    const quantity = (sellPercent / 100) * balance;
-    return quantity * price;
+    let quantity = (sellPercent / 100) * balance;
+    let value = quantity * price;
+    // Match execution logic: bump to minimum if needed
+    if (value < MIN_ORDER_USDC && price > 0) {
+      const minQty = MIN_ORDER_USDC / price;
+      if (minQty <= balance) {
+        value = MIN_ORDER_USDC;
+      } else {
+        value = balance * price;
+      }
+    }
+    return value;
   }
 
   // ── Snapshot for UI ─────────────────────────────────────
