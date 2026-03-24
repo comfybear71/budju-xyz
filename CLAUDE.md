@@ -258,6 +258,11 @@ Discovered through live paper trading (March 13-14, 2026). Critical for strategy
 6. **iPhone content blockers block URLs containing "binance".** Both `api.binance.com` AND paths like `/api/binance` get blocked. Solution: proxy renamed to `/api/klines`.
 7. **Binance Global returns HTTP 451 from US IPs.** Affects Vercel servers (US region) and users with US VPN. TradingChart tries `/api/klines` proxy first, then direct Binance as fallback.
 
+## Lessons Learned (Failed Features)
+
+1. **Accumulation sparkline charts on holdings cards — FAILED & REVERTED (March 25, 2026).** 7 commits, all reverted. The MongoDB `trades` collection is EMPTY — trades are done directly on Swyftx, not recorded in MongoDB. The `/api/accumulation` endpoint returns `{}`. Do NOT attempt to build charts from this endpoint. Trade history IS available via `fetchSwyftxOrderHistory()` in `tradeApi.ts` (hits Swyftx API), but any chart implementation needs: (a) verify data exists FIRST before building UI, (b) proper sizing/design — 20px was too small, 40px was too dominant, absolute-positioned background overlays are invisible, (c) don't make 7 incremental "let me try this" commits.
+2. **The `trades` collection in MongoDB is empty.** All spot trading was done directly on Swyftx. Holdings data comes from Swyftx `/user/balance/` API via the `/portfolio/` proxy handler in `proxy.ts`. If you need trade history, use `fetchSwyftxOrderHistory()` which calls Swyftx `/orders/?limit=N` and filters for filled orders (status=4).
+
 ## Gotchas
 
 - The `vercel.json` has no-cache headers on all routes — intentional to ensure fresh deploys.

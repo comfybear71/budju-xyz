@@ -117,6 +117,20 @@ This document describes the full current state of the BUDJU project for handoff 
 - Strategy config auto-merge for existing accounts
 - UI toggle switches (replaced ON/OFF buttons)
 
+### Failed: Accumulation Sparkline Charts on Holdings Cards (March 24-25) — REVERTED
+- **Attempt:** Add sparkline area charts to each holdings card showing coin accumulation over time (e.g. BTC going from 0 → 0.0147)
+- **All changes reverted** — 7 commits made, all undone. Zero net change to codebase.
+- **Root cause of failure:** The `/api/accumulation` endpoint returns empty because the MongoDB `trades` collection has no data. Trades were done directly on Swyftx, never synced to MongoDB via `/api/trade/sync`.
+- **Mistakes made (do NOT repeat these):**
+  1. Created an AccumulationSparkline component and wired it up before verifying the API had data — should have checked data availability FIRST
+  2. Placed the sparkline as an invisible absolute-positioned background overlay behind card content — completely invisible to the user
+  3. Attempted a "live price buffer" approach using WebSocket prices — user wanted accumulation history, not live price charts
+  4. When finally using Swyftx order history (which had data), the charts rendered but looked bad — too large, too dominant, wrong visual style
+  5. Made 7 incremental commits trying different approaches instead of getting it right once
+  6. Did not ask the user to clarify what they wanted when "can't see shit" could have meant many things
+- **What would actually work:** Fetch Swyftx order history via `fetchSwyftxOrderHistory()` in tradeApi.ts (this function exists and returns filled orders with coin codes matching ASSET_CONFIG keys). Build running balance client-side. But the chart design/sizing needs to be done carefully — a subtle 20px sparkline looked bad, a 40px one was too dominant. Needs proper UI design consideration.
+- **Key data facts:** The `trades` collection in MongoDB is empty. Holdings come from Swyftx `/user/balance/` API (via `/portfolio/` proxy handler). Trade history is available via `fetchSwyftxOrderHistory()` which hits Swyftx `/orders/?limit=N` and filters for status=4 (filled).
+
 ---
 
 ## 5. Known Issues & Tech Debt
