@@ -169,7 +169,10 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
               <div className="space-y-1.5">
                 {filtered.map((tx, i) => {
                   const cfg = TYPE_ICONS[tx.type] || TYPE_ICONS.buy;
-                  const displayAmount = tx.type === "buy" || tx.type === "sell"
+                  // For BUY: amount from DB is AUD spent (don't multiply by price again)
+                  // For SELL: amount is crypto qty, multiply by price to get AUD
+                  // For deposit/withdrawal: amount is AUD directly
+                  const displayAmount = tx.type === "sell"
                     ? (tx.amount || 0) * (tx.price || 0)
                     : tx.amount || 0;
 

@@ -32,6 +32,9 @@ import walletService, {
 import { useTheme } from "@/context/ThemeContext";
 import DepositModal from "./DepositModal";
 
+// Module-level flag to track manual disconnect within this session
+let _manualDisconnect = false;
+
 const USDC_ADDRESS = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const BUDJU_REQUIRED = 10_000_000;
 
@@ -164,14 +167,14 @@ const WalletConnect = ({
       }
     };
 
-    if (!localStorage.getItem("manualDisconnect")) {
+    if (!_manualDisconnect) {
       autoConnectInAppBrowser();
     }
   }, [isMobile, inAppBrowser, connection.connected, connect]);
 
   useEffect(() => {
     if (connection.connected) {
-      localStorage.removeItem("manualDisconnect");
+      _manualDisconnect = false;
     }
   }, [connection.connected]);
 
@@ -314,7 +317,7 @@ const WalletConnect = ({
 
   const handleDisconnect = async () => {
     try {
-      localStorage.setItem("manualDisconnect", "true");
+      _manualDisconnect = true;
       await disconnect();
       setIsMenuOpen(false);
     } catch (error) {

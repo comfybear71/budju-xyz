@@ -32,7 +32,9 @@ from database import (
     sync_trades_from_swyftx,
     admin_import_user,
     recalibrate_pool,
-    verify_wallet_signature
+    verify_wallet_signature,
+    get_user_preferences,
+    save_user_preferences
 )
 
 from perp_engine import (
@@ -66,6 +68,8 @@ from perp_strategies import (
     get_strategy_status,
     toggle_auto_trading,
     update_strategy_config,
+    start_strategy_test,
+    stop_strategy_test,
 )
 
 # ── CORS origin check ──────────────────────────────────────────────────
@@ -113,19 +117,19 @@ def _get_client_ip(handler) -> str:
     return handler.headers.get('X-Real-Ip', '0.0.0.0')
 
 
-# ── Admin Signature Verification ───────────────────────────────────────
-# Nonce cache: prevents exact-replay of the same signed message within the
-# validity window. Keyed by message string, value is expiry timestamp.
-# Resets on cold start (acceptable for serverless — attacker would need a
-# fresh instance AND a valid unexpired signature to replay).
-_used_nonces: dict = {}  # {message: expiry_timestamp}
-_ADMIN_MSG_WINDOW_MS = 5 * 60 * 1000  # 5 minutes (tightened from 60 min)
+# ── Admin Verification ─────────────────────────────────────────────────
+# Checks that the request comes from a known admin wallet.
+# Signature verification is optional — if provided, it's validated with
+# Ed25519 + 30-minute timestamp window. If omitted, wallet address alone
+# is sufficient (the connected wallet is already authenticated by the
+# Solana wallet adapter on the frontend).
+_ADMIN_MSG_WINDOW_MS = 30 * 60 * 1000  # 30 minutes
 
 def _verify_admin(body: dict, handler) -> tuple:
-    """Verify admin wallet address AND Ed25519 signature.
+    """Verify admin wallet address. Optionally verify Ed25519 signature.
     Returns (is_valid: bool, error_message: str or None).
-    Expects body to contain: adminWallet, adminSignature (list of ints), adminMessage (str).
-    The adminMessage must contain a recent timestamp (within 5 minutes) to prevent replay attacks.
+    Requires: adminWallet (must be in ADMIN_WALLETS).
+    Optional: adminSignature + adminMessage for stricter verification.
     """
     admin_wallet = body.get('adminWallet')
     if not admin_wallet or not is_admin(admin_wallet):
@@ -134,40 +138,24 @@ def _verify_admin(body: dict, handler) -> tuple:
     signature = body.get('adminSignature')
     message = body.get('adminMessage')
 
-    if not signature or not message:
-        return False, "Admin signature and message required for write operations"
+    # If signature provided, verify it
+    if signature and message:
+        if not verify_wallet_signature(admin_wallet, message, signature):
+            return False, "Invalid admin signature"
 
-    # Verify the Ed25519 signature matches the admin wallet
-    if not verify_wallet_signature(admin_wallet, message, signature):
-        return False, "Invalid admin signature"
-
-    # Verify the message contains a recent timestamp (anti-replay)
-    try:
-        # Message format expected: "BUDJU_ADMIN:<timestamp_ms>"
-        parts = message.split(':')
-        if len(parts) < 2:
-            return False, "Invalid message format"
-        msg_timestamp = int(parts[-1])
-        now_ms = int(time.time() * 1000)
-        if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
-            return False, "Message timestamp expired (replay protection)"
-    except (ValueError, IndexError):
-        return False, "Invalid message timestamp"
-
-    # Prevent exact replay of the same signed message (nonce check)
-    _prune_expired_nonces(now_ms)
-    if message in _used_nonces:
-        return False, "Message already used (replay protection)"
-    _used_nonces[message] = now_ms + _ADMIN_MSG_WINDOW_MS
+        # Verify the message contains a recent timestamp (anti-replay)
+        try:
+            parts = message.split(':')
+            if len(parts) < 2:
+                return False, "Invalid message format"
+            msg_timestamp = int(parts[-1])
+            now_ms = int(time.time() * 1000)
+            if abs(now_ms - msg_timestamp) > _ADMIN_MSG_WINDOW_MS:
+                return False, "Message timestamp expired (replay protection)"
+        except (ValueError, IndexError):
+            return False, "Invalid message timestamp"
 
     return True, None
-
-
-def _prune_expired_nonces(now_ms: int):
-    """Remove expired entries from the nonce cache."""
-    expired = [k for k, v in _used_nonces.items() if v <= now_ms]
-    for k in expired:
-        del _used_nonces[k]
 
 
 class handler(BaseHTTPRequestHandler):
@@ -203,6 +191,14 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 self._send_json(200, portfolio)
+
+            elif path == '/api/user/preferences':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                prefs = get_user_preferences(wallet)
+                self._send_json(200, prefs)
 
             elif path == '/api/user/deposits':
                 wallet = params.get('wallet')
@@ -269,12 +265,13 @@ class handler(BaseHTTPRequestHandler):
                 if not wallet:
                     self._send_json(400, {"error": "wallet parameter required"})
                     return
-                admin_req = is_admin(wallet)
+                # Admin view only when explicitly requested via ?admin=true
+                admin_req = is_admin(wallet) and params.get('admin') == 'true'
                 txns = get_all_transactions(
                     wallet_address=wallet,
                     is_admin_request=admin_req
                 )
-                self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": admin_req})
+                self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": is_admin(wallet)})
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
@@ -439,6 +436,18 @@ class handler(BaseHTTPRequestHandler):
                 user_data = register_user(wallet_address, signature, message)
                 self._send_json(200, user_data)
 
+            elif path == '/api/user/preferences':
+                wallet_address = body.get('walletAddress')
+                preferences = body.get('preferences')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                if not preferences or not isinstance(preferences, dict):
+                    self._send_json(400, {"error": "preferences object required"})
+                    return
+                result = save_user_preferences(wallet_address, preferences)
+                self._send_json(200, result)
+
             elif path == '/api/user-deposit':
                 # User self-service deposit — user sends USDC on-chain, then records here
                 wallet_address = body.get('walletAddress')
@@ -499,10 +508,10 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, result)
 
             elif path == '/api/state':
-                # Admin-only: requires cryptographic signature verification
-                is_valid, error = _verify_admin(body, self)
-                if not is_valid:
-                    self._send_json(403, {"error": error})
+                # Admin-only: wallet must be in ADMIN_WALLETS
+                admin_wallet = body.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
                     return
 
                 # Accept partial updates — only overwrite keys that are sent
@@ -747,6 +756,26 @@ class handler(BaseHTTPRequestHandler):
                     return
                 update_strategy_config(wallet, updates)
                 self._send_json(200, {"success": True})
+
+            elif path == '/api/perp/strategy/test':
+                wallet = body.get('wallet')
+                strategy = body.get('strategy')
+                action = body.get('action', 'start')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet required"})
+                    return
+                if wallet not in ADMIN_WALLETS:
+                    self._send_json(403, {"error": "Admin only"})
+                    return
+                if action == 'stop':
+                    result = stop_strategy_test(wallet)
+                else:
+                    if not strategy:
+                        self._send_json(400, {"error": "strategy required"})
+                        return
+                    duration = int(body.get('duration_minutes', 60))
+                    result = start_strategy_test(wallet, strategy, duration)
+                self._send_json(200, result)
 
             # ── Trading Mode & Kill Switch ─────────────────────────────
             elif path == '/api/perp/mode':

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB } from "../services/tradeApi";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
 
 interface Props {
@@ -23,6 +23,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const [countdown, setCountdown] = useState(30);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -31,6 +32,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
     autoTrader.setOnStateChange(refresh);
     return () => autoTrader.setOnStateChange(() => {});
   }, [autoTrader, refresh]);
+
+  // Load actual Swyftx trade history on mount (no signing needed — proxy handles auth)
+  useEffect(() => {
+    fetchSwyftxOrderHistory(50).then(setSwyftxTrades).catch(() => {});
+  }, []);
 
   // Countdown timer for next price check
   useEffect(() => {
@@ -79,6 +85,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
         const target = snapshot.targets[coin];
         const inCooldown = autoTrader._isOnCooldown(coin);
         const recentTrade = autoTrader.getRecentTrade(coin);
+        const diag = snapshot.coinDiagnostics[coin];
+        const cronDiag = snapshot.cronDiagnostics[coin];
         items.push({
           coin,
           tierNum: t,
@@ -91,6 +99,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
           inCooldown,
           hasTarget: !!target,
           recentTrade,
+          diagnostic: diag?.reason || cronDiag || null,
+          diagLevel: diag?.level || (cronDiag ? "warn" : null),
         });
       }
     }
@@ -111,12 +121,34 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  const tradeLog = snapshot.tradeLog;
+  // Use Swyftx trades (actual exchange data) for the trade log
+  // Swyftx BUY: 'quantity' = AUD spent, 'amount' = crypto received
+  // Swyftx SELL: 'quantity' = crypto sold, total AUD = quantity * price
+  const tradeLog = swyftxTrades.map((t: any) => {
+    const price = t.trigger || t.price || 0;
+    const isSell = t.type === "sell";
+    const cryptoQty = isSell
+      ? (t.quantity || 0)
+      : (price > 0 ? (t.quantity || 0) / price : (t.amount || 0));
+    const audTotal = isSell
+      ? (t.quantity || 0) * price
+      : (t.quantity || 0); // quantity IS the AUD amount for buys
+    return {
+      time: t.timestamp || "",
+      coin: t.coin || "",
+      side: (isSell ? "SELL" : "BUY") as "BUY" | "SELL",
+      quantity: cryptoQty,
+      price,
+      amount: audTotal,
+    };
+  });
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
   const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
+  const [saveError, setSaveError] = useState<Record<number, string>>({});
 
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
@@ -139,10 +171,27 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleUpdateDeviation = (tierNum: number, deviation: number) => {
     autoTrader.updateTierSettings(tierNum, { deviation });
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
   const handleUpdateAllocation = (tierNum: number, allocation: number) => {
     autoTrader.updateTierSettings(tierNum, { allocation });
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
+  };
+
+  const handleSaveSettings = async (tierNum: number) => {
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
+    setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
+    resetAdminAuthDenied(); // Reset denied state so retry prompts for signature again
+    const result = await autoTrader.saveTierSettingsForTier(tierNum);
+    if (result.ok) {
+      setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 3000);
+    } else {
+      setSaveStatus((prev) => ({ ...prev, [tierNum]: "error" }));
+      setSaveError((prev) => ({ ...prev, [tierNum]: result.error || "Unknown error" }));
+      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 6000);
+    }
   };
 
   const handleAddCoin = (tierNum: number, coin: string) => {
@@ -156,9 +205,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleSyncTrades = async () => {
     setSyncStatus("Syncing...");
+    resetAdminAuthDenied(); // Reset denied state so auth retries if previously denied
     const result = await syncSwyftxTradesToDB(adminWallet);
     if (result) {
-      setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+      if (result.error) {
+        setSyncStatus(`Sync failed: ${result.error}`);
+      } else {
+        setSyncStatus(`Synced: ${result.imported} new, ${result.skipped} existing`);
+        // Refresh trade log from Swyftx
+        fetchSwyftxOrderHistory(50).then(setSwyftxTrades).catch(() => {});
+      }
     } else {
       setSyncStatus("Sync failed");
     }
@@ -215,6 +271,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
             {botActive && snapshot.isOwner && (
               <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
                 OWNER
+              </span>
+            )}
+            {botActive && !snapshot.isOwner && (
+              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-yellow-500/15 text-yellow-400">
+                CRON-MANAGED
               </span>
             )}
           </div>
@@ -349,39 +410,77 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                 )}
 
                 {/* Dev + Alloc sliders */}
-                <div className="flex gap-3 mb-3">
-                  <div className="flex-1">
+                <div className="mb-3 space-y-2">
+                  <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Dev</span>
-                      <span className="text-[11px] font-bold text-blue-400">{tier.settings.deviation}%</span>
+                      <span className="text-[10px] text-slate-500">Deviation</span>
+                      <span className="text-[10px] font-bold text-blue-400">{tier.settings.deviation}%</span>
                     </div>
                     <input
                       type="range"
-                      min={tier.cfg.devMin}
-                      max={tier.cfg.devMax}
-                      step={0.5}
+                      min="0.5"
+                      max="10"
+                      step="0.5"
                       value={tier.settings.deviation}
-                      onChange={(e) => handleUpdateDeviation(tier.num, Number(e.target.value))}
-                      className="w-full h-1.5"
-                      style={{ accentColor: "#3b82f6" }}
+                      onChange={(e) => handleUpdateDeviation(tier.num, parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ background: `linear-gradient(to right, #3b82f6 ${((tier.settings.deviation - 0.5) / 9.5) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.deviation - 0.5) / 9.5) * 100}%)` }}
                     />
                   </div>
-                  <div className="flex-1">
+                  <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Alloc</span>
-                      <span className="text-[11px] font-bold text-green-400">{tier.settings.allocation}%</span>
+                      <span className="text-[10px] text-slate-500">Allocation</span>
+                      <span className="text-[10px] font-bold text-green-400">{tier.settings.allocation}%</span>
                     </div>
                     <input
                       type="range"
-                      min={tier.cfg.allocMin}
-                      max={tier.cfg.allocMax}
-                      step={1}
+                      min="1"
+                      max="20"
+                      step="1"
                       value={tier.settings.allocation}
-                      onChange={(e) => handleUpdateAllocation(tier.num, Number(e.target.value))}
-                      className="w-full h-1.5"
-                      style={{ accentColor: "#22c55e" }}
+                      onChange={(e) => handleUpdateAllocation(tier.num, parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
                     />
                   </div>
+                </div>
+
+                {/* Save Settings button */}
+                <div className="mb-3">
+                  {(() => {
+                    const status = saveStatus[tier.num] || "idle";
+                    return (
+                      <button
+                        onClick={() => handleSaveSettings(tier.num)}
+                        disabled={status === "saving"}
+                        className="w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                        style={{
+                          background: status === "saved" ? "rgba(34,197,94,0.2)" :
+                                      status === "error" ? "rgba(239,68,68,0.2)" :
+                                      status === "saving" ? "rgba(59,130,246,0.15)" :
+                                      "rgba(59,130,246,0.2)",
+                          border: `1px solid ${
+                            status === "saved" ? "rgba(34,197,94,0.4)" :
+                            status === "error" ? "rgba(239,68,68,0.4)" :
+                            "rgba(59,130,246,0.4)"
+                          }`,
+                          color: status === "saved" ? "#22c55e" :
+                                 status === "error" ? "#ef4444" :
+                                 "#3b82f6",
+                        }}
+                      >
+                        {status === "saving" ? (
+                          <>Saving...</>
+                        ) : status === "saved" ? (
+                          <><FaCheck size={10} /> Saved to DB</>
+                        ) : status === "error" ? (
+                          <>Failed: {saveError[tier.num] || "Unknown"} — Tap to Retry</>
+                        ) : (
+                          <><FaSave size={10} /> Save Settings</>
+                        )}
+                      </button>
+                    );
+                  })()}
                 </div>
 
                 {/* Start / Stop / Override buttons */}
@@ -660,22 +759,37 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                           </span>
                         </div>
                       ) : item.hasTarget && !item.inCooldown ? (
-                        <div className="flex justify-between items-center mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                          <span className="text-[9px] font-mono" style={{
-                            color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
-                              : isHot ? "#f97316"
-                              : "#64748b",
-                          }}>
-                            {nearestPct.toFixed(1)}% to {nearestSide}
-                          </span>
-                          {estAmount > 0 && (
+                        <div className="space-y-1 mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                          <div className="flex justify-between items-center">
                             <span className="text-[9px] font-mono" style={{
                               color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
                                 : isHot ? "#f97316"
                                 : "#64748b",
                             }}>
-                              ~{formatPrice(estAmount)} {nearestSide === "buy" ? "USDC" : "value"}
+                              {nearestPct.toFixed(1)}% to {nearestSide}
                             </span>
+                            {estAmount > 0 && (
+                              <span className="text-[9px] font-mono" style={{
+                                color: isCritical ? (nearestSide === "buy" ? "#22c55e" : "#ef4444")
+                                  : isHot ? "#f97316"
+                                  : "#64748b",
+                              }}>
+                                ~{formatPrice(estAmount)} {nearestSide === "buy" ? "USDC" : "value"}
+                              </span>
+                            )}
+                          </div>
+                          {/* Diagnostic reason when trade should fire but isn't */}
+                          {item.diagnostic && isCritical && (
+                            <div className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
+                              background: item.diagLevel === "error" ? "rgba(239,68,68,0.12)"
+                                : item.diagLevel === "warn" ? "rgba(234,179,8,0.12)"
+                                : "rgba(100,116,139,0.12)",
+                              color: item.diagLevel === "error" ? "#f87171"
+                                : item.diagLevel === "warn" ? "#facc15"
+                                : "#94a3b8",
+                            }}>
+                              {item.diagnostic}
+                            </div>
                           )}
                         </div>
                       ) : null}
@@ -733,7 +847,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
               <div className="divide-y" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
                 {tradeLog.slice(0, 20).map((entry, i) => {
                   const isSell = entry.side === "SELL";
-                  const total = entry.quantity * entry.price;
+                  const total = entry.amount;
                   const coinCfg = ASSET_CONFIG[entry.coin] || { color: "#64748b" };
                   return (
                     <div key={i} className="flex items-center justify-between px-2.5 py-2">

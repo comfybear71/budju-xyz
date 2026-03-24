@@ -329,82 +329,9 @@ export const disconnectWallet = async (): Promise<ConnectionState> => {
   }
 };
 
-/** Check if a wallet is connected (session restore) */
+/** Check if a wallet is connected (no session restore — DB is source of truth) */
 export const checkWalletConnection = async (): Promise<ConnectionState> => {
-  try {
-    const savedAddress = localStorage.getItem("budjuWalletAddress");
-    const savedWalletName = localStorage.getItem("budjuWalletName");
-    const savedConnected = localStorage.getItem("budjuWalletConnected");
-
-    if (savedAddress && savedWalletName && savedConnected === "true") {
-      await waitForProvider();
-      const mobile = isMobileDevice();
-      let walletAdapter: SolanaWallet | undefined;
-
-      switch (savedWalletName as WalletName) {
-        case "phantom":
-          walletAdapter = getPhantomAdapter();
-          if (!walletAdapter?.isPhantom) return initialState;
-          break;
-        case "solflare":
-          walletAdapter = window.solflare;
-          if (!walletAdapter?.isSolflare) return initialState;
-          break;
-        case "jupiter":
-          walletAdapter = getJupiterAdapter();
-          if (!walletAdapter) return initialState;
-          break;
-        case "other":
-          walletAdapter = window.solana;
-          if (
-            !walletAdapter ||
-            walletAdapter.isPhantom ||
-            walletAdapter.isSolflare
-          )
-            return initialState;
-          break;
-        default:
-          return initialState;
-      }
-
-      if (!walletAdapter.isConnected) {
-        if (mobile) {
-          try {
-            await walletAdapter.connect();
-          } catch {
-            return initialState;
-          }
-        } else {
-          return initialState;
-        }
-      }
-
-      const address = walletAdapter.publicKey.toString();
-      if (address !== savedAddress) {
-        return initialState;
-      }
-
-      return {
-        connected: true,
-        wallet: {
-          name: savedWalletName as WalletName,
-          address,
-          connected: true,
-        },
-        rpcEndpoint: RPC_ENDPOINT,
-        network: walletService.currentNetwork,
-        error: null,
-      };
-    }
-
-    return initialState;
-  } catch (error) {
-    console.error("Error checking wallet connection:", error);
-    return {
-      ...initialState,
-      error: "Failed to check wallet connection",
-    };
-  }
+  return initialState;
 };
 
 /** Format wallet address for display */

@@ -33,12 +33,15 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
     }
   }, [selectedSymbol]);
 
-  // Count positions per market and sum unrealized PnL
+  // Count positions per market and sum live PnL
   const posCountMap: Record<string, number> = {};
   const posPnlMap: Record<string, number> = {};
   for (const p of positions) {
     posCountMap[p.symbol] = (posCountMap[p.symbol] || 0) + 1;
-    posPnlMap[p.symbol] = (posPnlMap[p.symbol] || 0) + p.unrealized_pnl;
+    const livePrice = prices[p.symbol] || p.mark_price;
+    const delta = p.direction === "long" ? livePrice - p.mark_price : p.mark_price - livePrice;
+    const livePnl = p.unrealized_pnl + (delta / p.entry_price) * p.size_usd;
+    posPnlMap[p.symbol] = (posPnlMap[p.symbol] || 0) + livePnl;
   }
 
   return (
@@ -47,49 +50,49 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
       className="flex gap-1.5 overflow-x-auto py-2 px-3 scrollbar-hide"
       style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
     >
-      {markets.map((m) => {
-        const price = prices[m.symbol] || 0;
-        const isSelected = m.symbol === selectedSymbol;
-        const posCount = posCountMap[m.symbol] || 0;
+        {markets.map((m) => {
+          const price = prices[m.symbol] || 0;
+          const isSelected = m.symbol === selectedSymbol;
+          const posCount = posCountMap[m.symbol] || 0;
 
-        const coinColor = COIN_COLORS[m.base_asset];
+          const coinColor = COIN_COLORS[m.base_asset];
 
-        return (
-          <button
-            key={m.symbol}
-            ref={isSelected ? selectedRef : undefined}
-            onClick={() => onSelect(m.symbol)}
-            className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border ${
-              isSelected
-                ? `${coinColor?.selectedBg || "bg-blue-500/20"} ${coinColor?.selectedText || "text-blue-300"} ${coinColor?.selectedBorder || "border-blue-500/40"} shadow-lg`
-                : `bg-slate-800/40 text-slate-400 ${coinColor?.border || "border-white/[0.04]"} hover:bg-slate-800/60 hover:text-white`
-            }`}
-          >
-            <span>{m.base_asset}</span>
-            {price > 0 && (
-              <span className={`tabular-nums ${isSelected ? "opacity-80" : "text-slate-500"}`}>
-                {price >= 1000
-                  ? `$${(price / 1000).toFixed(1)}k`
-                  : price >= 1
-                    ? `$${price.toFixed(2)}`
-                    : `$${price.toFixed(4)}`}
-              </span>
-            )}
-            {posCount > 0 && (() => {
-              const winning = (posPnlMap[m.symbol] || 0) >= 0;
-              return (
-                <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center border ${
-                  winning
-                    ? "bg-emerald-500/30 text-emerald-400 border-emerald-500/40"
-                    : "bg-red-500/30 text-red-400 border-red-500/40"
-                }`}>
-                  {posCount}
+          return (
+            <button
+              key={m.symbol}
+              ref={isSelected ? selectedRef : undefined}
+              onClick={() => onSelect(m.symbol)}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all border ${
+                isSelected
+                  ? `${coinColor?.selectedBg || "bg-blue-500/20"} ${coinColor?.selectedText || "text-blue-300"} ${coinColor?.selectedBorder || "border-blue-500/40"} shadow-lg`
+                  : `bg-slate-800/40 text-slate-400 ${coinColor?.border || "border-white/[0.04]"} hover:bg-slate-800/60 hover:text-white`
+              }`}
+            >
+              <span>{m.base_asset}</span>
+              {price > 0 && (
+                <span className={`tabular-nums ${isSelected ? "opacity-80" : "text-slate-500"}`}>
+                  {price >= 1000
+                    ? `$${(price / 1000).toFixed(1)}k`
+                    : price >= 1
+                      ? `$${price.toFixed(2)}`
+                      : `$${price.toFixed(4)}`}
                 </span>
-              );
-            })()}
-          </button>
-        );
-      })}
+              )}
+              {posCount > 0 && (() => {
+                const winning = (posPnlMap[m.symbol] || 0) >= 0;
+                return (
+                  <span className={`w-4 h-4 rounded-full text-[9px] flex items-center justify-center border ${
+                    winning
+                      ? "bg-emerald-500/30 text-emerald-400 border-emerald-500/40"
+                      : "bg-red-500/30 text-red-400 border-red-500/40"
+                  }`}>
+                    {posCount}
+                  </span>
+                );
+              })()}
+            </button>
+          );
+        })}
     </div>
   );
 };

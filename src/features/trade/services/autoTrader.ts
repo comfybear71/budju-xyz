@@ -30,6 +30,7 @@ import {
   type PortfolioAsset,
   type TraderState,
 } from "./tradeApi";
+import { CODE_TO_BINANCE } from "@lib/services/binanceWs";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -68,6 +69,12 @@ export interface RecentTrade {
   time: number; // Date.now() when trade executed
 }
 
+export interface CoinDiagnostic {
+  reason: string;
+  level: "info" | "warn" | "error";
+  timestamp: number;
+}
+
 export interface AutoTraderSnapshot {
   isActive: boolean;
   tierActive: Record<number, boolean>;
@@ -79,6 +86,8 @@ export interface AutoTraderSnapshot {
   recentTrades: Record<string, RecentTrade>;
   isOwner: boolean;
   deviceId: string;
+  coinDiagnostics: Record<string, CoinDiagnostic>;
+  cronDiagnostics: Record<string, string>;
 }
 
 type LogFn = (message: string, level?: "info" | "success" | "error") => void;
@@ -94,6 +103,7 @@ export const TIER_CONFIG: Record<number, TierConfig> = {
 const DEFAULT_T1 = ["BTC", "ETH", "SOL", "BNB", "XRP"];
 const COOLDOWN_HOURS = 24;
 const MIN_USDC_RESERVE = 100;
+const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
 const CHECK_INTERVAL_MS = 180_000; // 3 minutes
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
@@ -106,25 +116,18 @@ export class AutoTrader {
   targets: Record<string, CoinTargets> = {};
   cooldowns: Record<string, number> = {};
   tierSettings: Record<string, TierSettings> = {
-    tier1: { deviation: 2, allocation: 10 },
-    tier2: { deviation: 5, allocation: 5 },
-    tier3: { deviation: 8, allocation: 3 },
+    tier1: { deviation: 1, allocation: 5 },
+    tier2: { deviation: 2, allocation: 5 },
+    tier3: { deviation: 2, allocation: 5 },
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
+  coinDiagnostics: Record<string, CoinDiagnostic> = {};
+  cronDiagnostics: Record<string, string> = {};
   recentTrades: Record<string, RecentTrade> = {};
 
-  // Device ownership — persist deviceId so page refreshes keep the same identity
-  private _deviceId = (() => {
-    if (typeof localStorage !== "undefined") {
-      const stored = localStorage.getItem("budju_bot_device_id");
-      if (stored) return stored;
-      const id = Math.random().toString(36).substring(2, 10);
-      localStorage.setItem("budju_bot_device_id", id);
-      return id;
-    }
-    return Math.random().toString(36).substring(2, 10);
-  })();
+  // Device ownership — generate fresh ID each session (tab identification only)
+  private _deviceId = Math.random().toString(36).substring(2, 10);
   private _isOwner = false;
   private _checkCount = 0;
 
@@ -151,6 +154,15 @@ export class AutoTrader {
 
   // Debounce timer for tier settings save (slider drags fire onChange rapidly)
   private _saveTierSettingsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Pending save retry — if DB save fails, retry on next opportunity
+  private _pendingTierSave = false;
+
+  // Guard against concurrent _checkPrices execution
+  private _priceCheckRunning = false;
+
+  // Debounce timer for trigger-crossing immediate checks
+  private _triggerCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Computed ─────────────────────────────────────────────
 
@@ -190,16 +202,21 @@ export class AutoTrader {
     const state = await fetchTraderState();
     if (!state) return;
 
-    // Load tier settings
-    const tierAssets = state.autoTierAssets || {};
-    for (const [key, cfg] of Object.entries(tierAssets)) {
-      const tierKey = key.startsWith("tier") ? key : `tier${key}`;
-      if (this.tierSettings[tierKey]) {
-        this.tierSettings[tierKey] = {
-          deviation: Number((cfg as any).deviation) || this.tierSettings[tierKey].deviation,
-          allocation: Number((cfg as any).allocation) || this.tierSettings[tierKey].allocation,
-        };
-      }
+    // Load tier settings from DB, falling back to defaults
+    const dbTiers = state.autoTiers || state.autoTierAssets || {};
+    const defaults: Record<string, TierSettings> = {
+      tier1: { deviation: 1, allocation: 5 },
+      tier2: { deviation: 2, allocation: 5 },
+      tier3: { deviation: 2, allocation: 5 },
+    };
+    this.tierSettings = {} as any;
+    for (let t = 1; t <= 3; t++) {
+      const key = `tier${t}`;
+      const db = dbTiers[key] || {};
+      this.tierSettings[key] = {
+        deviation: db.deviation != null ? Number(db.deviation) : defaults[key].deviation,
+        allocation: db.allocation != null ? Number(db.allocation) : defaults[key].allocation,
+      };
     }
 
     // Load tier assignments (FLUB uses numeric, BUDJU uses "tierN" keys)
@@ -236,6 +253,19 @@ export class AutoTrader {
       amount: (Number(e.qty ?? e.quantity) || 0) * (Number(e.price) || 0),
     }));
 
+    // Load cron diagnostics (saved by server-side cron for UI display)
+    const cronLog = state.autoCronLog || {};
+    this.cronDiagnostics = {};
+    if (cronLog.decisions && Array.isArray(cronLog.decisions)) {
+      for (const d of cronLog.decisions) {
+        if (d.coin && d.reason) {
+          this.cronDiagnostics[d.coin] = d.reason;
+        } else if (d.coin && d.action) {
+          this.cronDiagnostics[d.coin] = d.error || d.action;
+        }
+      }
+    }
+
     // Load bot active state and resume monitoring automatically
     if (state.autoBotActive || state._rawAutoActive) {
       const autoActive = state._rawAutoActive || {};
@@ -256,12 +286,11 @@ export class AutoTrader {
         }
       }
 
-      // Remove coins on cooldown from targets
-      for (const code of Object.keys(this.targets)) {
-        if (this._isOnCooldown(code)) {
-          delete this.targets[code];
-        }
-      }
+      // NOTE: Do NOT delete targets for cooldown coins here.
+      // _checkPrices already skips cooldown coins, and deleting targets
+      // causes them to be permanently lost from the DB when _saveActiveState
+      // writes back. After cooldown expires, the coin would have no target
+      // and never trade again.
 
       // Device ownership check
       const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
@@ -375,31 +404,82 @@ export class AutoTrader {
 
   // ── Tier Settings Update ────────────────────────────────
 
+  /** Update tier settings in memory. Call saveTierSettingsNow() to persist to DB. */
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
-    this.tierSettings[key] = { ...this.tierSettings[key], ...settings };
+    const current = this.tierSettings[key];
+    if (!current) return;
 
-    // Debounce server save — slider onChange fires on every drag pixel,
-    // flooding the API with concurrent POSTs that race/fail silently.
-    // In-memory update is immediate so the UI stays responsive.
-    if (this._saveTierSettingsTimer) clearTimeout(this._saveTierSettingsTimer);
-    this._saveTierSettingsTimer = setTimeout(() => {
-      this._saveTierSettingsTimer = null;
-      this._saveTierSettings();
-    }, 500);
+    const oldDeviation = current.deviation;
+    Object.assign(current, settings);
+
+    // If deviation changed and tier is active, recalculate all targets for this tier
+    if (settings.deviation !== undefined && settings.deviation !== oldDeviation && this.tierActive[tierNum]) {
+      const tierCoins = this.getCoinsForTier(tierNum);
+      for (const code of tierCoins) {
+        const price = this._cachedPrices[code];
+        if (price && price > 0) {
+          this.targets[code] = {
+            buy: price * (1 - settings.deviation / 100),
+            sell: price * (1 + settings.deviation / 100),
+          };
+        }
+      }
+      this._log(`Tier ${tierNum} deviation changed to ${settings.deviation}% — targets recalculated`, "info");
+    }
 
     this._notifyChange();
+  }
+
+  /** Explicitly save all tier settings to DB. Returns true on success. */
+  async saveTierSettingsNow(): Promise<boolean> {
+    // Cancel any pending debounced save
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+      this._saveTierSettingsTimer = null;
+    }
+    await this._saveTierSettings();
+    await this._saveActiveState();
+    return !this._pendingTierSave;
+  }
+
+  /** Save only a single tier's settings (deviation + allocation) to DB. Returns true on success. */
+  async saveTierSettingsForTier(tierNum: number): Promise<{ ok: boolean; error?: string }> {
+    if (!this._adminWallet) return { ok: false, error: "No admin wallet connected" };
+    const key = `tier${tierNum}`;
+    const settings = this.tierSettings[key];
+    if (!settings) return { ok: false, error: "Tier settings not found" };
+
+    try {
+      const autoTiers: Record<string, any> = {
+        [key]: {
+          ...settings,
+          name: TIER_CONFIG[tierNum].name,
+          active: this.tierActive[tierNum],
+        },
+      };
+      const result = await saveTraderState(this._adminWallet, { autoTiers });
+      if (result.success) {
+        this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%)`, "info");
+        return { ok: true };
+      } else {
+        const error = result.error || "Unknown server error";
+        this._log(`Tier ${tierNum} settings save failed: ${error}`, "error");
+        return { ok: false, error };
+      }
+    } catch (err: any) {
+      const error = err.message || "Network error";
+      this._log(`Tier ${tierNum} settings save error: ${error}`, "error");
+      return { ok: false, error };
+    }
   }
 
   // ── Start / Stop ────────────────────────────────────────
 
   async startTier(tierNum: number): Promise<{ success: boolean; error?: string }> {
-    // Flush any pending debounced tier settings save before starting
-    if (this._saveTierSettingsTimer) {
-      clearTimeout(this._saveTierSettingsTimer);
-      this._saveTierSettingsTimer = null;
-      await this._saveTierSettings();
-    }
+    // Always save current tier settings to DB before starting
+    // (catches case where user adjusted sliders but forgot to click Save)
+    await this._saveTierSettings();
 
     // Refresh data first
     await this._refreshData();
@@ -571,6 +651,23 @@ export class AutoTrader {
       return;
     }
 
+    // Prevent concurrent execution (e.g. interval + trigger-crossing check)
+    if (this._priceCheckRunning) return;
+    this._priceCheckRunning = true;
+    try {
+      await this._checkPricesInner();
+    } finally {
+      this._priceCheckRunning = false;
+    }
+  }
+
+  private async _checkPricesInner() {
+
+    // Retry any pending tier settings save that previously failed
+    if (this._pendingTierSave) {
+      this.retryPendingSave();
+    }
+
     this._checkCount++;
 
     // Warmup: on first check after resume, refresh data but skip trading.
@@ -598,6 +695,23 @@ export class AutoTrader {
     this._log("Refreshing prices...", "info");
     await this._refreshData();
 
+    // Regenerate targets for assigned coins that lost them (e.g. after
+    // cooldown expired but target was previously deleted from DB).
+    for (const [code, tier] of Object.entries(this.tierAssignments)) {
+      if (!this.tierActive[tier]) continue;
+      if (this._isOnCooldown(code)) continue;
+      if (this.targets[code]) continue; // already has target
+      const price = this._cachedPrices[code];
+      if (price && price > 0) {
+        const dev = this.getTierSettings(tier).deviation;
+        this.targets[code] = {
+          buy: price * (1 - dev / 100),
+          sell: price * (1 + dev / 100),
+        };
+        this._log(`${code}: regenerated targets — buy $${this.targets[code].buy.toFixed(2)}, sell $${this.targets[code].sell.toFixed(2)}`, "info");
+      }
+    }
+
     this._log(
       `Check #${this._checkCount}: USDC $${this._cachedUsdcBalance.toFixed(2)}, monitoring ${Object.keys(this.targets).length} coins`,
       "info",
@@ -606,7 +720,10 @@ export class AutoTrader {
     let tradeExecuted = false;
 
     for (const code of Object.keys(this.targets)) {
-      if (this._isOnCooldown(code)) continue;
+      if (this._isOnCooldown(code)) {
+        this._setDiagnostic(code, `Cooldown: ${this.getCooldownRemaining(code)}`, "info");
+        continue;
+      }
 
       const tier = this.getTier(code);
       if (!this.tierActive[tier]) continue;
@@ -616,6 +733,8 @@ export class AutoTrader {
       const tgt = this.targets[code];
 
       if (!tgt || !currentPrice) {
+        const reason = !currentPrice ? "No price data" : "No target set";
+        this._setDiagnostic(code, reason, "error");
         this._log(`${code}: no target or price data (price=${currentPrice}, target=${!!tgt})`, "error");
         continue;
       }
@@ -625,6 +744,7 @@ export class AutoTrader {
 
       // BUY: price dropped below buy target
       if (currentPrice <= tgt.buy) {
+        this._setDiagnostic(code, "Executing BUY...", "info");
         this._log(
           `${code} hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
           "success",
@@ -634,6 +754,7 @@ export class AutoTrader {
       }
       // SELL: price rose above sell target
       else if (currentPrice >= tgt.sell) {
+        this._setDiagnostic(code, "Executing SELL...", "info");
         this._log(
           `${code} hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
           "success",
@@ -642,6 +763,7 @@ export class AutoTrader {
         tradeExecuted = true;
       }
       else {
+        this._setDiagnostic(code, `${pctToSell}% to sell, ${pctToBuy}% to buy`, "info");
         this._log(
           `${code}: $${currentPrice.toFixed(2)} — ${pctToBuy}% to buy ($${tgt.buy.toFixed(2)}), ${pctToSell}% to sell ($${tgt.sell.toFixed(2)})`,
           "info",
@@ -670,8 +792,9 @@ export class AutoTrader {
   private async _executeBuy(code: string, currentPrice: number, settings: TierSettings) {
     const usdcBalance = this._cachedUsdcBalance;
 
-    const tradeAmount = (settings.allocation / 100) * usdcBalance;
+    const tradeAmount = Math.max((settings.allocation / 100) * usdcBalance, MIN_ORDER_USDC);
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
+      this._setDiagnostic(code, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
       this._log(`Skipping ${code} buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve (alloc ${settings.allocation}%)`, "error");
       return;
     }
@@ -691,23 +814,28 @@ export class AutoTrader {
       });
 
       if (result.success) {
+        this._setDiagnostic(code, "BUY executed!", "info");
         this._log(`${code} buy executed!`, "success");
         this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
         this._setCooldown(code);
         this._recordTradeInDB(code, "buy", quantity, currentPrice);
         this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
-        // Move buy target down, keep sell target
+        // Reset BOTH targets from trade price so they stay within deviation %
         const oldBuy = this.targets[code].buy;
+        const oldSell = this.targets[code].sell;
         this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
+        this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
         this._log(
-          `${code} buy target: $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)} (sell stays $${this.targets[code].sell.toFixed(2)})`,
+          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
           "info",
         );
       } else {
+        this._setDiagnostic(code, `BUY failed: ${result.error}`, "error");
         this._log(`${code} buy failed: ${result.error}`, "error");
       }
     } catch (error: any) {
+      this._setDiagnostic(code, `BUY error: ${error.message}`, "error");
       this._log(`${code} buy error: ${error.message}`, "error");
     }
   }
@@ -717,16 +845,38 @@ export class AutoTrader {
     const assetBalance = asset?.balance ?? 0;
 
     const sellPercent = settings.allocation * SELL_RATIO;
-    const quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
+    let quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
 
     if (quantity <= 0) {
+      this._setDiagnostic(code, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
       this._log(`Skipping ${code} sell — insufficient balance`, "error");
       return;
     }
 
-    const sellValue = quantity * currentPrice;
+    let sellValue = quantity * currentPrice;
+
+    // If below minimum order size, bump up to meet it (matching server-side cron logic)
+    if (sellValue < MIN_ORDER_USDC) {
+      const minQty = MIN_ORDER_USDC / currentPrice;
+      if (minQty <= assetBalance) {
+        // Sell enough to meet minimum
+        quantity = parseFloat(minQty.toFixed(8));
+        sellValue = quantity * currentPrice;
+        this._log(`${code}: bumped sell qty to ${quantity} to meet $${MIN_ORDER_USDC} minimum`, "info");
+      } else {
+        // Try selling entire balance
+        quantity = parseFloat(assetBalance.toFixed(8));
+        sellValue = quantity * currentPrice;
+        if (sellValue < MIN_ORDER_USDC) {
+          this._setDiagnostic(code, `SELL blocked: total holding ($${sellValue.toFixed(2)}) below $${MIN_ORDER_USDC} minimum`, "error");
+          this._log(`Skipping ${code} sell — total holding $${sellValue.toFixed(2)} below $${MIN_ORDER_USDC} minimum`, "error");
+          return;
+        }
+      }
+    }
+
     this._log(
-      `AUTO SELL: ${quantity} ${code} at $${currentPrice.toFixed(2)} (${sellPercent.toFixed(1)}% of holdings)`,
+      `AUTO SELL: ${quantity} ${code} at $${currentPrice.toFixed(2)} (${sellPercent.toFixed(1)}% of holdings, $${sellValue.toFixed(2)} USDC)`,
       "success",
     );
 
@@ -739,23 +889,28 @@ export class AutoTrader {
       });
 
       if (result.success) {
+        this._setDiagnostic(code, "SELL executed!", "info");
         this._log(`${code} sell executed!`, "success");
         this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
         this._setCooldown(code);
         this._recordTradeInDB(code, "sell", quantity, currentPrice);
         this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
-        // Move sell target up, keep buy target
+        // Reset BOTH targets from trade price so they stay within deviation %
+        const oldBuy = this.targets[code].buy;
         const oldSell = this.targets[code].sell;
+        this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
         this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
         this._log(
-          `${code} sell target: $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)} (buy stays $${this.targets[code].buy.toFixed(2)})`,
+          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
           "info",
         );
       } else {
+        this._setDiagnostic(code, `SELL failed: ${result.error}`, "error");
         this._log(`${code} sell failed: ${result.error}`, "error");
       }
     } catch (error: any) {
+      this._setDiagnostic(code, `SELL error: ${error.message}`, "error");
       this._log(`${code} sell error: ${error.message}`, "error");
     }
   }
@@ -863,22 +1018,77 @@ export class AutoTrader {
       // from a failed Swyftx call was silently blocking every buy.
       clearCacheKeys("portfolio", "prices", "cash");
 
-      const [assets, prices, cash] = await Promise.all([
+      // Snapshot only WebSocket-connected prices before the API call.
+      // WS prices are sub-second; CoinGecko lags up to 30s. For non-WS
+      // coins we WANT the fresh API price, so we only preserve WS ones.
+      const wsPrices: Record<string, number> = {};
+      for (const code of Object.keys(CODE_TO_BINANCE)) {
+        if (this._cachedPrices[code]) {
+          wsPrices[code] = this._cachedPrices[code];
+        }
+      }
+
+      const [assets, apiPrices, cash] = await Promise.all([
         fetchPortfolio(),
         fetchPrices(),
         fetchCashBalances(),
       ]);
       this._cachedAssets = assets;
-      this._cachedPrices = prices;
+      // API prices as base, then overlay real-time WebSocket prices.
+      // Also capture any WS updates that arrived during the API call.
+      const freshWs: Record<string, number> = {};
+      for (const code of Object.keys(CODE_TO_BINANCE)) {
+        if (this._cachedPrices[code]) {
+          freshWs[code] = this._cachedPrices[code];
+        }
+      }
+      this._cachedPrices = { ...apiPrices, ...wsPrices, ...freshWs };
       this._cachedUsdcBalance = cash.usdc;
     } catch (error: any) {
       this._log(`Data refresh error: ${error.message}`, "error");
     }
   }
 
-  /** Update cached prices externally (from parent component's price ticker) */
+  /** Update cached prices externally (from parent component's price ticker).
+   *  If any price crosses a buy/sell trigger, schedule an immediate check
+   *  so trades execute within seconds instead of waiting for the 3-min interval.
+   */
   updatePrices(prices: Record<string, number>) {
     this._cachedPrices = { ...this._cachedPrices, ...prices };
+
+    // Set diagnostics for non-owner mode so UI shows why trades aren't executing
+    if (this.isActive && !this._isOwner) {
+      for (const [code, price] of Object.entries(prices)) {
+        const tgt = this.targets[code];
+        if (!tgt || !price || this._isOnCooldown(code)) continue;
+        if (price >= tgt.sell) {
+          this._setDiagnostic(code, "Not owner — cron-managed", "warn");
+        } else if (price <= tgt.buy) {
+          this._setDiagnostic(code, "Not owner — cron-managed", "warn");
+        }
+      }
+    }
+
+    if (!this.isActive || !this._isOwner || this._warmup) return;
+
+    // Check if any updated price crossed a trigger
+    let triggered = false;
+    for (const [code, price] of Object.entries(prices)) {
+      const tgt = this.targets[code];
+      if (!tgt || !price || this._isOnCooldown(code)) continue;
+      if (price <= tgt.buy || price >= tgt.sell) {
+        triggered = true;
+        break;
+      }
+    }
+
+    if (triggered && !this._triggerCheckTimer) {
+      // Debounce 2s to batch rapid WebSocket updates, then execute
+      this._triggerCheckTimer = setTimeout(() => {
+        this._triggerCheckTimer = null;
+        this._checkPrices();
+      }, 2000);
+    }
   }
 
   updateAssets(assets: PortfolioAsset[]) {
@@ -1017,10 +1227,37 @@ export class AutoTrader {
     }
 
     try {
-      await saveTraderState(this._adminWallet, { autoTiers });
-    } catch {
-      // Non-critical
+      const result = await saveTraderState(this._adminWallet, { autoTiers });
+      if (result.success) {
+        this._pendingTierSave = false;
+      } else {
+        // Don't retry on signature denial — user explicitly rejected or wallet unavailable
+        const isAuthError = result.error?.includes("signature") || result.error?.includes("Admin");
+        this._pendingTierSave = !isAuthError;
+        this._log(`Tier settings save failed: ${result.error || "unknown"} — cached locally`, "error");
+      }
+    } catch (err: any) {
+      this._pendingTierSave = true;
+      this._log(`Tier settings save error: ${err.message || "unknown"} — cached locally`, "error");
     }
+  }
+
+  /** Flush any pending debounced tier settings save immediately (called on page unload) */
+  flushPendingSave(): void {
+    if (this._saveTierSettingsTimer) {
+      clearTimeout(this._saveTierSettingsTimer);
+      this._saveTierSettingsTimer = null;
+      // Fire and forget — beforeunload can't wait for async
+      this._saveTierSettings();
+      this._saveActiveState();
+    }
+  }
+
+  /** Retry any pending tier settings save (called from monitoring loop) */
+  async retryPendingSave(): Promise<void> {
+    if (!this._pendingTierSave || !this._adminWallet) return;
+    this._log("Retrying pending tier settings save...", "info");
+    await this._saveTierSettings();
   }
 
   private async _saveTierAssignments() {
@@ -1074,7 +1311,7 @@ export class AutoTrader {
   getEstimatedBuyAmount(code: string): number {
     const settings = this.getSettings(code);
     const usdc = this._cachedUsdcBalance;
-    const amount = (settings.allocation / 100) * usdc;
+    const amount = Math.max((settings.allocation / 100) * usdc, MIN_ORDER_USDC);
     // Respect reserve
     if (usdc - amount < MIN_USDC_RESERVE) {
       return Math.max(0, usdc - MIN_USDC_RESERVE);
@@ -1089,11 +1326,25 @@ export class AutoTrader {
     const balance = asset?.balance ?? 0;
     const price = this._cachedPrices[code] || 0;
     const sellPercent = settings.allocation * SELL_RATIO;
-    const quantity = (sellPercent / 100) * balance;
-    return quantity * price;
+    let quantity = (sellPercent / 100) * balance;
+    let value = quantity * price;
+    // Match execution logic: bump to minimum if needed
+    if (value < MIN_ORDER_USDC && price > 0) {
+      const minQty = MIN_ORDER_USDC / price;
+      if (minQty <= balance) {
+        value = MIN_ORDER_USDC;
+      } else {
+        value = balance * price;
+      }
+    }
+    return value;
   }
 
   // ── Snapshot for UI ─────────────────────────────────────
+
+  private _setDiagnostic(code: string, reason: string, level: CoinDiagnostic["level"] = "info") {
+    this.coinDiagnostics[code] = { reason, level, timestamp: Date.now() };
+  }
 
   getSnapshot(): AutoTraderSnapshot {
     return {
@@ -1107,6 +1358,8 @@ export class AutoTrader {
       recentTrades: { ...this.recentTrades },
       isOwner: this._isOwner,
       deviceId: this._deviceId,
+      coinDiagnostics: { ...this.coinDiagnostics },
+      cronDiagnostics: { ...this.cronDiagnostics },
     };
   }
 

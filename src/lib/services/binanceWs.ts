@@ -53,6 +53,7 @@ const CODE_TO_BINANCE: Record<string, string> = {
   GOAT: "goatusdt",
   FARTCOIN: "fartcoinusdt",
   TNSR: "tnsrusdt",
+  HYPE: "hypeusdt",
 };
 
 // Reverse map: binance symbol → our code

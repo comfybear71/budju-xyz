@@ -10,9 +10,10 @@ interface Props {
   onModify: (positionId: string, mods: { stopLoss?: number; takeProfit?: number; trailingStopPct?: number }) => Promise<void>;
   onViewChart: (symbol: string) => void;
   onRefresh: () => void;
+  readOnly?: boolean;
 }
 
-const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewChart, onRefresh }: Props) => {
+const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewChart, onRefresh, readOnly = false }: Props) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [closingId, setClosingId] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -89,7 +90,8 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
                 </span>
               </span>
 
-              {/* Close button */}
+              {/* Close button — admin only */}
+              {!readOnly && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -101,6 +103,7 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
               >
                 {closingId === pos._id ? "..." : "Close"}
               </button>
+              )}
             </div>
 
             {/* Expanded details */}
@@ -153,8 +156,8 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
                     Chart
                   </button>
 
-                  {/* Partial close */}
-                  {wallet && (
+                  {/* Partial close — admin only */}
+                  {!readOnly && wallet && (
                     <button
                       onClick={async () => {
                         setActionLoading(`partial-${pos._id}`);
@@ -171,8 +174,8 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
                     </button>
                   )}
 
-                  {/* Pyramid */}
-                  {wallet && livePnl > 0 && (pos.pyramid_level || 0) < 3 && (
+                  {/* Pyramid — admin only */}
+                  {!readOnly && wallet && livePnl > 0 && (pos.pyramid_level || 0) < 3 && (
                     <button
                       onClick={async () => {
                         setActionLoading(`pyramid-${pos._id}`);
@@ -189,8 +192,8 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
                     </button>
                   )}
 
-                  {/* Flip */}
-                  {wallet && (
+                  {/* Flip — admin only */}
+                  {!readOnly && wallet && (
                     <button
                       onClick={async () => {
                         if (!confirm(`Flip ${pos.symbol} ${pos.direction} → ${pos.direction === "long" ? "SHORT" : "LONG"}?`)) return;
@@ -209,8 +212,8 @@ const PositionsStrip = ({ positions, prices, wallet, onClose, onModify, onViewCh
                   )}
                 </div>
 
-                {/* Partial close slider */}
-                {wallet && (
+                {/* Partial close slider — admin only */}
+                {!readOnly && wallet && (
                   <div className="flex items-center gap-2">
                     <span className="text-[9px] text-slate-500">Partial</span>
                     <input

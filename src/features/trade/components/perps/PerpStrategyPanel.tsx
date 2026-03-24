@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   fetchStrategyStatus,
   updateStrategyConfig,
+  startStrategyTest,
+  stopStrategyTest,
   type StrategyStatus,
-  type StrategySignal,
 } from "../../services/perpApi";
 
 interface Props {
@@ -139,6 +140,9 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedStrategy, setExpandedStrategy] = useState<string | null>(null);
+  const [testCountdown, setTestCountdown] = useState<string | null>(null);
+  const [testingStrategy, setTestingStrategy] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -156,6 +160,58 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
     const interval = setInterval(loadStatus, 30_000);
     return () => clearInterval(interval);
   }, [loadStatus]);
+
+  // Test countdown timer
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    const testMode = status?.test_mode;
+    if (!testMode?.active || !testMode.expires_at) {
+      setTestCountdown(null);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const expires = new Date(testMode.expires_at).getTime();
+      const remaining = expires - now;
+      if (remaining <= 0) {
+        setTestCountdown(null);
+        loadStatus(); // Refresh to pick up expired state
+        return;
+      }
+      const mins = Math.floor(remaining / 60000);
+      const secs = Math.floor((remaining % 60000) / 1000);
+      setTestCountdown(`${mins}:${secs.toString().padStart(2, "0")}`);
+    };
+
+    updateCountdown();
+    timerRef.current = setInterval(updateCountdown, 1000);
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [status?.test_mode, loadStatus]);
+
+  const handleStartTest = async (stratName: string) => {
+    try {
+      setError(null);
+      setTestingStrategy(stratName);
+      await startStrategyTest(wallet, stratName, 60);
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start test");
+    } finally {
+      setTestingStrategy(null);
+    }
+  };
+
+  const handleStopTest = async () => {
+    try {
+      setError(null);
+      await stopStrategyTest(wallet);
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to stop test");
+    }
+  };
 
   const handleToggleStrategy = async (stratName: string) => {
     if (!status) return;
@@ -188,8 +244,38 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
     );
   }
 
+  const activeTest = status?.test_mode;
+
   return (
     <div className="space-y-3">
+
+      {/* Active test banner */}
+      {activeTest?.active && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-amber-400 text-sm animate-pulse">⏱</span>
+              <div>
+                <div className="text-xs font-bold text-amber-300">Strategy Test Active</div>
+                <div className="text-[10px] text-amber-400/70">
+                  Testing <span className="font-bold text-amber-300">{STRATEGY_INFO[activeTest.strategy]?.name || activeTest.strategy}</span> — Max leverage, max size, all markets
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {testCountdown && (
+                <span className="text-sm font-mono font-bold text-amber-300">{testCountdown}</span>
+              )}
+              <button
+                onClick={handleStopTest}
+                className="px-2 py-1 text-[10px] font-bold rounded-lg bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30 transition-all"
+              >
+                Stop
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -227,6 +313,19 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
                         className="text-[9px] px-1 py-0.5 rounded border border-blue-500/20 text-blue-400 hover:bg-blue-500/10 transition-colors"
                       >
                         {isExpanded ? "Hide" : "How?"}
+                      </button>
+                    )}
+                    {activeTest?.active && activeTest.strategy === name ? (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold animate-pulse">
+                        Testing
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleStartTest(name)}
+                        disabled={!!activeTest?.active || testingStrategy === name}
+                        className="text-[9px] px-1.5 py-0.5 rounded border border-purple-500/25 text-purple-400 hover:bg-purple-500/15 hover:text-purple-300 hover:border-purple-400/50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        {testingStrategy === name ? "..." : "Test 1hr"}
                       </button>
                     )}
                   </div>
@@ -333,37 +432,6 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
           </div>
         );
       })}
-
-      {/* Recent signals */}
-      {status.recent_signals.length > 0 && (
-        <div>
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Recent Signals</div>
-          <div className="space-y-1 max-h-[200px] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-            {status.recent_signals.slice(0, 15).map((sig: StrategySignal, i: number) => (
-              <div
-                key={i}
-                className="bg-slate-800/30 rounded-lg px-2.5 py-1.5 border border-white/[0.02] flex items-center gap-2"
-              >
-                <span className={`text-[10px] ${sig.acted ? "text-emerald-400" : "text-slate-500"}`}>
-                  {sig.acted ? "✓" : "✗"}
-                </span>
-                <div className="flex-1 text-[10px]">
-                  <span className="text-slate-300">{sig.symbol.replace("-PERP", "")}</span>
-                  <span className={`ml-1 ${sig.direction === "long" ? "text-emerald-400" : "text-red-400"}`}>
-                    {sig.direction.toUpperCase()}
-                  </span>
-                  <span className="text-slate-500 ml-1">
-                    {STRATEGY_INFO[sig.strategy]?.name || sig.strategy}
-                  </span>
-                </div>
-                <span className="text-[9px] text-slate-600">
-                  {sig.timestamp ? new Date(sig.timestamp).toLocaleTimeString() : ""}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Info box */}
       <div className="bg-slate-800/20 rounded-lg p-2.5 border border-white/[0.02]">

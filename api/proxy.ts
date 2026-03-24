@@ -130,17 +130,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const portfolioData = await portfolioRes.json();
       const assetsData = await assetsRes.json();
 
-      // Build lookup: assetId → { code, name }
-      const assetMap: Record<number, { code: string; name: string }> = {};
+      // Build lookup: assetId → { code, name } — use String keys to avoid int/string mismatch
+      const assetMap: Record<string, { code: string; name: string }> = {};
       if (Array.isArray(assetsData)) {
         for (const a of assetsData) {
-          assetMap[a.id] = { code: a.code || "UNKNOWN", name: a.name || "Unknown" };
+          if (a.id != null) {
+            assetMap[String(a.id)] = { code: a.code || "UNKNOWN", name: a.name || "Unknown" };
+          }
         }
       }
 
       const assets = (Array.isArray(portfolioData) ? portfolioData : []).map((item: any) => {
         const assetId = item.assetId ?? item.asset?.id;
-        const info = assetMap[assetId] || {};
+        const info = (assetId != null ? assetMap[String(assetId)] : undefined) || {};
         return {
           code: item.asset?.code || info.code || "UNKNOWN",
           name: item.asset?.name || info.name || "Unknown",

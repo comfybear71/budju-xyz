@@ -144,18 +144,19 @@ def fetch_portfolio():
     balances = _http_json(SWYFTX_BASE + "/user/balance/", headers=headers)
     assets_list = _http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
 
-    # Build asset ID → code map
+    # Build asset ID → code map — use String keys to avoid int/string mismatch
     asset_map = {}
     if isinstance(assets_list, list):
         for a in assets_list:
-            asset_map[a.get("id")] = a.get("code", "")
+            if a.get("id") is not None:
+                asset_map[str(a["id"])] = a.get("code", "")
 
     portfolio = {}
     usdc_balance = 0.0
 
     for item in (balances if isinstance(balances, list) else []):
         asset_id = item.get("assetId") or (item.get("asset", {}).get("id"))
-        code = item.get("asset", {}).get("code") or asset_map.get(asset_id, "")
+        code = item.get("asset", {}).get("code") or (asset_map.get(str(asset_id), "") if asset_id is not None else "")
         balance = float(item.get("availableBalance", 0) or 0)
 
         if code == "USDC":
@@ -251,11 +252,14 @@ def _tier_num(value):
 
 
 def _tier_settings(tier_assets, tier_num):
-    """Get deviation and allocation % for a tier."""
-    cfg = tier_assets.get(f"tier{tier_num}", {})
+    """Get deviation and allocation % for a tier from DB, with defaults.
+    Defaults: T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc."""
+    key = f"tier{tier_num}"
+    db_settings = tier_assets.get(key, {}) if isinstance(tier_assets, dict) else {}
+    default_dev = 1.0 if tier_num == 1 else 2.0
     return {
-        "deviation": float(cfg.get("deviation", 5)),
-        "allocation": float(cfg.get("allocation", 5)),
+        "deviation": float(db_settings.get("deviation", default_dev)),
+        "allocation": float(db_settings.get("allocation", 5.0)),
     }
 
 
@@ -361,7 +365,12 @@ def run_auto_trade_check():
     cooldowns = state.get("autoCooldowns", {})
     trade_log = state.get("autoTradeLog", [])
 
-    active_coins = [c for c in targets if _is_tier_active(tier_active, _tier_num(tier_assignments.get(c)))]
+    # Build active coins from tier assignments (not just targets) so coins
+    # that lost their targets after cooldown are still included.
+    active_coins = [
+        c for c, t in tier_assignments.items()
+        if _is_tier_active(tier_active, _tier_num(t))
+    ]
     log.append(f"Monitoring {len(active_coins)} coins: {', '.join(sorted(active_coins))}")
 
     # 2. Fetch prices from CoinGecko
@@ -377,7 +386,7 @@ def run_auto_trade_check():
     # 3. Fetch portfolio from Swyftx
     try:
         portfolio, usdc_balance = fetch_portfolio()
-        log.append(f"Portfolio: USDC ${usdc_balance:.2f}, {len(portfolio)} assets")
+        log.append(f"Portfolio: USDC ${usdc_balance:.2f}, {len(portfolio)} assets: {', '.join(f'{c}={b:.4f}' for c, b in sorted(portfolio.items()))}")
     except Exception as e:
         log.append(f"Portfolio fetch error: {e}")
         _save_heartbeat(auto_active, now_ms)
@@ -388,11 +397,7 @@ def run_auto_trade_check():
     trades_executed = []
     decisions = []  # Structured log of every decision for debugging
 
-    for code in list(targets.keys()):
-        tgt = targets.get(code)
-        if not isinstance(tgt, dict):
-            continue
-
+    for code in active_coins:
         # Skip if on cooldown
         cooldown_expiry = cooldowns.get(code, 0)
         if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
@@ -403,13 +408,24 @@ def run_auto_trade_check():
         elif cooldown_expiry and isinstance(cooldown_expiry, (int, float)) and cooldown_expiry <= now_ms:
             del cooldowns[code]
 
-        # Check tier is active
         tier_num = _tier_num(tier_assignments.get(code))
-        if not _is_tier_active(tier_active, tier_num):
-            continue
-
         settings = _tier_settings(tier_assets, tier_num)
         current_price = prices.get(code, 0)
+
+        # Regenerate target if missing (e.g. lost after cooldown expiry)
+        tgt = targets.get(code)
+        if (not isinstance(tgt, dict) or not tgt) and current_price > 0:
+            dev = settings["deviation"]
+            tgt = {
+                "buy": current_price * (1 - dev / 100),
+                "sell": current_price * (1 + dev / 100),
+            }
+            targets[code] = tgt
+            log.append(f"{code}: regenerated targets — buy ${tgt['buy']:.4f}, sell ${tgt['sell']:.4f}")
+
+        if not isinstance(tgt, dict):
+            continue
+
         buy_target = float(tgt.get("buy", 0))
         sell_target = float(tgt.get("sell", 0))
 
@@ -425,7 +441,9 @@ def run_auto_trade_check():
             trade_amount = max(trade_amount, MIN_ORDER_USDC)
 
             if usdc_balance - trade_amount < MIN_USDC_RESERVE:
-                log.append(f"{code}: BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)")
+                reason = f"BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)"
+                log.append(f"{code}: {reason}")
+                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": reason, "error": reason})
                 continue
 
             quantity = round(trade_amount / current_price, 8)
@@ -435,6 +453,7 @@ def run_auto_trade_check():
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
             if not cb_ok:
                 log.append(f"{code}: BUY BLOCKED — {cb_reason}")
+                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": cb_reason, "error": cb_reason})
                 continue
 
             # Dry-run: simulate without executing
@@ -443,7 +462,12 @@ def run_auto_trade_check():
                 continue
 
             if code_to_id is None:
-                code_to_id = fetch_swyftx_asset_ids()
+                try:
+                    code_to_id = fetch_swyftx_asset_ids()
+                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
+                except Exception as e:
+                    log.append(f"Failed to load asset ID map: {e}")
+                    code_to_id = {}
 
             ok, order_id, err = place_market_order(code, "buy", trade_amount, code_to_id)
 
@@ -457,9 +481,10 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Move buy target down, sell stays
+                # Reset BOTH targets from trade price so they stay within deviation %
                 targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
-                log.append(f"{code}: new buy target ${targets[code]['buy']:.2f}")
+                targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
+                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000
@@ -473,10 +498,10 @@ def run_auto_trade_check():
                 if len(trade_log) > 50:
                     trade_log = trade_log[:50]
 
-                # Record in DB
+                # Record in DB (pass order_id so sync can deduplicate)
                 try:
                     allocations = calculate_pool_allocations()
-                    record_trade(code, "buy", quantity, current_price, allocations)
+                    record_trade(code, "buy", quantity, current_price, allocations, swyftx_id=order_id)
                 except Exception as e:
                     log.append(f"DB record error: {e}")
 
@@ -488,7 +513,12 @@ def run_auto_trade_check():
 
                 usdc_balance -= trade_amount
 
-                # Buy notifications silenced — only send wins
+                send_telegram(
+                    f"🤖 <b>Auto BUY</b>\n"
+                    f"🛒 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
+                    f"📦 ${trade_amount:,.2f} USDC\n"
+                    f"🆔 {order_id}"
+                )
             else:
                 log.append(f"{code}: BUY failed — {err}")
                 decisions.append({
@@ -505,7 +535,9 @@ def run_auto_trade_check():
             quantity = round((sell_pct / 100) * asset_balance, 8)
 
             if quantity <= 0:
-                log.append(f"{code}: SELL signal but no balance")
+                reason = f"SELL signal but no balance on Swyftx ({code} = 0)"
+                log.append(f"{code}: {reason}")
+                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
                 continue
 
             sell_value = quantity * current_price
@@ -521,7 +553,9 @@ def run_auto_trade_check():
                     quantity = round(asset_balance, 8)
                     sell_value = quantity * current_price
                     if sell_value < MIN_ORDER_USDC:
-                        log.append(f"{code}: SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum")
+                        reason = f"SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum"
+                        log.append(f"{code}: {reason}")
+                        decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
                         continue
 
             log.append(f"{code}: SELL at ${current_price:.2f} (target ${sell_target:.2f}) — {quantity:.8f} (${sell_value:.2f})")
@@ -530,6 +564,7 @@ def run_auto_trade_check():
             cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
             if not cb_ok:
                 log.append(f"{code}: SELL BLOCKED — {cb_reason}")
+                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": cb_reason, "error": cb_reason})
                 continue
 
             # Dry-run: simulate without executing
@@ -538,7 +573,12 @@ def run_auto_trade_check():
                 continue
 
             if code_to_id is None:
-                code_to_id = fetch_swyftx_asset_ids()
+                try:
+                    code_to_id = fetch_swyftx_asset_ids()
+                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
+                except Exception as e:
+                    log.append(f"Failed to load asset ID map: {e}")
+                    code_to_id = {}
 
             ok, order_id, err = place_market_order(code, "sell", sell_value, code_to_id)
 
@@ -552,9 +592,10 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Move sell target up, buy stays
+                # Reset BOTH targets from trade price so they stay within deviation %
+                targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
                 targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
-                log.append(f"{code}: new sell target ${targets[code]['sell']:.2f}")
+                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000
@@ -568,10 +609,10 @@ def run_auto_trade_check():
                 if len(trade_log) > 50:
                     trade_log = trade_log[:50]
 
-                # Record in DB
+                # Record in DB (pass order_id so sync can deduplicate)
                 try:
                     allocations = calculate_pool_allocations()
-                    record_trade(code, "sell", quantity, current_price, allocations)
+                    record_trade(code, "sell", quantity, current_price, allocations, swyftx_id=order_id)
                 except Exception as e:
                     log.append(f"DB record error: {e}")
 
@@ -618,6 +659,11 @@ def run_auto_trade_check():
         "autoActive": auto_active,
         "autoCooldowns": cooldowns,
         "autoTradeLog": trade_log,
+        "autoCronLog": {
+            "decisions": decisions,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "tradesExecuted": len(trades_executed),
+        },
     })
 
     log.append(f"Done: {len(trades_executed)} trade(s) executed")

@@ -3,7 +3,6 @@ import { APP_NAME } from "@constants/config";
 import { useEffect } from "react";
 import { useDashboardData } from "./hooks/useDashboardData";
 import MarketPills from "./components/dashboard/MarketPills";
-import PositionsStrip from "./components/dashboard/PositionsStrip";
 import PerpPositionsList from "./components/perps/PerpPositionsList";
 import PerpTradeHistory from "./components/perps/PerpTradeHistory";
 
@@ -20,9 +19,10 @@ const ChartLoader = () => (
 
 interface TradeDashboardProps {
   onClose?: () => void;
+  isAdmin?: boolean;
 }
 
-const TradeDashboard = (_props: TradeDashboardProps) => {
+const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
   const data = useDashboardData();
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
@@ -103,93 +103,23 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
       })()}
 
       {/* === MAIN CONTENT === */}
-      {/* Mobile: stacked | Desktop: 3-column grid */}
-      <div className="lg:grid lg:grid-cols-[1fr_2fr_1fr] lg:gap-0 lg:h-[calc(100vh-180px)]">
-
-        {/* LEFT: Markets sidebar (desktop only) — we already have pills on mobile */}
-        <div className="hidden lg:block border-r border-white/[0.04] overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-          {/* Desktop market list */}
-          <div className="p-2 space-y-0.5">
-            {data.markets.map((m) => {
-              const price = data.prices[m.symbol] || 0;
-              const isSelected = m.symbol === data.selectedSymbol;
-              const marketPositions = data.positions.filter((p) => p.symbol === m.symbol);
-              const posCount = marketPositions.length;
-              const posPnl = marketPositions.reduce((sum, p) => sum + p.unrealized_pnl, 0);
-              const posWinning = posPnl >= 0;
-
-              return (
-                <button
-                  key={m.symbol}
-                  onClick={() => data.setSelectedSymbol(m.symbol)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] transition-all ${
-                    isSelected
-                      ? "bg-blue-500/15 text-white border border-blue-500/30"
-                      : "text-slate-400 hover:bg-slate-800/40 border border-transparent"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold">{m.base_asset}</span>
-                    {posCount > 0 && (
-                      <span className={`w-4 h-4 rounded-full text-[8px] flex items-center justify-center ${
-                        posWinning
-                          ? "bg-emerald-500/20 text-emerald-400"
-                          : "bg-red-500/20 text-red-400"
-                      }`}>
-                        {posCount}
-                      </span>
-                    )}
-                  </div>
-                  <span className="tabular-nums text-slate-500">
-                    {price >= 1000
-                      ? `$${(price / 1000).toFixed(1)}k`
-                      : price >= 1
-                        ? `$${price.toFixed(2)}`
-                        : price > 0
-                          ? `$${price.toFixed(4)}`
-                          : "—"}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Desktop positions below market list */}
-          <div className="border-t border-white/[0.04]">
-            <PositionsStrip
-              positions={data.positions}
-              prices={data.prices}
-              wallet={data.wallet}
-              onClose={data.handleClosePosition}
-              onModify={data.handleModifyPosition}
-              onViewChart={handleViewChart}
-              onRefresh={data.refreshData}
-            />
-          </div>
-        </div>
-
-        {/* CENTER: Chart */}
-        <div className="px-3 lg:px-0">
-          <div className="lg:h-full">
-            <Suspense fallback={<ChartLoader />}>
-              <TradingChart
-                symbol={data.selectedSymbol}
-                baseAsset={data.selectedBaseAsset}
-                positions={data.positions.filter((p) => p.symbol === data.selectedSymbol)}
-                trades={data.trades.filter((t) => t.symbol === data.selectedSymbol)}
-                height={undefined}
-                strategyStatus={data.strategyStatus}
-                onModifySLTP={(positionId, mods) => data.handleModifyPosition(positionId, mods)}
-                onClosePosition={(positionId, exitPrice) => data.handleClosePosition(positionId, exitPrice)}
-              />
-            </Suspense>
-          </div>
-        </div>
-
-        {/* RIGHT sidebar removed — signals available via dedicated tab later */}
+      <div className="px-3">
+        <Suspense fallback={<ChartLoader />}>
+          <TradingChart
+            symbol={data.selectedSymbol}
+            baseAsset={data.selectedBaseAsset}
+            positions={data.positions.filter((p) => p.symbol === data.selectedSymbol)}
+            trades={data.trades.filter((t) => t.symbol === data.selectedSymbol)}
+            height={undefined}
+            strategyStatus={data.strategyStatus}
+            onModifySLTP={isAdmin ? (positionId, mods) => data.handleModifyPosition(positionId, mods) : undefined}
+            onClosePosition={isAdmin ? (positionId, exitPrice) => data.handleClosePosition(positionId, exitPrice) : undefined}
+          />
+        </Suspense>
       </div>
 
-      {/* Order form — collapsible */}
+      {/* Order form — collapsible, admin only */}
+      {isAdmin && (
       <div className="px-3 pt-3">
         <button
           onClick={() => setShowOrderForm(!showOrderForm)}
@@ -222,6 +152,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
           </Suspense>
         )}
       </div>
+      )}
 
       {/* Positions — collapsible, below order form */}
       <div className="px-3 pb-3 pt-2">
@@ -255,15 +186,17 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             wallet={data.wallet}
             livePrices={data.prices}
             onViewChart={handleViewChart}
-            onNewTrade={(symbol) => {
+            readOnly={!isAdmin}
+            onNewTrade={isAdmin ? (symbol) => {
               data.setSelectedSymbol(symbol);
               setShowOrderForm(true);
               window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
+            } : undefined}
           />
         )}
 
-        {/* Strategies — collapsible, below positions */}
+        {/* Strategies — collapsible, below positions, admin only */}
+        {isAdmin && (<>
         <button
           onClick={() => setShowStrategies(!showStrategies)}
           className="flex items-center gap-2 w-full mb-2 mt-3"
@@ -292,6 +225,7 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
             </Suspense>
           </div>
         )}
+        </>)}
 
         {/* Trade History — collapsible, below strategies */}
         <button
@@ -398,8 +332,8 @@ const TradeDashboard = (_props: TradeDashboardProps) => {
           );
         })()}
 
-        {/* Paper / Live / Kill controls */}
-        {data.wallet && (
+        {/* Paper / Live / Kill controls — admin only */}
+        {isAdmin && data.wallet && (
           <div className="flex items-center flex-wrap gap-1.5 mt-3">
             <button
               onClick={data.handleKillSwitch}

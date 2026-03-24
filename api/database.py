@@ -33,16 +33,18 @@ deposits_collection = db["deposits"]
 withdrawals_collection = db["withdrawals"]
 trader_state_collection = db["trader_state"]
 pool_state_collection = db["pool_state"]
+user_preferences_collection = db["user_preferences"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
-trades_collection.create_index([("userId", 1), ("timestamp", -1)])
+trades_collection.create_index([("timestamp", -1)])
 deposits_collection.create_index([("userId", 1), ("timestamp", -1)])
 deposits_collection.create_index("txHash", unique=True)
 trades_collection.create_index("swyftxId", unique=True, sparse=True)
 withdrawals_collection.create_index([("userId", 1), ("timestamp", -1)])
 trades_collection.create_index([("coin", 1), ("timestamp", -1)])
 users_collection.create_index([("isActive", 1), ("shares", -1)])
+user_preferences_collection.create_index("walletAddress", unique=True)
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -552,15 +554,21 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
                 "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None
             })
 
-        for trade in trades_collection.find({}).sort("timestamp", -1):
+        # Filter trades to only those where this wallet has an allocation
+        for trade in trades_collection.find({
+            f"userAllocations.{wallet_address}": {"$exists": True}
+        }).sort("timestamp", -1):
+            user_alloc_pct = trade.get("userAllocations", {}).get(wallet_address, 0)
+            total_amount = trade.get("amount", 0)
+            user_amount = total_amount * (user_alloc_pct / 100.0) if user_alloc_pct else total_amount
             transactions.append({
                 "type": "buy" if trade.get("type") == "buy" else "sell",
                 "coin": trade.get("coin", ""),
-                "amount": trade.get("amount", 0),
+                "amount": round(user_amount, 2),
                 "price": trade.get("price", 0),
                 "timestamp": trade["timestamp"].isoformat() if trade.get("timestamp") else None,
-                "wallet": "pool",
-                "walletShort": "Pool Trade",
+                "wallet": wallet_address,
+                "walletShort": wallet_address[:4] + "..." + wallet_address[-4:] if len(wallet_address) > 8 else wallet_address,
                 "swyftxId": trade.get("swyftxId", "")
             })
 
@@ -574,8 +582,9 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
 DEFAULT_TRADER_STATE = {
     "pendingOrders": [],
     "autoTiers": {
-        "tier1": {"deviation": 2, "allocation": 10},
-        "tier2": {"deviation": 5, "allocation": 5},
+        "tier1": {"deviation": 1, "allocation": 5},
+        "tier2": {"deviation": 2, "allocation": 5},
+        "tier3": {"deviation": 2, "allocation": 5},
     },
     "autoCooldowns": {},
     "autoTradeLog": [],
@@ -618,6 +627,33 @@ def save_trader_state(state: Dict) -> Dict:
     trader_state_collection.update_one(
         {"_id": "admin_state"},
         {"$set": state},
+        upsert=True
+    )
+    return {"success": True}
+
+
+# ── User Preferences (per-wallet) ──────────────────────────────────────────
+
+def get_user_preferences(wallet_address: str) -> Dict:
+    """Get user preferences by wallet address."""
+    doc = user_preferences_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        return {"walletAddress": wallet_address, "darkMode": True, "cart": []}
+    doc.pop("_id", None)
+    return doc
+
+
+def save_user_preferences(wallet_address: str, updates: Dict) -> Dict:
+    """Save user preferences (partial update). Allowed keys: darkMode, cart."""
+    allowed_keys = {"darkMode", "cart"}
+    filtered = {k: v for k, v in updates.items() if k in allowed_keys}
+    if not filtered:
+        return {"success": False, "error": "No valid preference keys provided"}
+
+    filtered["updatedAt"] = datetime.utcnow().isoformat()
+    user_preferences_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": filtered, "$setOnInsert": {"walletAddress": wallet_address, "createdAt": datetime.utcnow().isoformat()}},
         upsert=True
     )
     return {"success": True}
@@ -821,10 +857,17 @@ def sync_trades_from_swyftx(trades: List[Dict]) -> Dict:
         except (ValueError, TypeError):
             ts = datetime.utcnow()
 
+        # Swyftx BUY: quantity = AUD spent; SELL: quantity = crypto sold
+        # Store 'amount' as AUD value for consistency
+        if trade_type == "buy":
+            aud_amount = quantity  # quantity IS the AUD amount for buys
+        else:
+            aud_amount = quantity * price if price > 0 else amount
+
         trade_doc = {
             "coin": coin,
             "type": trade_type,
-            "amount": quantity if quantity > 0 else amount,
+            "amount": aud_amount,
             "price": price,
             "timestamp": ts,
             "swyftxId": swyftx_id,

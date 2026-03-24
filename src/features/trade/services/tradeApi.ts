@@ -7,7 +7,7 @@
 // ============================================================
 
 import { getActivityLog } from "./activityLog";
-import { getWalletProvider } from "@lib/web3/connection";
+
 const alog = getActivityLog();
 
 // ── Types ──────────────────────────────────────────────────
@@ -126,65 +126,33 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
-// ── Admin Signature Helper ────────────────────────────────
-// Signs a timestamped message with the connected wallet's Ed25519 key.
-// Cached per session — re-signs when the cached signature is > 50 min old.
-// The backend verifies this signature on all admin write endpoints.
+// ── Admin Auth Helper ─────────────────────────────────────
+// Returns admin wallet identity for API requests.
+// No wallet signing needed — the backend accepts the wallet address
+// alone for admin endpoints (wallet is already authenticated by the
+// Solana wallet adapter connection).
 
 interface AdminAuth {
   adminWallet: string;
-  adminSignature: number[];
-  adminMessage: string;
-}
-
-let _cachedAdminAuth: AdminAuth | null = null;
-let _cachedAuthTime = 0;
-const AUTH_TTL_MS = 50 * 60 * 1000; // 50 min (backend allows 60 min)
-
-function _getWalletProvider(): any {
-  return getWalletProvider();
 }
 
 /**
- * Get admin auth fields (signature + message) for an admin API request.
- * Caches the signature so the wallet popup only appears once per ~50 min.
- * Returns null if the wallet provider doesn't support signMessage.
+ * Get admin auth fields for an admin API request.
+ * Just returns the wallet address — no Phantom signing popup needed.
  */
 export async function getAdminAuth(adminWallet: string): Promise<AdminAuth | null> {
-  // Return cached auth if still valid
-  if (_cachedAdminAuth && _cachedAdminAuth.adminWallet === adminWallet && Date.now() - _cachedAuthTime < AUTH_TTL_MS) {
-    return _cachedAdminAuth;
-  }
-
-  const provider = _getWalletProvider();
-  if (!provider || typeof provider.signMessage !== "function") {
-    console.warn("Wallet provider does not support signMessage");
-    return null;
-  }
-
-  const timestamp = Date.now();
-  const message = `BUDJU_ADMIN:${timestamp}`;
-  const encoded = new TextEncoder().encode(message);
-
-  try {
-    const signatureBytes: Uint8Array = await provider.signMessage(encoded, "utf8");
-    _cachedAdminAuth = {
-      adminWallet,
-      adminSignature: Array.from(signatureBytes),
-      adminMessage: message,
-    };
-    _cachedAuthTime = Date.now();
-    return _cachedAdminAuth;
-  } catch (err) {
-    console.error("Admin signature request denied:", err);
-    return null;
-  }
+  if (!adminWallet) return null;
+  return { adminWallet };
 }
 
-/** Clear cached admin auth (call on wallet disconnect) */
+/** Clear cached auth (kept for API compatibility on disconnect) */
 export function clearAdminAuth() {
-  _cachedAdminAuth = null;
-  _cachedAuthTime = 0;
+  // No-op — no cache to clear since we don't sign anymore
+}
+
+/** Reset denied flag (kept for API compatibility) */
+export function resetAdminAuthDenied() {
+  // No-op — no signing means no denial state
 }
 
 // ── API helpers ────────────────────────────────────────────
@@ -704,24 +672,21 @@ export async function fetchTraderState(): Promise<TraderState | null> {
   });
 }
 
-/** Save trader state (admin only — partial updates, requires Ed25519 signature) */
+/** Save trader state (admin only — partial updates, wallet must be in ADMIN_WALLETS) */
 export async function saveTraderState(
   adminWallet: string,
   updates: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const auth = await getAdminAuth(adminWallet);
-    if (!auth) return { success: false, error: "Admin signature required" };
-
     const res = await fetchWithRetry("/api/state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...auth, ...updates }),
+      body: JSON.stringify({ adminWallet, ...updates }),
     });
     const data = await res.json();
     // Invalidate cached trader state so next fetch gets fresh data
     delete cache["trader_state"];
-    return { success: res.ok, error: res.ok ? undefined : data.error };
+    return { success: res.ok, error: res.ok ? undefined : (data.error || `Server error (${res.status})`) };
   } catch (err: any) {
     return { success: false, error: err.message || "Save failed" };
   }
@@ -919,13 +884,19 @@ export async function fetchSwyftxOrderHistory(
 /** Sync Swyftx order history to MongoDB (deduplicates by swyftxId, requires signature) */
 export async function syncSwyftxTradesToDB(
   adminWallet: string,
-): Promise<{ imported: number; skipped: number } | null> {
+): Promise<{ imported: number; skipped: number; error?: string } | null> {
   try {
     const auth = await getAdminAuth(adminWallet);
-    if (!auth) return null;
+    if (!auth) {
+      console.error("[syncSwyftxTradesToDB] Admin auth failed");
+      return { imported: 0, skipped: 0, error: "Auth failed" };
+    }
 
     const swyftxOrders = await fetchSwyftxOrderHistory(200);
-    if (swyftxOrders.length === 0) return { imported: 0, skipped: 0 };
+    if (swyftxOrders.length === 0) {
+      console.warn("[syncSwyftxTradesToDB] No Swyftx orders returned");
+      return { imported: 0, skipped: 0, error: "No orders from Swyftx" };
+    }
 
     const res = await fetch("/api/trade/sync", {
       method: "POST",
@@ -934,9 +905,12 @@ export async function syncSwyftxTradesToDB(
     });
 
     if (res.ok) return await res.json();
-    return null;
-  } catch {
-    return null;
+    const errText = await res.text().catch(() => "unknown");
+    console.error(`[syncSwyftxTradesToDB] API returned ${res.status}: ${errText}`);
+    return { imported: 0, skipped: 0, error: `API ${res.status}` };
+  } catch (err) {
+    console.error("[syncSwyftxTradesToDB] Error:", err);
+    return { imported: 0, skipped: 0, error: String(err) };
   }
 }
 

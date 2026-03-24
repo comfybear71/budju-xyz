@@ -219,8 +219,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                   ) : Object.entries(grouped).map(([tierKey, coins]) => {
                     const tierCfg = (state?.autoTierAssets || {})[tierKey] || {};
                     const tierName = tierCfg.name || tierKey.replace("tier", "Tier ");
-                    const dev = Number(tierCfg.deviation) || 0;
-                    const alloc = Number(tierCfg.allocation) || 0;
+                    // Read tier settings from DB, with defaults
+                    const tierNum = parseInt(tierKey.replace("tier", "")) || 0;
+                    const dev = Number(tierCfg.deviation) || (tierNum === 1 ? 1 : 2);
+                    const alloc = Number(tierCfg.allocation) || 5;
                     // Use the real active state from monitoring data
                     const tierActive = coins.some((c: any) => c.isTierActive);
 
