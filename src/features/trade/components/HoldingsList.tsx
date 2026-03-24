@@ -5,8 +5,8 @@ import {
   FaArrowUp,
   FaArrowDown,
 } from "react-icons/fa";
-import { ASSET_CONFIG, fetchAccumulation } from "../services/tradeApi";
-import type { PortfolioAsset, AccumulationPoint } from "../services/tradeApi";
+import { ASSET_CONFIG } from "../services/tradeApi";
+import type { PortfolioAsset } from "../services/tradeApi";
 import AccumulationSparkline from "./AccumulationSparkline";
 
 type SortKey = "value" | "change" | "name" | "balance";
@@ -324,16 +324,10 @@ const HoldingsList = ({
   const [activeTierIndex, setActiveTierIndex] = useState(0);
   const dragX = useMotionValue(0);
 
-  // Accumulation sparkline data
-  const [accumulation, setAccumulation] = useState<Record<string, AccumulationPoint[]>>({});
-  useEffect(() => {
-    fetchAccumulation()
-      .then((data) => {
-        console.log("[HoldingsList] accumulation keys:", Object.keys(data), "sample:", Object.entries(data).slice(0, 2).map(([k, v]) => `${k}: ${v.length} pts`));
-        setAccumulation(data);
-      })
-      .catch((err) => console.error("[HoldingsList] accumulation fetch failed:", err));
-  }, []);
+  // Live price history buffer — collects streaming prices into mini sparkline data
+  const MAX_HISTORY = 30;
+  const priceHistoryRef = useRef<Record<string, { t: string | null; b: number }[]>>({});
+  const [priceHistory, setPriceHistory] = useState<Record<string, { t: string | null; b: number }[]>>({});
 
   // Track previous prices to determine up/down direction
   const prevPricesRef = useRef<Record<string, number>>({});
@@ -342,6 +336,7 @@ const HoldingsList = ({
   useEffect(() => {
     const prev = prevPricesRef.current;
     const dirs: Record<string, "up" | "down" | null> = {};
+    let historyChanged = false;
 
     for (const a of assets) {
       const oldPrice = prev[a.code];
@@ -351,6 +346,25 @@ const HoldingsList = ({
       } else {
         dirs[a.code] = null;
       }
+
+      // Push to price history buffer for sparkline
+      if (newPrice > 0) {
+        if (!priceHistoryRef.current[a.code]) {
+          priceHistoryRef.current[a.code] = [];
+        }
+        const hist = priceHistoryRef.current[a.code];
+        const last = hist.length > 0 ? hist[hist.length - 1].b : -1;
+        // Only push if price actually changed (avoid flat lines from duplicate ticks)
+        if (last !== newPrice) {
+          hist.push({ t: null, b: newPrice });
+          if (hist.length > MAX_HISTORY) hist.shift();
+          historyChanged = true;
+        }
+      }
+    }
+
+    if (historyChanged) {
+      setPriceHistory({ ...priceHistoryRef.current });
     }
 
     setPriceDirection(dirs);
@@ -742,22 +756,16 @@ const HoldingsList = ({
                     </div>
                   </div>
 
-                  {/* Accumulation area chart — always visible */}
-                  <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
-                    {accumulation[asset.code] && accumulation[asset.code].length >= 2 ? (
+                  {/* Live price sparkline */}
+                  {priceHistory[asset.code] && priceHistory[asset.code].length >= 2 && (
+                    <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
                       <AccumulationSparkline
-                        data={accumulation[asset.code]}
+                        data={priceHistory[asset.code]}
                         width={400}
                         height={40}
                       />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <span className="text-[9px] text-slate-600 font-mono">
-                          {accumulation[asset.code] ? `${accumulation[asset.code].length} pts` : "no data"}
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
