@@ -739,11 +739,11 @@ const HoldingsList = ({
 
                   {/* Accumulation sparkline — built from Swyftx order history */}
                   {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
-                    <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
+                    <div className="mt-1.5 h-5 w-full rounded overflow-hidden opacity-70">
                       <AccumulationSparkline
                         data={accumulation[asset.code]}
                         width={400}
-                        height={40}
+                        height={20}
                       />
                     </div>
                   )}
