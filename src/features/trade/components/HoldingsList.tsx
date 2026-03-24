@@ -327,7 +327,12 @@ const HoldingsList = ({
   // Accumulation sparkline data
   const [accumulation, setAccumulation] = useState<Record<string, AccumulationPoint[]>>({});
   useEffect(() => {
-    fetchAccumulation().then(setAccumulation).catch(() => {});
+    fetchAccumulation()
+      .then((data) => {
+        console.log("[HoldingsList] accumulation keys:", Object.keys(data), "sample:", Object.entries(data).slice(0, 2).map(([k, v]) => `${k}: ${v.length} pts`));
+        setAccumulation(data);
+      })
+      .catch((err) => console.error("[HoldingsList] accumulation fetch failed:", err));
   }, []);
 
   // Track previous prices to determine up/down direction
@@ -737,16 +742,22 @@ const HoldingsList = ({
                     </div>
                   </div>
 
-                  {/* Accumulation area chart */}
-                  {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
-                    <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
+                  {/* Accumulation area chart — always visible */}
+                  <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
+                    {accumulation[asset.code] && accumulation[asset.code].length >= 2 ? (
                       <AccumulationSparkline
                         data={accumulation[asset.code]}
                         width={400}
                         height={40}
                       />
-                    </div>
-                  )}
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-[9px] text-slate-600 font-mono">
+                          {accumulation[asset.code] ? `${accumulation[asset.code].length} pts` : "no data"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               );
             })}
