@@ -651,16 +651,6 @@ const HoldingsList = ({
                       : "bg-slate-800/30"
                   }`}
                 >
-                  {/* Accumulation sparkline background */}
-                  {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
-                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl">
-                      <AccumulationSparkline
-                        data={accumulation[asset.code]}
-                        width={300}
-                        height={60}
-                      />
-                    </div>
-                  )}
 
                   <div className="relative flex items-center gap-3">
                     {/* Coin icon */}
@@ -746,6 +736,17 @@ const HoldingsList = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Accumulation area chart */}
+                  {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
+                    <div className="mt-2 h-10 w-full rounded-lg overflow-hidden bg-slate-900/40">
+                      <AccumulationSparkline
+                        data={accumulation[asset.code]}
+                        width={400}
+                        height={40}
+                      />
+                    </div>
+                  )}
                 </motion.div>
               );
             })}
