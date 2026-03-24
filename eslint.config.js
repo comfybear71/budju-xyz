@@ -9,12 +9,7 @@ import prettier from "eslint-plugin-prettier";
 export default tseslint.config(
   { ignores: ["dist"] },
   {
-    extends: [
-      js.configs.recommended,
-      ...tseslint.configs.recommended,
-      "plugin:react-hooks/recommended",
-      "plugin:prettier/recommended",
-    ],
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2020,
@@ -25,7 +20,6 @@ export default tseslint.config(
     },
     plugins: {
       react,
-      "@typescript-eslint": tseslint,
       prettier,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
@@ -38,11 +32,6 @@ export default tseslint.config(
       ],
       "@typescript-eslint/no-unused-vars": ["warn"],
       "@typescript-eslint/no-explicit-any": "off",
-    },
-    env: {
-      browser: true,
-      es2020: true,
-      jest: true,
     },
   },
 );
