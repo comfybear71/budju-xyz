@@ -26,6 +26,7 @@ from database import (
     get_user_position,
     get_leaderboard,
     get_all_transactions,
+    get_accumulation_history,
     get_admin_stats,
     get_db_debug,
     sync_deposits_from_client,
@@ -272,6 +273,10 @@ class handler(BaseHTTPRequestHandler):
                     is_admin_request=admin_req
                 )
                 self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": is_admin(wallet)})
+
+            elif path == '/api/accumulation':
+                data = get_accumulation_history()
+                self._send_json(200, {"accumulation": data})
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
