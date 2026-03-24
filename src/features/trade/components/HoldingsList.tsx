@@ -5,8 +5,9 @@ import {
   FaArrowUp,
   FaArrowDown,
 } from "react-icons/fa";
-import { ASSET_CONFIG } from "../services/tradeApi";
-import type { PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, fetchAccumulation } from "../services/tradeApi";
+import type { PortfolioAsset, AccumulationPoint } from "../services/tradeApi";
+import AccumulationSparkline from "./AccumulationSparkline";
 
 type SortKey = "value" | "change" | "name" | "balance";
 
@@ -322,6 +323,12 @@ const HoldingsList = ({
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activeTierIndex, setActiveTierIndex] = useState(0);
   const dragX = useMotionValue(0);
+
+  // Accumulation sparkline data
+  const [accumulation, setAccumulation] = useState<Record<string, AccumulationPoint[]>>({});
+  useEffect(() => {
+    fetchAccumulation().then(setAccumulation).catch(() => {});
+  }, []);
 
   // Track previous prices to determine up/down direction
   const prevPricesRef = useRef<Record<string, number>>({});
@@ -644,7 +651,18 @@ const HoldingsList = ({
                       : "bg-slate-800/30"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
+                  {/* Accumulation sparkline background */}
+                  {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
+                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl opacity-60">
+                      <AccumulationSparkline
+                        data={accumulation[asset.code]}
+                        width={300}
+                        height={60}
+                      />
+                    </div>
+                  )}
+
+                  <div className="relative flex items-center gap-3">
                     {/* Coin icon */}
                     <div
                       className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold flex-shrink-0"

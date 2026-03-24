@@ -577,6 +577,57 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
     return transactions
 
 
+# ── Accumulation History (running balance per coin from trades) ───────────────
+
+def get_accumulation_history() -> Dict[str, list]:
+    """
+    Build a running-balance sparkline per coin from the trades collection.
+    Returns {coin: [{t: iso_timestamp, b: running_balance}, ...], ...}
+    sorted oldest→newest, capped at ~20 data points per coin for lightweight charts.
+    """
+    pipeline = [
+        {"$sort": {"timestamp": 1}},
+        {"$project": {"coin": 1, "type": 1, "amount": 1, "timestamp": 1}},
+    ]
+    trades = list(trades_collection.aggregate(pipeline))
+
+    # Build running balance per coin
+    balances: Dict[str, list] = {}
+    running: Dict[str, float] = {}
+
+    for t in trades:
+        coin = t.get("coin", "")
+        if not coin:
+            continue
+        amt = t.get("amount", 0)
+        if t.get("type") == "buy":
+            running[coin] = running.get(coin, 0) + amt
+        else:
+            running[coin] = running.get(coin, 0) - amt
+
+        ts = t.get("timestamp")
+        ts_str = ts.isoformat() if ts else None
+
+        if coin not in balances:
+            balances[coin] = []
+        balances[coin].append({"t": ts_str, "b": round(running[coin], 8)})
+
+    # Downsample to ~20 points per coin (evenly spaced)
+    result: Dict[str, list] = {}
+    for coin, points in balances.items():
+        if len(points) <= 20:
+            result[coin] = points
+        else:
+            step = len(points) / 20
+            sampled = [points[int(i * step)] for i in range(20)]
+            # Always include the last point
+            if sampled[-1] != points[-1]:
+                sampled[-1] = points[-1]
+            result[coin] = sampled
+
+    return result
+
+
 # ── Persistent Trader State ──────────────────────────────────────────────────
 
 DEFAULT_TRADER_STATE = {
