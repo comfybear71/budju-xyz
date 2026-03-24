@@ -80,8 +80,8 @@ const AccumulationSparkline = ({
     >
       <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0.03" />
+          <stop offset="0%" stopColor={color} stopOpacity="0.6" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.08" />
         </linearGradient>
       </defs>
       <path d={areaPath} fill={`url(#${gradientId})`} />
@@ -89,8 +89,8 @@ const AccumulationSparkline = ({
         d={path}
         fill="none"
         stroke={color}
-        strokeWidth="1.5"
-        strokeOpacity="0.5"
+        strokeWidth="2"
+        strokeOpacity="0.9"
         strokeLinejoin="round"
       />
     </svg>

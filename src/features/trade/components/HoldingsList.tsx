@@ -653,7 +653,7 @@ const HoldingsList = ({
                 >
                   {/* Accumulation sparkline background */}
                   {accumulation[asset.code] && accumulation[asset.code].length >= 2 && (
-                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl opacity-60">
+                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden rounded-xl">
                       <AccumulationSparkline
                         data={accumulation[asset.code]}
                         width={300}
