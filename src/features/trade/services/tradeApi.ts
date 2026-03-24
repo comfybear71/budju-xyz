@@ -390,11 +390,55 @@ export interface AccumulationPoint {
 export async function fetchAccumulation(): Promise<Record<string, AccumulationPoint[]>> {
   return cached("accumulation", 120_000, async () => {
     try {
-      const res = await fetchWithRetry("/api/accumulation");
-      if (!res.ok) return {};
-      const data = await res.json();
-      return data.accumulation || {};
-    } catch {
+      // Build accumulation from Swyftx order history (filled orders)
+      const orders = await fetchSwyftxOrderHistory(200);
+      if (!orders.length) return {};
+
+      // Sort oldest first
+      const sorted = [...orders].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
+
+      // Build running balance per coin
+      const running: Record<string, number> = {};
+      const result: Record<string, AccumulationPoint[]> = {};
+
+      for (const o of sorted) {
+        const coin = o.coin;
+        if (!coin) continue;
+        // quantity = crypto amount for buys, crypto amount for sells
+        const qty = o.quantity || 0;
+        if (qty <= 0) continue;
+
+        if (o.type === "buy") {
+          running[coin] = (running[coin] || 0) + qty;
+        } else {
+          running[coin] = (running[coin] || 0) - qty;
+        }
+
+        if (!result[coin]) result[coin] = [];
+        result[coin].push({
+          t: o.timestamp || null,
+          b: Math.max(0, running[coin]),
+        });
+      }
+
+      // Downsample to ~20 points per coin
+      const downsampled: Record<string, AccumulationPoint[]> = {};
+      for (const [coin, points] of Object.entries(result)) {
+        if (points.length <= 20) {
+          downsampled[coin] = points;
+        } else {
+          const step = points.length / 20;
+          const sampled = Array.from({ length: 20 }, (_, i) => points[Math.floor(i * step)]);
+          sampled[sampled.length - 1] = points[points.length - 1];
+          downsampled[coin] = sampled;
+        }
+      }
+
+      return downsampled;
+    } catch (err) {
+      console.error("[fetchAccumulation] failed:", err);
       return {};
     }
   });
