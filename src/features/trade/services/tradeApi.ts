@@ -381,25 +381,6 @@ export async function fetchLeaderboard(poolValue: number): Promise<LeaderboardEn
   });
 }
 
-/** Accumulation sparkline data per coin */
-export interface AccumulationPoint {
-  t: string | null;
-  b: number;
-}
-
-export async function fetchAccumulation(): Promise<Record<string, AccumulationPoint[]>> {
-  return cached("accumulation", 120_000, async () => {
-    try {
-      const res = await fetchWithRetry("/api/accumulation");
-      if (!res.ok) return {};
-      const data = await res.json();
-      return data.accumulation || {};
-    } catch {
-      return {};
-    }
-  });
-}
-
 /** Fetch transactions from MongoDB — throws on failure so callers can show errors */
 export async function fetchTransactions(
   wallet: string,
