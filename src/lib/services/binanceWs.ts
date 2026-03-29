@@ -26,6 +26,7 @@ const CODE_TO_BINANCE: Record<string, string> = {
   UNI: "uniusdt",
   NEAR: "nearusdt",
   NEO: "neousdt",
+  TRX: "trxusdt",
   BCH: "bchusdt",
   BNB: "bnbusdt",
   ENA: "enausdt",

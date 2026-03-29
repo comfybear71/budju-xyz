@@ -108,6 +108,7 @@ export const ASSET_CONFIG: Record<
   UNI: { color: "#ff007a", icon: "U", name: "Uniswap", coingeckoId: "uniswap" },
   NEAR: { color: "#00c08b", icon: "N", name: "NEAR", coingeckoId: "near" },
   NEO: { color: "#22c55e", icon: "N", name: "NEO", coingeckoId: "neo" },
+  TRX: { color: "#ef4444", icon: "T", name: "TRON", coingeckoId: "tron" },
   BCH: { color: "#8b5cf6", icon: "B", name: "Bitcoin Cash", coingeckoId: "bitcoin-cash" },
   BNB: { color: "#eab308", icon: "B", name: "Binance Coin", coingeckoId: "binancecoin" },
   ENA: { color: "#6b7280", icon: "E", name: "Ethena", coingeckoId: "ethena" },
