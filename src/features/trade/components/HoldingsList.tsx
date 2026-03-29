@@ -63,7 +63,7 @@ const TOP_10_COINS = new Set([
 
 // AI, compute, next-gen L1s
 const INNOVATION_COINS = new Set([
-  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT", "UNI", "TRX",
+  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT", "UNI",
 ]);
 
 function getTier(code: string): HoldingsTier {
