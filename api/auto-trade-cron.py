@@ -66,7 +66,7 @@ ASSET_CG_IDS = {
     "SUI": "sui", "XAUT": "tether-gold", "AVAX": "avalanche-2",
     "DOT": "polkadot", "LINK": "chainlink", "POL": "polygon-ecosystem-token",
     "HBAR": "hedera-hashgraph", "UNI": "uniswap", "NEAR": "near",
-    "NEO": "neo", "TRX": "tron", "BCH": "bitcoin-cash",
+    "NEO": "neo", "BCH": "bitcoin-cash",
     "BNB": "binancecoin", "ENA": "ethena", "NEXO": "nexo",
     "HYPE": "hyperliquid", "RENDER": "render-token", "FET": "fetch-ai",
     "TAO": "bittensor", "PEPE": "pepe", "LUNA": "terra-luna-2",
