@@ -387,7 +387,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                       {tierKey.replace("tier", "T")}
                                     </span>
                                     {assetMap[item.coin] && (
-                                      <span className="text-[9px] font-mono text-slate-500">
+                                      <span
+                                        className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                                        style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.25)", color: "#93c5fd" }}
+                                      >
                                         {assetMap[item.coin].balance < 1
                                           ? assetMap[item.coin].balance.toPrecision(4)
                                           : assetMap[item.coin].balance < 1000
