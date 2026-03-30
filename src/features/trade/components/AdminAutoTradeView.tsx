@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory } from "../services/tradeApi";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
@@ -10,6 +10,7 @@ interface Props {
   adminWallet: string;
   onClose: () => void;
   autoTrader: AutoTrader;
+  assets?: PortfolioAsset[];
 }
 
 // Coins available for auto-trading (exclude stables/fiat)
@@ -17,7 +18,7 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
   (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
 );
 
-const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader }: Props) => {
+const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [] }: Props) => {
   const [, setTick] = useState(0);
   const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(30);
@@ -53,6 +54,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const snapshot = autoTrader.getSnapshot();
   const botActive = snapshot.isActive;
+
+  // Build asset balance lookup: code → { balance, usdValue }
+  const assetMap: Record<string, { balance: number; usdValue: number }> = {};
+  for (const a of assets) {
+    if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+  }
 
   // Build tier data
   const getTiers = () => {
@@ -731,6 +738,19 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                               LIVE
                             </span>
                           ) : null}
+                          {assetMap[item.coin] && (
+                            <span
+                              className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.25)", color: "#93c5fd" }}
+                            >
+                              {assetMap[item.coin].balance < 1
+                                ? assetMap[item.coin].balance.toPrecision(4)
+                                : assetMap[item.coin].balance < 1000
+                                  ? assetMap[item.coin].balance.toFixed(2)
+                                  : assetMap[item.coin].balance.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                              }
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1" style={{ color: changeColor }}>
                           {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}

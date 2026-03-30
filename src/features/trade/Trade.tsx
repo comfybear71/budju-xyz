@@ -846,6 +846,7 @@ const Trade = () => {
                     adminWallet={walletAddress}
                     onClose={() => setShowAutoAdmin(false)}
                     autoTrader={autoTrader}
+                    assets={assets}
                   />
                 )}
               </AnimatePresence>
