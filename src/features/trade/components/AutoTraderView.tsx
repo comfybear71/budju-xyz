@@ -1,16 +1,17 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown } from "react-icons/fa";
-import { fetchTraderState, ASSET_CONFIG } from "../services/tradeApi";
+import { fetchTraderState, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   prices: Record<string, number>;
   changes?: Record<string, number>;
+  assets?: PortfolioAsset[];
 }
 
-const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
+const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: Props) => {
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
@@ -42,6 +43,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
       clearInterval(countdownInterval);
     };
   }, [isOpen]);
+
+  // Build asset balance lookup: code → { balance, usdValue }
+  const assetMap: Record<string, { balance: number; usdValue: number }> = {};
+  for (const a of assets) {
+    if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+  }
 
   // Build monitoring data from tier config + assignments
   // Uses autoActive.targets for real buy/sell triggers when available
@@ -379,6 +386,16 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {} }: Props) => {
                                     <span className="text-[9px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.15)", color: "#a855f7" }}>
                                       {tierKey.replace("tier", "T")}
                                     </span>
+                                    {assetMap[item.coin] && (
+                                      <span className="text-[9px] font-mono text-slate-500">
+                                        {assetMap[item.coin].balance < 1
+                                          ? assetMap[item.coin].balance.toPrecision(4)
+                                          : assetMap[item.coin].balance < 1000
+                                            ? assetMap[item.coin].balance.toFixed(2)
+                                            : assetMap[item.coin].balance.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                                        }
+                                      </span>
+                                    )}
                                   </div>
                                   <div className="flex items-center gap-1" style={{ color: changeColor }}>
                                     {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}

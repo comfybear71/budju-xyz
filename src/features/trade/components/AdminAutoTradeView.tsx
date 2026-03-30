@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory } from "../services/tradeApi";
-import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
+import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
@@ -179,6 +179,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
+  const handleUpdateCooldown = (tierNum: number, cooldownHours: number) => {
+    autoTrader.updateTierSettings(tierNum, { cooldownHours });
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
+  };
+
   const handleSaveSettings = async (tierNum: number) => {
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
     setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
@@ -329,7 +334,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                       T{tier.num} – {tier.cfg.name}
                     </span>
                     <div className="text-[10px] text-slate-500 mt-0.5">
-                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc
+                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc · {tier.settings.cooldownHours || 24}h cd
                     </div>
                   </div>
                   <span
@@ -442,6 +447,34 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                       className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
                       style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
                     />
+                  </div>
+                </div>
+
+                {/* Cooldown selector */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-slate-500">Cooldown</span>
+                    <span className="text-[10px] font-bold text-amber-400">{tier.settings.cooldownHours || 24}h</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[6, 12, 24].map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => handleUpdateCooldown(tier.num, h)}
+                        className="flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                        style={{
+                          background: (tier.settings.cooldownHours || 24) === h
+                            ? "rgba(245,158,11,0.2)"
+                            : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${(tier.settings.cooldownHours || 24) === h
+                            ? "rgba(245,158,11,0.4)"
+                            : "rgba(255,255,255,0.08)"}`,
+                          color: (tier.settings.cooldownHours || 24) === h ? "#f59e0b" : "#64748b",
+                        }}
+                      >
+                        {h}h
+                      </button>
+                    ))}
                   </div>
                 </div>
 

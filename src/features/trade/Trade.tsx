@@ -973,6 +973,7 @@ const Trade = () => {
         onClose={() => setShowAutoTrader(false)}
         prices={prices}
         changes={changes}
+        assets={assets}
       />
     </main>
   );
