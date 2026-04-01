@@ -1,36 +1,17 @@
-version: 2
-updates:
-  # JavaScript / npm
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-    groups:
-      solana:
-        patterns:
-          - "@solana/*"
-          - "@coral-xyz/*"
-      react:
-        patterns:
-          - "react"
-          - "react-dom"
-          - "react-router-dom"
-      tailwind:
-        patterns:
-          - "tailwindcss"
-          - "@tailwindcss/*"
-
-  # Python / pip
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "python"
+# Dependabot disabled — we manage dependency updates manually.
+# To re-enable, uncomment the config below.
+#
+# version: 2
+# updates:
+#   - package-ecosystem: "npm"
+#     directory: "/"
+#     schedule:
+#       interval: "weekly"
+#       day: "monday"
+#     open-pull-requests-limit: 10
+#   - package-ecosystem: "pip"
+#     directory: "/"
+#     schedule:
+#       interval: "weekly"
+#       day: "monday"
+#     open-pull-requests-limit: 5
