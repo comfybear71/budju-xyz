@@ -26,6 +26,21 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 - `api/` — All serverless functions (26 files)
 - `vps/` — Standalone VPS trading bot (8 files)
 - `tests/` — Python tests (test_auth.py, test_circuit_breakers.py, test_pool_math.py)
+- `docs/` — Project documentation (all .md files except README.md, CLAUDE.md, HANDOFF.md live here)
+
+## Git & Branch Management
+
+- **Default branch:** `master` (protected)
+- **Development branch:** Claude Code sessions create feature branches (e.g. `claude/review-project-docs-GWNzR`). All development happens on these branches, then gets merged to `master` via PR.
+- **Branch cleanup:** After a PR is merged, the feature branch should be deleted. It's safe — all code is already in `master`. Deleting a merged branch is like throwing away a photocopy when the original is filed.
+- **Dependabot branches:** GitHub's Dependabot creates branches for dependency updates. Close the PR and delete the branch if the update isn't needed — Dependabot will create a new one if a newer version comes out.
+- **Rule:** Only keep branches that have active, unmerged work. Merged branches are clutter and should be cleaned up.
+- **Never force-push to `master`.** Always use PRs.
+
+## File Organisation
+
+- **Root-level .md files:** Only `README.md`, `CLAUDE.md`, and `HANDOFF.md` stay in the project root.
+- **All other .md files** go in the `docs/` folder (e.g. `docs/SECURITY.md`, `docs/TRADING_MANUAL.md`, `docs/vps/SETUP.md`).
 
 ## Build & Run
 

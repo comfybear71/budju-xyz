@@ -46,6 +46,7 @@ export interface TierConfig {
 export interface TierSettings {
   deviation: number;
   allocation: number;
+  cooldownHours: number;
 }
 
 export interface CoinTargets {
@@ -101,7 +102,7 @@ export const TIER_CONFIG: Record<number, TierConfig> = {
 };
 
 const DEFAULT_T1 = ["BTC", "ETH", "SOL", "BNB", "XRP"];
-const COOLDOWN_HOURS = 24;
+const DEFAULT_COOLDOWN_HOURS = 24;
 const MIN_USDC_RESERVE = 100;
 const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
@@ -116,9 +117,9 @@ export class AutoTrader {
   targets: Record<string, CoinTargets> = {};
   cooldowns: Record<string, number> = {};
   tierSettings: Record<string, TierSettings> = {
-    tier1: { deviation: 1, allocation: 5 },
-    tier2: { deviation: 2, allocation: 5 },
-    tier3: { deviation: 2, allocation: 5 },
+    tier1: { deviation: 1, allocation: 5, cooldownHours: 24 },
+    tier2: { deviation: 2, allocation: 5, cooldownHours: 24 },
+    tier3: { deviation: 2, allocation: 5, cooldownHours: 24 },
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
@@ -205,9 +206,9 @@ export class AutoTrader {
     // Load tier settings from DB, falling back to defaults
     const dbTiers = state.autoTiers || state.autoTierAssets || {};
     const defaults: Record<string, TierSettings> = {
-      tier1: { deviation: 1, allocation: 5 },
-      tier2: { deviation: 2, allocation: 5 },
-      tier3: { deviation: 2, allocation: 5 },
+      tier1: { deviation: 1, allocation: 5, cooldownHours: 24 },
+      tier2: { deviation: 2, allocation: 5, cooldownHours: 24 },
+      tier3: { deviation: 2, allocation: 5, cooldownHours: 24 },
     };
     this.tierSettings = {} as any;
     for (let t = 1; t <= 3; t++) {
@@ -216,6 +217,7 @@ export class AutoTrader {
       this.tierSettings[key] = {
         deviation: db.deviation != null ? Number(db.deviation) : defaults[key].deviation,
         allocation: db.allocation != null ? Number(db.allocation) : defaults[key].allocation,
+        cooldownHours: db.cooldownHours != null ? Number(db.cooldownHours) : defaults[key].cooldownHours,
       };
     }
 
@@ -460,7 +462,7 @@ export class AutoTrader {
       };
       const result = await saveTraderState(this._adminWallet, { autoTiers });
       if (result.success) {
-        this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%)`, "info");
+        this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%, cd=${settings.cooldownHours}h)`, "info");
         return { ok: true };
       } else {
         const error = result.error || "Unknown server error";
@@ -1098,10 +1100,14 @@ export class AutoTrader {
   // ── Cooldown Management ─────────────────────────────────
 
   private _setCooldown(coin: string) {
-    const expiresAt = Date.now() + COOLDOWN_HOURS * 60 * 60 * 1000;
+    // Look up the tier for this coin to get per-tier cooldown hours
+    const tierNum = this.tierAssignments[coin] || 1;
+    const tierKey = `tier${tierNum}`;
+    const hours = this.tierSettings[tierKey]?.cooldownHours ?? DEFAULT_COOLDOWN_HOURS;
+    const expiresAt = Date.now() + hours * 60 * 60 * 1000;
     this.cooldowns[coin] = expiresAt;
     this._saveCooldowns();
-    this._log(`${coin} on cooldown for ${COOLDOWN_HOURS}h`, "info");
+    this._log(`${coin} on cooldown for ${hours}h`, "info");
   }
 
   _isOnCooldown(coin: string): boolean {

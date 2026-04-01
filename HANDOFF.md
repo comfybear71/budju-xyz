@@ -1,8 +1,8 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: March 24, 2026
+> Last updated: March 27, 2026
 
-This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `HANDOFF_PROMPT.md` (detailed session-by-session changelog).
+This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
 ---
 
@@ -79,9 +79,16 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14-24, 2026)
+## 4. Recent Changes & Fixes (March 14-27, 2026)
 
-### Auto-Trader Sell Execution Fixes (March 23-24) — MOST RECENT
+### Housekeeping & Docs Reorganisation (March 27) — MOST RECENT
+- Moved all project .md files (except README.md, CLAUDE.md, HANDOFF.md) into `docs/` folder
+- Created comprehensive DigitalOcean VPS reference doc (`docs/DIGITALOCEAN_VPS.md`)
+- Cleaned up stale Git branches: deleted merged Claude branches, closed unused Dependabot PRs (#3, #5)
+- **Git workflow rule:** Development happens on feature branches → merged to `master` via PR → branch deleted after merge. Only `master` and active working branches should exist.
+- **File organisation rule:** Only README.md, CLAUDE.md, HANDOFF.md in root. All other docs go in `docs/`.
+
+### Auto-Trader Sell Execution Fixes (March 23-24)
 - Fixed client-side auto-trader failing for minimum order sizes
 - Fixed asset ID type mismatches causing coins to silently fail
 - Fixed sells not executing after cooldown expires (all tiers)

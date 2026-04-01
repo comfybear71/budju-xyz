@@ -41,7 +41,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 
 # Trading constants (mirrors autoTrader.ts)
-COOLDOWN_HOURS = 24
+DEFAULT_COOLDOWN_HOURS = 24
 MIN_USDC_RESERVE = 100
 MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
 SELL_RATIO = 0.833
@@ -260,6 +260,7 @@ def _tier_settings(tier_assets, tier_num):
     return {
         "deviation": float(db_settings.get("deviation", default_dev)),
         "allocation": float(db_settings.get("allocation", 5.0)),
+        "cooldownHours": float(db_settings.get("cooldownHours", DEFAULT_COOLDOWN_HOURS)),
     }
 
 
@@ -487,7 +488,7 @@ def run_auto_trade_check():
                 log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
-                cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000
+                cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000
 
                 # Trade log
                 trade_log.insert(0, {
@@ -598,7 +599,7 @@ def run_auto_trade_check():
                 log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
-                cooldowns[code] = now_ms + COOLDOWN_HOURS * 3_600_000
+                cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000
 
                 # Trade log
                 trade_log.insert(0, {

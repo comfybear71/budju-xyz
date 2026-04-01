@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory } from "../services/tradeApi";
-import { AutoTrader, TIER_CONFIG, type RecentTrade } from "../services/autoTrader";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
+import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
@@ -10,6 +10,7 @@ interface Props {
   adminWallet: string;
   onClose: () => void;
   autoTrader: AutoTrader;
+  assets?: PortfolioAsset[];
 }
 
 // Coins available for auto-trading (exclude stables/fiat)
@@ -17,7 +18,7 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
   (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
 );
 
-const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader }: Props) => {
+const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [] }: Props) => {
   const [, setTick] = useState(0);
   const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(30);
@@ -53,6 +54,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const snapshot = autoTrader.getSnapshot();
   const botActive = snapshot.isActive;
+
+  // Build asset balance lookup: code → { balance, usdValue }
+  const assetMap: Record<string, { balance: number; usdValue: number }> = {};
+  for (const a of assets) {
+    if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+  }
 
   // Build tier data
   const getTiers = () => {
@@ -176,6 +183,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
 
   const handleUpdateAllocation = (tierNum: number, allocation: number) => {
     autoTrader.updateTierSettings(tierNum, { allocation });
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
+  };
+
+  const handleUpdateCooldown = (tierNum: number, cooldownHours: number) => {
+    autoTrader.updateTierSettings(tierNum, { cooldownHours });
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
@@ -329,7 +341,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                       T{tier.num} – {tier.cfg.name}
                     </span>
                     <div className="text-[10px] text-slate-500 mt-0.5">
-                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc
+                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc · {tier.settings.cooldownHours || 24}h cd
                     </div>
                   </div>
                   <span
@@ -442,6 +454,34 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                       className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
                       style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
                     />
+                  </div>
+                </div>
+
+                {/* Cooldown selector */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-slate-500">Cooldown</span>
+                    <span className="text-[10px] font-bold text-amber-400">{tier.settings.cooldownHours || 24}h</span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {[6, 12, 24].map((h) => (
+                      <button
+                        key={h}
+                        onClick={() => handleUpdateCooldown(tier.num, h)}
+                        className="flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all"
+                        style={{
+                          background: (tier.settings.cooldownHours || 24) === h
+                            ? "rgba(245,158,11,0.2)"
+                            : "rgba(255,255,255,0.04)",
+                          border: `1px solid ${(tier.settings.cooldownHours || 24) === h
+                            ? "rgba(245,158,11,0.4)"
+                            : "rgba(255,255,255,0.08)"}`,
+                          color: (tier.settings.cooldownHours || 24) === h ? "#f59e0b" : "#64748b",
+                        }}
+                      >
+                        {h}h
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -698,6 +738,19 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader 
                               LIVE
                             </span>
                           ) : null}
+                          {assetMap[item.coin] && (
+                            <span
+                              className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.25)", color: "#93c5fd" }}
+                            >
+                              {assetMap[item.coin].balance < 1
+                                ? assetMap[item.coin].balance.toPrecision(4)
+                                : assetMap[item.coin].balance < 1000
+                                  ? assetMap[item.coin].balance.toFixed(2)
+                                  : assetMap[item.coin].balance.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                              }
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1" style={{ color: changeColor }}>
                           {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}

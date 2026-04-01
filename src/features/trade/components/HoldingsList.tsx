@@ -58,12 +58,12 @@ const TIER_CONFIGS: TierConfig[] = [
 
 // Top 10 by market cap
 const TOP_10_COINS = new Set([
-  "BTC", "ETH", "XRP", "BNB", "SOL", "DOGE", "ADA", "TRX", "LINK", "AVAX",
+  "BTC", "ETH", "XRP", "BNB", "SOL", "DOGE", "ADA", "LINK", "AVAX",
 ]);
 
 // AI, compute, next-gen L1s
 const INNOVATION_COINS = new Set([
-  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT",
+  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT", "UNI",
 ]);
 
 function getTier(code: string): HoldingsTier {
