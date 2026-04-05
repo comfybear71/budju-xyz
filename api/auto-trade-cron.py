@@ -257,8 +257,10 @@ def _tier_settings(tier_assets, tier_num):
     key = f"tier{tier_num}"
     db_settings = tier_assets.get(key, {}) if isinstance(tier_assets, dict) else {}
     default_dev = 1.0 if tier_num == 1 else 2.0
+    default_sell_dev = default_dev * 2  # Sell deviation defaults to 2x buy deviation
     return {
         "deviation": float(db_settings.get("deviation", default_dev)),
+        "sellDeviation": float(db_settings.get("sellDeviation", default_sell_dev)),
         "allocation": float(db_settings.get("allocation", 5.0)),
         "cooldownHours": float(db_settings.get("cooldownHours", DEFAULT_COOLDOWN_HOURS)),
     }
@@ -416,13 +418,14 @@ def run_auto_trade_check():
         # Regenerate target if missing (e.g. lost after cooldown expiry)
         tgt = targets.get(code)
         if (not isinstance(tgt, dict) or not tgt) and current_price > 0:
-            dev = settings["deviation"]
+            buy_dev = settings["deviation"]
+            sell_dev = settings["sellDeviation"]
             tgt = {
-                "buy": current_price * (1 - dev / 100),
-                "sell": current_price * (1 + dev / 100),
+                "buy": current_price * (1 - buy_dev / 100),
+                "sell": current_price * (1 + sell_dev / 100),
             }
             targets[code] = tgt
-            log.append(f"{code}: regenerated targets — buy ${tgt['buy']:.4f}, sell ${tgt['sell']:.4f}")
+            log.append(f"{code}: regenerated targets — buy ${tgt['buy']:.4f} (-{buy_dev}%), sell ${tgt['sell']:.4f} (+{sell_dev}%)")
 
         if not isinstance(tgt, dict):
             continue
@@ -482,10 +485,12 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Reset BOTH targets from trade price so they stay within deviation %
+                # ASYMMETRIC RESET after BUY: ratchet buy band down, keep sell anchored
+                old_sell = targets[code]["sell"]
                 targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
-                targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
-                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
+                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                targets[code]["sell"] = max(old_sell, new_sell)  # Keep higher sell target
+                log.append(f"{code}: targets after BUY — buy ${targets[code]['buy']:.2f} (-{settings['deviation']}%), sell stays ${targets[code]['sell']:.2f}")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000
@@ -593,10 +598,10 @@ def run_auto_trade_check():
                     "timestamp": datetime.utcnow().isoformat() + "Z",
                 })
 
-                # Reset BOTH targets from trade price so they stay within deviation %
+                # After SELL: reset both bands from current price (fresh start after profit)
                 targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
-                targets[code]["sell"] = current_price * (1 + settings["deviation"] / 100)
-                log.append(f"{code}: targets reset — buy ${targets[code]['buy']:.2f}, sell ${targets[code]['sell']:.2f}")
+                targets[code]["sell"] = current_price * (1 + settings["sellDeviation"] / 100)
+                log.append(f"{code}: targets after SELL — buy ${targets[code]['buy']:.2f} (-{settings['deviation']}%), sell ${targets[code]['sell']:.2f} (+{settings['sellDeviation']}%)")
 
                 # Set cooldown
                 cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000

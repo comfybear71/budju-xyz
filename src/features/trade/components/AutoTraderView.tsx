@@ -228,7 +228,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     const tierName = tierCfg.name || tierKey.replace("tier", "Tier ");
                     // Read tier settings from DB, with defaults
                     const tierNum = parseInt(tierKey.replace("tier", "")) || 0;
-                    const dev = Number(tierCfg.deviation) || (tierNum === 1 ? 1 : 2);
+                    const dev = Number(tierCfg.deviation) || (tierNum === 1 ? 3 : 4);
+                    const sellDev = Number(tierCfg.sellDeviation) || dev * 2;
                     const alloc = Number(tierCfg.allocation) || 5;
                     // Use the real active state from monitoring data
                     const tierActive = coins.some((c: any) => c.isTierActive);
@@ -251,12 +252,15 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               {tierActive ? "ACTIVE" : "OFF"}
                             </span>
                           </div>
-                          <div className="flex gap-3 text-[10px]">
+                          <div className="flex gap-2 text-[9px]">
                             <span className="text-slate-500">
-                              Dev <span className="font-bold text-blue-400">{dev}%</span>
+                              Buy <span className="font-bold text-green-400">-{dev}%</span>
                             </span>
                             <span className="text-slate-500">
-                              Alloc <span className="font-bold text-green-400">{alloc}%</span>
+                              Sell <span className="font-bold text-red-400">+{sellDev}%</span>
+                            </span>
+                            <span className="text-slate-500">
+                              Alloc <span className="font-bold text-blue-400">{alloc}%</span>
                             </span>
                           </div>
                         </div>

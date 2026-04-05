@@ -44,7 +44,8 @@ export interface TierConfig {
 }
 
 export interface TierSettings {
-  deviation: number;
+  deviation: number;       // Buy deviation % (how far below reference to trigger buy)
+  sellDeviation: number;   // Sell deviation % (how far above reference to trigger sell)
   allocation: number;
   cooldownHours: number;
 }
@@ -117,9 +118,9 @@ export class AutoTrader {
   targets: Record<string, CoinTargets> = {};
   cooldowns: Record<string, number> = {};
   tierSettings: Record<string, TierSettings> = {
-    tier1: { deviation: 1, allocation: 5, cooldownHours: 24 },
-    tier2: { deviation: 2, allocation: 5, cooldownHours: 24 },
-    tier3: { deviation: 2, allocation: 5, cooldownHours: 24 },
+    tier1: { deviation: 3, sellDeviation: 6, allocation: 5, cooldownHours: 24 },
+    tier2: { deviation: 4, sellDeviation: 8, allocation: 5, cooldownHours: 24 },
+    tier3: { deviation: 5, sellDeviation: 10, allocation: 5, cooldownHours: 24 },
   };
   tierAssignments: Record<string, number> = {};
   tradeLog: TradeLogEntry[] = [];
@@ -206,9 +207,9 @@ export class AutoTrader {
     // Load tier settings from DB, falling back to defaults
     const dbTiers = state.autoTiers || state.autoTierAssets || {};
     const defaults: Record<string, TierSettings> = {
-      tier1: { deviation: 1, allocation: 5, cooldownHours: 24 },
-      tier2: { deviation: 2, allocation: 5, cooldownHours: 24 },
-      tier3: { deviation: 2, allocation: 5, cooldownHours: 24 },
+      tier1: { deviation: 3, sellDeviation: 6, allocation: 5, cooldownHours: 24 },
+      tier2: { deviation: 4, sellDeviation: 8, allocation: 5, cooldownHours: 24 },
+      tier3: { deviation: 5, sellDeviation: 10, allocation: 5, cooldownHours: 24 },
     };
     this.tierSettings = {} as any;
     for (let t = 1; t <= 3; t++) {
@@ -216,6 +217,7 @@ export class AutoTrader {
       const db = dbTiers[key] || {};
       this.tierSettings[key] = {
         deviation: db.deviation != null ? Number(db.deviation) : defaults[key].deviation,
+        sellDeviation: db.sellDeviation != null ? Number(db.sellDeviation) : defaults[key].sellDeviation,
         allocation: db.allocation != null ? Number(db.allocation) : defaults[key].allocation,
         cooldownHours: db.cooldownHours != null ? Number(db.cooldownHours) : defaults[key].cooldownHours,
       };
@@ -381,10 +383,10 @@ export class AutoTrader {
     if (this.tierActive[tierNum] && !this._isOnCooldown(code)) {
       const price = this._cachedPrices[code];
       if (price) {
-        const dev = this.getTierSettings(tierNum).deviation;
+        const ts = this.getTierSettings(tierNum);
         this.targets[code] = {
-          buy: price * (1 - dev / 100),
-          sell: price * (1 + dev / 100),
+          buy: price * (1 - ts.deviation / 100),
+          sell: price * (1 + ts.sellDeviation / 100),
         };
       }
     }
@@ -412,22 +414,25 @@ export class AutoTrader {
     const current = this.tierSettings[key];
     if (!current) return;
 
-    const oldDeviation = current.deviation;
+    const oldBuyDev = current.deviation;
+    const oldSellDev = current.sellDeviation;
     Object.assign(current, settings);
 
-    // If deviation changed and tier is active, recalculate all targets for this tier
-    if (settings.deviation !== undefined && settings.deviation !== oldDeviation && this.tierActive[tierNum]) {
+    // If either deviation changed and tier is active, recalculate all targets for this tier
+    const buyDevChanged = settings.deviation !== undefined && settings.deviation !== oldBuyDev;
+    const sellDevChanged = settings.sellDeviation !== undefined && settings.sellDeviation !== oldSellDev;
+    if ((buyDevChanged || sellDevChanged) && this.tierActive[tierNum]) {
       const tierCoins = this.getCoinsForTier(tierNum);
       for (const code of tierCoins) {
         const price = this._cachedPrices[code];
         if (price && price > 0) {
           this.targets[code] = {
-            buy: price * (1 - settings.deviation / 100),
-            sell: price * (1 + settings.deviation / 100),
+            buy: price * (1 - current.deviation / 100),
+            sell: price * (1 + current.sellDeviation / 100),
           };
         }
       }
-      this._log(`Tier ${tierNum} deviation changed to ${settings.deviation}% — targets recalculated`, "info");
+      this._log(`Tier ${tierNum} deviation changed to buy ${current.deviation}% / sell ${current.sellDeviation}% — targets recalculated`, "info");
     }
 
     this._notifyChange();
@@ -462,7 +467,7 @@ export class AutoTrader {
       };
       const result = await saveTraderState(this._adminWallet, { autoTiers });
       if (result.success) {
-        this._log(`Tier ${tierNum} settings saved to DB (dev=${settings.deviation}%, alloc=${settings.allocation}%, cd=${settings.cooldownHours}h)`, "info");
+        this._log(`Tier ${tierNum} settings saved to DB (buyDev=${settings.deviation}%, sellDev=${settings.sellDeviation}%, alloc=${settings.allocation}%, cd=${settings.cooldownHours}h)`, "info");
         return { ok: true };
       } else {
         const error = result.error || "Unknown server error";
@@ -505,14 +510,14 @@ export class AutoTrader {
 
     // Set targets for non-cooldown coins
     let added = 0;
+    const ts = this.getTierSettings(tierNum);
     for (const code of tierCoins) {
       if (!this._isOnCooldown(code)) {
         const price = this._cachedPrices[code];
         if (price && price > 0) {
-          const dev = this.getTierSettings(tierNum).deviation;
           this.targets[code] = {
-            buy: price * (1 - dev / 100),
-            sell: price * (1 + dev / 100),
+            buy: price * (1 - ts.deviation / 100),
+            sell: price * (1 + ts.sellDeviation / 100),
           };
           added++;
         }
@@ -537,7 +542,7 @@ export class AutoTrader {
       if (tgt) {
         const s = this.getTierSettings(tierNum);
         this._log(
-          `  ${code} (T${tierNum}): buy < $${tgt.buy.toFixed(2)}, sell > $${tgt.sell.toFixed(2)} (±${s.deviation}%, ${s.allocation}% alloc)`,
+          `  ${code} (T${tierNum}): buy < $${tgt.buy.toFixed(2)} (-${s.deviation}%), sell > $${tgt.sell.toFixed(2)} (+${s.sellDeviation}%), ${s.allocation}% alloc`,
           "info",
         );
       }
@@ -602,10 +607,10 @@ export class AutoTrader {
       if (!this.targets[code]) {
         const price = this._cachedPrices[code];
         if (price && price > 0) {
-          const dev = this.getTierSettings(tierNum).deviation;
+          const ts2 = this.getTierSettings(tierNum);
           this.targets[code] = {
-            buy: price * (1 - dev / 100),
-            sell: price * (1 + dev / 100),
+            buy: price * (1 - ts2.deviation / 100),
+            sell: price * (1 + ts2.sellDeviation / 100),
           };
           this._log(
             `  Added ${code}: buy < $${this.targets[code].buy.toFixed(2)}, sell > $${this.targets[code].sell.toFixed(2)}`,
@@ -705,10 +710,10 @@ export class AutoTrader {
       if (this.targets[code]) continue; // already has target
       const price = this._cachedPrices[code];
       if (price && price > 0) {
-        const dev = this.getTierSettings(tier).deviation;
+        const ts3 = this.getTierSettings(tier);
         this.targets[code] = {
-          buy: price * (1 - dev / 100),
-          sell: price * (1 + dev / 100),
+          buy: price * (1 - ts3.deviation / 100),
+          sell: price * (1 + ts3.sellDeviation / 100),
         };
         this._log(`${code}: regenerated targets — buy $${this.targets[code].buy.toFixed(2)}, sell $${this.targets[code].sell.toFixed(2)}`, "info");
       }
@@ -823,13 +828,16 @@ export class AutoTrader {
         this._recordTradeInDB(code, "buy", quantity, currentPrice);
         this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
-        // Reset BOTH targets from trade price so they stay within deviation %
+        // ASYMMETRIC RESET: After buy, ratchet buy band down but keep sell band anchored
+        // This ensures price must recover meaningfully before selling
         const oldBuy = this.targets[code].buy;
         const oldSell = this.targets[code].sell;
         this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
-        this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
+        // Sell band: keep the HIGHER of old sell target or new sell from current price
+        const newSellFromHere = currentPrice * (1 + settings.sellDeviation / 100);
+        this.targets[code].sell = Math.max(oldSell, newSellFromHere);
         this._log(
-          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
+          `${code} targets after BUY: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)} (-${settings.deviation}%), sell stays $${this.targets[code].sell.toFixed(2)}`,
           "info",
         );
       } else {
@@ -898,13 +906,13 @@ export class AutoTrader {
         this._recordTradeInDB(code, "sell", quantity, currentPrice);
         this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
-        // Reset BOTH targets from trade price so they stay within deviation %
+        // After SELL: reset both bands from current price (fresh start after taking profit)
         const oldBuy = this.targets[code].buy;
         const oldSell = this.targets[code].sell;
         this.targets[code].buy = currentPrice * (1 - settings.deviation / 100);
-        this.targets[code].sell = currentPrice * (1 + settings.deviation / 100);
+        this.targets[code].sell = currentPrice * (1 + settings.sellDeviation / 100);
         this._log(
-          `${code} targets reset: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)}`,
+          `${code} targets after SELL: buy $${oldBuy.toFixed(2)} → $${this.targets[code].buy.toFixed(2)} (-${settings.deviation}%), sell $${oldSell.toFixed(2)} → $${this.targets[code].sell.toFixed(2)} (+${settings.sellDeviation}%)`,
           "info",
         );
       } else {

@@ -186,6 +186,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
   };
 
+  const handleUpdateSellDeviation = (tierNum: number, sellDeviation: number) => {
+    autoTrader.updateTierSettings(tierNum, { sellDeviation });
+    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
+  };
+
   const handleUpdateCooldown = (tierNum: number, cooldownHours: number) => {
     autoTrader.updateTierSettings(tierNum, { cooldownHours });
     setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
@@ -341,7 +346,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                       T{tier.num} – {tier.cfg.name}
                     </span>
                     <div className="text-[10px] text-slate-500 mt-0.5">
-                      {tier.settings.deviation}% dev · {tier.settings.allocation}% alloc · {tier.settings.cooldownHours || 24}h cd
+                      -{tier.settings.deviation}% buy · +{tier.settings.sellDeviation || tier.settings.deviation * 2}% sell · {tier.settings.allocation}% alloc · {tier.settings.cooldownHours || 24}h cd
                     </div>
                   </div>
                   <span
@@ -421,22 +426,38 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   </div>
                 )}
 
-                {/* Dev + Alloc sliders */}
+                {/* Buy Dev + Sell Dev + Alloc sliders */}
                 <div className="mb-3 space-y-2">
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Deviation</span>
-                      <span className="text-[10px] font-bold text-blue-400">{tier.settings.deviation}%</span>
+                      <span className="text-[10px] text-slate-500">Buy Deviation</span>
+                      <span className="text-[10px] font-bold text-green-400">-{tier.settings.deviation}%</span>
                     </div>
                     <input
                       type="range"
-                      min="0.5"
-                      max="10"
+                      min="1"
+                      max="15"
                       step="0.5"
                       value={tier.settings.deviation}
                       onChange={(e) => handleUpdateDeviation(tier.num, parseFloat(e.target.value))}
                       className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                      style={{ background: `linear-gradient(to right, #3b82f6 ${((tier.settings.deviation - 0.5) / 9.5) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.deviation - 0.5) / 9.5) * 100}%)` }}
+                      style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.deviation - 1) / 14) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.deviation - 1) / 14) * 100}%)` }}
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] text-slate-500">Sell Deviation</span>
+                      <span className="text-[10px] font-bold text-red-400">+{tier.settings.sellDeviation || tier.settings.deviation * 2}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="2"
+                      max="20"
+                      step="0.5"
+                      value={tier.settings.sellDeviation || tier.settings.deviation * 2}
+                      onChange={(e) => handleUpdateSellDeviation(tier.num, parseFloat(e.target.value))}
+                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
+                      style={{ background: `linear-gradient(to right, #ef4444 ${(((tier.settings.sellDeviation || tier.settings.deviation * 2) - 2) / 18) * 100}%, rgba(255,255,255,0.1) ${(((tier.settings.sellDeviation || tier.settings.deviation * 2) - 2) / 18) * 100}%)` }}
                     />
                   </div>
                   <div>
@@ -595,12 +616,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                 <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
                   T{tierNum} – {tierCfg.name}
                 </div>
-                <div className="flex gap-3 text-[10px]">
+                <div className="flex gap-2 text-[9px]">
                   <span className="text-slate-500">
-                    Dev <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.deviation ?? 0}%</span>
+                    Buy <span className="font-bold text-green-400">-{snapshot.tierSettings[`tier${tierNum}`]?.deviation ?? 0}%</span>
                   </span>
                   <span className="text-slate-500">
-                    Alloc <span className="font-bold text-green-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
+                    Sell <span className="font-bold text-red-400">+{snapshot.tierSettings[`tier${tierNum}`]?.sellDeviation ?? 0}%</span>
+                  </span>
+                  <span className="text-slate-500">
+                    Alloc <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
                   </span>
                 </div>
               </div>
