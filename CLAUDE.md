@@ -92,7 +92,7 @@ npm run test:quick # Python pytest tests/ -q
 - **SPA routing:** All routes handled client-side via react-router-dom. The vercel.json catch-all rewrite `/(.*) → /index.html` enables this. All page routes are lazy-loaded with Suspense.
 - **Provider stack:** QueryClientProvider > BrowserRouter > ThemeProvider > WalletProvider > ErrorBoundary > Suspense > Layout > Routes. Plus Vercel Analytics.
 - **API authentication:** Admin endpoints previously used Ed25519 signature verification — this was removed in March 2026 to simplify. Rate limiting: 30 req/min read, 10 req/min write on main API; 60 req/min on RPC; 20 req/min on Jupiter.
-- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 25+ assets via CoinGecko, executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. Tier-based settings (T1, T2, T3) with per-coin buy/sell targets.
+- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 25+ assets via CoinGecko, executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. Tier-based settings (T1, T2, T3) with **asymmetric buy/sell deviation bands** per tier. Buy deviation (e.g. -3%) and sell deviation (e.g. +8%) are independent. After a BUY, only the buy band ratchets down — the sell band stays anchored high so price must recover meaningfully before selling. Goal: accumulation-focused DCA. **NEXT PLANNED**: Multi-tier system where every coin exists in all 3 tiers simultaneously with independent cooldowns (see `docs/MULTI_TIER_PROMPT.md`).
 - **Telegram bot:** Webhook handler in `api/telegram.ts`, scheduled messages in `api/telegram-cron.ts` (4x daily at 0/6/12/18 UTC). Bot has AI Q&A via Claude Haiku, auto-moderation, interactive menus. Auto re-registers webhook every cron run.
 - **Share-based pool accounting:** NAV = totalPoolValue / totalShares. Users get shares proportional to deposits.
 - **Real-time prices:** Binance WebSocket singleton (`binanceWs.ts`) with 3 fallback endpoints (stream.binance.com → data-stream.binance.com → stream.binance.us). 60+ assets tracked.
@@ -262,6 +262,8 @@ Discovered through live paper trading (March 13-14, 2026). Critical for strategy
 8. **"Relaxed" entry conditions = random entry + fees.** Every "relaxation" (don't require crossover, RSI +/-10 tolerance, 20% BB tolerance) destroyed the signal quality. Tighter is better.
 9. **Leverage kills more than it helps.** 5x leverage means a 0.8% adverse move = 4% loss on margin. Reduced to 2-3x across all strategies.
 10. **Pre-placed limit orders > reactive market orders.** Market orders chase price. Limit orders at key levels (support, BB bands, order blocks) catch moves with better entries and maker rebates.
+11. **Symmetric deviation bands = no accumulation.** Old logic: 1.5% buy and 1.5% sell, both reset after every trade. After a dip buy, sell target was only 1.5% above the new low — bot sold back immediately for breakeven minus fees. Fixed April 2026: separate `deviation` (buy) and `sellDeviation` (sell) per tier. After BUY, sell band stays anchored high (keeps the higher of old vs new). After SELL, both reset fresh. This allows real accumulation on dips.
+12. **Auto-trader TierSettings interface** now has: `deviation` (buy trigger %), `sellDeviation` (sell trigger %), `allocation` (% of USDC per trade), `cooldownHours` (6/12/24). All stored per-tier in MongoDB `trader_state.autoTiers`.
 
 ## Lessons Learned (Frontend/Charts)
 

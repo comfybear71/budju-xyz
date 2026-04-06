@@ -79,9 +79,31 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14-27, 2026)
+## 4. Recent Changes & Fixes (March 14 — April 6, 2026)
 
-### Housekeeping & Docs Reorganisation (March 27) — MOST RECENT
+### Auto-Trader Asymmetric DCA Overhaul (April 4-6) — MOST RECENT
+- **Separate buy/sell deviation bands**: Each tier now has independent `deviation` (buy trigger, e.g. -3%) and `sellDeviation` (sell trigger, e.g. +8%). Replaces the old symmetric single deviation.
+- **Asymmetric reset logic after BUY**: When the bot buys on a dip, only the buy band ratchets down. The sell band stays anchored at the higher of old target or new calculation. This prevents the old problem where a 1.5% dip buy would set a sell target only 1.5% above the new low — now price must recover meaningfully before any sell.
+- **After SELL**: Both bands reset fresh from current price (clean start after profit-taking).
+- **Per-tier cooldown selector**: Each tier can independently set 6h, 12h, or 24h cooldown via buttons in admin settings.
+- **Coin holding badges**: Auto-trader cards (both admin and user views) now show a blue badge with the quantity held for each coin.
+- **New default deviations**: T1 buy -3%/sell +6%, T2 buy -4%/sell +8%, T3 buy -5%/sell +10%.
+- **Admin UI**: Two separate sliders (green for Buy Dev 1-15%, red for Sell Dev 2-20%) replace single deviation slider.
+- **Backend cron**: `auto-trade-cron.py` updated with matching asymmetric logic — reads `sellDeviation` from DB.
+- **UNI added to Innovation tier** in holdings panel. TRX removed (not held).
+- **Dependabot disabled**: Removed `.github/dependabot.yml` to stop auto-PRs.
+- **SAFETY-RULES.md**: Added mandatory safety protocol to project root.
+
+### NEXT: Multi-Tier System (Planned)
+- Every coin to exist in ALL three tiers simultaneously (currently one tier per coin)
+- Targets keyed as `coin:tierNum` (e.g. "BTC:1", "BTC:2", "BTC:3")
+- Each tier fires independently with its own cooldowns
+- T1 catches -3% dips (normal volatility), T2 catches -6% dips (bigger opportunities), T3 catches -10% dips (crash buys)
+- Sell bands wider at each level: T1 +10%, T2 +12%, T3 +15%
+- More allocation on deeper dips (accumulation-focused)
+- See detailed prompt in `docs/MULTI_TIER_PROMPT.md`
+
+### Housekeeping & Docs Reorganisation (March 27)
 - Moved all project .md files (except README.md, CLAUDE.md, HANDOFF.md) into `docs/` folder
 - Created comprehensive DigitalOcean VPS reference doc (`docs/DIGITALOCEAN_VPS.md`)
 - Cleaned up stale Git branches: deleted merged Claude branches, closed unused Dependabot PRs (#3, #5)
