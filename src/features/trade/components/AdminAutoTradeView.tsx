@@ -662,17 +662,18 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   const nearestSide: "buy" | "sell" = pctToBuy <= pctToSell ? "buy" : "sell";
                   const nearestPct = Math.max(0, nearestSide === "buy" ? pctToBuy : pctToSell);
 
-                  // Calculate progress toward buy or sell trigger
+                  // Calculate progress using REFERENCE PRICE as zero point
+                  // refPrice = buyTrigger / (1 - buyDev/100) — the price when targets were set
+                  // Bar starts EMPTY at refPrice, grows as price moves toward trigger
                   let progress = 0;
-                  if (item.hasTarget && item.currentPrice > 0) {
-                    const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                    const halfRange = (item.sellTrigger - item.buyTrigger) / 2;
-                    if (halfRange > 0) {
-                      if (item.currentPrice < mid) {
-                        progress = (mid - item.currentPrice) / halfRange;
-                      } else {
-                        progress = (item.currentPrice - mid) / halfRange;
-                      }
+                  if (item.hasTarget && item.currentPrice > 0 && item.deviation > 0) {
+                    const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                    if (item.currentPrice <= refPrice && refPrice > item.buyTrigger) {
+                      // Buy side: price below reference
+                      progress = (refPrice - item.currentPrice) / (refPrice - item.buyTrigger);
+                    } else if (item.currentPrice > refPrice && item.sellTrigger > refPrice) {
+                      // Sell side: price above reference
+                      progress = (item.currentPrice - refPrice) / (item.sellTrigger - refPrice);
                     }
                   }
                   progress = Math.max(0, Math.min(1, progress));
@@ -684,9 +685,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
                   // Bi-directional bar: green left (buy), red right (sell)
                   let direction = 0;
-                  if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
-                    const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                    direction = item.currentPrice >= mid ? 1 : -1;
+                  if (item.currentPrice > 0 && item.buyTrigger > 0 && item.deviation > 0) {
+                    const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                    direction = item.currentPrice >= refPrice ? 1 : -1;
                   }
                   const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
                   const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
