@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
-import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
+import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
@@ -76,9 +76,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     return tiers;
   };
 
-  // Get all assigned coins
-  const getAssignedCoins = (): Set<string> => {
-    return new Set(Object.keys(snapshot.tierAssignments));
+  // Get coins NOT assigned to a specific tier (for add-coin picker)
+  const getUnassignedForTier = (tierNum: number): string[] => {
+    return AVAILABLE_COINS.filter((c) => {
+      const tiers = snapshot.tierAssignments[c];
+      return !tiers || !tiers.includes(tierNum);
+    });
   };
 
   // Build monitoring data
@@ -89,13 +92,14 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       const coins = autoTrader.getCoinsForTier(t);
       const settings = snapshot.tierSettings[`tier${t}`];
       for (const coin of coins) {
+        const ck = compoundKey(coin, t);
         const cp = Number(prices[coin]) || 0;
         const change = Number(changes[coin]) || 0;
-        const target = snapshot.targets[coin];
-        const inCooldown = autoTrader._isOnCooldown(coin);
+        const target = snapshot.targets[ck];
+        const inCooldown = autoTrader._isOnCooldown(ck);
         const recentTrade = autoTrader.getRecentTrade(coin);
-        const diag = snapshot.coinDiagnostics[coin];
-        const cronDiag = snapshot.cronDiagnostics[coin];
+        const diag = snapshot.coinDiagnostics[ck];
+        const cronDiag = snapshot.cronDiagnostics[ck] || snapshot.cronDiagnostics[coin];
         items.push({
           coin,
           tierNum: t,
@@ -103,7 +107,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           deviation: settings.deviation,
           currentPrice: cp,
           buyTrigger: target ? target.buy : (cp > 0 ? cp * (1 - settings.deviation / 100) : 0),
-          sellTrigger: target ? target.sell : (cp > 0 ? cp * (1 + settings.deviation / 100) : 0),
+          sellTrigger: target ? target.sell : (cp > 0 ? cp * (1 + settings.sellDeviation / 100) : 0),
           change24h: change,
           inCooldown,
           hasTarget: !!target,
@@ -153,7 +157,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   });
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
-  const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
@@ -218,8 +221,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     setAddCoinTier(null);
   };
 
-  const handleRemoveCoin = (coin: string) => {
-    autoTrader.unassignCoin(coin);
+  const handleRemoveCoin = (coin: string, tierNum: number) => {
+    autoTrader.unassignCoin(coin, tierNum);
   };
 
   const handleSyncTrades = async () => {
@@ -326,10 +329,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
         >
           {tiers.map((tier) => {
-            const availableToAdd = AVAILABLE_COINS.filter(
-              (c) => !assignedCoins.has(c)
-            );
-            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(coin));
+            const availableToAdd = getUnassignedForTier(tier.num);
+            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(compoundKey(coin, tier.num)));
 
             return (
               <div
@@ -377,7 +378,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                       <div className="flex flex-wrap gap-1.5">
                         {tier.coins.map((coin: string) => {
                           const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                          const cd = autoTrader._isOnCooldown(coin);
+                          const cd = autoTrader._isOnCooldown(compoundKey(coin, tier.num));
                           return (
                             <span
                               key={coin}
@@ -391,7 +392,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             >
                               {coin}{cd ? " (cd)" : ""}
                               <button
-                                onClick={() => handleRemoveCoin(coin)}
+                                onClick={() => handleRemoveCoin(coin, tier.num)}
                                 className="hover:opacity-100 transition-opacity"
                                 style={{ color: "#ef4444" }}
                               >
@@ -705,8 +706,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
 
                   // Estimated trade amounts
-                  const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin);
-                  const estSellValue = autoTrader.getEstimatedSellValue(item.coin);
+                  const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin, item.tierNum);
+                  const estSellValue = autoTrader.getEstimatedSellValue(item.coin, item.tierNum);
                   const estAmount = nearestSide === "buy" ? estBuyAmount : estSellValue;
 
                   // Celebration colors for just-traded coins
@@ -768,7 +769,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             </span>
                           ) : item.inCooldown ? (
                             <span className="text-[9px] text-yellow-500">
-                              (cd {autoTrader.getCooldownRemaining(item.coin)})
+                              (cd {autoTrader.getCooldownRemaining(compoundKey(item.coin, item.tierNum))})
                             </span>
                           ) : item.hasTarget && isNear ? (
                             <span

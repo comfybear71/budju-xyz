@@ -52,8 +52,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
   }
 
-  // Build monitoring data from tier config + assignments
-  // Uses autoActive.targets for real buy/sell triggers when available
+  // Build monitoring data from multi-tier assignments + compound key targets
   const getMonitoringData = () => {
     if (!state) return [];
     const assignments = state.autoTierAssignments || {};
@@ -63,55 +62,74 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     const liveTargets = autoActive.targets || {};
     const tierActive = autoActive.tierActive || {};
 
-    // Build coin→tierKey map from assignments first
-    const coinTierMap: Record<string, string> = {};
-    for (const [coin, tierKey] of Object.entries(assignments)) {
-      coinTierMap[coin] = tierKey as string;
-    }
-
-    // If assignments is empty, build from tier coins arrays
-    if (Object.keys(coinTierMap).length === 0) {
-      for (const [tierKey, cfg] of Object.entries(tierAssets) as [string, any][]) {
-        const coins = cfg.coins || [];
-        for (const coin of coins) {
-          coinTierMap[coin] = tierKey;
-        }
-      }
-    }
-
-    // If still empty, build from liveTargets (coins being actively monitored)
-    if (Object.keys(coinTierMap).length === 0) {
-      for (const coin of Object.keys(liveTargets)) {
-        coinTierMap[coin] = "tier1"; // fallback tier key
-      }
-    }
-
     const items: any[] = [];
-    for (const [coin, tierKey] of Object.entries(coinTierMap)) {
-      const tier = tierAssets[tierKey] || {};
-      const dev = Number(tier.deviation) || 0;
-      const cp = Number(prices[coin]) || 0;
-      const change = Number(changes[coin]) || 0;
-      const live = liveTargets[coin];
 
-      // Check if this coin's tier is actually active
-      const tierNum = tierKey.replace("tier", "");
-      const isTierActive = !!(tierActive[tierNum] ?? tierActive[tierKey] ?? tier.active);
+    // Multi-tier: assignments is Record<string, number[]> — each coin in multiple tiers
+    for (const [coin, rawTiers] of Object.entries(assignments)) {
+      // Support both old (number/string) and new (array) format
+      const tiers: number[] = Array.isArray(rawTiers)
+        ? (rawTiers as number[])
+        : [typeof rawTiers === "string"
+            ? parseInt((rawTiers as string).replace("tier", ""))
+            : Number(rawTiers)].filter((t) => t >= 1 && t <= 3);
 
-      items.push({
-        coin,
-        tierKey,
-        tierName: tier.name || tierKey.replace("tier", "T"),
-        deviation: dev,
-        currentPrice: cp,
-        // Use real targets from autoActive when available, fall back to calculated
-        buyTrigger: live ? live.buy : (cp > 0 ? cp * (1 - dev / 100) : 0),
-        sellTrigger: live ? live.sell : (cp > 0 ? cp * (1 + dev / 100) : 0),
-        change24h: change,
-        inCooldown: !!(cooldowns[coin] && Date.now() < cooldowns[coin]),
-        hasLiveTarget: !!live,
-        isTierActive,
-      });
+      for (const tierNum of tiers) {
+        const tierKey = `tier${tierNum}`;
+        const tier = tierAssets[tierKey] || {};
+        const dev = Number(tier.deviation) || 0;
+        const sellDev = Number(tier.sellDeviation) || dev * 2;
+        const cp = Number(prices[coin]) || 0;
+        const change = Number(changes[coin]) || 0;
+        // Compound key: "BTC:1", "BTC:2", etc.
+        const ck = `${coin}:${tierNum}`;
+        const live = liveTargets[ck] || liveTargets[coin]; // fallback to old key
+        const cooldownKey = cooldowns[ck] || cooldowns[coin]; // fallback
+
+        const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? tierActive[tierKey] ?? tier.active);
+
+        items.push({
+          coin,
+          tierKey,
+          tierNum,
+          tierName: tier.name || `T${tierNum}`,
+          deviation: dev,
+          currentPrice: cp,
+          buyTrigger: live ? live.buy : (cp > 0 ? cp * (1 - dev / 100) : 0),
+          sellTrigger: live ? live.sell : (cp > 0 ? cp * (1 + sellDev / 100) : 0),
+          change24h: change,
+          inCooldown: !!(cooldownKey && Date.now() < cooldownKey),
+          hasLiveTarget: !!live,
+          isTierActive,
+        });
+      }
+    }
+
+    // Fallback: if assignments empty, try building from liveTargets compound keys
+    if (items.length === 0) {
+      for (const [key, tgt] of Object.entries(liveTargets)) {
+        const colonIdx = key.lastIndexOf(":");
+        const coin = colonIdx > 0 ? key.slice(0, colonIdx) : key;
+        const tierNum = colonIdx > 0 ? parseInt(key.slice(colonIdx + 1)) || 1 : 1;
+        const tierKey = `tier${tierNum}`;
+        const tier = tierAssets[tierKey] || {};
+        const cp = Number(prices[coin]) || 0;
+        const change = Number(changes[coin]) || 0;
+        const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? true);
+        items.push({
+          coin,
+          tierKey,
+          tierNum,
+          tierName: tier.name || `T${tierNum}`,
+          deviation: Number(tier.deviation) || 0,
+          currentPrice: cp,
+          buyTrigger: (tgt as any).buy || 0,
+          sellTrigger: (tgt as any).sell || 0,
+          change24h: change,
+          inCooldown: false,
+          hasLiveTarget: true,
+          isTierActive,
+        });
+      }
     }
     return items;
   };
@@ -226,7 +244,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                       const tierActive = state?._rawAutoActive?.tierActive || {};
                       const isActive = !!(tierActive[tierNum] || tierActive[tierKey]);
                       const coins = Object.entries(state?.autoTierAssignments || {})
-                        .filter(([, t]) => t === tierNum || t === tierKey)
+                        .filter(([, t]) => {
+                          if (Array.isArray(t)) return (t as number[]).includes(tierNum);
+                          return t === tierNum || t === tierKey;
+                        })
                         .map(([c]) => c);
                       // Also get coins from tierAssets.coins if assignments are empty
                       if (coins.length === 0 && tierData.coins) {
