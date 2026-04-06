@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
@@ -25,6 +25,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
+  const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -360,71 +361,85 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   </span>
                 </div>
 
-                {/* Coin tags */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {tier.coins.map((coin: string) => {
-                    const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                    const cd = autoTrader._isOnCooldown(coin);
-                    return (
-                      <span
-                        key={coin}
-                        className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
-                        style={{
-                          background: cfg.color + "20",
-                          border: `1px solid ${cfg.color}40`,
-                          color: cfg.color,
-                          opacity: cd ? 0.5 : 1,
-                        }}
-                      >
-                        {coin}{cd ? " (cd)" : ""}
-                        <button
-                          onClick={() => handleRemoveCoin(coin)}
-                          className="hover:opacity-100 transition-opacity"
-                          style={{ color: "#ef4444" }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    );
-                  })}
+                {/* Coin tags — collapsible */}
+                <div className="mb-3">
                   <button
-                    onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
-                    className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      color: "#64748b",
-                    }}
+                    onClick={() => setExpandedCoinTags((prev) => ({ ...prev, [tier.num]: !prev[tier.num] }))}
+                    className="flex items-center gap-1.5 mb-1.5 text-[10px] font-bold transition-colors hover:opacity-80"
+                    style={{ color: tier.cfg.color }}
                   >
-                    <FaPlus size={9} />
+                    {expandedCoinTags[tier.num] ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+                    {expandedCoinTags[tier.num] ? "Coins" : `${tier.coins.length} coins`}
                   </button>
-                </div>
-
-                {/* Add coin picker */}
-                {addCoinTier === tier.num && availableToAdd.length > 0 && (
-                  <div
-                    className="flex flex-wrap gap-1 mb-3 p-2 rounded-lg"
-                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  >
-                    {availableToAdd.map((coin) => {
-                      const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                      return (
+                  {expandedCoinTags[tier.num] && (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tier.coins.map((coin: string) => {
+                          const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                          const cd = autoTrader._isOnCooldown(coin);
+                          return (
+                            <span
+                              key={coin}
+                              className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
+                              style={{
+                                background: cfg.color + "20",
+                                border: `1px solid ${cfg.color}40`,
+                                color: cfg.color,
+                                opacity: cd ? 0.5 : 1,
+                              }}
+                            >
+                              {coin}{cd ? " (cd)" : ""}
+                              <button
+                                onClick={() => handleRemoveCoin(coin)}
+                                className="hover:opacity-100 transition-opacity"
+                                style={{ color: "#ef4444" }}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })}
                         <button
-                          key={coin}
-                          onClick={() => handleAddCoin(tier.num, coin)}
-                          className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
+                          onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
+                          className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
                           style={{
-                            background: cfg.color + "15",
-                            border: `1px solid ${cfg.color}30`,
-                            color: cfg.color,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            color: "#64748b",
                           }}
                         >
-                          {coin}
+                          <FaPlus size={9} />
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
+                      </div>
+
+                      {/* Add coin picker */}
+                      {addCoinTier === tier.num && availableToAdd.length > 0 && (
+                        <div
+                          className="flex flex-wrap gap-1 mt-1.5 p-2 rounded-lg"
+                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                        >
+                          {availableToAdd.map((coin) => {
+                            const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                            return (
+                              <button
+                                key={coin}
+                                onClick={() => handleAddCoin(tier.num, coin)}
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
+                                style={{
+                                  background: cfg.color + "15",
+                                  border: `1px solid ${cfg.color}30`,
+                                  color: cfg.color,
+                                }}
+                              >
+                                {coin}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 {/* Buy Dev + Sell Dev + Alloc sliders */}
                 <div className="mb-3 space-y-2">
