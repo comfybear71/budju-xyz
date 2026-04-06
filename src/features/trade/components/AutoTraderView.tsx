@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { fetchTraderState, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
+import { TIER_CONFIG } from "../services/autoTrader";
 
 interface Props {
   isOpen: boolean;
@@ -209,6 +210,114 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                 </div>
               ) : (
                 <>
+                  {/* ── Read-only Tier Settings Cards — horizontal scroll ── */}
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x"
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+                  >
+                    {[1, 2, 3].map((tierNum) => {
+                      const cfg = TIER_CONFIG[tierNum];
+                      const tierKey = `tier${tierNum}`;
+                      const tierData = (state?.autoTierAssets || {})[tierKey] || {};
+                      const dev = Number(tierData.deviation) || (tierNum === 1 ? 3 : tierNum === 2 ? 4 : 5);
+                      const sellDev = Number(tierData.sellDeviation) || dev * 2;
+                      const alloc = Number(tierData.allocation) || 5;
+                      const cooldown = Number(tierData.cooldownHours) || 24;
+                      const tierActive = state?._rawAutoActive?.tierActive || {};
+                      const isActive = !!(tierActive[tierNum] || tierActive[tierKey]);
+                      const coins = Object.entries(state?.autoTierAssignments || {})
+                        .filter(([, t]) => t === tierNum || t === tierKey)
+                        .map(([c]) => c);
+                      // Also get coins from tierAssets.coins if assignments are empty
+                      if (coins.length === 0 && tierData.coins) {
+                        coins.push(...tierData.coins);
+                      }
+
+                      return (
+                        <div
+                          key={tierNum}
+                          className="flex-shrink-0 rounded-xl p-4 snap-start"
+                          style={{
+                            background: `${cfg.color}10`,
+                            border: `1px solid ${cfg.color}25`,
+                            width: "min(300px, 85vw)",
+                          }}
+                        >
+                          {/* Tier title + active badge */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <span className="text-[14px] font-bold" style={{ color: cfg.color }}>
+                                T{tierNum} – {cfg.name}
+                              </span>
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                -{dev}% buy · +{sellDev}% sell · {alloc}% alloc · {cooldown}h cd
+                              </div>
+                            </div>
+                            <span
+                              className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
+                              style={{
+                                background: isActive ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
+                                color: isActive ? "#22c55e" : "#64748b",
+                              }}
+                            >
+                              {isActive ? "ACTIVE" : "INACTIVE"}
+                            </span>
+                          </div>
+
+                          {/* Coin count (collapsible) */}
+                          <button
+                            onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [`tags-${tierNum}`]: !prev[`tags-${tierNum}`] }))}
+                            className="flex items-center gap-1.5 mb-2 text-[10px] font-bold transition-colors hover:opacity-80"
+                            style={{ color: cfg.color }}
+                          >
+                            {expandedMonitorTiers[`tags-${tierNum}`] ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+                            {expandedMonitorTiers[`tags-${tierNum}`] ? "Coins" : `${coins.length} coins`}
+                          </button>
+                          {expandedMonitorTiers[`tags-${tierNum}`] && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {coins.map((coin: string) => {
+                                const coinCfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                                return (
+                                  <span
+                                    key={coin}
+                                    className="text-[11px] font-bold px-2 py-1 rounded-lg"
+                                    style={{
+                                      background: coinCfg.color + "20",
+                                      border: `1px solid ${coinCfg.color}40`,
+                                      color: coinCfg.color,
+                                    }}
+                                  >
+                                    {coin}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Read-only settings display */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Buy Deviation</span>
+                              <span className="text-[10px] font-bold text-green-400">-{dev}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Sell Deviation</span>
+                              <span className="text-[10px] font-bold text-red-400">+{sellDev}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Allocation</span>
+                              <span className="text-[10px] font-bold text-green-400">{alloc}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Cooldown</span>
+                              <span className="text-[10px] font-bold text-amber-400">{cooldown}h</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {/* Monitoring count banner with countdown */}
                   <div className="rounded-lg p-2 mb-3 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
                     <span className="text-[10px] font-bold text-slate-300">
