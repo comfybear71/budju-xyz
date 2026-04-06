@@ -26,6 +26,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
   const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
+  const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<number, boolean>>({});
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -627,9 +628,20 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
           return (
             <div key={tierKey}>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
-                  T{tierNum} – {tierCfg.name}
+              <button
+                onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierNum]: !prev[tierNum] }))}
+                className="w-full flex items-center justify-between mb-1.5 hover:opacity-80 transition-opacity"
+              >
+                <div className="flex items-center gap-1.5">
+                  {expandedMonitorTiers[tierNum] ? <FaChevronDown size={8} style={{ color: tierCfg.color }} /> : <FaChevronRight size={8} style={{ color: tierCfg.color }} />}
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
+                    T{tierNum} – {tierCfg.name}
+                  </span>
+                  {!expandedMonitorTiers[tierNum] && (
+                    <span className="text-[9px] text-slate-500 font-normal normal-case tracking-normal">
+                      ({coins.length} coin{coins.length !== 1 ? "s" : ""})
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2 text-[9px]">
                   <span className="text-slate-500">
@@ -642,9 +654,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                     Alloc <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
                   </span>
                 </div>
-              </div>
+              </button>
 
-              <div className="space-y-1.5">
+              {expandedMonitorTiers[tierNum] && <div className="space-y-1.5">
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -889,7 +901,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                     </div>
                   );
                 })}
-              </div>
+              </div>}
             </div>
           );
         })}
