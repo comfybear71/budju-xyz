@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown } from "react-icons/fa";
+import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { fetchTraderState, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
 
 interface Props {
@@ -15,6 +15,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
+  const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -236,9 +237,13 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
 
                     return (
                       <div key={tierKey} className="mb-3">
-                        {/* Tier header */}
-                        <div className="flex items-center justify-between mb-2">
+                        {/* Tier header — collapsible */}
+                        <button
+                          onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
+                          className="w-full flex items-center justify-between mb-2 hover:opacity-80 transition-opacity"
+                        >
                           <div className="flex items-center gap-2">
+                            {expandedMonitorTiers[tierKey] ? <FaChevronDown size={8} style={{ color: "#a855f7" }} /> : <FaChevronRight size={8} style={{ color: "#a855f7" }} />}
                             <span className="text-[12px] font-bold" style={{ color: "#a855f7" }}>
                               {tierKey.replace("tier", "T")} – {tierName}
                             </span>
@@ -251,6 +256,11 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             >
                               {tierActive ? "ACTIVE" : "OFF"}
                             </span>
+                            {!expandedMonitorTiers[tierKey] && (
+                              <span className="text-[9px] text-slate-500">
+                                ({coins.length} coin{coins.length !== 1 ? "s" : ""})
+                              </span>
+                            )}
                           </div>
                           <div className="flex gap-2 text-[9px]">
                             <span className="text-slate-500">
@@ -263,10 +273,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               Alloc <span className="font-bold text-blue-400">{alloc}%</span>
                             </span>
                           </div>
-                        </div>
+                        </button>
 
-                        {/* Coin cards within tier */}
-                        <div className="space-y-1.5">
+                        {/* Coin cards within tier — collapsible */}
+                        {expandedMonitorTiers[tierKey] && <div className="space-y-1.5">
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -479,7 +489,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               </div>
                             );
                           })}
-                        </div>
+                        </div>}
                       </div>
                     );
                   })}
