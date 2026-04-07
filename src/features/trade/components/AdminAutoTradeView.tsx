@@ -805,11 +805,21 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1" style={{ color: changeColor }}>
-                          {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
-                          <span className="text-[10px] font-bold font-mono">
-                            {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
-                          </span>
+                        <div className="flex items-center gap-1.5">
+                          {item.hasTarget && item.deviation > 0 && (
+                            <span
+                              className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.25)", color: "#c084fc" }}
+                            >
+                              {formatPrice(item.buyTrigger / (1 - item.deviation / 100))}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1" style={{ color: changeColor }}>
+                            {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
+                            <span className="text-[10px] font-bold font-mono">
+                              {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
                       </div>
 
