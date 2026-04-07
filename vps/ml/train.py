@@ -277,11 +277,11 @@ def train_model():
     # Save metadata
     meta = {
         "trained_at": datetime.utcnow().isoformat(),
-        "samples": len(X),
+        "samples": int(len(X)),
         "features": feature_names,
-        "accuracy": round(accuracy, 4),
-        "win_rate_in_data": round(sum(y) / len(y), 4),
-        "feature_importance": {k: round(v, 4) for k, v in sorted_imp},
+        "accuracy": round(float(accuracy), 4),
+        "win_rate_in_data": round(float(sum(y) / len(y)), 4),
+        "feature_importance": {k: round(float(v), 4) for k, v in sorted_imp},
     }
     with open(META_PATH, "w") as f:
         json.dump(meta, f, indent=2)
