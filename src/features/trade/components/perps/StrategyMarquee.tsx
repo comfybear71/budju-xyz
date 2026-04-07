@@ -45,7 +45,7 @@ const StrategyMarquee = ({ openSymbols = [] }: Props) => {
   return (
     <div className="mx-3 mb-2">
       {/* Horizontal scroll strip */}
-      <div className="overflow-x-auto rounded-lg bg-slate-800/20 border border-white/[0.03] scrollbar-thin">
+      <div className="overflow-x-auto rounded-lg bg-slate-800/20 border border-white/[0.03]" style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}>
         <div className="flex whitespace-nowrap">
           {filtered.map((opp, i) => {
             const colors = COLOR_MAP[opp.color] || COLOR_MAP.blue;
