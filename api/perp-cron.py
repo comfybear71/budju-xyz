@@ -214,8 +214,10 @@ def run_perp_monitor() -> dict:
         try:
             mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
             actions = run_auto_trader(acc["wallet"], prices)
+            print(f"[perp-cron] Auto-trader for {acc['wallet'][:8]}: {len(actions)} actions")
             for action in actions:
-                if action.get("action") == "opened":
+                action_type = action.get("action", "unknown")
+                if action_type == "opened":
                     auto_trade_actions.append(action)
                     # Telegram alert for trade opens
                     direction = action.get("direction", "").upper()
@@ -236,9 +238,9 @@ def run_perp_monitor() -> dict:
                         f"📝 {signal_txt}"
                     )
                     send_telegram(msg)
-                elif action.get("action") == "ml_rejected":
-                    # Optional: log ML rejections (uncomment to see)
-                    pass
+                else:
+                    # Log all non-open actions for debugging
+                    print(f"[perp-cron] {action.get('action')}: {action.get('strategy', '')} {action.get('symbol', '')} {action.get('reason', '')}")
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 

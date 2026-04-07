@@ -1490,7 +1490,7 @@ REGIME_STRATEGY_WEIGHTS = {
 
 ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
 ML_API_SECRET = os.getenv("VPS_API_SECRET", "")
-ML_THRESHOLD = 0.55  # Only trade when ML says >55% win probability
+ML_THRESHOLD = 0.40  # Lowered from 0.55 — paper trading needs data for ML to learn
 ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
 
 
