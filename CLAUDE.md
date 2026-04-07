@@ -8,7 +8,7 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 
 - **Frontend:** React 19 SPA built with Vite 6, TypeScript, Tailwind CSS 4. NOT Next.js — this is a Vite SPA with client-side routing via react-router-dom v7.
 - **Backend:** Vercel serverless functions — Python (15 files: `api/index.py`, `api/database.py`, `api/auto-trade-cron.py`, `api/perp-cron.py`, `api/perp_engine.py`, `api/perp_strategies.py`, `api/perp_pending_orders.py`, `api/perp_exchange.py`, `api/perp_position_manager.py`, `api/perp_backtest.py`, `api/perp_bb_squeeze.py`, `api/perp_grid_strategy.py`, `api/perp_hf_scalper.py`, `api/perp_keltner.py`, `api/perp_ninja_strategy.py`, `api/perp_sr_reversal.py`, `api/perp_zone_recovery.py`) and TypeScript (10 files: `api/telegram.ts`, `api/telegram-cron.ts`, `api/proxy.ts`, `api/jupiter.ts`, `api/rpc.ts`, `api/marketing.ts`, `api/binance.ts`, `api/klines.ts`, `api/vps-proxy.ts`).
-- **Database:** MongoDB Atlas (DB name: `flub` — legacy). 22 collections total (see below).
+- **Database:** MongoDB Atlas (DB name: `flub` — legacy). 24 collections total (see below).
 - **VPS Bot:** Standalone DigitalOcean VPS trading bot in `vps/` — monitors 16 Solana tokens via Jupiter Price API, executes on-chain via Jupiter DEX.
 - **Deployment:** Vercel. Cron jobs defined in `vercel.json`.
 
@@ -25,6 +25,7 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 - `src/types/` — global.d.ts, gtag.d.ts
 - `api/` — All serverless functions (26 files)
 - `vps/` — Standalone VPS trading bot (8 files)
+- `vps/ml/` — ML signal classifier (train.py, server.py, requirements.txt)
 - `tests/` — Python tests (test_auth.py, test_circuit_breakers.py, test_pool_math.py)
 - `docs/` — Project documentation (all .md files except README.md, CLAUDE.md, HANDOFF.md live here)
 
@@ -52,7 +53,7 @@ npm run test      # Python pytest tests/ -v
 npm run test:quick # Python pytest tests/ -q
 ```
 
-## MongoDB Collections (22 total)
+## MongoDB Collections (24 total)
 
 ### Core Platform
 | Collection | Purpose |
@@ -83,6 +84,8 @@ npm run test:quick # Python pytest tests/ -q
 | `perp_flip_log` | Position flip audit log |
 | `perp_grid_state` | Grid strategy state |
 | `perp_zone_state` | Zone recovery state |
+| `perp_strategy_performance` | Rolling win rate per strategy/market (feedback loop) |
+| `perp_equity_curve` | Equity snapshots for equity curve meta-filter |
 
 ## Important Patterns
 
@@ -92,7 +95,7 @@ npm run test:quick # Python pytest tests/ -q
 - **SPA routing:** All routes handled client-side via react-router-dom. The vercel.json catch-all rewrite `/(.*) → /index.html` enables this. All page routes are lazy-loaded with Suspense.
 - **Provider stack:** QueryClientProvider > BrowserRouter > ThemeProvider > WalletProvider > ErrorBoundary > Suspense > Layout > Routes. Plus Vercel Analytics.
 - **API authentication:** Admin endpoints previously used Ed25519 signature verification — this was removed in March 2026 to simplify. Rate limiting: 30 req/min read, 10 req/min write on main API; 60 req/min on RPC; 20 req/min on Jupiter.
-- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 25+ assets via CoinGecko, executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. Tier-based settings (T1, T2, T3) with **asymmetric buy/sell deviation bands** per tier. Buy deviation (e.g. -3%) and sell deviation (e.g. +8%) are independent. After a BUY, only the buy band ratchets down — the sell band stays anchored high so price must recover meaningfully before selling. Goal: accumulation-focused DCA. **NEXT PLANNED**: Multi-tier system where every coin exists in all 3 tiers simultaneously with independent cooldowns (see `docs/MULTI_TIER_PROMPT.md`).
+- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 25+ assets via CoinGecko, executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. **Multi-tier system (April 2026):** Every coin exists in ALL three tiers simultaneously with independent buy/sell deviation bands, cooldowns, and allocations. Target keys are compound: `targets["BTC:1"]`, `targets["BTC:2"]`, `targets["BTC:3"]`. Each tier fires independently — T1 catches -3% dips, T2 catches -6% dips, T3 catches -10% crashes. `tierAssignments` is `Record<string, number[]>` (coin → array of tier nums, default `[1,2,3]`). Backward compat: old single-tier format auto-migrated on load. After a BUY, only the buy band ratchets down — the sell band stays anchored high. After SELL, both reset fresh.
 - **Telegram bot:** Webhook handler in `api/telegram.ts`, scheduled messages in `api/telegram-cron.ts` (4x daily at 0/6/12/18 UTC). Bot has AI Q&A via Claude Haiku, auto-moderation, interactive menus. Auto re-registers webhook every cron run.
 - **Share-based pool accounting:** NAV = totalPoolValue / totalShares. Users get shares proportional to deposits.
 - **Real-time prices:** Binance WebSocket singleton (`binanceWs.ts`) with 3 fallback endpoints (stream.binance.com → data-stream.binance.com → stream.binance.us). 60+ assets tracked.
@@ -142,6 +145,9 @@ DRIFT_DEVNET         # true for devnet
 VPS_API_URL          # VPS API base URL
 VPS_API_SECRET       # Bearer token for VPS API
 
+# ML Signal Classifier (DigitalOcean VPS)
+ML_API_URL           # ML prediction server (e.g. http://170.64.133.9:8421)
+
 # Frontend (VITE_ prefix)
 VITE_ENVIRONMENT
 VITE_PUBLIC_URL
@@ -185,6 +191,14 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 | 8 | Grid Trading | OFF | 2x | 1hr | ATR grid + smooth martingale |
 | 9 | Zone Recovery | OFF | 3x | 2hr | Hedge recovery + escalating lots |
 | 10 | HF Scalper | OFF | 5x | 5min | 4 fast signals, all markets |
+
+### ML Intelligence Layer (April 2026)
+- **Feedback Loop:** `perp_strategy_performance` tracks rolling 20-trade win rate per strategy/market. Auto-disables strategies below 25% win rate. Reduces sizing 50% below 35%. Boosts 1.5x above 55%. Updated in real-time from `close_position()`.
+- **Regime Detection:** `detect_market_regime()` classifies each market as trending/ranging/volatile using ADX + BB width. `REGIME_STRATEGY_WEIGHTS` table scales strategy sizing — e.g. mean reversion blocked in trending markets, trend following blocked in ranges.
+- **ML Signal Classifier:** XGBoost model trained on closed trades (`vps/ml/train.py`). Served via HTTP API on DigitalOcean port 8421 (`vps/ml/server.py`). Every auto-trade is scored before execution — signals below 55% win probability are rejected. Model trained on 228 trades at 78.1% accuracy. Top features: leverage, day_of_week, strategy, hour.
+- **ML API:** `ml_predict()` in `perp_strategies.py` calls the VPS ML server. Graceful fallback — if API is down, trades proceed normally. Entry reasons tagged with ML score: `[strategy] signal (ML:72%)`.
+- **Telegram Alerts:** All trade opens (long/short) and closes (wins/losses) sent to Telegram with strategy, symbol, size, SL/TP, P&L.
+- **VPS ML Service:** Runs on masterhq-dev-syd1 (170.64.133.9:8421) as `budju-ml` systemd service. Retrain via `POST /retrain`. Health check via `GET /health`.
 
 ### Charts Frontend
 - **TradingChart.tsx** — lightweight-charts with Binance WebSocket, AI predictions, position overlays, strategy labels
@@ -274,6 +288,15 @@ Discovered through live paper trading (March 13-14, 2026). Critical for strategy
 5. **Never conditionally swap TradingChart for MobileAreaChart in DashboardCharts.** Multiple attempts to do this broke desktop charts. The LazyChart + TradingChart pattern works on all devices. Period.
 6. **iPhone content blockers block URLs containing "binance".** Both `api.binance.com` AND paths like `/api/binance` get blocked. Solution: proxy renamed to `/api/klines`.
 7. **Binance Global returns HTTP 451 from US IPs.** Affects Vercel servers (US region) and users with US VPN. TradingChart tries `/api/klines` proxy first, then direct Binance as fallback.
+
+## Lessons Learned (Multi-Tier & ML — April 2026)
+
+13. **Multi-tier compound keys.** Targets and cooldowns use compound keys `"BTC:1"`, `"BTC:2"` etc. The `tierAssignments` type changed from `Record<string, number>` to `Record<string, number[]>`. `fetchTraderState()` in `tradeApi.ts` was converting arrays to strings via `String(tier)` — destroyed the array format. Fixed by passing arrays through as-is.
+14. **Progress bar reference price formula.** The admin monitoring cards were using the old midpoint formula `(buy + sell) / 2` which gave 30-50% bars on fresh start. Fixed to use `refPrice = buyTrigger / (1 - buyDev/100)`. Bar starts EMPTY when price equals refPrice. DO NOT CHANGE THIS FORMULA.
+15. **Open price badge.** Users were confused about why buy targets didn't match current price × deviation. Added a purple badge showing the price when targets were set (derived from `buyTrigger / (1 - deviation/100)`). This only changes after a trade + cooldown cycle.
+16. **Never call external APIs from Vercel strategy status endpoint.** The ML health check (`urlopen` to VPS) was adding 3+ seconds to every dashboard load. Vercel US → Sydney VPS round trip is slow. Removed the blocking call — ML predictions happen at trade time only, not on page load.
+17. **XGBoost float32 JSON serialization.** numpy float32 values aren't JSON serializable — must cast to `float()` before `json.dump()`.
+18. **Ubuntu 24.04 blocks system-wide pip.** Must use `python3 -m venv` for package installation. Also need `apt install python3.12-venv` first.
 
 ## Lessons Learned (Failed Features)
 

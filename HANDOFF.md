@@ -1,6 +1,6 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: March 27, 2026
+> Last updated: April 7, 2026
 
 This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
@@ -79,9 +79,59 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14 — April 6, 2026)
+## 4. Recent Changes & Fixes (March 14 — April 7, 2026)
 
-### Auto-Trader Asymmetric DCA Overhaul (April 4-6) — MOST RECENT
+### Multi-Tier System + ML Intelligence (April 7) — MOST RECENT
+
+**Multi-Tier Auto-Trader (Spot):**
+- Every coin now exists in ALL three tiers simultaneously (was single tier per coin)
+- Target keys are compound: `targets["BTC:1"]`, `targets["BTC:2"]`, `targets["BTC:3"]`
+- Cooldown keys are compound: `cooldowns["BTC:1"]`, `cooldowns["BTC:2"]`, `cooldowns["BTC:3"]`
+- `tierAssignments` changed from `Record<string, number>` to `Record<string, number[]>` (default `[1,2,3]`)
+- New defaults: T1 -3%/+10%/5%/12h, T2 -6%/+12%/8%/12h, T3 -10%/+15%/12%/24h
+- Backward compat: old single-tier format auto-migrated on load
+- Both admin and non-admin views updated for multi-tier display
+- Bug fix: `fetchTraderState()` was converting array assignments to strings — fixed to pass through
+
+**UI Improvements (Spot Auto-Trader):**
+- Collapsible coin tags in admin tier settings cards (default collapsed, shows count)
+- Collapsible monitoring tier sections (both admin and non-admin)
+- Non-admin view now shows read-only tier settings cards matching admin layout
+- Thin visible scrollbar on tier settings cards (was hidden)
+- Fixed progress bar formula: uses reference price approach (`refPrice = buyTrigger / (1 - buyDev/100)`) — bar starts empty on fresh start
+- Added purple "open price" badge to coin cards showing the price when targets were set
+
+**Perps ML Intelligence (3 Phases):**
+- **Phase 1 — Feedback Loop:** `perp_strategy_performance` collection tracks rolling 20-trade win rate per strategy/market. Auto-disables strategies below 25% win rate (after 5+ trades). Reduces sizing 50% below 35%. Boosts 1.5x above 55%. Called from `close_position()` on every trade close.
+- **Phase 2 — ML Signal Classifier:** XGBoost model trained on 228 closed trades + 3256 signals. 78.1% accuracy. Deployed on DigitalOcean (masterhq-dev-syd1, port 8421) as `budju-ml` systemd service. Every auto-trade scored — signals below 55% win probability rejected. Entry reasons tagged with ML score. Graceful fallback if API unavailable.
+- **Phase 3 — Regime Detection:** `detect_market_regime()` classifies markets as trending/ranging/volatile using ADX + BB width. `REGIME_STRATEGY_WEIGHTS` table scales strategy sizing per regime. Mean reversion blocked in trends, trend following blocked in ranges.
+- **ML Stats UI:** PerpStrategyPanel shows ML Signal Classifier card (accuracy, win rate, approved/rejected counts) and Strategy Performance table (rolling win rates per strategy/market).
+- **Telegram Alerts:** All perp trade opens (long/short) and closes (wins/losses) now sent to Telegram with full details (strategy, symbol, size, SL/TP, P&L).
+
+**UI Improvements (Perps):**
+- Visible scrollbars on market pills and strategy marquee
+- All 11 strategies enabled and running with auto-trading ON
+
+**Issues Encountered & Fixed:**
+- `fetchTraderState()` converting `[1,2,3]` arrays to `"1,2,3"` strings — non-admin tier cards showed "0 coins"
+- Progress bar using old midpoint formula instead of reference price — showed 30-50% on fresh start
+- ML health check (`urlopen` to VPS from Vercel) blocking dashboard load by 3+ seconds — removed, ML stats from DB only
+- XGBoost numpy float32 not JSON serializable — cast to Python float
+- Ubuntu 24.04 `pip3` blocked system-wide installs — used venv instead
+
+**New Environment Variables:**
+- `ML_API_URL` — ML prediction server on DigitalOcean (http://170.64.133.9:8421)
+
+**New Files:**
+- `vps/ml/train.py` — XGBoost training pipeline
+- `vps/ml/server.py` — Prediction API server
+- `vps/ml/requirements.txt` — ML dependencies (xgboost, scikit-learn, pymongo, aiohttp)
+
+**New MongoDB Collections:**
+- `perp_strategy_performance` — Rolling win rate per strategy/market
+- `perp_equity_curve` — Equity snapshots for equity curve meta-filter
+
+### Auto-Trader Asymmetric DCA Overhaul (April 4-6)
 - **Separate buy/sell deviation bands**: Each tier now has independent `deviation` (buy trigger, e.g. -3%) and `sellDeviation` (sell trigger, e.g. +8%). Replaces the old symmetric single deviation.
 - **Asymmetric reset logic after BUY**: When the bot buys on a dip, only the buy band ratchets down. The sell band stays anchored at the higher of old target or new calculation. This prevents the old problem where a 1.5% dip buy would set a sell target only 1.5% above the new low — now price must recover meaningfully before any sell.
 - **After SELL**: Both bands reset fresh from current price (clean start after profit-taking).
@@ -94,14 +144,13 @@ This document describes the full current state of the BUDJU project for handoff 
 - **Dependabot disabled**: Removed `.github/dependabot.yml` to stop auto-PRs.
 - **SAFETY-RULES.md**: Added mandatory safety protocol to project root.
 
-### NEXT: Multi-Tier System (Planned)
-- Every coin to exist in ALL three tiers simultaneously (currently one tier per coin)
-- Targets keyed as `coin:tierNum` (e.g. "BTC:1", "BTC:2", "BTC:3")
-- Each tier fires independently with its own cooldowns
-- T1 catches -3% dips (normal volatility), T2 catches -6% dips (bigger opportunities), T3 catches -10% dips (crash buys)
-- Sell bands wider at each level: T1 +10%, T2 +12%, T3 +15%
-- More allocation on deeper dips (accumulation-focused)
-- See detailed prompt in `docs/MULTI_TIER_PROMPT.md`
+### NEXT: Phase 4 — Reinforcement Learning Agent (Future)
+- Replace fixed strategy rules with a learned trading policy
+- Needs custom gym environment simulating the perp trading engine
+- Thousands of training episodes with GPU compute
+- Highest ceiling but weeks-to-months of development
+- Current Phases 1-3 + ML classifier provide ~80% of the benefit
+- Let current system accumulate data — retrain XGBoost weekly via `POST /retrain`
 
 ### Housekeeping & Docs Reorganisation (March 27)
 - Moved all project .md files (except README.md, CLAUDE.md, HANDOFF.md) into `docs/` folder
