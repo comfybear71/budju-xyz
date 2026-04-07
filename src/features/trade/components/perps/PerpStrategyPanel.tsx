@@ -433,6 +433,126 @@ const PerpStrategyPanel = ({ wallet }: Props) => {
         );
       })}
 
+      {/* ML Intelligence Stats */}
+      {status.ml_stats && (
+        <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm">🧠</span>
+              <span className="text-xs font-bold text-purple-300">ML Signal Classifier</span>
+            </div>
+            <span
+              className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
+              style={{
+                background: status.ml_stats.model_loaded ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)",
+                color: status.ml_stats.model_loaded ? "#22c55e" : "#ef4444",
+              }}
+            >
+              {status.ml_stats.model_loaded ? "ACTIVE" : status.ml_stats.enabled ? "NO MODEL" : "OFF"}
+            </span>
+          </div>
+
+          {status.ml_stats.model_loaded && (
+            <div className="grid grid-cols-3 gap-2">
+              <div className="bg-slate-800/40 rounded-lg p-2 text-center">
+                <div className="text-[8px] uppercase text-slate-500">Model Accuracy</div>
+                <div className="text-sm font-bold text-purple-300">
+                  {status.ml_stats.accuracy ? `${(status.ml_stats.accuracy * 100).toFixed(0)}%` : "—"}
+                </div>
+              </div>
+              <div className="bg-slate-800/40 rounded-lg p-2 text-center">
+                <div className="text-[8px] uppercase text-slate-500">ML Win Rate</div>
+                <div className="text-sm font-bold" style={{
+                  color: status.ml_stats.approved_win_rate != null
+                    ? status.ml_stats.approved_win_rate >= 0.5 ? "#22c55e" : "#ef4444"
+                    : "#64748b",
+                }}>
+                  {status.ml_stats.approved_win_rate != null
+                    ? `${(status.ml_stats.approved_win_rate * 100).toFixed(0)}%`
+                    : "—"}
+                </div>
+              </div>
+              <div className="bg-slate-800/40 rounded-lg p-2 text-center">
+                <div className="text-[8px] uppercase text-slate-500">Trained On</div>
+                <div className="text-sm font-bold text-slate-300">
+                  {status.ml_stats.samples || 0} trades
+                </div>
+              </div>
+            </div>
+          )}
+
+          {status.ml_stats.model_loaded && (
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="text-slate-500">
+                Threshold: <span className="text-purple-300 font-bold">{(status.ml_stats.threshold * 100).toFixed(0)}%+</span> to trade
+              </span>
+              <div className="flex gap-2">
+                <span className="text-emerald-400">
+                  {status.ml_stats.approved_trades} approved
+                </span>
+                <span className="text-red-400">
+                  {status.ml_stats.recent_rejected} rejected
+                </span>
+              </div>
+            </div>
+          )}
+
+          {!status.ml_stats.model_loaded && status.ml_stats.enabled && (
+            <div className="text-[10px] text-slate-500">
+              ML API configured but model not loaded. Run training on VPS to activate.
+            </div>
+          )}
+
+          {status.ml_stats.error && (
+            <div className="text-[10px] text-amber-400">
+              {status.ml_stats.error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Strategy Performance (Feedback Loop) */}
+      {status.strategy_performance && Object.keys(status.strategy_performance).length > 0 && (
+        <div className="rounded-xl border border-white/[0.04] bg-slate-800/20 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">📊</span>
+            <span className="text-xs font-bold text-slate-300">Strategy Performance (Rolling {'\u00B7'} Last 20 Trades)</span>
+          </div>
+          <div className="space-y-1">
+            {Object.entries(status.strategy_performance).map(([key, perf]) => {
+              const wr = perf.rolling_win_rate;
+              const wrColor = wr >= 0.55 ? "#22c55e" : wr >= 0.35 ? "#eab308" : "#ef4444";
+              const stratInfo = STRATEGY_INFO[perf.strategy];
+              return (
+                <div
+                  key={key}
+                  className="flex items-center justify-between text-[10px] bg-slate-800/40 rounded-lg px-2.5 py-1.5"
+                  style={{ opacity: perf.auto_disabled ? 0.5 : 1 }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>{stratInfo?.icon || "📊"}</span>
+                    <span className="text-slate-300 font-bold">{stratInfo?.name || perf.strategy}</span>
+                    <span className="text-slate-500">{perf.symbol.replace("-PERP", "")}</span>
+                    {perf.auto_disabled && (
+                      <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-red-500/15 text-red-400">DISABLED</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span style={{ color: wrColor }} className="font-bold font-mono">
+                      {(wr * 100).toFixed(0)}% WR
+                    </span>
+                    <span className={`font-mono ${perf.rolling_pnl >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {perf.rolling_pnl >= 0 ? "+" : ""}${perf.rolling_pnl.toFixed(0)}
+                    </span>
+                    <span className="text-slate-500">{perf.trades_in_window}t</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Info box */}
       <div className="bg-slate-800/20 rounded-lg p-2.5 border border-white/[0.02]">
         <div className="text-[10px] text-slate-500 space-y-1">
