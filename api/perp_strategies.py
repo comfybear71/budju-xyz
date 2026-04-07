@@ -186,7 +186,7 @@ CORRELATION_GROUPS = [
 ]
 # Drawdown protection
 DRAWDOWN_HALF_SIZE_PCT = 5.0   # Half position size at 5% drawdown
-DRAWDOWN_STOP_PCT = 10.0       # Stop trading at 10% drawdown
+DRAWDOWN_STOP_PCT = 30.0       # Raised from 10% for paper trading — need ML training data
 
 # ── Equity Curve Trading (Meta-Filter) ──────────────────────────────────
 # Monitors the strategy's own equity curve. If the equity curve is trending
