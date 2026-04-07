@@ -24,6 +24,7 @@ import math
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
 from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -1485,6 +1486,52 @@ REGIME_STRATEGY_WEIGHTS = {
     },
 }
 
+# ── ML Signal Classifier Gate ────────────────────────────────────────────
+
+ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
+ML_API_SECRET = os.getenv("VPS_API_SECRET", "")
+ML_THRESHOLD = 0.55  # Only trade when ML says >55% win probability
+ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
+
+
+def ml_predict(strategy: str, symbol: str, direction: str, leverage: int,
+               price: float, size_usd: float, indicators: Dict) -> Dict:
+    """Call the ML prediction API to score a signal.
+
+    Returns: {"win_probability": float, "should_trade": bool, "model_loaded": bool}
+    Falls back to allowing the trade if ML API is unavailable.
+    """
+    if not ML_ENABLED:
+        return {"win_probability": 0.5, "should_trade": True, "model_loaded": False,
+                "reason": "ML not configured"}
+
+    payload = json.dumps({
+        "strategy": strategy,
+        "symbol": symbol,
+        "direction": direction,
+        "leverage": leverage,
+        "price": price,
+        "size_usd": size_usd,
+        "indicators": indicators,
+        "threshold": ML_THRESHOLD,
+    }).encode()
+
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "PerpCron/1.0",
+    }
+    if ML_API_SECRET:
+        headers["Authorization"] = f"Bearer {ML_API_SECRET}"
+
+    try:
+        req = Request(f"{ML_API_URL}/predict", data=payload, headers=headers, method="POST")
+        with urlopen(req, timeout=3) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        # ML API down — don't block trades, just log
+        return {"win_probability": 0.5, "should_trade": True, "model_loaded": False,
+                "error": str(e), "reason": "ML API unavailable — allowing trade"}
+
 
 # ── Main Auto-Trader ─────────────────────────────────────────────────────
 
@@ -1725,6 +1772,30 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             sig_trailing = signal.get("trailing_stop_pct", trailing_pct)
 
             entry_reason = f"[{strategy_name}] {signal['signal']}"
+
+            # ── ML GATE: Ask classifier if this trade is worth taking ──
+            if ML_ENABLED and not is_test:
+                ml_result = ml_predict(
+                    strategy=strategy_name, symbol=symbol, direction=direction,
+                    leverage=strat_leverage, price=curr_price, size_usd=size_usd,
+                    indicators=signal.get("indicators", {}),
+                )
+                win_prob = ml_result.get("win_probability", 0.5)
+                if ml_result.get("model_loaded") and not ml_result.get("should_trade", True):
+                    log_signal(wallet, strategy_name, symbol, direction,
+                              signal["signal"], {**signal["indicators"], "ml_win_prob": win_prob},
+                              False, f"ML rejected: {win_prob:.0%} win probability < {ML_THRESHOLD:.0%} threshold")
+                    actions.append({
+                        "action": "ml_rejected",
+                        "strategy": strategy_name,
+                        "symbol": symbol,
+                        "direction": direction,
+                        "win_probability": round(win_prob, 4),
+                        "threshold": ML_THRESHOLD,
+                    })
+                    continue
+                # ML approved — log the probability for tracking
+                entry_reason = f"[{strategy_name}] {signal['signal']} (ML:{win_prob:.0%})"
 
             # Place the trade
             try:
