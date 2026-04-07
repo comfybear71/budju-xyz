@@ -38,11 +38,13 @@ from perp_engine import (
 perp_price_history = db["perp_price_history"]
 perp_strategy_config = db["perp_strategy_config"]
 perp_strategy_signals = db["perp_strategy_signals"]
+perp_strategy_performance = db["perp_strategy_performance"]
 
 # Indexes
 perp_price_history.create_index([("symbol", 1), ("timestamp", -1)])
 perp_price_history.create_index([("symbol", 1), ("interval", 1), ("timestamp", -1)])
 perp_strategy_signals.create_index([("account_id", 1), ("timestamp", -1)])
+perp_strategy_performance.create_index([("account_id", 1), ("strategy", 1), ("symbol", 1)], unique=True)
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -1205,6 +1207,285 @@ def get_equity_curve_multiplier(wallet: str) -> float:
         return 0.25  # Cold streak — quarter size (don't fully stop to allow recovery)
 
 
+# ── Strategy Performance Feedback Loop ───────────────────────────────────
+
+# Rolling window for performance tracking
+PERF_WINDOW = 20          # Look at last 20 trades per strategy/market
+PERF_MIN_TRADES = 5       # Need at least 5 trades before judging
+PERF_DISABLE_WR = 0.25    # Auto-disable strategy below 25% win rate
+PERF_REDUCE_WR = 0.35     # Reduce sizing below 35% win rate
+PERF_BOOST_WR = 0.55      # Boost sizing above 55% win rate
+
+# Regime detection
+REGIME_ADX_TRENDING = 25   # ADX above this = trending market
+REGIME_ADX_STRONG = 40     # ADX above this = strong trend
+REGIME_BB_SQUEEZE = 0.02   # BB width below 2% = low volatility / squeeze
+
+
+def update_strategy_performance(wallet: str, strategy_name: str, symbol: str,
+                                 pnl: float, exit_type: str):
+    """Update rolling performance stats after a trade closes.
+    Called from perp_engine.close_position() or can be called from cron.
+    """
+    is_win = pnl > 0
+
+    # Upsert strategy/market performance doc
+    perf = perp_strategy_performance.find_one({
+        "account_id": wallet,
+        "strategy": strategy_name,
+        "symbol": symbol,
+    })
+
+    if not perf:
+        perf = {
+            "account_id": wallet,
+            "strategy": strategy_name,
+            "symbol": symbol,
+            "recent_pnls": [],
+            "total_trades": 0,
+            "total_wins": 0,
+            "total_pnl": 0.0,
+            "rolling_win_rate": 0.0,
+            "rolling_pnl": 0.0,
+            "auto_disabled": False,
+            "disable_reason": None,
+            "last_updated": datetime.utcnow(),
+        }
+
+    # Append to rolling window
+    recent = perf.get("recent_pnls", [])
+    recent.append({"pnl": round(pnl, 4), "win": is_win, "exit_type": exit_type,
+                   "timestamp": datetime.utcnow().isoformat()})
+    if len(recent) > PERF_WINDOW:
+        recent = recent[-PERF_WINDOW:]
+
+    # Calculate rolling stats
+    wins = sum(1 for r in recent if r["win"])
+    rolling_wr = wins / len(recent) if recent else 0
+    rolling_pnl = sum(r["pnl"] for r in recent)
+
+    # Auto-disable check
+    auto_disabled = False
+    disable_reason = None
+    if len(recent) >= PERF_MIN_TRADES and rolling_wr < PERF_DISABLE_WR:
+        auto_disabled = True
+        disable_reason = f"Win rate {rolling_wr:.0%} below {PERF_DISABLE_WR:.0%} threshold ({len(recent)} trades)"
+
+    perf.update({
+        "recent_pnls": recent,
+        "total_trades": perf.get("total_trades", 0) + 1,
+        "total_wins": perf.get("total_wins", 0) + (1 if is_win else 0),
+        "total_pnl": round(perf.get("total_pnl", 0.0) + pnl, 4),
+        "rolling_win_rate": round(rolling_wr, 4),
+        "rolling_pnl": round(rolling_pnl, 4),
+        "auto_disabled": auto_disabled,
+        "disable_reason": disable_reason,
+        "last_updated": datetime.utcnow(),
+    })
+
+    perp_strategy_performance.update_one(
+        {"account_id": wallet, "strategy": strategy_name, "symbol": symbol},
+        {"$set": perf},
+        upsert=True,
+    )
+
+    return {
+        "strategy": strategy_name,
+        "symbol": symbol,
+        "rolling_wr": rolling_wr,
+        "rolling_pnl": rolling_pnl,
+        "auto_disabled": auto_disabled,
+        "trades_in_window": len(recent),
+    }
+
+
+def get_strategy_performance_multiplier(wallet: str, strategy_name: str, symbol: str) -> float:
+    """Get position size multiplier based on strategy/market performance.
+
+    Returns:
+        1.5 — hot strategy (>55% win rate, 20+ trades)
+        1.0 — normal (not enough data or average performance)
+        0.5 — underperforming (25-35% win rate)
+        0.0 — auto-disabled (<25% win rate over 5+ trades)
+    """
+    perf = perp_strategy_performance.find_one({
+        "account_id": wallet,
+        "strategy": strategy_name,
+        "symbol": symbol,
+    })
+
+    if not perf:
+        return 1.0  # No data yet
+
+    trades = len(perf.get("recent_pnls", []))
+    if trades < PERF_MIN_TRADES:
+        return 1.0  # Not enough data
+
+    wr = perf.get("rolling_win_rate", 0.5)
+
+    if perf.get("auto_disabled"):
+        return 0.0  # Blocked
+
+    if wr < PERF_REDUCE_WR:
+        return 0.5  # Underperforming — half size
+
+    if wr >= PERF_BOOST_WR and trades >= PERF_WINDOW:
+        return 1.5  # Hot strategy — boost
+
+    return 1.0
+
+
+def get_strategy_performance_summary(wallet: str) -> Dict:
+    """Get performance summary for all strategies — used by frontend."""
+    perfs = list(perp_strategy_performance.find({"account_id": wallet}))
+    summary = {}
+    for p in perfs:
+        key = f"{p['strategy']}:{p['symbol']}"
+        summary[key] = {
+            "strategy": p["strategy"],
+            "symbol": p["symbol"],
+            "rolling_win_rate": p.get("rolling_win_rate", 0),
+            "rolling_pnl": p.get("rolling_pnl", 0),
+            "total_trades": p.get("total_trades", 0),
+            "total_pnl": p.get("total_pnl", 0),
+            "auto_disabled": p.get("auto_disabled", False),
+            "disable_reason": p.get("disable_reason"),
+            "trades_in_window": len(p.get("recent_pnls", [])),
+        }
+    return summary
+
+
+def detect_market_regime(price_series: List[float], atr_values: List[float] = None) -> Dict:
+    """Detect current market regime: trending, ranging, or volatile.
+
+    Uses ADX (trend strength) + Bollinger Band width (volatility).
+    Returns regime info that strategies can use to self-select.
+    """
+    if len(price_series) < 30:
+        return {"regime": "unknown", "adx": 0, "bb_width": 0, "trend_direction": "neutral"}
+
+    closes = price_series
+
+    # Calculate ADX (Average Directional Index) — trend strength indicator
+    # Simplified: use directional movement over rolling windows
+    period = 14
+    if len(closes) < period * 2:
+        return {"regime": "unknown", "adx": 0, "bb_width": 0, "trend_direction": "neutral"}
+
+    # +DM / -DM calculation
+    plus_dm = []
+    minus_dm = []
+    tr_list = []
+    for i in range(1, len(closes)):
+        high_diff = closes[i] - closes[i-1]  # Simplified: using close as proxy
+        low_diff = closes[i-1] - closes[i]
+        plus_dm.append(max(high_diff, 0))
+        minus_dm.append(max(low_diff, 0))
+        tr_list.append(abs(closes[i] - closes[i-1]))
+
+    if len(tr_list) < period:
+        return {"regime": "unknown", "adx": 0, "bb_width": 0, "trend_direction": "neutral"}
+
+    # Smoothed averages
+    def smooth_avg(values, p):
+        if len(values) < p:
+            return []
+        result = [sum(values[:p]) / p]
+        for i in range(p, len(values)):
+            result.append((result[-1] * (p - 1) + values[i]) / p)
+        return result
+
+    sm_plus = smooth_avg(plus_dm, period)
+    sm_minus = smooth_avg(minus_dm, period)
+    sm_tr = smooth_avg(tr_list, period)
+
+    if not sm_plus or not sm_minus or not sm_tr:
+        return {"regime": "unknown", "adx": 0, "bb_width": 0, "trend_direction": "neutral"}
+
+    # DI+ and DI-
+    di_plus = (sm_plus[-1] / sm_tr[-1] * 100) if sm_tr[-1] > 0 else 0
+    di_minus = (sm_minus[-1] / sm_tr[-1] * 100) if sm_tr[-1] > 0 else 0
+
+    # DX and ADX
+    di_sum = di_plus + di_minus
+    dx = abs(di_plus - di_minus) / di_sum * 100 if di_sum > 0 else 0
+
+    # Simple ADX approximation (smoothed DX)
+    adx = dx  # For simplicity; proper ADX needs multi-period smoothing
+
+    # Bollinger Band width for volatility
+    bb_period = 20
+    if len(closes) >= bb_period:
+        recent = closes[-bb_period:]
+        sma_val = sum(recent) / bb_period
+        std_val = (sum((x - sma_val) ** 2 for x in recent) / bb_period) ** 0.5
+        bb_width = (std_val * 2) / sma_val if sma_val > 0 else 0
+    else:
+        bb_width = 0
+
+    # Trend direction
+    ema_fast = ema(closes, 9)
+    ema_slow = ema(closes, 21)
+    if ema_fast and ema_slow:
+        trend_dir = "bullish" if ema_fast[-1] > ema_slow[-1] else "bearish"
+    else:
+        trend_dir = "neutral"
+
+    # Classify regime
+    if adx >= REGIME_ADX_TRENDING:
+        regime = "trending"
+    elif bb_width < REGIME_BB_SQUEEZE:
+        regime = "ranging"  # Low volatility, mean-reverting
+    else:
+        regime = "volatile"  # High vol but no clear trend
+
+    return {
+        "regime": regime,
+        "adx": round(adx, 2),
+        "bb_width": round(bb_width, 4),
+        "trend_direction": trend_dir,
+        "di_plus": round(di_plus, 2),
+        "di_minus": round(di_minus, 2),
+    }
+
+
+# Strategy suitability per regime
+REGIME_STRATEGY_WEIGHTS = {
+    "trending": {
+        "trend_following": 1.5,   # Best in trends
+        "momentum": 1.5,          # Best in trends
+        "mean_reversion": 0.3,    # Bad in trends — fades the move
+        "scalping": 0.5,          # OK but noisy
+        "keltner": 1.0,           # Adaptive
+        "bb_squeeze": 1.2,        # Squeeze breakouts work in trends
+    },
+    "ranging": {
+        "trend_following": 0.3,   # Whipsaws in ranges
+        "momentum": 0.3,          # False breakouts
+        "mean_reversion": 1.5,    # Best in ranges
+        "scalping": 1.0,          # OK
+        "keltner": 1.2,           # MR mode works
+        "bb_squeeze": 0.5,        # No squeeze in ranges
+    },
+    "volatile": {
+        "trend_following": 0.7,
+        "momentum": 1.0,
+        "mean_reversion": 0.7,
+        "scalping": 0.3,          # Gets stopped out
+        "keltner": 1.0,
+        "bb_squeeze": 1.5,        # Volatility expansion
+    },
+    "unknown": {
+        "trend_following": 1.0,
+        "momentum": 1.0,
+        "mean_reversion": 1.0,
+        "scalping": 1.0,
+        "keltner": 1.0,
+        "bb_squeeze": 1.0,
+    },
+}
+
+
 # ── Main Auto-Trader ─────────────────────────────────────────────────────
 
 STRATEGY_FUNCS = {
@@ -1301,6 +1582,20 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     open_count = len(open_pos)
     open_symbols = set(p["symbol"] for p in open_pos)
 
+    # Pre-compute regime per market for strategy weighting
+    market_regimes = {}
+    for symbol in prices:
+        try:
+            ps = get_price_series(symbol, 50)
+            if len(ps) >= 30:
+                market_regimes[symbol] = detect_market_regime(ps)
+        except Exception:
+            pass
+
+    if market_regimes:
+        regime_summary = {s: r["regime"] for s, r in market_regimes.items()}
+        actions.append({"action": "regime_detection", "regimes": regime_summary})
+
     for strategy_name, strategy_func in STRATEGY_FUNCS.items():
         strat_config = config.get("strategies", {}).get(strategy_name, {})
         if not strat_config.get("enabled"):
@@ -1341,6 +1636,30 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if is_on_cooldown(wallet, symbol, cooldown):
                 continue
 
+            # ── FEEDBACK LOOP: Check strategy/market performance ──
+            perf_mult = get_strategy_performance_multiplier(wallet, strategy_name, symbol)
+            if perf_mult <= 0:
+                actions.append({
+                    "action": "auto_disabled",
+                    "strategy": strategy_name,
+                    "symbol": symbol,
+                    "reason": f"Strategy auto-disabled: poor win rate on {symbol}",
+                })
+                continue
+
+            # ── REGIME FILTER: Weight strategy based on market conditions ──
+            regime_info = market_regimes.get(symbol, {})
+            regime = regime_info.get("regime", "unknown")
+            regime_weight = REGIME_STRATEGY_WEIGHTS.get(regime, {}).get(strategy_name, 1.0)
+            if regime_weight < 0.4:
+                # Strategy is a poor fit for current regime — skip entirely
+                log_signal(wallet, strategy_name, symbol, "none",
+                          f"Regime filter: {regime} market unfavorable for {strategy_name}",
+                          {"regime": regime, "adx": regime_info.get("adx", 0),
+                           "bb_width": regime_info.get("bb_width", 0)}, False,
+                          f"Regime {regime} blocks {strategy_name}")
+                continue
+
             # Store current price
             store_price(symbol, prices[symbol])
 
@@ -1358,7 +1677,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             atr_value = signal.get("atr", 0)
             curr_price = prices[symbol]
 
-            # Calculate position size (with drawdown + equity curve protection)
+            # Calculate position size (with drawdown + equity curve + performance + regime)
             if is_test:
                 # Test mode: max position size = 50% of equity * leverage
                 size_usd = round(equity * 0.50 * strat_leverage, 2)
@@ -1370,6 +1689,12 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     size_usd = round(size_usd * dd_mult, 2)
                 if ec_mult < 1.0:
                     size_usd = round(size_usd * ec_mult, 2)
+                # Performance feedback: scale by strategy win rate
+                if perf_mult != 1.0:
+                    size_usd = round(size_usd * perf_mult, 2)
+                # Regime weight: scale by how suitable this strategy is
+                if regime_weight != 1.0:
+                    size_usd = round(size_usd * regime_weight, 2)
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,

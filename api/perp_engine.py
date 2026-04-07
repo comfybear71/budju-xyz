@@ -635,6 +635,19 @@ def close_position(position_id: str, exit_price: float,
     }
     perp_trades.insert_one(trade)
 
+    # Update strategy performance feedback loop
+    entry_reason = pos.get("entry_reason", "")
+    if entry_reason.startswith("["):
+        # Extract strategy name from "[strategy_name] signal description"
+        bracket_end = entry_reason.find("]")
+        if bracket_end > 1:
+            strat_name = entry_reason[1:bracket_end]
+            try:
+                from perp_strategies import update_strategy_performance
+                update_strategy_performance(wallet, strat_name, pos["symbol"], net_pnl, exit_type)
+            except Exception:
+                pass  # Non-critical — don't break trade closing
+
     # Update position status
     perp_positions.update_one(
         {"_id": ObjectId(position_id)},
