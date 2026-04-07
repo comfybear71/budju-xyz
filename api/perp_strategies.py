@@ -1965,6 +1965,56 @@ def get_strategy_status(wallet: str) -> Dict:
             "duration_minutes": test_mode.get("duration_minutes", 60),
         }
 
+    # ML stats
+    ml_stats = {
+        "enabled": ML_ENABLED,
+        "api_url": ML_API_URL or None,
+        "threshold": ML_THRESHOLD,
+    }
+    if ML_ENABLED:
+        try:
+            req = Request(f"{ML_API_URL}/health", method="GET")
+            with urlopen(req, timeout=3) as resp:
+                health = json.loads(resp.read().decode())
+                ml_stats["model_loaded"] = health.get("model_loaded", False)
+                ml_stats["accuracy"] = health.get("meta", {}).get("accuracy")
+                ml_stats["samples"] = health.get("meta", {}).get("samples")
+                ml_stats["trained_at"] = health.get("meta", {}).get("trained_at")
+                ml_stats["feature_importance"] = health.get("meta", {}).get("feature_importance")
+        except Exception:
+            ml_stats["model_loaded"] = False
+            ml_stats["error"] = "ML API unreachable"
+
+    # Count ML-approved vs rejected from recent signals
+    ml_approved = 0
+    ml_rejected = 0
+    ml_approved_wins = 0
+    ml_approved_total = 0
+    for sig in recent:
+        indicators = sig.get("indicators", {})
+        if "ml_win_prob" in indicators:
+            if sig.get("acted"):
+                ml_approved += 1
+            else:
+                ml_rejected += 1
+
+    # ML-approved trade win rate from closed trades
+    ml_trades = list(perp_trades.find(
+        {"account_id": wallet, "entry_reason": {"$regex": r"\(ML:"}},
+        {"realized_pnl": 1},
+    ))
+    if ml_trades:
+        ml_approved_total = len(ml_trades)
+        ml_approved_wins = sum(1 for t in ml_trades if t.get("realized_pnl", 0) > 0)
+    ml_stats["approved_trades"] = ml_approved_total
+    ml_stats["approved_wins"] = ml_approved_wins
+    ml_stats["approved_win_rate"] = round(ml_approved_wins / ml_approved_total, 4) if ml_approved_total > 0 else None
+    ml_stats["recent_approved"] = ml_approved
+    ml_stats["recent_rejected"] = ml_rejected
+
+    # Strategy performance (feedback loop data)
+    perf_summary = get_strategy_performance_summary(wallet)
+
     return {
         "auto_trading_enabled": config.get("auto_trading_enabled", False),
         "strategies": config.get("strategies", {}),
@@ -1975,4 +2025,6 @@ def get_strategy_status(wallet: str) -> Dict:
         "strategy_positions": strategy_positions,
         "trading_paused": account.get("trading_paused", False) if account else False,
         "test_mode": test_info,
+        "ml_stats": ml_stats,
+        "strategy_performance": perf_summary,
     }
