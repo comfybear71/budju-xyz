@@ -1965,25 +1965,12 @@ def get_strategy_status(wallet: str) -> Dict:
             "duration_minutes": test_mode.get("duration_minutes", 60),
         }
 
-    # ML stats
+    # ML stats — lightweight, no external API call (avoid blocking dashboard load)
     ml_stats = {
         "enabled": ML_ENABLED,
-        "api_url": ML_API_URL or None,
         "threshold": ML_THRESHOLD,
+        "model_loaded": ML_ENABLED,  # If URL is configured, assume model is running
     }
-    if ML_ENABLED:
-        try:
-            req = Request(f"{ML_API_URL}/health", method="GET")
-            with urlopen(req, timeout=3) as resp:
-                health = json.loads(resp.read().decode())
-                ml_stats["model_loaded"] = health.get("model_loaded", False)
-                ml_stats["accuracy"] = health.get("meta", {}).get("accuracy")
-                ml_stats["samples"] = health.get("meta", {}).get("samples")
-                ml_stats["trained_at"] = health.get("meta", {}).get("trained_at")
-                ml_stats["feature_importance"] = health.get("meta", {}).get("feature_importance")
-        except Exception:
-            ml_stats["model_loaded"] = False
-            ml_stats["error"] = "ML API unreachable"
 
     # Count ML-approved vs rejected from recent signals
     ml_approved = 0
