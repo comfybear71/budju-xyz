@@ -164,6 +164,34 @@ export interface TestMode {
   duration_minutes: number;
 }
 
+export interface MLStats {
+  enabled: boolean;
+  model_loaded: boolean;
+  accuracy: number | null;
+  samples: number | null;
+  trained_at: string | null;
+  threshold: number;
+  approved_trades: number;
+  approved_wins: number;
+  approved_win_rate: number | null;
+  recent_approved: number;
+  recent_rejected: number;
+  feature_importance: Record<string, number> | null;
+  error?: string;
+}
+
+export interface StrategyPerformance {
+  strategy: string;
+  symbol: string;
+  rolling_win_rate: number;
+  rolling_pnl: number;
+  total_trades: number;
+  total_pnl: number;
+  auto_disabled: boolean;
+  disable_reason: string | null;
+  trades_in_window: number;
+}
+
 export interface StrategyStatus {
   auto_trading_enabled: boolean;
   trading_paused: boolean;
@@ -173,6 +201,8 @@ export interface StrategyStatus {
   candle_counts: Record<string, number>;
   min_candles_required: number;
   test_mode?: TestMode | null;
+  ml_stats?: MLStats;
+  strategy_performance?: Record<string, StrategyPerformance>;
 }
 
 // ── Strategy Endpoints ──────────────────────────────────────────────────

@@ -172,17 +172,24 @@ def run_perp_monitor() -> dict:
                 }
                 events.append(event)
 
-                # Telegram alert — only send wins (positive P&L)
+                # Telegram alert for all closes (wins and losses)
                 if pnl > 0:
                     emoji = {"take_profit": "🎯", "trailing_stop": "📐"}.get(action, "💰")
-                    mode_emoji = "🔴" if mode_label == "LIVE" else ""
                     msg = (
-                        f"{emoji} <b>{mode_label} WIN</b> {mode_emoji}\n"
+                        f"{emoji} <b>{mode_label} WIN</b>\n"
                         f"📍 {symbol} {direction} {leverage}x\n"
                         f"💰 P&L: <b>+${pnl:.2f}</b>\n"
-                        f"👤 {wallet_short}"
+                        f"🔚 Exit: {action}"
                     )
-                    send_telegram(msg)
+                else:
+                    emoji = {"stop_loss": "🛑", "liquidation": "💀", "trailing_stop": "📐"}.get(action, "📉")
+                    msg = (
+                        f"{emoji} <b>{mode_label} LOSS</b>\n"
+                        f"📍 {symbol} {direction} {leverage}x\n"
+                        f"💸 P&L: <b>-${abs(pnl):.2f}</b>\n"
+                        f"🔚 Exit: {action}"
+                    )
+                send_telegram(msg)
 
             except Exception as e:
                 print(f"[perp-cron] Error closing {pos_id}: {e}")
@@ -207,9 +214,33 @@ def run_perp_monitor() -> dict:
         try:
             mode_label = "LIVE" if acc.get("trading_mode") == "live" else "PAPER"
             actions = run_auto_trader(acc["wallet"], prices)
+            print(f"[perp-cron] Auto-trader for {acc['wallet'][:8]}: {len(actions)} actions")
             for action in actions:
-                if action.get("action") == "opened":
+                action_type = action.get("action", "unknown")
+                if action_type == "opened":
                     auto_trade_actions.append(action)
+                    # Telegram alert for trade opens
+                    direction = action.get("direction", "").upper()
+                    symbol = action.get("symbol", "")
+                    strategy = action.get("strategy", "")
+                    size = action.get("size_usd", 0)
+                    leverage = action.get("leverage", 0)
+                    entry = action.get("entry_price", 0)
+                    sl = action.get("stop_loss", 0)
+                    tp = action.get("take_profit", 0)
+                    signal_txt = action.get("signal", "")
+                    dir_emoji = "🟢" if direction == "LONG" else "🔴"
+                    msg = (
+                        f"{dir_emoji} <b>{mode_label} {direction}</b>\n"
+                        f"📍 {symbol} · {strategy} · {leverage}x\n"
+                        f"💵 ${size:,.0f} @ ${entry:,.2f}\n"
+                        f"🛑 SL: ${sl:,.2f} · 🎯 TP: ${tp:,.2f}\n"
+                        f"📝 {signal_txt}"
+                    )
+                    send_telegram(msg)
+                else:
+                    # Log all non-open actions for debugging
+                    print(f"[perp-cron] {action.get('action')}: {action.get('strategy', '')} {action.get('symbol', '')} {action.get('reason', '')}")
         except Exception as e:
             print(f"[perp-cron] Auto-trader error for {acc['wallet'][:8]}: {e}")
 

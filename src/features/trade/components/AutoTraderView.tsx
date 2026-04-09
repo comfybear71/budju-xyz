@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown } from "react-icons/fa";
+import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { fetchTraderState, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
+import { TIER_CONFIG } from "../services/autoTrader";
 
 interface Props {
   isOpen: boolean;
@@ -15,6 +16,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
+  const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,8 +52,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
   }
 
-  // Build monitoring data from tier config + assignments
-  // Uses autoActive.targets for real buy/sell triggers when available
+  // Build monitoring data from multi-tier assignments + compound key targets
   const getMonitoringData = () => {
     if (!state) return [];
     const assignments = state.autoTierAssignments || {};
@@ -61,55 +62,74 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     const liveTargets = autoActive.targets || {};
     const tierActive = autoActive.tierActive || {};
 
-    // Build coin→tierKey map from assignments first
-    const coinTierMap: Record<string, string> = {};
-    for (const [coin, tierKey] of Object.entries(assignments)) {
-      coinTierMap[coin] = tierKey as string;
-    }
-
-    // If assignments is empty, build from tier coins arrays
-    if (Object.keys(coinTierMap).length === 0) {
-      for (const [tierKey, cfg] of Object.entries(tierAssets) as [string, any][]) {
-        const coins = cfg.coins || [];
-        for (const coin of coins) {
-          coinTierMap[coin] = tierKey;
-        }
-      }
-    }
-
-    // If still empty, build from liveTargets (coins being actively monitored)
-    if (Object.keys(coinTierMap).length === 0) {
-      for (const coin of Object.keys(liveTargets)) {
-        coinTierMap[coin] = "tier1"; // fallback tier key
-      }
-    }
-
     const items: any[] = [];
-    for (const [coin, tierKey] of Object.entries(coinTierMap)) {
-      const tier = tierAssets[tierKey] || {};
-      const dev = Number(tier.deviation) || 0;
-      const cp = Number(prices[coin]) || 0;
-      const change = Number(changes[coin]) || 0;
-      const live = liveTargets[coin];
 
-      // Check if this coin's tier is actually active
-      const tierNum = tierKey.replace("tier", "");
-      const isTierActive = !!(tierActive[tierNum] ?? tierActive[tierKey] ?? tier.active);
+    // Multi-tier: assignments is Record<string, number[]> — each coin in multiple tiers
+    for (const [coin, rawTiers] of Object.entries(assignments)) {
+      // Support both old (number/string) and new (array) format
+      const tiers: number[] = Array.isArray(rawTiers)
+        ? (rawTiers as number[])
+        : [typeof rawTiers === "string"
+            ? parseInt((rawTiers as string).replace("tier", ""))
+            : Number(rawTiers)].filter((t) => t >= 1 && t <= 3);
 
-      items.push({
-        coin,
-        tierKey,
-        tierName: tier.name || tierKey.replace("tier", "T"),
-        deviation: dev,
-        currentPrice: cp,
-        // Use real targets from autoActive when available, fall back to calculated
-        buyTrigger: live ? live.buy : (cp > 0 ? cp * (1 - dev / 100) : 0),
-        sellTrigger: live ? live.sell : (cp > 0 ? cp * (1 + dev / 100) : 0),
-        change24h: change,
-        inCooldown: !!(cooldowns[coin] && Date.now() < cooldowns[coin]),
-        hasLiveTarget: !!live,
-        isTierActive,
-      });
+      for (const tierNum of tiers) {
+        const tierKey = `tier${tierNum}`;
+        const tier = tierAssets[tierKey] || {};
+        const dev = Number(tier.deviation) || 0;
+        const sellDev = Number(tier.sellDeviation) || dev * 2;
+        const cp = Number(prices[coin]) || 0;
+        const change = Number(changes[coin]) || 0;
+        // Compound key: "BTC:1", "BTC:2", etc.
+        const ck = `${coin}:${tierNum}`;
+        const live = liveTargets[ck] || liveTargets[coin]; // fallback to old key
+        const cooldownKey = cooldowns[ck] || cooldowns[coin]; // fallback
+
+        const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? tierActive[tierKey] ?? tier.active);
+
+        items.push({
+          coin,
+          tierKey,
+          tierNum,
+          tierName: tier.name || `T${tierNum}`,
+          deviation: dev,
+          currentPrice: cp,
+          buyTrigger: live ? live.buy : (cp > 0 ? cp * (1 - dev / 100) : 0),
+          sellTrigger: live ? live.sell : (cp > 0 ? cp * (1 + sellDev / 100) : 0),
+          change24h: change,
+          inCooldown: !!(cooldownKey && Date.now() < cooldownKey),
+          hasLiveTarget: !!live,
+          isTierActive,
+        });
+      }
+    }
+
+    // Fallback: if assignments empty, try building from liveTargets compound keys
+    if (items.length === 0) {
+      for (const [key, tgt] of Object.entries(liveTargets)) {
+        const colonIdx = key.lastIndexOf(":");
+        const coin = colonIdx > 0 ? key.slice(0, colonIdx) : key;
+        const tierNum = colonIdx > 0 ? parseInt(key.slice(colonIdx + 1)) || 1 : 1;
+        const tierKey = `tier${tierNum}`;
+        const tier = tierAssets[tierKey] || {};
+        const cp = Number(prices[coin]) || 0;
+        const change = Number(changes[coin]) || 0;
+        const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? true);
+        items.push({
+          coin,
+          tierKey,
+          tierNum,
+          tierName: tier.name || `T${tierNum}`,
+          deviation: Number(tier.deviation) || 0,
+          currentPrice: cp,
+          buyTrigger: (tgt as any).buy || 0,
+          sellTrigger: (tgt as any).sell || 0,
+          change24h: change,
+          inCooldown: false,
+          hasLiveTarget: true,
+          isTierActive,
+        });
+      }
     }
     return items;
   };
@@ -208,6 +228,117 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                 </div>
               ) : (
                 <>
+                  {/* ── Read-only Tier Settings Cards — horizontal scroll ── */}
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x"
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+                  >
+                    {[1, 2, 3].map((tierNum) => {
+                      const cfg = TIER_CONFIG[tierNum];
+                      const tierKey = `tier${tierNum}`;
+                      const tierData = (state?.autoTierAssets || {})[tierKey] || {};
+                      const dev = Number(tierData.deviation) || (tierNum === 1 ? 3 : tierNum === 2 ? 4 : 5);
+                      const sellDev = Number(tierData.sellDeviation) || dev * 2;
+                      const alloc = Number(tierData.allocation) || 5;
+                      const cooldown = Number(tierData.cooldownHours) || 24;
+                      const tierActive = state?._rawAutoActive?.tierActive || {};
+                      const isActive = !!(tierActive[tierNum] || tierActive[tierKey]);
+                      const coins = Object.entries(state?.autoTierAssignments || {})
+                        .filter(([, t]) => {
+                          if (Array.isArray(t)) return (t as number[]).includes(tierNum);
+                          return t === tierNum || t === tierKey;
+                        })
+                        .map(([c]) => c);
+                      // Also get coins from tierAssets.coins if assignments are empty
+                      if (coins.length === 0 && tierData.coins) {
+                        coins.push(...tierData.coins);
+                      }
+
+                      return (
+                        <div
+                          key={tierNum}
+                          className="flex-shrink-0 rounded-xl p-4 snap-start"
+                          style={{
+                            background: `${cfg.color}10`,
+                            border: `1px solid ${cfg.color}25`,
+                            width: "min(300px, 85vw)",
+                          }}
+                        >
+                          {/* Tier title + active badge */}
+                          <div className="flex items-center justify-between mb-3">
+                            <div>
+                              <span className="text-[14px] font-bold" style={{ color: cfg.color }}>
+                                T{tierNum} – {cfg.name}
+                              </span>
+                              <div className="text-[10px] text-slate-500 mt-0.5">
+                                -{dev}% buy · +{sellDev}% sell · {alloc}% alloc · {cooldown}h cd
+                              </div>
+                            </div>
+                            <span
+                              className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
+                              style={{
+                                background: isActive ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
+                                color: isActive ? "#22c55e" : "#64748b",
+                              }}
+                            >
+                              {isActive ? "ACTIVE" : "INACTIVE"}
+                            </span>
+                          </div>
+
+                          {/* Coin count (collapsible) */}
+                          <button
+                            onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [`tags-${tierNum}`]: !prev[`tags-${tierNum}`] }))}
+                            className="flex items-center gap-1.5 mb-2 text-[10px] font-bold transition-colors hover:opacity-80"
+                            style={{ color: cfg.color }}
+                          >
+                            {expandedMonitorTiers[`tags-${tierNum}`] ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+                            {expandedMonitorTiers[`tags-${tierNum}`] ? "Coins" : `${coins.length} coins`}
+                          </button>
+                          {expandedMonitorTiers[`tags-${tierNum}`] && (
+                            <div className="flex flex-wrap gap-1.5 mb-2">
+                              {coins.map((coin: string) => {
+                                const coinCfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                                return (
+                                  <span
+                                    key={coin}
+                                    className="text-[11px] font-bold px-2 py-1 rounded-lg"
+                                    style={{
+                                      background: coinCfg.color + "20",
+                                      border: `1px solid ${coinCfg.color}40`,
+                                      color: coinCfg.color,
+                                    }}
+                                  >
+                                    {coin}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {/* Read-only settings display */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Buy Deviation</span>
+                              <span className="text-[10px] font-bold text-green-400">-{dev}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Sell Deviation</span>
+                              <span className="text-[10px] font-bold text-red-400">+{sellDev}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Allocation</span>
+                              <span className="text-[10px] font-bold text-green-400">{alloc}%</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500">Cooldown</span>
+                              <span className="text-[10px] font-bold text-amber-400">{cooldown}h</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {/* Monitoring count banner with countdown */}
                   <div className="rounded-lg p-2 mb-3 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
                     <span className="text-[10px] font-bold text-slate-300">
@@ -236,9 +367,13 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
 
                     return (
                       <div key={tierKey} className="mb-3">
-                        {/* Tier header */}
-                        <div className="flex items-center justify-between mb-2">
+                        {/* Tier header — collapsible */}
+                        <button
+                          onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
+                          className="w-full flex items-center justify-between mb-2 hover:opacity-80 transition-opacity"
+                        >
                           <div className="flex items-center gap-2">
+                            {expandedMonitorTiers[tierKey] ? <FaChevronDown size={8} style={{ color: "#a855f7" }} /> : <FaChevronRight size={8} style={{ color: "#a855f7" }} />}
                             <span className="text-[12px] font-bold" style={{ color: "#a855f7" }}>
                               {tierKey.replace("tier", "T")} – {tierName}
                             </span>
@@ -251,6 +386,11 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             >
                               {tierActive ? "ACTIVE" : "OFF"}
                             </span>
+                            {!expandedMonitorTiers[tierKey] && (
+                              <span className="text-[9px] text-slate-500">
+                                ({coins.length} coin{coins.length !== 1 ? "s" : ""})
+                              </span>
+                            )}
                           </div>
                           <div className="flex gap-2 text-[9px]">
                             <span className="text-slate-500">
@@ -263,10 +403,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               Alloc <span className="font-bold text-blue-400">{alloc}%</span>
                             </span>
                           </div>
-                        </div>
+                        </button>
 
-                        {/* Coin cards within tier */}
-                        <div className="space-y-1.5">
+                        {/* Coin cards within tier — collapsible */}
+                        {expandedMonitorTiers[tierKey] && <div className="space-y-1.5">
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -285,15 +425,16 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             const nearestSide: "buy" | "sell" = pctToBuy <= pctToSell ? "buy" : "sell";
                             const nearestPct = Math.max(0, nearestSide === "buy" ? pctToBuy : pctToSell);
 
-                            // Calculate proximity to trigger
+                            // Calculate progress using REFERENCE PRICE as zero point
+                            // refPrice = buyTrigger / (1 - buyDev/100)
+                            // Bar starts EMPTY at refPrice, grows as price moves toward trigger
                             let progress = 0;
-                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
-                              const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                              const halfRange = (item.sellTrigger - item.buyTrigger) / 2;
-                              if (halfRange > 0) {
-                                progress = item.currentPrice < mid
-                                  ? (mid - item.currentPrice) / halfRange
-                                  : (item.currentPrice - mid) / halfRange;
+                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.deviation > 0) {
+                              const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                              if (item.currentPrice <= refPrice && refPrice > item.buyTrigger) {
+                                progress = (refPrice - item.currentPrice) / (refPrice - item.buyTrigger);
+                              } else if (item.currentPrice > refPrice && item.sellTrigger > refPrice) {
+                                progress = (item.currentPrice - refPrice) / (item.sellTrigger - refPrice);
                               }
                             }
                             progress = Math.max(0, Math.min(1, progress));
@@ -305,9 +446,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             // Bi-directional bar: green left (buy), red right (sell)
                             // direction: -1 = toward buy (left), +1 = toward sell (right)
                             let direction = 0;
-                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
-                              const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                              direction = item.currentPrice >= mid ? 1 : -1;
+                            if (item.currentPrice > 0 && item.buyTrigger > 0 && item.deviation > 0) {
+                              const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                              direction = item.currentPrice >= refPrice ? 1 : -1;
                             }
                             const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
                             const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
@@ -404,11 +545,21 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                       </span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-1" style={{ color: changeColor }}>
-                                    {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
-                                    <span className="text-[10px] font-bold font-mono">
-                                      {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
-                                    </span>
+                                  <div className="flex items-center gap-1.5">
+                                    {item.hasLiveTarget && item.deviation > 0 && (
+                                      <span
+                                        className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                                        style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.25)", color: "#c084fc" }}
+                                      >
+                                        {formatPrice(item.buyTrigger / (1 - item.deviation / 100))}
+                                      </span>
+                                    )}
+                                    <div className="flex items-center gap-1" style={{ color: changeColor }}>
+                                      {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
+                                      <span className="text-[10px] font-bold font-mono">
+                                        {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
 
@@ -478,7 +629,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               </div>
                             );
                           })}
-                        </div>
+                        </div>}
                       </div>
                     );
                   })}

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck } from "react-icons/fa";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
-import { AutoTrader, TIER_CONFIG, type RecentTrade, type TierSettings } from "../services/autoTrader";
+import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
   prices: Record<string, number>;
@@ -25,6 +25,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
+  const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
+  const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<number, boolean>>({});
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -74,9 +76,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     return tiers;
   };
 
-  // Get all assigned coins
-  const getAssignedCoins = (): Set<string> => {
-    return new Set(Object.keys(snapshot.tierAssignments));
+  // Get coins NOT assigned to a specific tier (for add-coin picker)
+  const getUnassignedForTier = (tierNum: number): string[] => {
+    return AVAILABLE_COINS.filter((c) => {
+      const tiers = snapshot.tierAssignments[c];
+      return !tiers || !tiers.includes(tierNum);
+    });
   };
 
   // Build monitoring data
@@ -87,13 +92,14 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       const coins = autoTrader.getCoinsForTier(t);
       const settings = snapshot.tierSettings[`tier${t}`];
       for (const coin of coins) {
+        const ck = compoundKey(coin, t);
         const cp = Number(prices[coin]) || 0;
         const change = Number(changes[coin]) || 0;
-        const target = snapshot.targets[coin];
-        const inCooldown = autoTrader._isOnCooldown(coin);
+        const target = snapshot.targets[ck];
+        const inCooldown = autoTrader._isOnCooldown(ck);
         const recentTrade = autoTrader.getRecentTrade(coin);
-        const diag = snapshot.coinDiagnostics[coin];
-        const cronDiag = snapshot.cronDiagnostics[coin];
+        const diag = snapshot.coinDiagnostics[ck];
+        const cronDiag = snapshot.cronDiagnostics[ck] || snapshot.cronDiagnostics[coin];
         items.push({
           coin,
           tierNum: t,
@@ -101,7 +107,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           deviation: settings.deviation,
           currentPrice: cp,
           buyTrigger: target ? target.buy : (cp > 0 ? cp * (1 - settings.deviation / 100) : 0),
-          sellTrigger: target ? target.sell : (cp > 0 ? cp * (1 + settings.deviation / 100) : 0),
+          sellTrigger: target ? target.sell : (cp > 0 ? cp * (1 + settings.sellDeviation / 100) : 0),
           change24h: change,
           inCooldown,
           hasTarget: !!target,
@@ -151,7 +157,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   });
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
-  const assignedCoins = getAssignedCoins();
 
   const [tierError, setTierError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
@@ -216,8 +221,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     setAddCoinTier(null);
   };
 
-  const handleRemoveCoin = (coin: string) => {
-    autoTrader.unassignCoin(coin);
+  const handleRemoveCoin = (coin: string, tierNum: number) => {
+    autoTrader.unassignCoin(coin, tierNum);
   };
 
   const handleSyncTrades = async () => {
@@ -321,13 +326,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         {/* ── Tier Cards — horizontal scroll ── */}
         <div
           className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x"
-          style={{ scrollbarWidth: "none" }}
+          style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
         >
           {tiers.map((tier) => {
-            const availableToAdd = AVAILABLE_COINS.filter(
-              (c) => !assignedCoins.has(c)
-            );
-            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(coin));
+            const availableToAdd = getUnassignedForTier(tier.num);
+            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(compoundKey(coin, tier.num)));
 
             return (
               <div
@@ -360,71 +363,85 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   </span>
                 </div>
 
-                {/* Coin tags */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {tier.coins.map((coin: string) => {
-                    const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                    const cd = autoTrader._isOnCooldown(coin);
-                    return (
-                      <span
-                        key={coin}
-                        className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
-                        style={{
-                          background: cfg.color + "20",
-                          border: `1px solid ${cfg.color}40`,
-                          color: cfg.color,
-                          opacity: cd ? 0.5 : 1,
-                        }}
-                      >
-                        {coin}{cd ? " (cd)" : ""}
-                        <button
-                          onClick={() => handleRemoveCoin(coin)}
-                          className="hover:opacity-100 transition-opacity"
-                          style={{ color: "#ef4444" }}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    );
-                  })}
+                {/* Coin tags — collapsible */}
+                <div className="mb-3">
                   <button
-                    onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
-                    className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
-                    style={{
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      color: "#64748b",
-                    }}
+                    onClick={() => setExpandedCoinTags((prev) => ({ ...prev, [tier.num]: !prev[tier.num] }))}
+                    className="flex items-center gap-1.5 mb-1.5 text-[10px] font-bold transition-colors hover:opacity-80"
+                    style={{ color: tier.cfg.color }}
                   >
-                    <FaPlus size={9} />
+                    {expandedCoinTags[tier.num] ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
+                    {expandedCoinTags[tier.num] ? "Coins" : `${tier.coins.length} coins`}
                   </button>
-                </div>
-
-                {/* Add coin picker */}
-                {addCoinTier === tier.num && availableToAdd.length > 0 && (
-                  <div
-                    className="flex flex-wrap gap-1 mb-3 p-2 rounded-lg"
-                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                  >
-                    {availableToAdd.map((coin) => {
-                      const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                      return (
+                  {expandedCoinTags[tier.num] && (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {tier.coins.map((coin: string) => {
+                          const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                          const cd = autoTrader._isOnCooldown(compoundKey(coin, tier.num));
+                          return (
+                            <span
+                              key={coin}
+                              className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
+                              style={{
+                                background: cfg.color + "20",
+                                border: `1px solid ${cfg.color}40`,
+                                color: cfg.color,
+                                opacity: cd ? 0.5 : 1,
+                              }}
+                            >
+                              {coin}{cd ? " (cd)" : ""}
+                              <button
+                                onClick={() => handleRemoveCoin(coin, tier.num)}
+                                className="hover:opacity-100 transition-opacity"
+                                style={{ color: "#ef4444" }}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          );
+                        })}
                         <button
-                          key={coin}
-                          onClick={() => handleAddCoin(tier.num, coin)}
-                          className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
+                          onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
+                          className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
                           style={{
-                            background: cfg.color + "15",
-                            border: `1px solid ${cfg.color}30`,
-                            color: cfg.color,
+                            background: "rgba(255,255,255,0.06)",
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            color: "#64748b",
                           }}
                         >
-                          {coin}
+                          <FaPlus size={9} />
                         </button>
-                      );
-                    })}
-                  </div>
-                )}
+                      </div>
+
+                      {/* Add coin picker */}
+                      {addCoinTier === tier.num && availableToAdd.length > 0 && (
+                        <div
+                          className="flex flex-wrap gap-1 mt-1.5 p-2 rounded-lg"
+                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+                        >
+                          {availableToAdd.map((coin) => {
+                            const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
+                            return (
+                              <button
+                                key={coin}
+                                onClick={() => handleAddCoin(tier.num, coin)}
+                                className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
+                                style={{
+                                  background: cfg.color + "15",
+                                  border: `1px solid ${cfg.color}30`,
+                                  color: cfg.color,
+                                }}
+                              >
+                                {coin}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
 
                 {/* Buy Dev + Sell Dev + Alloc sliders */}
                 <div className="mb-3 space-y-2">
@@ -612,9 +629,20 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
           return (
             <div key={tierKey}>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
-                  T{tierNum} – {tierCfg.name}
+              <button
+                onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierNum]: !prev[tierNum] }))}
+                className="w-full flex items-center justify-between mb-1.5 hover:opacity-80 transition-opacity"
+              >
+                <div className="flex items-center gap-1.5">
+                  {expandedMonitorTiers[tierNum] ? <FaChevronDown size={8} style={{ color: tierCfg.color }} /> : <FaChevronRight size={8} style={{ color: tierCfg.color }} />}
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
+                    T{tierNum} – {tierCfg.name}
+                  </span>
+                  {!expandedMonitorTiers[tierNum] && (
+                    <span className="text-[9px] text-slate-500 font-normal normal-case tracking-normal">
+                      ({coins.length} coin{coins.length !== 1 ? "s" : ""})
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-2 text-[9px]">
                   <span className="text-slate-500">
@@ -627,9 +655,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                     Alloc <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
                   </span>
                 </div>
-              </div>
+              </button>
 
-              <div className="space-y-1.5">
+              {expandedMonitorTiers[tierNum] && <div className="space-y-1.5">
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -647,17 +675,18 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   const nearestSide: "buy" | "sell" = pctToBuy <= pctToSell ? "buy" : "sell";
                   const nearestPct = Math.max(0, nearestSide === "buy" ? pctToBuy : pctToSell);
 
-                  // Calculate progress toward buy or sell trigger
+                  // Calculate progress using REFERENCE PRICE as zero point
+                  // refPrice = buyTrigger / (1 - buyDev/100) — the price when targets were set
+                  // Bar starts EMPTY at refPrice, grows as price moves toward trigger
                   let progress = 0;
-                  if (item.hasTarget && item.currentPrice > 0) {
-                    const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                    const halfRange = (item.sellTrigger - item.buyTrigger) / 2;
-                    if (halfRange > 0) {
-                      if (item.currentPrice < mid) {
-                        progress = (mid - item.currentPrice) / halfRange;
-                      } else {
-                        progress = (item.currentPrice - mid) / halfRange;
-                      }
+                  if (item.hasTarget && item.currentPrice > 0 && item.deviation > 0) {
+                    const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                    if (item.currentPrice <= refPrice && refPrice > item.buyTrigger) {
+                      // Buy side: price below reference
+                      progress = (refPrice - item.currentPrice) / (refPrice - item.buyTrigger);
+                    } else if (item.currentPrice > refPrice && item.sellTrigger > refPrice) {
+                      // Sell side: price above reference
+                      progress = (item.currentPrice - refPrice) / (item.sellTrigger - refPrice);
                     }
                   }
                   progress = Math.max(0, Math.min(1, progress));
@@ -669,16 +698,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
                   // Bi-directional bar: green left (buy), red right (sell)
                   let direction = 0;
-                  if (item.currentPrice > 0 && item.buyTrigger > 0 && item.sellTrigger > 0) {
-                    const mid = (item.buyTrigger + item.sellTrigger) / 2;
-                    direction = item.currentPrice >= mid ? 1 : -1;
+                  if (item.currentPrice > 0 && item.buyTrigger > 0 && item.deviation > 0) {
+                    const refPrice = item.buyTrigger / (1 - item.deviation / 100);
+                    direction = item.currentPrice >= refPrice ? 1 : -1;
                   }
                   const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
                   const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
 
                   // Estimated trade amounts
-                  const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin);
-                  const estSellValue = autoTrader.getEstimatedSellValue(item.coin);
+                  const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin, item.tierNum);
+                  const estSellValue = autoTrader.getEstimatedSellValue(item.coin, item.tierNum);
                   const estAmount = nearestSide === "buy" ? estBuyAmount : estSellValue;
 
                   // Celebration colors for just-traded coins
@@ -740,7 +769,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             </span>
                           ) : item.inCooldown ? (
                             <span className="text-[9px] text-yellow-500">
-                              (cd {autoTrader.getCooldownRemaining(item.coin)})
+                              (cd {autoTrader.getCooldownRemaining(compoundKey(item.coin, item.tierNum))})
                             </span>
                           ) : item.hasTarget && isNear ? (
                             <span
@@ -776,11 +805,21 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1" style={{ color: changeColor }}>
-                          {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
-                          <span className="text-[10px] font-bold font-mono">
-                            {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
-                          </span>
+                        <div className="flex items-center gap-1.5">
+                          {item.hasTarget && item.deviation > 0 && (
+                            <span
+                              className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(168,85,247,0.15)", border: "1px solid rgba(168,85,247,0.25)", color: "#c084fc" }}
+                            >
+                              {formatPrice(item.buyTrigger / (1 - item.deviation / 100))}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1" style={{ color: changeColor }}>
+                            {item.change24h > 0 ? <FaArrowUp size={8} /> : item.change24h < 0 ? <FaArrowDown size={8} /> : null}
+                            <span className="text-[10px] font-bold font-mono">
+                              {item.change24h > 0 ? "+" : ""}{item.change24h.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -873,7 +912,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                     </div>
                   );
                 })}
-              </div>
+              </div>}
             </div>
           );
         })}

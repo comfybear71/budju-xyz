@@ -71,7 +71,7 @@ export interface UserPosition {
 export interface TraderState {
   enrichedOrders: any[];
   autoTierAssets: Record<string, { name?: string; deviation: number; allocation: number; active?: boolean; coins?: string[] }>;
-  autoTierAssignments: Record<string, string>;
+  autoTierAssignments: Record<string, number[] | string | number>;
   autoBotActive: boolean;
   autoCooldowns: Record<string, number>;
   autoTradeLog: Array<{
@@ -629,13 +629,19 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         };
       }
 
-      // Normalize tier assignments — FLUB uses numeric tier values (1,2,3)
-      // while BUDJU expects string keys ("tier1","tier2","tier3")
+      // Pass through tier assignments — supports both old {coin: number/string}
+      // and new multi-tier {coin: number[]} formats
       const rawAssignments = data.autoTierAssignments || {};
-      const assignments: Record<string, string> = {};
+      const assignments: Record<string, number[] | string | number> = {};
       for (const [coin, tier] of Object.entries(rawAssignments)) {
-        const tierStr = String(tier);
-        assignments[coin] = tierStr.startsWith("tier") ? tierStr : `tier${tierStr}`;
+        if (Array.isArray(tier)) {
+          // Multi-tier format: pass through as-is
+          assignments[coin] = tier;
+        } else {
+          // Old format: normalize string keys to pass through
+          const tierStr = String(tier);
+          assignments[coin] = tierStr.startsWith("tier") ? tierStr : `tier${tierStr}`;
+        }
       }
 
       // Normalize trade log — FLUB uses { time, coin, side, quantity, price, amount }

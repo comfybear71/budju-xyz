@@ -368,13 +368,24 @@ def run_auto_trade_check():
     cooldowns = state.get("autoCooldowns", {})
     trade_log = state.get("autoTradeLog", [])
 
-    # Build active coins from tier assignments (not just targets) so coins
-    # that lost their targets after cooldown are still included.
-    active_coins = [
-        c for c, t in tier_assignments.items()
-        if _is_tier_active(tier_active, _tier_num(t))
-    ]
-    log.append(f"Monitoring {len(active_coins)} coins: {', '.join(sorted(active_coins))}")
+    # Build active coin-tier pairs from multi-tier assignments.
+    # Assignments can be old format {coin: tierNum} or new format {coin: [1,2,3]}
+    active_pairs = []  # list of (coin, tier_num)
+    for coin, tiers in tier_assignments.items():
+        if isinstance(tiers, list):
+            # New multi-tier format: coin is in multiple tiers
+            for t in tiers:
+                if isinstance(t, (int, float)) and _is_tier_active(tier_active, int(t)):
+                    active_pairs.append((coin, int(t)))
+        else:
+            # Old single-tier format: migrate — treat as all tiers
+            tn = _tier_num(tiers)
+            if tn >= 1 and tn <= 3:
+                for t in (1, 2, 3):
+                    if _is_tier_active(tier_active, t):
+                        active_pairs.append((coin, t))
+    unique_coins = sorted(set(c for c, _ in active_pairs))
+    log.append(f"Monitoring {len(active_pairs)} coin-tier combos ({len(unique_coins)} coins): {', '.join(unique_coins)}")
 
     # 2. Fetch prices from CoinGecko
     try:
@@ -400,23 +411,25 @@ def run_auto_trade_check():
     trades_executed = []
     decisions = []  # Structured log of every decision for debugging
 
-    for code in active_coins:
-        # Skip if on cooldown
-        cooldown_expiry = cooldowns.get(code, 0)
+    for code, tier_num in active_pairs:
+        ck = f"{code}:{tier_num}"  # Compound key
+
+        # Skip if on cooldown (check compound key first, fall back to old plain key)
+        cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
         if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
             remaining_h = (cooldown_expiry - now_ms) / 3_600_000
-            log.append(f"{code}: cooldown ({remaining_h:.1f}h left)")
-            decisions.append({"coin": code, "action": "skip", "reason": "cooldown", "remaining_h": round(remaining_h, 1)})
+            decisions.append({"coin": code, "tier": tier_num, "action": "skip", "reason": "cooldown", "remaining_h": round(remaining_h, 1)})
             continue
         elif cooldown_expiry and isinstance(cooldown_expiry, (int, float)) and cooldown_expiry <= now_ms:
-            del cooldowns[code]
+            # Clean up expired cooldowns (both compound and legacy keys)
+            cooldowns.pop(ck, None)
+            cooldowns.pop(code, None)
 
-        tier_num = _tier_num(tier_assignments.get(code))
         settings = _tier_settings(tier_assets, tier_num)
         current_price = prices.get(code, 0)
 
-        # Regenerate target if missing (e.g. lost after cooldown expiry)
-        tgt = targets.get(code)
+        # Regenerate target if missing (check compound key first, fall back to old plain key)
+        tgt = targets.get(ck) or targets.get(code)
         if (not isinstance(tgt, dict) or not tgt) and current_price > 0:
             buy_dev = settings["deviation"]
             sell_dev = settings["sellDeviation"]
@@ -424,8 +437,8 @@ def run_auto_trade_check():
                 "buy": current_price * (1 - buy_dev / 100),
                 "sell": current_price * (1 + sell_dev / 100),
             }
-            targets[code] = tgt
-            log.append(f"{code}: regenerated targets — buy ${tgt['buy']:.4f} (-{buy_dev}%), sell ${tgt['sell']:.4f} (+{sell_dev}%)")
+            targets[ck] = tgt
+            log.append(f"{code} (T{tier_num}): regenerated targets — buy ${tgt['buy']:.4f} (-{buy_dev}%), sell ${tgt['sell']:.4f} (+{sell_dev}%)")
 
         if not isinstance(tgt, dict):
             continue
@@ -486,14 +499,17 @@ def run_auto_trade_check():
                 })
 
                 # ASYMMETRIC RESET after BUY: ratchet buy band down, keep sell anchored
-                old_sell = targets[code]["sell"]
-                targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
+                tgt_ref = targets.get(ck, targets.get(code, {}))
+                old_sell = tgt_ref.get("sell", sell_target)
+                new_buy = current_price * (1 - settings["deviation"] / 100)
                 new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[code]["sell"] = max(old_sell, new_sell)  # Keep higher sell target
-                log.append(f"{code}: targets after BUY — buy ${targets[code]['buy']:.2f} (-{settings['deviation']}%), sell stays ${targets[code]['sell']:.2f}")
+                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell)}
+                # Clean up old non-compound key if it exists
+                targets.pop(code, None) if code in targets and ck != code else None
+                log.append(f"{code} (T{tier_num}): targets after BUY — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell stays ${targets[ck]['sell']:.2f}")
 
-                # Set cooldown
-                cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000
+                # Set cooldown using compound key
+                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
 
                 # Trade log
                 trade_log.insert(0, {
@@ -599,12 +615,15 @@ def run_auto_trade_check():
                 })
 
                 # After SELL: reset both bands from current price (fresh start after profit)
-                targets[code]["buy"] = current_price * (1 - settings["deviation"] / 100)
-                targets[code]["sell"] = current_price * (1 + settings["sellDeviation"] / 100)
-                log.append(f"{code}: targets after SELL — buy ${targets[code]['buy']:.2f} (-{settings['deviation']}%), sell ${targets[code]['sell']:.2f} (+{settings['sellDeviation']}%)")
+                new_buy = current_price * (1 - settings["deviation"] / 100)
+                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                targets[ck] = {"buy": new_buy, "sell": new_sell}
+                # Clean up old non-compound key if it exists
+                targets.pop(code, None) if code in targets and ck != code else None
+                log.append(f"{code} (T{tier_num}): targets after SELL — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell ${targets[ck]['sell']:.2f} (+{settings['sellDeviation']}%)")
 
-                # Set cooldown
-                cooldowns[code] = now_ms + settings["cooldownHours"] * 3_600_000
+                # Set cooldown using compound key
+                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
 
                 # Trade log
                 trade_log.insert(0, {
@@ -677,7 +696,7 @@ def run_auto_trade_check():
     return {
         "tradesExecuted": len(trades_executed),
         "trades": trades_executed,
-        "coinsMonitored": len(active_coins),
+        "coinsMonitored": len(active_pairs),
         "dryRun": DRY_RUN,
         "decisions": decisions,
         "log": log,

@@ -47,7 +47,8 @@ const MarketPills = ({ markets, prices, selectedSymbol, onSelect, positions }: P
   return (
     <div
       ref={scrollRef}
-      className="flex gap-1.5 overflow-x-auto py-2 px-3 scrollbar-hide"
+      className="flex gap-1.5 overflow-x-auto py-2 px-3"
+      style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
       style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
     >
         {markets.map((m) => {
