@@ -19,6 +19,7 @@ import {
   FaArrowRight,
   FaPlus,
   FaPiggyBank,
+  FaQrcode,
 } from "react-icons/fa";
 import { useWallet } from "@hooks/useWallet";
 import { WalletName, getWalletProvider } from "@lib/web3/connection";
@@ -111,6 +112,11 @@ const WalletConnect = ({
   // Multi-step wizard state
   const [connectStep, setConnectStep] = useState<ConnectStep>("action");
   const [selectedAction, setSelectedAction] = useState<SelectedAction>(null);
+  const [showQrLogin, setShowQrLogin] = useState(false);
+  const [qrChallengeId, setQrChallengeId] = useState<string | null>(null);
+  const [qrStatus, setQrStatus] = useState<"loading" | "ready" | "approved" | "expired">("loading");
+  const [qrWallet, setQrWallet] = useState<string | null>(null);
+  const qrPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Store the pending navigation so it survives menu close
   const pendingNavRef = useRef<string | null>(null);
 
@@ -395,6 +401,57 @@ const WalletConnect = ({
       window.open(url, "_blank");
     }
   };
+
+  // ── QR Code Login ─────────────────────────────────────
+
+  const startQrLogin = async () => {
+    setShowQrLogin(true);
+    setQrStatus("loading");
+    setQrWallet(null);
+    try {
+      const resp = await fetch("/api/wallet-qr");
+      const data = await resp.json();
+      setQrChallengeId(data.challengeId);
+      setQrStatus("ready");
+
+      // Start polling
+      if (qrPollRef.current) clearInterval(qrPollRef.current);
+      qrPollRef.current = setInterval(async () => {
+        try {
+          const pollResp = await fetch(`/api/wallet-qr?c=${data.challengeId}`);
+          const pollData = await pollResp.json();
+          if (pollData.status === "approved") {
+            setQrStatus("approved");
+            setQrWallet(pollData.wallet);
+            if (qrPollRef.current) clearInterval(qrPollRef.current);
+            // Auto-connect: store wallet and reload
+            localStorage.setItem("budju_qr_wallet", pollData.wallet);
+            window.location.reload();
+          } else if (pollData.status === "expired") {
+            setQrStatus("expired");
+            if (qrPollRef.current) clearInterval(qrPollRef.current);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 2000);
+    } catch {
+      setQrStatus("expired");
+    }
+  };
+
+  const stopQrLogin = () => {
+    setShowQrLogin(false);
+    if (qrPollRef.current) {
+      clearInterval(qrPollRef.current);
+      qrPollRef.current = null;
+    }
+  };
+
+  // Cleanup QR polling on unmount
+  useEffect(() => {
+    return () => {
+      if (qrPollRef.current) clearInterval(qrPollRef.current);
+    };
+  }, []);
 
   const sizeClasses = {
     sm: "text-xs py-1.5 px-3",
@@ -872,6 +929,77 @@ const WalletConnect = ({
                             </div>
                           );
                         })}
+
+                        {/* QR Code Login — scan with phone */}
+                        <div className={`border-t ${dividerColor} pt-2 mt-2`}>
+                          {!showQrLogin ? (
+                            <button
+                              onClick={startQrLogin}
+                              className={`flex items-center w-full gap-3 px-3 py-3.5 rounded-xl transition-all duration-200 cursor-pointer ${hoverBg} group`}
+                            >
+                              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isDarkMode ? "bg-purple-500/15" : "bg-purple-50"}`}>
+                                <FaQrcode className={`w-5 h-5 ${isDarkMode ? "text-purple-400" : "text-purple-600"}`} />
+                              </div>
+                              <div className="text-left flex-1">
+                                <span className={`text-sm font-bold block ${textColor}`}>
+                                  QR Code Login
+                                </span>
+                                <span className={`text-[10px] ${subtextColor}`}>
+                                  Scan with phone to sign in on this device
+                                </span>
+                              </div>
+                              <FaArrowRight className={`w-2.5 h-2.5 opacity-0 group-hover:opacity-100 transition-opacity ${isDarkMode ? "text-purple-400/50" : "text-purple-600/50"}`} />
+                            </button>
+                          ) : (
+                            <div className="p-4 text-center">
+                              {qrStatus === "loading" && (
+                                <div className="py-4">
+                                  <div className="w-6 h-6 rounded-full border-2 border-purple-500 border-t-transparent animate-spin mx-auto mb-2" />
+                                  <p className={`text-xs ${subtextColor}`}>Generating QR code...</p>
+                                </div>
+                              )}
+                              {qrStatus === "ready" && qrChallengeId && (
+                                <div>
+                                  <div className="bg-white rounded-xl p-3 inline-block mb-3">
+                                    <img
+                                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`https://budju.xyz/auth/connect?c=${qrChallengeId}`)}`}
+                                      alt="QR Code"
+                                      className="w-48 h-48"
+                                    />
+                                  </div>
+                                  <p className={`text-xs font-bold ${textColor} mb-1`}>Scan with your phone</p>
+                                  <p className={`text-[10px] ${subtextColor}`}>Open camera or Phantom app to scan</p>
+                                  <button
+                                    onClick={stopQrLogin}
+                                    className={`mt-3 text-[10px] ${subtextColor} hover:${textColor} transition-colors`}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                              {qrStatus === "approved" && (
+                                <div className="py-4">
+                                  <div className="w-10 h-10 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-2">
+                                    <FaCheck className="text-emerald-400" />
+                                  </div>
+                                  <p className={`text-xs font-bold text-emerald-400 mb-1`}>Connected!</p>
+                                  <p className={`text-[10px] ${subtextColor}`}>{qrWallet?.slice(0, 4)}...{qrWallet?.slice(-4)}</p>
+                                </div>
+                              )}
+                              {qrStatus === "expired" && (
+                                <div className="py-4">
+                                  <p className={`text-xs font-bold text-amber-400 mb-2`}>QR Code Expired</p>
+                                  <button
+                                    onClick={startQrLogin}
+                                    className="text-[10px] px-3 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                                  >
+                                    Generate New QR
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </motion.div>
                   )}

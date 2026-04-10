@@ -5,6 +5,8 @@ import { useDashboardData } from "./hooks/useDashboardData";
 import MarketPills from "./components/dashboard/MarketPills";
 import PerpPositionsList from "./components/perps/PerpPositionsList";
 import PerpTradeHistory from "./components/perps/PerpTradeHistory";
+import PerpEquityChart from "./components/perps/PerpEquityChart";
+import { fetchPerpEquity } from "./services/perpApi";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
 const PerpOrderForm = lazy(() => import("./components/perps/PerpOrderForm"));
@@ -27,6 +29,8 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
   const [showPositions, setShowPositions] = useState(false);
   const [showStrategies, setShowStrategies] = useState(false);
   const [showTradeHistory, setShowTradeHistory] = useState(false);
+  const [showPerformance, setShowPerformance] = useState(false);
+  const [equityPeriod, setEquityPeriod] = useState("all");
   const [showOrderForm, setShowOrderForm] = useState(true);
 
   // Page title
@@ -254,6 +258,136 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
             trades={data.trades.slice(0, 5)}
             onRefresh={data.refreshData}
           />
+        )}
+
+        {/* Performance — collapsible */}
+        <button
+          onClick={() => setShowPerformance(!showPerformance)}
+          className="flex items-center gap-2 w-full mb-2 mt-3"
+        >
+          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Performance
+          </span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showPerformance ? "rotate-180" : ""}`}
+          >
+            <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+          </svg>
+        </button>
+        {showPerformance && (
+          <div className="space-y-3 mb-3">
+            {/* Equity Curve */}
+            <div className="rounded-xl border border-white/[0.06] bg-slate-800/30 p-3">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Equity Curve
+              </div>
+              <PerpEquityChart
+                data={data.equity}
+                onPeriodChange={(p) => {
+                  setEquityPeriod(p);
+                  if (data.wallet) {
+                    fetchPerpEquity(data.wallet, p).then((res) => {
+                      // Update equity data — force re-render via key
+                    }).catch(() => {});
+                  }
+                }}
+              />
+            </div>
+
+            {/* Daily P&L */}
+            {data.trades.length > 0 && (() => {
+              // Group trades by date
+              const dailyPnl: Record<string, number> = {};
+              for (const t of data.trades) {
+                const d = new Date(t.exit_time || t.entry_time).toLocaleDateString("en-AU", { day: "2-digit", month: "short" });
+                dailyPnl[d] = (dailyPnl[d] || 0) + (t.realized_pnl || 0);
+              }
+              const days = Object.entries(dailyPnl).slice(-14); // Last 14 days
+              if (days.length === 0) return null;
+              const maxAbs = Math.max(...days.map(([, v]) => Math.abs(v)), 1);
+
+              return (
+                <div className="rounded-xl border border-white/[0.06] bg-slate-800/30 p-3">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                    Daily P&L
+                  </div>
+                  <div className="flex items-end gap-1" style={{ height: 80 }}>
+                    {days.map(([day, pnl]) => {
+                      const pct = Math.abs(pnl) / maxAbs;
+                      const isWin = pnl >= 0;
+                      return (
+                        <div key={day} className="flex-1 flex flex-col items-center justify-end h-full">
+                          <div
+                            className="w-full rounded-t"
+                            style={{
+                              height: `${Math.max(pct * 100, 4)}%`,
+                              background: isWin ? "rgba(16,185,129,0.6)" : "rgba(239,68,68,0.6)",
+                              minHeight: 3,
+                            }}
+                            title={`${day}: ${isWin ? "+" : ""}$${pnl.toFixed(2)}`}
+                          />
+                          <span className="text-[7px] text-slate-500 mt-1 truncate w-full text-center">{day.split(" ")[0]}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-[9px] mt-1">
+                    <span className="text-slate-500">{days.length} days</span>
+                    <span className={Object.values(dailyPnl).reduce((s, v) => s + v, 0) >= 0 ? "text-emerald-400" : "text-red-400"}>
+                      Total: {Object.values(dailyPnl).reduce((s, v) => s + v, 0) >= 0 ? "+" : ""}
+                      ${Object.values(dailyPnl).reduce((s, v) => s + v, 0).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Strategy Win Rates */}
+            {data.strategyStatus?.strategy_performance && Object.keys(data.strategyStatus.strategy_performance).length > 0 && (
+              <div className="rounded-xl border border-white/[0.06] bg-slate-800/30 p-3">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  Strategy Win Rates (Rolling 20 Trades)
+                </div>
+                <div className="space-y-1.5">
+                  {Object.entries(data.strategyStatus.strategy_performance)
+                    .sort(([, a], [, b]) => b.rolling_win_rate - a.rolling_win_rate)
+                    .map(([key, perf]) => {
+                      const wr = perf.rolling_win_rate;
+                      const wrPct = Math.round(wr * 100);
+                      const barColor = wr >= 0.55 ? "#10b981" : wr >= 0.35 ? "#eab308" : "#ef4444";
+                      return (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="text-[9px] text-slate-400 w-24 truncate" title={`${perf.strategy} · ${perf.symbol}`}>
+                            {perf.strategy.replace(/_/g, " ")}
+                          </span>
+                          <span className="text-[8px] text-slate-500 w-10 truncate">
+                            {perf.symbol.replace("-PERP", "")}
+                          </span>
+                          <div className="flex-1 h-3 bg-slate-800/60 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{ width: `${wrPct}%`, background: barColor }}
+                            />
+                          </div>
+                          <span className="text-[9px] font-bold font-mono w-10 text-right" style={{ color: barColor }}>
+                            {wrPct}%
+                          </span>
+                          <span className="text-[8px] text-slate-500 w-6 text-right">
+                            {perf.trades_in_window}t
+                          </span>
+                          {perf.auto_disabled && (
+                            <span className="text-[7px] font-bold text-red-400">OFF</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Win/Loss badges strip — always visible */}

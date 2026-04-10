@@ -31,6 +31,7 @@ const Balance = lazy(() => import("@features/balance/Balance"));
 const Trade = lazy(() => import("@features/trade/Trade"));
 const Spot = lazy(() => import("@features/spot/Spot"));
 const Marketing = lazy(() => import("@features/marketing/Marketing"));
+const AuthConnect = lazy(() => import("@features/auth/AuthConnectPage"));
 const NotFound = lazy(() => import("@features/not-found/NotFound"));
 
 // Loading fallback component
@@ -91,6 +92,7 @@ const App = () => {
                 <Route path="/trade" element={<Trade />} />
                 <Route path="/spot" element={<Spot />} />
                 <Route path="/marketing" element={<Marketing />} />
+                <Route path="/auth/connect" element={<AuthConnect />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
