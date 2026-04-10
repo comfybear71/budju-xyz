@@ -195,6 +195,33 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
     const checkConnection = async () => {
       try {
         setConnecting(true);
+
+        // Check for QR session first (cross-device admin login)
+        const qrWallet = localStorage.getItem("budju_qr_wallet");
+        if (qrWallet) {
+          // Create a read-only wallet session — no signing capability
+          // but enough to show as "connected" for admin views
+          const readOnlyWallet: ExtendedWallet = {
+            name: "phantom" as WalletName,
+            publicKey: qrWallet,
+            signTransaction: async () => {
+              throw new Error("QR session is read-only. Sign on your phone.");
+            },
+            sendTransaction: async () => {
+              throw new Error("QR session is read-only. Sign on your phone.");
+            },
+          };
+          setConnection({
+            connected: true,
+            wallet: readOnlyWallet,
+            rpcEndpoint: "",
+            network: "mainnet",
+            error: null,
+          });
+          setConnecting(false);
+          return;
+        }
+
         const connectionState = await checkWalletConnection();
         const walletAdapter = buildWalletAdapter(connectionState);
         setConnection({ ...connectionState, wallet: walletAdapter });
@@ -256,6 +283,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
     try {
       setConnecting(true);
       clearAdminAuth(); // Reset cached signature & denial state
+      localStorage.removeItem("budju_qr_wallet"); // Clear QR session
       await disconnectWallet();
       setConnection({
         connected: false,
