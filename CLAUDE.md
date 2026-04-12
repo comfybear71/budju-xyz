@@ -1,5 +1,55 @@
 # CLAUDE.md — BUDJU Project Context
 
+## PR Handoff Format (MANDATORY)
+
+Every session MUST end with a structured PR handoff in this exact format:
+
+### Compare URL
+`https://github.com/comfybear71/budju-xyz/compare/master...<BRANCH>`
+(Must be a real clickable URL)
+
+### PR Title
+`<one-line, max 70 chars>`
+
+### PR Description (copy-paste block)
+```
+## Summary
+<what changed and why>
+
+## Changes
+- <bullet list with file names>
+
+## Test plan
+- [x] <what passes>
+- [ ] <what to verify after deploy>
+```
+
+### Merge instructions
+1. Open Compare URL → Create pull request
+2. Squash and merge → Confirm
+3. Delete branch
+
+### Release tag (MANDATORY)
+- Tag name: `v<semver>-<YYYY-MM-DD>`
+- Title: `<short title>`
+- Description: `<brief summary>`
+- Create via: https://github.com/comfybear71/budju-xyz/releases/new
+- Target: master
+
+### Rules
+1. Every session ends with this handoff. No exceptions.
+2. Every PR MUST include a release tag.
+3. Check existing tags first (`git tag --list`) for the next version number.
+4. Never create the tag yourself — only suggest it.
+5. The Compare URL must be correct and clickable.
+
+### Fix spiral counting (MANDATORY)
+- When fixing bugs, type "FIX ATTEMPT [N] OF 3" before each fix.
+- After 3 failed attempts, STOP and output the diagnostic template.
+- Do NOT restart the counter for the same underlying issue.
+
+---
+
 ## What This Project Is
 
 BUDJU is a Solana meme coin ecosystem with a website, automated trading platform, and Telegram community bot. Live at https://budju.xyz. Token: `2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump`, 1B total supply, 6 decimals. Created January 31, 2025. ~63,000 lines of code across ~181 source files.
