@@ -31,11 +31,13 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 
 ## Git & Branch Management
 
-- **Default branch:** `master` (protected)
-- **Development branch:** Claude Code sessions create feature branches (e.g. `claude/review-project-docs-GWNzR`). All development happens on these branches, then gets merged to `master` via PR.
-- **Branch cleanup:** After a PR is merged, the feature branch should be deleted. It's safe — all code is already in `master`. Deleting a merged branch is like throwing away a photocopy when the original is filed.
-- **Dependabot branches:** GitHub's Dependabot creates branches for dependency updates. Close the PR and delete the branch if the update isn't needed — Dependabot will create a new one if a newer version comes out.
-- **Rule:** Only keep branches that have active, unmerged work. Merged branches are clutter and should be cleaned up.
+- **Default branch:** `master` (protected via "Protect Master" ruleset)
+- **Branch protection:** No direct pushes to master, no force-push, no deletions. Linear history enforced (squash-merge only). 0 required PR approvals.
+- **Development branch:** Claude Code sessions create feature branches: `claude/<feature-name>` off master. All development happens on these branches.
+- **Merge workflow:** Claude pushes to feature branch → STOPS → user opens PR + squash-merge + deletes branch + tags release via GitHub web UI. Claude does NOT open PRs, merge, delete branches, or tag releases.
+- **Branch cleanup:** After a PR is merged, the feature branch should be deleted. Only keep branches with active, unmerged work.
+- **Code Preservation Protocol:** See https://github.com/comfybear71/Master/blob/master/docs/code-preservation-protocol.md
+- **Safety rules:** See `SAFETY-RULES.md` for fix spiral prevention, circuit breaker protocol, sacred files, and end-of-session PR handoff format.
 - **Never force-push to `master`.** Always use PRs.
 
 ## File Organisation
