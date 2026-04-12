@@ -2,22 +2,27 @@
 
 ## PR Handoff Format (MANDATORY)
 
-Every session MUST end with a structured PR handoff in this exact format:
+Every session MUST end with a structured PR handoff in this exact format. No variations, no skipping sections. The user merges via GitHub web UI on phone/iPad — everything must be copy-paste ready.
+
+```
+## Branch ready for PR
 
 ### Compare URL
-`https://github.com/comfybear71/budju-xyz/compare/master...<BRANCH>`
-(Must be a real clickable URL)
+https://github.com/comfybear71/budju-xyz/compare/master...<BRANCH>
 
 ### PR Title
-`<one-line, max 70 chars>`
+```
+<one-line, max 70 chars>
+```
 
 ### PR Description (copy-paste block)
-```
+```markdown
 ## Summary
-<what changed and why>
+<what changed and why — 1-3 sentences>
 
 ## Changes
-- <bullet list with file names>
+- `<file>` — <what changed>
+- `<file>` — <what changed>
 
 ## Test plan
 - [x] <what passes>
@@ -25,16 +30,23 @@ Every session MUST end with a structured PR handoff in this exact format:
 ```
 
 ### Merge instructions
-1. Open Compare URL → Create pull request
-2. Squash and merge → Confirm
-3. Delete branch
+1. Open the Compare URL above
+2. Click green **Create pull request**
+3. **Squash and merge** → **Confirm** → **Delete branch**
 
 ### Release tag (MANDATORY)
-- Tag name: `v<semver>-<YYYY-MM-DD>`
-- Title: `<short title>`
-- Description: `<brief summary>`
-- Create via: https://github.com/comfybear71/budju-xyz/releases/new
-- Target: master
+| Field | Value |
+|---|---|
+| **Tag name** | `v<semver>-<YYYY-MM-DD>` |
+| **Target** | `master` |
+| **Title** | `v<semver> — <short title>` |
+| **Create via** | https://github.com/comfybear71/budju-xyz/releases/new |
+
+**Tag description:**
+```markdown
+<Brief summary of what this release includes>
+```
+```
 
 ### Rules
 1. Every session ends with this handoff. No exceptions.
@@ -42,6 +54,9 @@ Every session MUST end with a structured PR handoff in this exact format:
 3. Check existing tags first (`git tag --list`) for the next version number.
 4. Never create the tag yourself — only suggest it.
 5. The Compare URL must be correct and clickable.
+6. PR Description MUST be in a ```markdown code block for easy copy-paste.
+7. Release tag MUST use a table format.
+8. Tag description MUST be in its own code block.
 
 ### Fix spiral counting (MANDATORY)
 - When fixing bugs, type "FIX ATTEMPT [N] OF 3" before each fix.
