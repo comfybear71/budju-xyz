@@ -247,8 +247,17 @@ def get_price_series(symbol: str, count: int = 100) -> List[float]:
 
 
 def get_candle_count(symbol: str) -> int:
-    """How many candles we have stored for a symbol."""
-    return perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
+    """How many candles we have stored for a symbol. Cached in Redis (5min TTL)."""
+    from redis_cache import cache_get, cache_set
+
+    cache_key = f"perp:candle_count:{symbol}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    count = perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
+    cache_set(cache_key, count, ttl=300)  # 5 minutes — candles grow slowly
+    return count
 
 
 def get_price_series_15m(symbol: str, count: int = 100) -> List[float]:
@@ -1919,7 +1928,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
 
 def get_strategy_status(wallet: str) -> Dict:
-    """Get current strategy status for display."""
+    """Get current strategy status for display. Uses Redis cache (90s TTL)."""
+    from redis_cache import cache_get, cache_set
+
+    cache_key = f"perp:strategy_status:{wallet[:16]}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     config = get_strategy_config(wallet)
     account = perp_accounts.find_one({"wallet": wallet})
 
@@ -2002,7 +2018,7 @@ def get_strategy_status(wallet: str) -> Dict:
     # Strategy performance (feedback loop data)
     perf_summary = get_strategy_performance_summary(wallet)
 
-    return {
+    result = {
         "auto_trading_enabled": config.get("auto_trading_enabled", False),
         "strategies": config.get("strategies", {}),
         "global_settings": config.get("global_settings", {}),
@@ -2015,3 +2031,7 @@ def get_strategy_status(wallet: str) -> Dict:
         "ml_stats": ml_stats,
         "strategy_performance": perf_summary,
     }
+
+    # Cache for 90 seconds (cron runs every 60s, so data is always <90s old)
+    cache_set(cache_key, result, ttl=90)
+    return result
