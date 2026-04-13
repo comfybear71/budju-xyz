@@ -332,7 +332,7 @@ class handler(BaseHTTPRequestHandler):
                 metrics = calculate_metrics(admin_wallet)
                 positions = get_open_positions(admin_wallet)
                 trades = get_trade_history(admin_wallet, limit=50)
-                equity_curve = get_equity_curve(admin_wallet, period="all")
+                equity_curve = get_equity_curve(admin_wallet, period="1w")
                 markets = get_markets_info()
                 self._send_json(200, {
                     "account": {**account, "metrics": metrics},
