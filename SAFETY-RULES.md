@@ -90,50 +90,7 @@ If the user asks you to:
 
 ## End of Session — PR Handoff Package (MANDATORY)
 
-Every session ends with this exact format. No exceptions. The user merges via GitHub web UI on phone/iPad, so everything must be copy-paste ready.
-
-```
-## Branch ready for PR
-
-### Compare URL
-https://github.com/comfybear71/<REPO>/compare/<DEFAULT-BRANCH>...<BRANCH-NAME>
-
-### PR Title
-<one-line descriptive title, max 70 characters>
-
-### PR Description (copy-paste block)
-## Summary
-<1-3 sentence overview>
-
-## Changes
-- <specific bullet list with file names>
-
-## Test plan
-- [x] Type check passes
-- [ ] <manual verification steps>
-
-### Merge instructions
-1. Open the Compare URL above
-2. Click green "Create pull request"
-3. Scroll to bottom → dropdown → "Squash and merge"
-4. Click "Confirm squash and merge"
-5. Click "Delete branch" after merge
-
-### Release tag (MANDATORY)
-- Tag name: v<semver>-<YYYY-MM-DD>
-- Target: <default branch>
-- Title: <short release title>
-- Description: <brief summary>
-- Create via: https://github.com/comfybear71/<REPO>/releases/new
-```
-
-### Handoff Rules
-1. Every session ends with this package. No exceptions.
-2. Every PR MUST include a release tag suggestion. Mandatory.
-3. Check existing tags first before suggesting a tag name.
-4. Tag naming: patch v1.2.3, minor v1.3.0, major v2.0.0
-5. Never create the tag yourself — always just suggest it.
-6. The Compare URL must be clickable and correct.
+Every session ends with this exact format. No exceptions. The user merges via GitHub web UI on phone/iPad — everything must be copy-paste ready. See CLAUDE.md for the full template with exact formatting (table for release tag, markdown code blocks for description and tag description).
 
 ## Resume After Crash Protocol
 

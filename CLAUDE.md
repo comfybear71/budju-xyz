@@ -1,5 +1,70 @@
 # CLAUDE.md — BUDJU Project Context
 
+## PR Handoff Format (MANDATORY)
+
+Every session MUST end with a structured PR handoff in this exact format. No variations, no skipping sections. The user merges via GitHub web UI on phone/iPad — everything must be copy-paste ready.
+
+```
+## Branch ready for PR
+
+### Compare URL
+https://github.com/comfybear71/budju-xyz/compare/master...<BRANCH>
+
+### PR Title
+```
+<one-line, max 70 chars>
+```
+
+### PR Description (copy-paste block)
+```markdown
+## Summary
+<what changed and why — 1-3 sentences>
+
+## Changes
+- `<file>` — <what changed>
+- `<file>` — <what changed>
+
+## Test plan
+- [x] <what passes>
+- [ ] <what to verify after deploy>
+```
+
+### Merge instructions
+1. Open the Compare URL above
+2. Click green **Create pull request**
+3. **Squash and merge** → **Confirm** → **Delete branch**
+
+### Release tag (MANDATORY)
+| Field | Value |
+|---|---|
+| **Tag name** | `v<semver>-<YYYY-MM-DD>` |
+| **Target** | `master` |
+| **Title** | `v<semver> — <short title>` |
+| **Create via** | https://github.com/comfybear71/budju-xyz/releases/new |
+
+**Tag description:**
+```markdown
+<Brief summary of what this release includes>
+```
+```
+
+### Rules
+1. Every session ends with this handoff. No exceptions.
+2. Every PR MUST include a release tag.
+3. Check existing tags first (`git tag --list`) for the next version number.
+4. Never create the tag yourself — only suggest it.
+5. The Compare URL must be correct and clickable.
+6. PR Description MUST be in a ```markdown code block for easy copy-paste.
+7. Release tag MUST use a table format.
+8. Tag description MUST be in its own code block.
+
+### Fix spiral counting (MANDATORY)
+- When fixing bugs, type "FIX ATTEMPT [N] OF 3" before each fix.
+- After 3 failed attempts, STOP and output the diagnostic template.
+- Do NOT restart the counter for the same underlying issue.
+
+---
+
 ## What This Project Is
 
 BUDJU is a Solana meme coin ecosystem with a website, automated trading platform, and Telegram community bot. Live at https://budju.xyz. Token: `2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump`, 1B total supply, 6 decimals. Created January 31, 2025. ~63,000 lines of code across ~181 source files.
