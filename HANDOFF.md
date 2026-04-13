@@ -1,6 +1,6 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: April 7, 2026
+> Last updated: April 13, 2026
 
 This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
@@ -79,9 +79,30 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14 — April 7, 2026)
+## 4. Recent Changes & Fixes (March 14 — April 13, 2026)
 
-### Multi-Tier System + ML Intelligence (April 7) — MOST RECENT
+### Redis Caching + Performance Fix (April 13) — MOST RECENT
+- **Upstash Redis cache layer** added via `api/redis_cache.py` — lightweight helper using Upstash REST API (no pip deps)
+- **Strategy status endpoint** cached in Redis with 90s TTL — eliminates 16+ MongoDB queries per page load
+- **Equity curve** capped at 200 snapshots max (was returning 1000+ unbounded) — cached 60s-5min by period
+- **Candle counts** cached per symbol with 5min TTL — eliminates 9 `count_documents` queries per request
+- **Default equity period** changed from "all" to "1w" (frontend `useDashboardData.ts` + public API `index.py`)
+- **Result:** trade page load time reduced from ~5 minutes to ~5 seconds (60x improvement)
+- **Env vars:** `KV_REST_API_URL` and `KV_REST_API_TOKEN` added via Vercel Storage integration (upstash-kv-fuchsia-park)
+
+### NEXT: Frontend Performance Optimisations (Planned)
+Remaining improvements identified but not yet implemented:
+
+| Priority | Fix | Expected Improvement | Status |
+|----------|-----|---------------------|--------|
+| 4 | Code-split trade module more aggressively (main chunk is 1,024KB) | -1-2s initial load | Not done |
+| 5 | Reduce chart grid to 4 on all devices (currently 6 TradingCharts mount) | -1s | Not done |
+| 6 | Move strategy scanner to Web Worker (72 analyses block main thread) | -500ms | Not done |
+| 7 | Lazy-load equity/strategy data (don't fetch on mount, wait for section expand) | -1s | Not done |
+
+These are frontend-only changes. The 3 backend fixes (Redis caching) delivered the biggest impact. These remaining fixes would bring load time from ~5s to ~1-2s.
+
+### Multi-Tier System + ML Intelligence (April 7-10)
 
 **Multi-Tier Auto-Trader (Spot):**
 - Every coin now exists in ALL three tiers simultaneously (was single tier per coin)
