@@ -208,12 +208,14 @@ DRIFT_RPC_URL        # Or uses HELIUS_API_KEY
 DRIFT_SUBACCOUNT     # Default: 0
 DRIFT_DEVNET         # true for devnet
 
-# VPS Bot
+# VPS Bot (spot trading bot on DigitalOcean droplet — separate from ML)
 VPS_API_URL          # VPS API base URL
-VPS_API_SECRET       # Bearer token for VPS API
+VPS_API_SECRET       # Bearer token for VPS trader API (distinct from ML_API_SECRET)
 
-# ML Signal Classifier (DigitalOcean VPS)
-ML_API_URL           # ML prediction server (e.g. http://170.64.133.9:8421)
+# ML Signal Classifier (hardened DigitalOcean droplet — see docs/vps/ML_DROPLET_RECOVERY.md)
+ML_API_URL                  # ML prediction server (e.g. http://<ip>:8421)
+ML_API_SECRET               # Bearer token for predict/health/retrain
+BUDJU_TRAINING_API_SECRET   # Bearer token for /api/ml-training-data (ML pulls training data)
 
 # Frontend (VITE_ prefix)
 VITE_ENVIRONMENT
@@ -364,6 +366,37 @@ Discovered through live paper trading (March 13-14, 2026). Critical for strategy
 16. **Never call external APIs from Vercel strategy status endpoint.** The ML health check (`urlopen` to VPS) was adding 3+ seconds to every dashboard load. Vercel US → Sydney VPS round trip is slow. Removed the blocking call — ML predictions happen at trade time only, not on page load.
 17. **XGBoost float32 JSON serialization.** numpy float32 values aren't JSON serializable — must cast to `float()` before `json.dump()`.
 18. **Ubuntu 24.04 blocks system-wide pip.** Must use `python3 -m venv` for package installation. Also need `apt install python3.12-venv` first.
+
+## Lessons Learned (Security — April 2026 Compromise)
+
+The original ML droplet `masterhq-dev-syd1` (170.64.133.9) was compromised and used in a
+DDoS attack. DigitalOcean notified, droplet was destroyed. Recovery + hardening below.
+
+19. **Never share secrets across boxes.** The old ML droplet used the same `VPS_API_SECRET`
+    as the spot VPS trader — a compromise of one box would have leaked the other. Fixed by
+    splitting into `ML_API_SECRET` (ML box only) and `VPS_API_SECRET` (VPS trader only).
+    Backwards-compat fallback kept for legacy setups but new deployments use separate secrets.
+20. **ML boxes should hold zero DB credentials.** The old droplet had `MONGODB_URI` in its
+    env file for retraining — compromise meant full DB access. Fixed by adding authenticated
+    `/api/ml-training-data` endpoint on Vercel. `train.py` now pulls trades/signals over HTTPS
+    with a bearer token. If the ML box is compromised again, attacker gets the model, not the DB.
+21. **Fail closed, not open.** The ML server's auth check returned `True` when `API_SECRET`
+    was empty (meant as a local-dev convenience). Fixed to reject. Now the server refuses to
+    start if no secret is configured.
+22. **`/health` endpoints leak info if public.** Model metadata, feature names, accuracy are
+    useful for attackers targeting the model. `/health` now requires auth. Added separate
+    `/ping` endpoint that returns only `{"status":"ok"}` for liveness probes.
+23. **New droplets must be hardened BEFORE any code is installed.** `vps/ml/setup-hardened.sh`
+    is a one-shot script that applies the full baseline: SSH keys only, UFW deny-all-inbound,
+    fail2ban (3 fails → 1h ban), unattended-upgrades with 04:00 reboot, non-root service user,
+    systemd sandboxing (ProtectSystem=strict, NoNewPrivileges, PrivateTmp, SystemCallFilter).
+    Runbook: `docs/vps/ML_DROPLET_RECOVERY.md`.
+24. **Preflight check prevents lockout.** `setup-hardened.sh` verifies an SSH key exists in
+    `/root/.ssh/authorized_keys` before disabling password auth. If no key is present, the
+    script aborts with instructions. Learned this the hard way is a real risk on VPS setup.
+25. **Rotate secrets when destroying droplets.** When a box is compromised/destroyed, rotate
+    every secret it had access to, not just the obvious ones. Full checklist in
+    `docs/vps/ML_DROPLET_RECOVERY.md`.
 
 ## Lessons Learned (Failed Features)
 

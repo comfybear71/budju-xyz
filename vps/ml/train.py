@@ -23,10 +23,11 @@ import sys
 import json
 import logging
 from datetime import datetime, timedelta
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 
 import numpy as np
 import joblib
-from pymongo import MongoClient
 from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -35,7 +36,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("ml_train")
 
 # ── Config ────────────────────────────────────────────────────
+#
+# Two data-source modes:
+#   1. HTTP (preferred, post-April-2026): fetch training data from Vercel via
+#      /api/ml-training-data. No MongoDB credentials live on this box.
+#   2. MongoDB direct (legacy/fallback): connects if BUDJU_TRAINING_API_URL is not set.
+#      Kept for local development but should not be used on the hardened droplet.
 
+TRAINING_API_URL = os.getenv("BUDJU_TRAINING_API_URL", "")
+TRAINING_API_SECRET = os.getenv("BUDJU_TRAINING_API_SECRET", "")
 MONGODB_URI = os.getenv("MONGODB_URI", "")
 DB_NAME = os.getenv("DB_NAME", "flub")
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
@@ -58,12 +67,60 @@ DIRECTION_MAP = {"long": 0, "short": 1}
 
 
 def connect_db():
-    """Connect to MongoDB."""
-    if not MONGODB_URI:
-        log.error("MONGODB_URI not set")
+    """Legacy: Connect to MongoDB directly (local dev only, not used on hardened droplet)."""
+    try:
+        from pymongo import MongoClient
+    except ImportError:
+        log.error("pymongo not installed — use HTTP mode by setting BUDJU_TRAINING_API_URL")
         sys.exit(1)
+    if not MONGODB_URI:
+        log.error("MONGODB_URI not set (and no BUDJU_TRAINING_API_URL configured)")
+        sys.exit(1)
+    log.warning("Connecting to MongoDB directly — this is DEV mode, not for hardened droplets")
     client = MongoClient(MONGODB_URI)
     return client[DB_NAME]
+
+
+def fetch_training_data_http():
+    """Fetch closed trades + acted signals from Vercel endpoint.
+
+    Returns a dict with:
+      trades  — list of trade dicts (datetime fields as ISO strings)
+      signals — list of signal dicts
+    """
+    if not TRAINING_API_URL or not TRAINING_API_SECRET:
+        return None
+
+    url = f"{TRAINING_API_URL}?limit=5000"
+    req = Request(url, headers={
+        "Authorization": f"Bearer {TRAINING_API_SECRET}",
+        "Accept": "application/json",
+    })
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+    except HTTPError as e:
+        log.error(f"Training API HTTP {e.code}: {e.reason}")
+        return None
+    except URLError as e:
+        log.error(f"Training API unreachable: {e.reason}")
+        return None
+
+    # Parse datetime strings back to datetime objects so feature extraction still works
+    def _parse(doc):
+        for field in ("entry_time", "exit_time", "timestamp"):
+            v = doc.get(field)
+            if isinstance(v, str):
+                try:
+                    doc[field] = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+        return doc
+
+    data["trades"] = [_parse(t) for t in data.get("trades", [])]
+    data["signals"] = [_parse(s) for s in data.get("signals", [])]
+    log.info(f"Fetched via HTTP: {len(data['trades'])} trades, {len(data['signals'])} signals")
+    return data
 
 
 def extract_features(trade, signal=None):
@@ -134,21 +191,29 @@ def extract_features(trade, signal=None):
     return features
 
 
-def load_training_data(db):
-    """Load closed trades and match with signals to build training set."""
-    trades_coll = db["perp_trades"]
-    signals_coll = db["perp_strategy_signals"]
+def load_training_data(source):
+    """Load closed trades and match with signals to build training set.
 
-    # Load all closed trades
-    trades = list(trades_coll.find({}).sort("exit_time", -1))
+    `source` can be either:
+      - a dict with keys "trades" and "signals" (from HTTP fetch), or
+      - a MongoDB database handle (legacy direct-connect mode).
+    """
+    if isinstance(source, dict):
+        trades = source.get("trades", [])
+        acted_signals = source.get("signals", [])
+    else:
+        # Legacy MongoDB path
+        trades_coll = source["perp_trades"]
+        signals_coll = source["perp_strategy_signals"]
+        trades = list(trades_coll.find({}).sort("exit_time", -1))
+        acted_signals = list(signals_coll.find({"acted": True}).sort("timestamp", -1))
+
     log.info(f"Found {len(trades)} closed trades")
 
     if len(trades) < MIN_TRADES_TO_TRAIN:
         log.warning(f"Not enough trades ({len(trades)} < {MIN_TRADES_TO_TRAIN}). Need more data.")
         return None, None
 
-    # Load acted signals for matching
-    acted_signals = list(signals_coll.find({"acted": True}).sort("timestamp", -1))
     log.info(f"Found {len(acted_signals)} acted signals")
 
     # Build signal lookup: (strategy, symbol, direction) → list of signals sorted by time
@@ -222,8 +287,14 @@ def train_model():
     log.info("ML Signal Classifier — Training Pipeline")
     log.info("=" * 60)
 
-    db = connect_db()
-    result = load_training_data(db)
+    # Prefer HTTP fetch from Vercel (hardened mode — no DB creds on this box).
+    # Fall back to direct MongoDB for local development.
+    source = fetch_training_data_http()
+    if source is None:
+        log.info("No training API configured — falling back to direct MongoDB")
+        source = connect_db()
+
+    result = load_training_data(source)
 
     if result is None or result[0] is None:
         log.error("Cannot train — insufficient data. Let strategies run and accumulate trades.")
