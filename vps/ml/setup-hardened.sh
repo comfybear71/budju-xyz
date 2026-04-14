@@ -282,8 +282,9 @@ ReadWritePaths=/home/mlbot/budju-xyz/vps/ml
 PrivateTmp=true
 # Can't acquire new privileges via setuid binaries
 NoNewPrivileges=true
-# Can't access /home of other users
-ProtectHome=true
+# NOTE: ProtectHome=true would block access to /home/mlbot itself (where our code lives)
+# and cause exit-code 203/EXEC — service can't see its own files. Don't enable it.
+# Service is already constrained to mlbot's home via User= and ReadWritePaths= above.
 # Can't modify kernel
 ProtectKernelTunables=true
 ProtectKernelModules=true
