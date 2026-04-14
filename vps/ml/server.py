@@ -28,7 +28,10 @@ log = logging.getLogger("ml_server")
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
 META_PATH = os.path.join(os.path.dirname(__file__), "model_meta.json")
 API_PORT = int(os.getenv("ML_API_PORT", "8421"))
-API_SECRET = os.getenv("VPS_API_SECRET", "")
+# ML_API_SECRET is distinct from VPS_API_SECRET (used by the VPS trader) so a compromise
+# of this box does not leak credentials for the spot trader.
+# Falls back to VPS_API_SECRET only for backwards compatibility with pre-April-2026 setups.
+API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
 
 # Default confidence threshold — only allow trades scoring above this
 DEFAULT_THRESHOLD = 0.55
@@ -62,9 +65,12 @@ def load_model():
 
 
 def verify_auth(request):
-    """Verify API secret."""
+    """Verify API secret. Fails closed — if no secret is configured, all requests are rejected."""
     if not API_SECRET:
-        return True
+        # Fail secure: if operator forgot to set the secret, reject everything rather than
+        # silently allowing public access.
+        log.warning("verify_auth: VPS_API_SECRET not set — rejecting request")
+        return False
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return auth[7:] == API_SECRET
@@ -195,7 +201,10 @@ async def handle_predict(request):
 
 
 async def handle_health(request):
-    """Health check + model info."""
+    """Health check + model info. Requires auth to prevent info leaks (model metadata,
+    feature names, accuracy) to unauthenticated scanners."""
+    if not verify_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     return web.json_response({
         "status": "ok",
         "model_loaded": model is not None,
@@ -203,6 +212,12 @@ async def handle_health(request):
         "port": API_PORT,
         "timestamp": datetime.utcnow().isoformat(),
     })
+
+
+async def handle_ping(request):
+    """Unauthenticated liveness probe. Returns 200 if the process is up, nothing else.
+    Safe to expose — reveals no information beyond that the server is running."""
+    return web.json_response({"status": "ok"})
 
 
 async def handle_retrain(request):
@@ -229,6 +244,7 @@ def create_app():
     app = web.Application()
     app.router.add_post("/predict", handle_predict)
     app.router.add_get("/health", handle_health)
+    app.router.add_get("/ping", handle_ping)
     app.router.add_post("/retrain", handle_retrain)
     return app
 
@@ -236,5 +252,12 @@ def create_app():
 if __name__ == "__main__":
     load_model()
     app = create_app()
-    log.info(f"ML Prediction API starting on port {API_PORT}")
-    web.run_app(app, host="0.0.0.0", port=API_PORT)
+    # Bind host: default to 0.0.0.0 only if explicitly set. Operators should front this
+    # with a firewall (UFW) that restricts port 8421 to Vercel IPs or require the
+    # bearer token to do anything useful anyway.
+    host = os.getenv("ML_API_HOST", "0.0.0.0")
+    if not API_SECRET:
+        log.error("VPS_API_SECRET not set — refusing to start. Set the env var and restart.")
+        raise SystemExit(1)
+    log.info(f"ML Prediction API starting on {host}:{API_PORT}")
+    web.run_app(app, host=host, port=API_PORT)

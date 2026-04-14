@@ -1498,7 +1498,10 @@ REGIME_STRATEGY_WEIGHTS = {
 # ── ML Signal Classifier Gate ────────────────────────────────────────────
 
 ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
-ML_API_SECRET = os.getenv("VPS_API_SECRET", "")
+# ML_API_SECRET is the bearer token for the ML droplet. Kept separate from VPS_API_SECRET
+# (used by the spot VPS trader) so one box's compromise doesn't leak both.
+# Falls back to VPS_API_SECRET for backwards compatibility with pre-April-2026 setups.
+ML_API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
 ML_THRESHOLD = 0.40  # Lowered from 0.55 — paper trading needs data for ML to learn
 ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
 
