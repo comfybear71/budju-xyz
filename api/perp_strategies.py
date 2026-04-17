@@ -1811,6 +1811,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
             # Place the trade
             try:
+                # Log signal BEFORE opening position so the signal timestamp precedes
+                # the trade's entry_time. train.py matches signals to trades by finding
+                # the closest signal with timestamp <= entry_time within 5 minutes.
+                # If logged after, the signal timestamp is always slightly later and
+                # the match fails — causing all indicator features to be zero.
+                log_signal(wallet, strategy_name, symbol, direction,
+                          signal["signal"], signal["indicators"], True)
+
                 position = open_position(
                     wallet=wallet,
                     symbol=symbol,
@@ -1823,9 +1831,6 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     trailing_stop_pct=sig_trailing if sig_trailing > 0 else None,
                     entry_reason=entry_reason,
                 )
-
-                log_signal(wallet, strategy_name, symbol, direction,
-                          signal["signal"], signal["indicators"], True)
 
                 actions.append({
                     "action": "opened",
