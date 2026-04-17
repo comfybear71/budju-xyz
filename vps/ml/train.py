@@ -247,17 +247,26 @@ def load_training_data(source):
         key = (strategy, trade.get("symbol", ""), trade.get("direction", ""))
         candidates = signal_lookup.get(key, [])
 
-        # Find closest signal before trade entry
+        # Find closest signal within ±5 minutes of trade entry.
+        # Using abs() because historically signals were logged AFTER the trade
+        # opened, making sig_time slightly later than entry_time. Option B
+        # (perp_strategies.py) fixes the ordering going forward, but abs()
+        # ensures historical data also matches correctly.
         entry_time = trade.get("entry_time")
+        best_signal = None
+        best_delta = 300  # max window in seconds
         if entry_time and candidates:
             for sig in candidates:
                 sig_time = sig.get("timestamp")
-                if sig_time and sig_time <= entry_time:
-                    # Within 5 minutes of trade entry
-                    if (entry_time - sig_time).total_seconds() < 300:
-                        signal = sig
-                        matched += 1
-                        break
+                if sig_time:
+                    delta = abs((entry_time - sig_time).total_seconds())
+                    if delta < best_delta:
+                        best_delta = delta
+                        best_signal = sig
+
+        if best_signal:
+            signal = best_signal
+            matched += 1
 
         if not signal:
             unmatched += 1
