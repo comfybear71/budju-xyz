@@ -310,10 +310,10 @@ export function useDashboardData(): DashboardData {
 
   const handleReset = useCallback(async () => {
     if (!wallet) { setError("Wallet not connected"); return; }
-    if (!confirm("Reset paper trading account to $10,000? All positions and history will be deleted.")) return;
+    if (!confirm("Reset paper account to $10,000?\n\nOpen positions will be closed. Trade history is KEPT for ML training.")) return;
     try {
       setError(null);
-      await resetPerpAccount(wallet);
+      await resetPerpAccount(wallet, true);
       await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to reset");

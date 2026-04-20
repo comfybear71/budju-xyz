@@ -124,9 +124,11 @@ export async function modifyPerpPosition(
 
 export async function resetPerpAccount(
   wallet: string,
+  keepHistory = true,
 ): Promise<PerpAccount> {
   return postJson(`${API_BASE}/account/reset`, {
     wallet,
+    keepHistory,
   });
 }
 

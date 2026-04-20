@@ -730,7 +730,8 @@ class handler(BaseHTTPRequestHandler):
                 if not wallet or not is_admin(wallet):
                     self._send_json(403, {"error": "Admin access required"})
                     return
-                result = reset_account(wallet)
+                keep_history = bool(body.get('keepHistory', True))
+                result = reset_account(wallet, keep_history=keep_history)
                 self._send_json(200, result)
 
             elif path == '/api/perp/strategy/toggle':

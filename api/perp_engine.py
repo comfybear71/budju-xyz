@@ -220,14 +220,43 @@ def set_kill_switch(wallet: str, active: bool) -> Dict:
     return result
 
 
-def reset_account(wallet: str) -> Dict:
-    """Reset paper account to initial state."""
+def reset_account(wallet: str, keep_history: bool = False) -> Dict:
+    """Reset paper account to $10K initial state.
+
+    keep_history=True: keeps perp_trades + signals (ML training data).
+    keep_history=False (default): full wipe of everything.
+    """
+    # Always: close open positions, cancel pending orders, reset equity snapshots
     perp_positions.delete_many({"account_id": wallet})
     perp_orders.delete_many({"account_id": wallet})
-    perp_trades.delete_many({"account_id": wallet})
     perp_equity.delete_many({"account_id": wallet})
     perp_funding.delete_many({"account_id": wallet})
-    perp_accounts.delete_one({"wallet": wallet})
+
+    if keep_history:
+        # Soft-reset: restore account balance without deleting trade history
+        now = datetime.utcnow()
+        perp_accounts.update_one(
+            {"wallet": wallet},
+            {"$set": {
+                "balance": INITIAL_BALANCE,
+                "equity": INITIAL_BALANCE,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "daily_pnl": 0.0,
+                "trading_paused": False,
+                "kill_switch": False,
+                "trading_mode": "paper",
+                "drawdown_pct": 0.0,
+                "peak_equity": INITIAL_BALANCE,
+                "daily_pnl_reset": now,
+                "updated_at": now,
+            }},
+            upsert=True,
+        )
+    else:
+        perp_trades.delete_many({"account_id": wallet})
+        perp_accounts.delete_one({"wallet": wallet})
+
     return get_or_create_account(wallet)
 
 
