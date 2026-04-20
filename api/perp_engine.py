@@ -65,6 +65,14 @@ MAX_OPEN_POSITIONS = 50          # Soft global cap (10 symbols × 5 per side)
 MAX_POSITION_PCT = 0.50          # Max 50% of equity per position
 DAILY_LOSS_LIMIT_PCT = 0.20     # 20% daily loss → pause
 
+# ── Profit Protection (dollar-based trailing floor) ──────────────────────
+# Once a position's unrealized P&L exceeds the trigger, the floor is set at
+# (peak_profit - trail). If price retraces to the floor, position closes.
+# Example: trigger=$15, trail=$5 → position runs to $40 → floor=$35 →
+# if it drops back to $35, auto-close with $35 profit locked in.
+PROFIT_PROTECT_TRIGGER_USD = 15.0   # Activate once profit > $15
+PROFIT_PROTECT_TRAIL_USD   =  5.0   # Lock floor at (peak - $5)
+
 # ── Live Trading Safety Limits ─────────────────────────────────────────
 LIVE_MAX_TOTAL_EXPOSURE = 50_000.0   # Max total notional across all positions
 LIVE_MAX_SINGLE_POSITION = 10_000.0  # Max single position size
@@ -1049,6 +1057,16 @@ def update_position_price(position: Dict, mark_price: float) -> Dict:
             action = "trailing_stop"
         elif direction == "short" and mark_price >= trailing_price:
             action = "trailing_stop"
+
+    # 5. Profit protection — dollar-based trailing floor
+    # Activates once peak profit (MFE) exceeds trigger. If current
+    # unrealized P&L then drops below (peak - trail), lock in the win.
+    if not action:
+        mfe = position.get("max_favorable_excursion", 0)
+        if mfe >= PROFIT_PROTECT_TRIGGER_USD:
+            floor = mfe - PROFIT_PROTECT_TRAIL_USD
+            if pnl_usd <= floor:
+                action = "profit_protection"
 
     return {"action": action, "pnl_usd": pnl_usd, "pnl_pct": pnl_pct, "borrow_fee": borrow_fee}
 

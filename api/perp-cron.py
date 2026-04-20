@@ -174,7 +174,7 @@ def run_perp_monitor() -> dict:
 
                 # Telegram alert for all closes (wins and losses)
                 if pnl > 0:
-                    emoji = {"take_profit": "🎯", "trailing_stop": "📐"}.get(action, "💰")
+                    emoji = {"take_profit": "🎯", "trailing_stop": "📐", "profit_protection": "🔒"}.get(action, "💰")
                     msg = (
                         f"{emoji} <b>{mode_label} WIN</b>\n"
                         f"📍 {symbol} {direction} {leverage}x\n"
@@ -182,7 +182,7 @@ def run_perp_monitor() -> dict:
                         f"🔚 Exit: {action}"
                     )
                 else:
-                    emoji = {"stop_loss": "🛑", "liquidation": "💀", "trailing_stop": "📐"}.get(action, "📉")
+                    emoji = {"stop_loss": "🛑", "liquidation": "💀", "trailing_stop": "📐", "profit_protection": "🔒"}.get(action, "📉")
                     msg = (
                         f"{emoji} <b>{mode_label} LOSS</b>\n"
                         f"📍 {symbol} {direction} {leverage}x\n"
