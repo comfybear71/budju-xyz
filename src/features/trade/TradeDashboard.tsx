@@ -501,6 +501,13 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
                 {data.autoTradingEnabled ? "⚡ BOT ON" : "⚡ BOT OFF"}
               </button>
             )}
+            <button
+              onClick={data.handleReset}
+              className="text-[10px] px-2 py-1 rounded text-slate-500 hover:text-red-400 transition-colors border border-transparent hover:border-red-500/30"
+              title="Reset paper account to $10,000"
+            >
+              Reset
+            </button>
           </div>
         )}
       </div>
