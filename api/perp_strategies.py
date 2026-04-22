@@ -571,6 +571,65 @@ def trend_filter(prices: List[float], direction: str) -> bool:
         return curr_price < curr_ema
 
 
+# ── Standard Indicator Helper ────────────────────────────────────────────
+
+def build_standard_indicators(prices: List[float]) -> Dict:
+    """Compute the full ML feature set from a price series.
+
+    Returns a dict with every key the ML model expects. Safe to call even
+    with short price series — returns neutral defaults on insufficient data.
+    Merge into strategy-specific indicator dicts so neither can drift:
+        indicators = {**build_standard_indicators(prices), ...strategy_specific...}
+    Strategy-specific values override the standard ones where they overlap.
+    """
+    price = prices[-1] if prices else 1.0
+    result: Dict = {
+        "price":      price,
+        "rsi":        50.0,
+        "fast_ema":   0.0,
+        "slow_ema":   0.0,
+        "atr":        0.0,
+        "bb_upper":   0.0,
+        "bb_middle":  0.0,
+        "bb_lower":   0.0,
+        "confidence": 0.0,
+    }
+
+    if len(prices) < 22:
+        return result
+
+    # RSI(14)
+    rsi_vals = rsi(prices, 14)
+    curr_rsi = rsi_vals[-1] if rsi_vals else 50.0
+    result["rsi"] = round(curr_rsi, 2)
+
+    # EMA(9) and EMA(21)
+    fast_vals = ema(prices, 9)
+    slow_vals = ema(prices, 21)
+    curr_fast = fast_vals[-1] if fast_vals else 0.0
+    curr_slow = slow_vals[-1] if slow_vals else 0.0
+    result["fast_ema"] = round(curr_fast, 6)
+    result["slow_ema"] = round(curr_slow, 6)
+
+    # ATR(14)
+    atr_vals = atr(prices, 14)
+    curr_atr = atr_vals[-1] if atr_vals else 0.0
+    result["atr"] = round(curr_atr, 6)
+
+    # Bollinger Bands(20, 2σ)
+    if len(prices) >= 20:
+        upper, middle, lower = bollinger_bands(prices, 20, 2.0)
+        if upper:
+            result["bb_upper"]  = round(upper[-1], 6)
+            result["bb_middle"] = round(middle[-1], 6)
+            result["bb_lower"]  = round(lower[-1], 6)
+
+    # Confidence: RSI distance from neutral (0 = flat, 100 = extreme)
+    result["confidence"] = round(min(100.0, abs(curr_rsi - 50.0) * 2), 1)
+
+    return result
+
+
 # ── Strategy Config ──────────────────────────────────────────────────────
 
 def get_strategy_config(wallet: str) -> Dict:
@@ -861,6 +920,7 @@ def strategy_trend_following(prices: List[float], config: Dict) -> Optional[Dict
     curr_price = prices[-1]
 
     indicators = {
+        **build_standard_indicators(prices),
         "fast_ema": round(curr_fast, 6),
         "slow_ema": round(curr_slow, 6),
         "rsi": round(curr_rsi, 2),
@@ -925,6 +985,7 @@ def strategy_mean_reversion(prices: List[float], config: Dict) -> Optional[Dict]
     curr_atr = atr_vals[-1]
 
     indicators = {
+        **build_standard_indicators(prices),
         "bb_upper": round(curr_upper, 6),
         "bb_middle": round(curr_middle, 6),
         "bb_lower": round(curr_lower, 6),
@@ -993,6 +1054,7 @@ def strategy_momentum(prices: List[float], config: Dict) -> Optional[Dict]:
     avg_range = sum(abs(prices[i+1] - prices[i]) for i in range(len(prices)-lookback-1, len(prices)-1)) / lookback
 
     indicators = {
+        **build_standard_indicators(prices),
         "recent_high": round(recent_high, 6),
         "recent_low": round(recent_low, 6),
         "avg_range": round(avg_range, 6),
@@ -1068,6 +1130,7 @@ def strategy_scalping(prices: List[float], config: Dict) -> Optional[Dict]:
     price_momentum = curr_price - prev_price
 
     indicators = {
+        **build_standard_indicators(prices),
         "fast_ema": round(curr_ema, 6),
         "ema_slope": round(ema_slope, 6),
         "rsi": round(curr_rsi, 2),

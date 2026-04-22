@@ -31,7 +31,7 @@ from perp_strategies import (
     get_price_series, get_price_series_15m, get_15m_hlc,
     seed_15m_candles, store_price,
     ema, rsi, atr, sma,
-    log_signal,
+    log_signal, build_standard_indicators,
     perp_strategy_signals, perp_price_history,
     BINANCE_SYMBOLS,
 )
@@ -377,6 +377,7 @@ def run_sr_reversal(wallet: str, prices: Dict[str, float],
 
                     log_signal(wallet, "sr_reversal", symbol, "long",
                                "support_bounce", {
+                                   **build_standard_indicators(prices_15m),
                                    "support_price": support_price,
                                    "touches": level["touches"],
                                    "strength": level["strength"],
@@ -449,6 +450,7 @@ def run_sr_reversal(wallet: str, prices: Dict[str, float],
 
                     log_signal(wallet, "sr_reversal", symbol, "short",
                                "resistance_rejection", {
+                                   **build_standard_indicators(prices_15m),
                                    "resistance_price": resistance_price,
                                    "touches": level["touches"],
                                    "strength": level["strength"],
