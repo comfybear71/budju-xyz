@@ -238,11 +238,19 @@ def train_model() -> bool:
     X, y, feature_names = result
 
     log.info(f"Features ({len(feature_names)}): {feature_names}")
-    log.info(f"Dataset: {len(X)} samples, {sum(y)} wins ({sum(y)/len(y)*100:.1f}%), {len(y)-sum(y)} losses")
+    n_wins = int(sum(y))
+    n_losses = len(y) - n_wins
+    log.info(f"Dataset: {len(X)} samples, {n_wins} wins ({n_wins/len(y)*100:.1f}%), {n_losses} losses")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42, stratify=y if len(set(y)) > 1 else None
     )
+
+    # Correct for class imbalance: penalise missed wins proportionally to how
+    # rare they are. Without this, XGBoost defaults to always predicting "loss"
+    # (the majority class) and achieves misleadingly high accuracy.
+    scale_pos_weight = n_losses / n_wins if n_wins > 0 else 1.0
+    log.info(f"scale_pos_weight: {scale_pos_weight:.2f} ({n_losses} losses / {n_wins} wins)")
 
     model = XGBClassifier(
         n_estimators=100,
@@ -251,6 +259,7 @@ def train_model() -> bool:
         min_child_weight=3,
         subsample=0.8,
         colsample_bytree=0.8,
+        scale_pos_weight=scale_pos_weight,
         objective="binary:logistic",
         eval_metric="logloss",
         use_label_encoder=False,
