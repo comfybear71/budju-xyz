@@ -20,7 +20,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
@@ -274,7 +274,7 @@ def train_model() -> bool:
     log.info(f"Model saved to {MODEL_PATH}")
 
     meta = {
-        "trained_at": datetime.utcnow().isoformat(),
+        "trained_at": datetime.now(timezone.utc).isoformat(),
         "samples": int(len(X)),
         "features": feature_names,
         "accuracy": round(float(accuracy), 4),

@@ -17,7 +17,7 @@ Port: 8421 (next to the VPS trader on 8420)
 import os
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 import joblib
@@ -210,7 +210,7 @@ async def handle_predict(request):
         indicators=data.get("indicators") or {},
         price=price,
         size_usd=data.get("size_usd", 0),
-        ts=datetime.utcnow(),
+        ts=datetime.now(timezone.utc),
     )
 
     try:
@@ -265,7 +265,7 @@ async def handle_health(request):
         "shap_enabled": shap_explainer is not None,
         "meta": meta,
         "port": API_PORT,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
 
