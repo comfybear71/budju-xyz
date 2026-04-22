@@ -16,7 +16,7 @@ VALID_SYMBOLS = [
 
 VALID_STRATEGIES = [
     "trend_following", "mean_reversion", "momentum", "scalping",
-    "keltner", "bb_squeeze",
+    "keltner", "bb_squeeze", "bnf_reversion",
 ]
 
 
