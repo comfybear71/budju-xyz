@@ -816,9 +816,10 @@ def check_test_expiry(wallet: str) -> bool:
 # ── Signal Logging ───────────────────────────────────────────────────────
 
 def log_signal(wallet: str, strategy: str, symbol: str, direction: str,
-               signal_type: str, indicators: Dict, acted: bool, reason: str = ""):
+               signal_type: str, indicators: Dict, acted: bool, reason: str = "",
+               rejected_by: str = ""):
     """Log a strategy signal for auditing."""
-    perp_strategy_signals.insert_one({
+    doc = {
         "account_id": wallet,
         "strategy": strategy,
         "symbol": symbol,
@@ -828,7 +829,10 @@ def log_signal(wallet: str, strategy: str, symbol: str, direction: str,
         "acted": acted,
         "reason": reason,
         "timestamp": datetime.utcnow(),
-    })
+    }
+    if rejected_by:
+        doc["rejected_by"] = rejected_by
+    perp_strategy_signals.insert_one(doc)
 
 
 def get_recent_signals(wallet: str, limit: int = 50) -> List[Dict]:
@@ -1565,7 +1569,7 @@ ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
 # (used by the spot VPS trader) so one box's compromise doesn't leak both.
 # Falls back to VPS_API_SECRET for backwards compatibility with pre-April-2026 setups.
 ML_API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
-ML_THRESHOLD = 0.40  # Lowered from 0.55 — paper trading needs data for ML to learn
+ML_THRESHOLD = 0.30  # Lowered from 0.40 — 574 samples too few for aggressive filtering
 ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
 
 
@@ -1744,10 +1748,19 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
             # Skip if already have position in this market
             if symbol in open_symbols:
+                log_signal(wallet, strategy_name, symbol, "none",
+                          "already_open", {}, False,
+                          f"Already have open position in {symbol}",
+                          rejected_by="already_open")
                 continue
 
             # Correlation guard — max 1 position across correlated groups
             if not _check_correlation(symbol, open_symbols):
+                correlated = [s for g in CORRELATION_GROUPS if symbol in g for s in g & open_symbols]
+                log_signal(wallet, strategy_name, symbol, "none",
+                          "correlation_guard", {}, False,
+                          f"Correlated with open {', '.join(correlated)}",
+                          rejected_by="correlation")
                 continue
 
             # Check total position limit
@@ -1756,11 +1769,19 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
             # Check cooldown
             if is_on_cooldown(wallet, symbol, cooldown):
+                log_signal(wallet, strategy_name, symbol, "none",
+                          "cooldown", {}, False,
+                          f"On cooldown ({cooldown}min)",
+                          rejected_by="cooldown")
                 continue
 
             # ── FEEDBACK LOOP: Check strategy/market performance ──
             perf_mult = get_strategy_performance_multiplier(wallet, strategy_name, symbol)
             if perf_mult <= 0:
+                log_signal(wallet, strategy_name, symbol, "none",
+                          "performance_disabled", {}, False,
+                          f"Strategy auto-disabled: poor win rate on {symbol}",
+                          rejected_by="performance")
                 actions.append({
                     "action": "auto_disabled",
                     "strategy": strategy_name,
@@ -1779,7 +1800,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                           f"Regime filter: {regime} market unfavorable for {strategy_name}",
                           {"regime": regime, "adx": regime_info.get("adx", 0),
                            "bb_width": regime_info.get("bb_width", 0)}, False,
-                          f"Regime {regime} blocks {strategy_name}")
+                          f"Regime {regime} blocks {strategy_name}",
+                          rejected_by="regime")
                 continue
 
             # Store current price
@@ -1820,7 +1842,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if size_usd <= 0:
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,
-                          "Position size too small")
+                          "Position size too small",
+                          rejected_by="size")
                 continue
 
             # Check if we have enough balance
@@ -1828,7 +1851,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             if margin_needed > balance * 0.9:  # Keep 10% buffer
                 log_signal(wallet, strategy_name, symbol, direction,
                           signal["signal"], signal["indicators"], False,
-                          f"Insufficient balance: need ${margin_needed:.2f}, have ${balance:.2f}")
+                          f"Insufficient balance: need ${margin_needed:.2f}, have ${balance:.2f}",
+                          rejected_by="balance")
                 continue
 
             # Use signal-specific SL/TP multipliers if provided (Keltner/BB Squeeze)
@@ -1865,7 +1889,8 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     log_signal(wallet, strategy_name, symbol, direction,
                               signal["signal"], {**signal["indicators"], "ml_win_prob": win_prob,
                               "ml_why": why.get("top_factors", []) if why else []},
-                              False, reject_reason)
+                              False, reject_reason,
+                              rejected_by="ml")
                     actions.append({
                         "action": "ml_rejected",
                         "strategy": strategy_name,
@@ -1876,6 +1901,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     })
                     continue
                 # ML approved — log the probability for tracking
+                signal["indicators"]["ml_win_prob"] = win_prob
                 entry_reason = f"[{strategy_name}] {signal['signal']} (ML:{win_prob:.0%})"
 
             # Place the trade
