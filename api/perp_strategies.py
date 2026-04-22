@@ -1297,6 +1297,7 @@ PERF_BOOST_WR = 0.55      # Boost sizing above 55% win rate
 REGIME_ADX_TRENDING = 25   # ADX above this = trending market
 REGIME_ADX_STRONG = 40     # ADX above this = strong trend
 REGIME_BB_SQUEEZE = 0.02   # BB width below 2% = low volatility / squeeze
+REGIME_LOW_VOL_BB = 0.005  # BB width below 0.5% = dead market, block directional strats
 
 
 def update_strategy_performance(wallet: str, strategy_name: str, symbol: str,
@@ -1508,9 +1509,15 @@ def detect_market_regime(price_series: List[float], atr_values: List[float] = No
     else:
         trend_dir = "neutral"
 
+    # ATR as % of price (for volatility gating)
+    atr_vals = atr(closes, 14)
+    atr_pct = (atr_vals[-1] / closes[-1]) if atr_vals and closes[-1] > 0 else 0
+
     # Classify regime
     if adx >= REGIME_ADX_TRENDING:
         regime = "trending"
+    elif bb_width < REGIME_LOW_VOL_BB:
+        regime = "low_volatility"  # Dead market — only mean reversion allowed
     elif bb_width < REGIME_BB_SQUEEZE:
         regime = "ranging"  # Low volatility, mean-reverting
     else:
@@ -1520,6 +1527,7 @@ def detect_market_regime(price_series: List[float], atr_values: List[float] = No
         "regime": regime,
         "adx": round(adx, 2),
         "bb_width": round(bb_width, 4),
+        "atr_pct": round(atr_pct, 6),
         "trend_direction": trend_dir,
         "di_plus": round(di_plus, 2),
         "di_minus": round(di_minus, 2),
@@ -1551,6 +1559,14 @@ REGIME_STRATEGY_WEIGHTS = {
         "scalping": 0.3,          # Gets stopped out
         "keltner": 1.0,
         "bb_squeeze": 1.5,        # Volatility expansion
+    },
+    "low_volatility": {
+        "trend_following": 0.0,   # Dead market, no trend to follow
+        "momentum": 0.0,          # No momentum in dead market
+        "mean_reversion": 1.0,    # Can bounce off tight bands
+        "scalping": 0.0,          # Fees eat everything
+        "keltner": 0.0,           # No edge in dead vol
+        "bb_squeeze": 0.0,        # No breakout from dead market
     },
     "unknown": {
         "trend_following": 1.0,
@@ -1796,12 +1812,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             regime_weight = REGIME_STRATEGY_WEIGHTS.get(regime, {}).get(strategy_name, 1.0)
             if regime_weight < 0.4:
                 # Strategy is a poor fit for current regime — skip entirely
+                reason_prefix = "Low volatility" if regime == "low_volatility" else "Regime"
                 log_signal(wallet, strategy_name, symbol, "none",
-                          f"Regime filter: {regime} market unfavorable for {strategy_name}",
+                          f"{reason_prefix}: {regime} market blocks {strategy_name}",
                           {"regime": regime, "adx": regime_info.get("adx", 0),
-                           "bb_width": regime_info.get("bb_width", 0)}, False,
-                          f"Regime {regime} blocks {strategy_name}",
-                          rejected_by="regime")
+                           "bb_width": regime_info.get("bb_width", 0),
+                           "atr_pct": regime_info.get("atr_pct", 0)}, False,
+                          f"{reason_prefix}: {regime} market blocks {strategy_name}",
+                          rejected_by="low_volatility" if regime == "low_volatility" else "regime")
                 continue
 
             # Store current price
