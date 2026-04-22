@@ -50,6 +50,7 @@ const STAGE_COLORS: Record<string, { bg: string; text: string; icon: string }> =
   correlation: { bg: "bg-purple-500/10", text: "text-purple-400", icon: "🔗" },
   performance: { bg: "bg-orange-500/10", text: "text-orange-400", icon: "📉" },
   low_volatility: { bg: "bg-cyan-500/10", text: "text-cyan-400", icon: "💤" },
+  overextended: { bg: "bg-amber-500/10", text: "text-amber-400", icon: "🚀" },
   regime: { bg: "bg-yellow-500/10", text: "text-yellow-400", icon: "🌊" },
   size: { bg: "bg-slate-500/10", text: "text-slate-400", icon: "📏" },
   balance: { bg: "bg-red-500/10", text: "text-red-400", icon: "💰" },

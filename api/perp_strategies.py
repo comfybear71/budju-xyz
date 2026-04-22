@@ -1299,6 +1299,11 @@ REGIME_ADX_STRONG = 40     # ADX above this = strong trend
 REGIME_BB_SQUEEZE = 0.02   # BB width below 2% = low volatility / squeeze
 REGIME_LOW_VOL_BB = 0.005  # BB width below 0.5% = dead market, block directional strats
 
+# Overextension filter — block chasing into moves that already happened
+OVEREXTENSION_LOOKBACK = 360   # 6 hours of 1-min candles
+OVEREXTENSION_PCT = 0.05       # 5% move = overextended, don't chase
+OVEREXTENSION_EXEMPT = {"mean_reversion"}  # MR fades moves, so it's exempt
+
 
 def update_strategy_performance(wallet: str, strategy_name: str, symbol: str,
                                  pnl: float, exit_type: str):
@@ -1838,6 +1843,28 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             direction = signal["direction"]
             atr_value = signal.get("atr", 0)
             curr_price = prices[symbol]
+
+            # ── OVEREXTENSION FILTER: Don't chase moves that already happened ──
+            if strategy_name not in OVEREXTENSION_EXEMPT:
+                extended_series = get_price_series(symbol, OVEREXTENSION_LOOKBACK)
+                if len(extended_series) >= 60:
+                    recent_low = min(extended_series)
+                    recent_high = max(extended_series)
+                    if direction == "long" and recent_low > 0:
+                        move_pct = (curr_price - recent_low) / recent_low
+                    elif direction == "short" and recent_high > 0:
+                        move_pct = (recent_high - curr_price) / recent_high
+                    else:
+                        move_pct = 0
+                    if move_pct > OVEREXTENSION_PCT:
+                        log_signal(wallet, strategy_name, symbol, direction,
+                                  signal["signal"], {**signal.get("indicators", {}),
+                                  "move_pct": round(move_pct * 100, 1),
+                                  "lookback_hours": round(len(extended_series) / 60, 1)},
+                                  False,
+                                  f"Overextended: {direction} after {move_pct:.1%} move in {len(extended_series) // 60}h",
+                                  rejected_by="overextended")
+                        continue
 
             # Calculate position size (with drawdown + equity curve + performance + regime)
             if is_test:
