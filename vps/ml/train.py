@@ -3,19 +3,17 @@ ML Signal Classifier — Training Pipeline
 ==========================================
 Trains an XGBoost model to predict whether a perp trading signal will be profitable.
 
-Data sources (MongoDB):
-  - perp_trades: Closed trades with entry_reason (strategy), PnL, symbol
-  - perp_strategy_signals: All signals fired with indicator snapshots
+Data sources (priority order):
+  1. HTTPS via Vercel /api/ml-training-data  (ML box — no DB credentials needed)
+  2. Direct MongoDB connection                (fallback / local dev)
 
 Process:
-  1. Load closed trades (labeled: win/loss based on realized_pnl)
-  2. Match each trade to its originating signal (for indicator features)
-  3. Extract features via features.py (single source of truth)
-  4. Train XGBoost classifier: P(win | features)
-  5. Save model to disk for the prediction API
+  1. Load closed trades + matched signals
+  2. Extract features via features.py (single source of truth)
+  3. Train XGBoost classifier: P(win | features)
+  4. Save model to disk for the prediction API
 
 Run: python train.py
-Schedule: daily retrain via cron
 """
 
 import os
@@ -23,17 +21,17 @@ import sys
 import json
 import logging
 from datetime import datetime
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 import numpy as np
 import joblib
-from pymongo import MongoClient
 from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
 from features import (
     MODEL_PATH, META_PATH,
-    STRATEGY_MAP, SYMBOL_MAP,
     FEATURE_NAMES,
     extract_features, features_to_array,
 )
@@ -43,22 +41,48 @@ log = logging.getLogger("ml_train")
 
 # ── Config ────────────────────────────────────────────────────
 
-MONGODB_URI = os.getenv("MONGODB_URI", "")
-DB_NAME = os.getenv("DB_NAME", "flub")
-MIN_TRADES_TO_TRAIN = 20
+MONGODB_URI              = os.getenv("MONGODB_URI", "")
+DB_NAME                  = os.getenv("DB_NAME", "flub")
+TRAINING_API_URL         = os.getenv("BUDJU_TRAINING_API_URL", "")
+TRAINING_API_SECRET      = os.getenv("BUDJU_TRAINING_API_SECRET", "")
+MIN_TRADES_TO_TRAIN      = 20
 
 
-def connect_db():
-    """Connect to MongoDB."""
+# ── Data loading ──────────────────────────────────────────────
+
+def fetch_training_data_http() -> dict:
+    """Fetch trades + signals from Vercel /api/ml-training-data via HTTPS.
+    Returns the parsed JSON dict or raises on failure.
+    """
+    if not TRAINING_API_URL or not TRAINING_API_SECRET:
+        raise ValueError("BUDJU_TRAINING_API_URL / BUDJU_TRAINING_API_SECRET not set")
+
+    url = f"{TRAINING_API_URL}/api/ml-training-data?limit=2000"
+    req = Request(url, headers={
+        "Authorization": f"Bearer {TRAINING_API_SECRET}",
+        "Accept": "application/json",
+    })
+    with urlopen(req, timeout=30) as resp:
+        return json.loads(resp.read().decode())
+
+
+def fetch_training_data_mongodb() -> dict:
+    """Fetch trades + signals directly from MongoDB (local dev / fallback)."""
     if not MONGODB_URI:
-        log.error("MONGODB_URI not set")
-        sys.exit(1)
+        raise ValueError("MONGODB_URI not set")
+    from pymongo import MongoClient
     client = MongoClient(MONGODB_URI)
-    return client[DB_NAME]
+    db = client[DB_NAME]
+    trades  = list(db["perp_trades"].find({}).sort("exit_time", -1).limit(2000))
+    signals = list(db["perp_strategy_signals"].find({"acted": True}).sort("timestamp", -1))
+    # Normalise ObjectIds to strings for consistent handling
+    for doc in trades + signals:
+        doc["_id"] = str(doc.get("_id", ""))
+    return {"trades": trades, "signals": signals}
 
 
 def _parse_strategy(entry_reason: str) -> str:
-    """Extract strategy name from entry_reason like '[trend_following] signal'."""
+    """Extract strategy name from '[trend_following] signal ...'."""
     if entry_reason.startswith("["):
         end = entry_reason.find("]")
         if end > 1:
@@ -66,24 +90,36 @@ def _parse_strategy(entry_reason: str) -> str:
     return ""
 
 
-def load_training_data(db):
-    """Load closed trades and match with signals to build training set."""
-    trades_coll = db["perp_trades"]
-    signals_coll = db["perp_strategy_signals"]
+def load_training_data() -> tuple:
+    """Load and join trades + signals, extract features. Returns (X, y, names)."""
 
-    trades = list(trades_coll.find({}).sort("exit_time", -1))
-    log.info(f"Found {len(trades)} closed trades")
+    # Try HTTP first, fall back to MongoDB
+    raw = None
+    if TRAINING_API_URL and TRAINING_API_SECRET:
+        try:
+            raw = fetch_training_data_http()
+            log.info("Training data loaded via HTTPS API")
+        except Exception as e:
+            log.warning(f"HTTP fetch failed ({e}), trying MongoDB")
+
+    if raw is None:
+        try:
+            raw = fetch_training_data_mongodb()
+            log.info("Training data loaded via MongoDB")
+        except Exception as e:
+            raise RuntimeError(f"No data source available: {e}")
+
+    trades  = raw.get("trades", [])
+    signals = raw.get("signals", [])
+    log.info(f"Found {len(trades)} trades, {len(signals)} acted signals")
 
     if len(trades) < MIN_TRADES_TO_TRAIN:
-        log.warning(f"Not enough trades ({len(trades)} < {MIN_TRADES_TO_TRAIN}). Need more data.")
+        log.warning(f"Not enough trades ({len(trades)} < {MIN_TRADES_TO_TRAIN})")
         return None, None, None
 
-    acted_signals = list(signals_coll.find({"acted": True}).sort("timestamp", -1))
-    log.info(f"Found {len(acted_signals)} acted signals")
-
-    # Build lookup: (strategy, symbol, direction) → sorted list of signals
+    # Build signal lookup: (strategy, symbol, direction) → list of signals
     signal_lookup: dict = {}
-    for sig in acted_signals:
+    for sig in signals:
         key = (sig.get("strategy", ""), sig.get("symbol", ""), sig.get("direction", ""))
         signal_lookup.setdefault(key, []).append(sig)
 
@@ -91,22 +127,25 @@ def load_training_data(db):
     matched = unmatched = 0
 
     for trade in trades:
-        pnl = trade.get("realized_pnl", 0)
+        pnl   = trade.get("realized_pnl", 0)
         label = 1 if pnl > 0 else 0
 
         strategy = _parse_strategy(trade.get("entry_reason", ""))
-
-        # Best-match signal within ±5 minutes of entry (abs time delta)
-        signal = None
-        entry_time = trade.get("entry_time")
         key = (strategy, trade.get("symbol", ""), trade.get("direction", ""))
         candidates = signal_lookup.get(key, [])
+
+        # Best-match signal within ±5 minutes (abs time delta)
+        signal = None
+        entry_time = trade.get("entry_time")
         if entry_time and candidates:
             best_delta = 300
             for sig in candidates:
                 sig_time = sig.get("timestamp")
                 if sig_time:
-                    delta = abs((entry_time - sig_time).total_seconds())
+                    try:
+                        delta = abs((entry_time - sig_time).total_seconds())
+                    except Exception:
+                        continue
                     if delta < best_delta:
                         best_delta = delta
                         signal = sig
@@ -117,6 +156,7 @@ def load_training_data(db):
             unmatched += 1
 
         indicators = signal["indicators"] if signal and isinstance(signal.get("indicators"), dict) else {}
+        entry_ts = entry_time if isinstance(entry_time, datetime) else None
 
         feat = extract_features(
             strategy=strategy,
@@ -126,17 +166,17 @@ def load_training_data(db):
             indicators=indicators,
             price=trade.get("entry_price", 1),
             size_usd=trade.get("size_usd", 0),
-            ts=entry_time if isinstance(entry_time, datetime) else None,
+            ts=entry_ts,
         )
 
         if feat["strategy"] >= 0:
             X_list.append(feat)
             y_list.append(label)
 
-    log.info(f"Training set: {len(X_list)} samples ({matched} matched signals, {unmatched} unmatched)")
+    log.info(f"Training set: {len(X_list)} samples ({matched} matched, {unmatched} unmatched)")
 
     if len(X_list) < MIN_TRADES_TO_TRAIN:
-        log.warning(f"Not enough valid samples ({len(X_list)} < {MIN_TRADES_TO_TRAIN})")
+        log.warning(f"Not enough valid samples ({len(X_list)})")
         return None, None, None
 
     X = np.array([features_to_array(f) for f in X_list])
@@ -145,17 +185,22 @@ def load_training_data(db):
     return X, y, FEATURE_NAMES
 
 
-def train_model():
-    """Train XGBoost classifier and save to disk."""
+# ── Model training ────────────────────────────────────────────
+
+def train_model() -> bool:
+    """Train XGBoost classifier and save to disk. Returns True on success."""
     log.info("=" * 60)
     log.info("ML Signal Classifier — Training Pipeline")
     log.info("=" * 60)
 
-    db = connect_db()
-    result = load_training_data(db)
+    try:
+        result = load_training_data()
+    except RuntimeError as e:
+        log.error(f"Cannot load training data: {e}")
+        return False
 
     if result is None or result[0] is None:
-        log.error("Cannot train — insufficient data. Let strategies run and accumulate trades.")
+        log.error("Cannot train — insufficient data.")
         return False
 
     X, y, feature_names = result
