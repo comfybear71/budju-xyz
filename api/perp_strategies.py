@@ -172,6 +172,17 @@ DEFAULT_STRATEGIES = {
         "max_positions": 3,
         "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "SUI-PERP", "AVAX-PERP", "LINK-PERP"],
     },
+    "bnf_reversion": {
+        "enabled": False,          # BNF-style: extreme deviation mean reversion only
+        "leverage": 2,             # Low leverage — patience, not aggression
+        "sl_atr_mult": 1.0,        # Tight SL — cut losers fast (BNF principle)
+        "tp_atr_mult": 3.0,        # Wide TP but tp_override targets the MA
+        "trailing_stop_pct": 2.0,
+        "trailing_activation_pct": 3.0,
+        "max_positions": 2,
+        "markets": ["SOL-PERP", "BTC-PERP", "ETH-PERP", "DOGE-PERP", "AVAX-PERP",
+                     "LINK-PERP", "SUI-PERP", "RENDER-PERP", "JUP-PERP", "WIF-PERP"],
+    },
 }
 
 # Strategy candle timeframe — 15-min candles for real signal quality
@@ -1637,6 +1648,63 @@ def ml_predict(strategy: str, symbol: str, direction: str, leverage: int,
                 "error": str(e), "reason": "ML API unavailable — allowing trade"}
 
 
+# ── BNF Reversion Strategy ───────────────────────────────────────────────
+# Inspired by Takashi Kotegawa: only trade extreme deviations from the mean.
+# Waits for price to crash 5%+ below MA (or rally 5%+ above), then trades
+# the reversion back to the mean. Patience over frequency.
+
+BNF_MA_PERIOD = 100       # ~25 hours on 15-min candles (≈ 1-day MA)
+BNF_DEVIATION_PCT = 5.0   # Minimum 5% deviation to trigger entry
+BNF_RSI_OVERSOLD = 35     # RSI confirmation for longs
+BNF_RSI_OVERBOUGHT = 65   # RSI confirmation for shorts
+
+
+def strategy_bnf_reversion(prices: List[float], config: Dict) -> Optional[Dict]:
+    """BNF-style mean reversion: only trade extreme deviations from MA."""
+    if len(prices) < BNF_MA_PERIOD:
+        return None
+
+    indicators = compute_indicators(prices)
+    curr_price = prices[-1]
+    curr_rsi = indicators["rsi"]
+    curr_atr = indicators["atr"]
+
+    # 100-period simple MA
+    ma = sum(prices[-BNF_MA_PERIOD:]) / BNF_MA_PERIOD
+    deviation_pct = (curr_price - ma) / ma * 100
+
+    indicators["ma_100"] = round(ma, 6)
+    indicators["deviation_pct"] = round(deviation_pct, 2)
+
+    # Long: price crashed well below MA + RSI confirms oversold
+    if deviation_pct < -BNF_DEVIATION_PCT and curr_rsi < BNF_RSI_OVERSOLD:
+        return {
+            "direction": "long",
+            "signal": f"bnf_reversion (dev: {deviation_pct:.1f}%, RSI: {curr_rsi:.0f})",
+            "atr": curr_atr,
+            "indicators": indicators,
+            "confidence": min(100, abs(deviation_pct) * 10),
+            "tp_override": ma,
+            "sl_mult": 1.0,
+            "tp_mult": 3.0,
+        }
+
+    # Short: price rallied well above MA + RSI confirms overbought
+    if deviation_pct > BNF_DEVIATION_PCT and curr_rsi > BNF_RSI_OVERBOUGHT:
+        return {
+            "direction": "short",
+            "signal": f"bnf_reversion (dev: +{deviation_pct:.1f}%, RSI: {curr_rsi:.0f})",
+            "atr": curr_atr,
+            "indicators": indicators,
+            "confidence": min(100, abs(deviation_pct) * 10),
+            "tp_override": ma,
+            "sl_mult": 1.0,
+            "tp_mult": 3.0,
+        }
+
+    return None
+
+
 # ── Main Auto-Trader ─────────────────────────────────────────────────────
 
 STRATEGY_FUNCS = {
@@ -1646,6 +1714,7 @@ STRATEGY_FUNCS = {
     "scalping": strategy_scalping,
     "keltner": strategy_keltner_wrapper,
     "bb_squeeze": strategy_bb_squeeze_wrapper,
+    "bnf_reversion": strategy_bnf_reversion,
 }
 
 
