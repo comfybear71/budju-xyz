@@ -5,6 +5,7 @@ Serves XGBoost predictions via HTTP. Called by the perp-cron
 before opening any auto-trade position.
 
 Endpoints:
+  GET  /ping     — Public liveness probe (no auth)
   POST /predict  — Score a signal (returns win probability)
   GET  /health   — Health check + model info
   POST /retrain  — Trigger model retrain
@@ -22,15 +23,16 @@ import numpy as np
 import joblib
 from aiohttp import web
 
+from features import (
+    MODEL_PATH, META_PATH,
+    extract_features, features_to_array,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("ml_server")
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
-META_PATH = os.path.join(os.path.dirname(__file__), "model_meta.json")
 API_PORT = int(os.getenv("ML_API_PORT", "8421"))
-API_SECRET = os.getenv("VPS_API_SECRET", "")
-
-# Default confidence threshold — only allow trades scoring above this
+API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
 DEFAULT_THRESHOLD = 0.55
 
 # Model state
@@ -62,29 +64,17 @@ def load_model():
 
 
 def verify_auth(request):
-    """Verify API secret."""
+    """Verify Bearer token. Fails closed when no secret is set."""
     if not API_SECRET:
-        return True
+        log.warning("API_SECRET not set — rejecting request")
+        return False
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:] == API_SECRET
-    return False
+    return auth.startswith("Bearer ") and auth[7:] == API_SECRET
 
 
-# ── Strategy/symbol encoding (must match train.py) ──
-
-STRATEGY_MAP = {
-    "trend_following": 0, "mean_reversion": 1, "momentum": 2,
-    "scalping": 3, "keltner": 4, "bb_squeeze": 5,
-    "ninja": 6, "grid": 7, "zone_recovery": 8,
-    "hf_scalper": 9, "sr_reversal": 10,
-}
-SYMBOL_MAP = {
-    "SOL-PERP": 0, "BTC-PERP": 1, "ETH-PERP": 2, "DOGE-PERP": 3,
-    "AVAX-PERP": 4, "LINK-PERP": 5, "SUI-PERP": 6, "RENDER-PERP": 7,
-    "JUP-PERP": 8, "WIF-PERP": 9,
-}
-DIRECTION_MAP = {"long": 0, "short": 1}
+async def handle_ping(request):
+    """Public liveness probe — no auth required."""
+    return web.json_response({"status": "ok"})
 
 
 async def handle_predict(request):
@@ -98,20 +88,13 @@ async def handle_predict(request):
         "leverage": 5,
         "indicators": {
             "rsi": 42.5,
-            "ema_fast": 80.5, "ema_slow": 79.2,
+            "fast_ema": 80.5, "slow_ema": 79.2,
             "atr": 1.2,
-            "bb_upper": 82, "bb_lower": 78, "bb_mid": 80,
+            "bb_upper": 82, "bb_lower": 78, "bb_middle": 80,
             "confidence": 75
         },
         "price": 80.0,
         "size_usd": 500
-    }
-
-    Response: {
-        "win_probability": 0.72,
-        "should_trade": true,
-        "threshold": 0.55,
-        "model_loaded": true
     }
     """
     if not verify_auth(request):
@@ -122,7 +105,7 @@ async def handle_predict(request):
     except Exception:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    # If no model loaded, return neutral (don't block trades)
+    # No model yet — allow trade, don't block
     if model is None:
         return web.json_response({
             "win_probability": 0.5,
@@ -132,46 +115,22 @@ async def handle_predict(request):
             "reason": "No model trained yet — allowing trade",
         })
 
-    # Build feature vector
-    indicators = data.get("indicators", {})
-    price = float(data.get("price", 1))
+    price = float(data.get("price", 1) or 1)
 
-    features = {}
-    features["strategy"] = STRATEGY_MAP.get(data.get("strategy", ""), -1)
-    features["symbol"] = SYMBOL_MAP.get(data.get("symbol", ""), -1)
-    features["direction"] = DIRECTION_MAP.get(data.get("direction", ""), 0)
-    features["leverage"] = data.get("leverage", 5)
+    feat = extract_features(
+        strategy=data.get("strategy", ""),
+        symbol=data.get("symbol", ""),
+        direction=data.get("direction", ""),
+        leverage=data.get("leverage", 5),
+        indicators=data.get("indicators") or {},
+        price=price,
+        size_usd=data.get("size_usd", 0),
+        ts=datetime.utcnow(),
+    )
 
-    now = datetime.utcnow()
-    features["hour"] = now.hour
-    features["day_of_week"] = now.weekday()
-
-    features["rsi"] = float(indicators.get("rsi", 50))
-
-    fast_ema = float(indicators.get("fast_ema", indicators.get("ema_fast", indicators.get("ema_9", 0))))
-    slow_ema = float(indicators.get("slow_ema", indicators.get("ema_slow", indicators.get("ema_21", 0))))
-    features["ema_spread_pct"] = ((fast_ema - slow_ema) / price * 100) if price > 0 and fast_ema > 0 and slow_ema > 0 else 0
-
-    atr = float(indicators.get("atr", indicators.get("atr_value", 0)))
-    features["atr_pct"] = (atr / price * 100) if price > 0 and atr > 0 else 0
-
-    bb_upper = float(indicators.get("bb_upper", indicators.get("upper_band", 0)))
-    bb_lower = float(indicators.get("bb_lower", indicators.get("lower_band", 0)))
-    bb_mid = float(indicators.get("bb_middle", indicators.get("bb_mid", indicators.get("sma", 0))))
-    features["bb_width"] = ((bb_upper - bb_lower) / bb_mid * 100) if bb_mid > 0 else 0
-
-    if bb_upper > bb_lower:
-        features["bb_position"] = (price - bb_lower) / (bb_upper - bb_lower)
-    else:
-        features["bb_position"] = 0.5
-
-    features["confidence"] = float(indicators.get("confidence", indicators.get("hotness", 50)))
-    features["size_pct"] = float(data.get("size_usd", 0)) / 10000 * 100
-
-    # Build feature array in correct order
     try:
-        X = np.array([[features.get(f, 0) for f in feature_names]])
-        proba = model.predict_proba(X)[0][1]  # Probability of win
+        X = np.array([features_to_array(feat, feature_names)])
+        proba = float(model.predict_proba(X)[0][1])
     except Exception as e:
         log.error(f"Prediction error: {e}")
         return web.json_response({
@@ -183,19 +142,20 @@ async def handle_predict(request):
         })
 
     threshold = float(data.get("threshold", DEFAULT_THRESHOLD))
-    should_trade = proba >= threshold
 
     return web.json_response({
-        "win_probability": round(float(proba), 4),
-        "should_trade": should_trade,
+        "win_probability": round(proba, 4),
+        "should_trade": proba >= threshold,
         "threshold": threshold,
         "model_loaded": True,
-        "features_used": features,
+        "features_used": feat,
     })
 
 
 async def handle_health(request):
     """Health check + model info."""
+    if not verify_auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
     return web.json_response({
         "status": "ok",
         "model_loaded": model is not None,
@@ -214,19 +174,19 @@ async def handle_retrain(request):
         from train import train_model
         success = train_model()
         if success:
-            load_model()  # Reload the new model
+            load_model()
             return web.json_response({"status": "ok", "retrained": True, "meta": meta})
         else:
             return web.json_response({"status": "error", "retrained": False,
-                                       "reason": "Insufficient training data"})
+                                      "reason": "Insufficient training data"})
     except Exception as e:
         log.error(f"Retrain error: {e}")
         return web.json_response({"status": "error", "error": str(e)}, status=500)
 
 
 def create_app():
-    """Create the aiohttp app."""
     app = web.Application()
+    app.router.add_get("/ping", handle_ping)
     app.router.add_post("/predict", handle_predict)
     app.router.add_get("/health", handle_health)
     app.router.add_post("/retrain", handle_retrain)
@@ -234,6 +194,8 @@ def create_app():
 
 
 if __name__ == "__main__":
+    if not API_SECRET:
+        raise SystemExit("ML_API_SECRET (or VPS_API_SECRET) must be set before starting")
     load_model()
     app = create_app()
     log.info(f"ML Prediction API starting on port {API_PORT}")
