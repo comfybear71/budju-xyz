@@ -17,6 +17,7 @@ FUNNEL_STAGES = {
     "correlation": "Correlation Guard",
     "performance": "Performance Disabled",
     "low_volatility": "Low Volatility",
+    "overextended": "Overextended",
     "regime": "Regime Blocked",
     "size": "Size Too Small",
     "balance": "Low Balance",
@@ -146,7 +147,7 @@ def get_funnel_and_decisions():
     # Build funnel stages array (ordered pipeline)
     funnel = []
     for key in ["cooldown", "already_open", "correlation", "performance",
-                "low_volatility", "regime", "size", "balance", "ml"]:
+                "low_volatility", "overextended", "regime", "size", "balance", "ml"]:
         if funnel_counts.get(key, 0) > 0:
             funnel.append({
                 "key": key,
