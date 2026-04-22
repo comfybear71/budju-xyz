@@ -6,6 +6,7 @@ import MarketPills from "./components/dashboard/MarketPills";
 import PerpPositionsList from "./components/perps/PerpPositionsList";
 import PerpTradeHistory from "./components/perps/PerpTradeHistory";
 import PerpEquityChart from "./components/perps/PerpEquityChart";
+import MLBrainPanel from "./components/perps/MLBrainPanel";
 import { fetchPerpEquity } from "./services/perpApi";
 
 const TradingChart = lazy(() => import("./components/perps/TradingChart"));
@@ -344,6 +345,9 @@ const TradeDashboard = ({ onClose, isAdmin = false }: TradeDashboardProps) => {
                 </div>
               );
             })()}
+
+            {/* ML Brain */}
+            <MLBrainPanel />
 
             {/* Strategy Win Rates */}
             {data.strategyStatus?.strategy_performance && Object.keys(data.strategyStatus.strategy_performance).length > 0 && (
