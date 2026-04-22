@@ -174,7 +174,10 @@ DEFAULT_STRATEGIES = {
     },
 }
 
-# How many 1-minute candles we need for calculations
+# Strategy candle timeframe — 15-min candles for real signal quality
+# (1-min candles = pure noise, no strategy is profitable on them)
+CANDLE_MINUTES = 15
+# How many candles we need for calculations
 MIN_CANDLES = 30
 # Max position size as pct of equity
 MAX_POSITION_PCT = 0.10  # 10% per auto trade (conservative)
@@ -540,8 +543,9 @@ def atr(prices: List[float], period: int = 14) -> List[float]:
 
     true_ranges = [abs(prices[i+1] - prices[i]) for i in range(len(prices) - 1)]
 
-    # Scale factor: sqrt(60) to approximate 1-hour ATR from 1-min data
-    scale = math.sqrt(60)
+    # Scale to approximate 1-hour ATR from candle data
+    # 1-min: sqrt(60) ≈ 7.75, 15-min: sqrt(4) = 2.0, 60-min: 1.0
+    scale = math.sqrt(60 / CANDLE_MINUTES)
 
     atr_vals = [sum(true_ranges[:period]) / period * scale]
     for i in range(period, len(true_ranges)):
@@ -1733,7 +1737,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
     market_regimes = {}
     for symbol in prices:
         try:
-            ps = get_price_series(symbol, 50)
+            ps = get_price_series_15m(symbol, 50)
             if len(ps) >= 30:
                 market_regimes[symbol] = detect_market_regime(ps)
         except Exception:
@@ -1831,11 +1835,11 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             store_price(symbol, prices[symbol])
 
             # Get price history
-            price_series = get_price_series(symbol, min_candles)
+            price_series = get_price_series_15m(symbol, min_candles)
             if len(price_series) < min_candles:
                 continue
 
-            # Run strategy
+            # Run strategy (indicators now on 15-min candles)
             signal = strategy_func(price_series, strat_config)
             if not signal:
                 continue
