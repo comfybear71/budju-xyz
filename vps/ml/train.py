@@ -65,7 +65,8 @@ def fetch_training_data_http() -> dict:
     if not TRAINING_API_URL or not TRAINING_API_SECRET:
         return None
 
-    url = f"{TRAINING_API_URL}/api/ml-training-data?limit=2000"
+    # TRAINING_API_URL is the full endpoint, e.g. https://budju.xyz/api/ml-training-data
+    url = f"{TRAINING_API_URL.rstrip('/')}?limit=2000"
     req = Request(url, headers={
         "Authorization": f"Bearer {TRAINING_API_SECRET}",
         "Accept": "application/json",
@@ -78,6 +79,9 @@ def fetch_training_data_http() -> dict:
         return None
     except URLError as e:
         log.error(f"Training API unreachable: {e.reason}")
+        return None
+    except json.JSONDecodeError as e:
+        log.error(f"Training API returned non-JSON (wrong URL?): {e}")
         return None
 
     # Parse datetime strings back to datetime objects so feature extraction works
