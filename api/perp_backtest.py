@@ -310,8 +310,7 @@ def backtest_strategy(strategy_name: str, prices: List[float],
 
             # Position sizing — same logic as live
             size_usd = calculate_position_size(
-                equity, atr_value, current_price, leverage, sl_mult,
-                peak_equity=peak_equity
+                equity, atr_value, current_price, leverage, sl_mult
             )
             if size_usd <= 0:
                 continue
@@ -401,6 +400,8 @@ def _compute_metrics(trades: List[Dict], equity_curve: List[Dict],
     if not trades:
         return {
             "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
             "total_pnl": 0,
             "win_rate": 0,
             "profit_factor": 0,
@@ -408,9 +409,16 @@ def _compute_metrics(trades: List[Dict], equity_curve: List[Dict],
             "sharpe_ratio": 0,
             "recovery_factor": 0,
             "avg_trade_duration_bars": 0,
+            "avg_trade_duration_hrs": 0,
             "avg_win": 0,
             "avg_loss": 0,
+            "best_trade": 0,
+            "worst_trade": 0,
+            "total_fees": 0,
             "fee_impact": 0,
+            "final_balance": round(final_balance, 2),
+            "return_pct": round((final_balance - initial_balance) / initial_balance * 100, 2),
+            "exit_types": {},
         }
 
     pnls = [t["net_pnl"] for t in trades]
