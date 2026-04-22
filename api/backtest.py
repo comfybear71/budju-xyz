@@ -3,6 +3,7 @@ import json
 import os
 import sys
 from urllib.parse import urlparse, parse_qs
+from urllib.request import Request, urlopen
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -20,6 +21,38 @@ VALID_STRATEGIES = [
 ]
 
 
+SYMBOL_MAP = {
+    "BTC-PERP": "BTCUSDT", "ETH-PERP": "ETHUSDT", "SOL-PERP": "SOLUSDT",
+    "DOGE-PERP": "DOGEUSDT", "AVAX-PERP": "AVAXUSDT", "LINK-PERP": "LINKUSDT",
+    "SUI-PERP": "SUIUSDT", "RENDER-PERP": "RENDERUSDT", "JUP-PERP": "JUPUSDT",
+    "WIF-PERP": "WIFUSDT",
+}
+
+INTERVAL_MINUTES = {"15m": 15, "1h": 60, "4h": 240, "1d": 1440}
+
+
+def _fetch_binance_klines(symbol, interval="4h", limit=1000):
+    binance_sym = SYMBOL_MAP.get(symbol)
+    if not binance_sym:
+        raise ValueError(f"No Binance mapping for {symbol}")
+
+    urls = [
+        f"https://data-api.binance.vision/api/v3/klines?symbol={binance_sym}&interval={interval}&limit={limit}",
+        f"https://api.binance.us/api/v3/klines?symbol={binance_sym}&interval={interval}&limit={limit}",
+    ]
+
+    for url in urls:
+        try:
+            req = Request(url, headers={"User-Agent": "budju-backtest/1.0"})
+            with urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            return [float(candle[4]) for candle in data]
+        except Exception:
+            continue
+
+    raise ValueError(f"Could not fetch Binance data for {symbol}")
+
+
 def _cors_origin(headers) -> str:
     origin = headers.get("Origin", "")
     return origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
@@ -34,10 +67,14 @@ class handler(BaseHTTPRequestHandler):
 
             strategy = params.get("strategy", [None])[0]
             symbol = params.get("symbol", [None])[0]
-            periods = int(params.get("periods", ["4320"])[0])  # default 3 days
-            periods = min(periods, 20160)  # cap at 2 weeks
+            source = params.get("source", ["db"])[0]
+            interval = params.get("interval", ["4h"])[0]
+            periods = int(params.get("periods", ["4320"])[0])
+            periods = min(periods, 20160)
 
-            if not strategy and not symbol:
+            if source == "binance" and strategy and symbol:
+                body = self._run_binance(strategy, symbol, interval)
+            elif not strategy and not symbol:
                 body = self._run_all()
             elif strategy and symbol:
                 body = self._run_single(strategy, symbol, periods)
@@ -59,6 +96,44 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode())
+
+    def _run_binance(self, strategy, symbol, interval):
+        if strategy not in VALID_STRATEGIES:
+            return {"error": f"Invalid strategy. Valid: {VALID_STRATEGIES}"}
+        if symbol not in VALID_SYMBOLS:
+            return {"error": f"Invalid symbol. Valid: {VALID_SYMBOLS}"}
+        if interval not in INTERVAL_MINUTES:
+            return {"error": f"Invalid interval. Valid: {list(INTERVAL_MINUTES.keys())}"}
+
+        prices = _fetch_binance_klines(symbol, interval, limit=1000)
+
+        import perp_strategies
+        from perp_backtest import backtest_strategy, DEFAULT_STRATEGIES
+
+        config = DEFAULT_STRATEGIES.get(strategy)
+        if not config:
+            return {"error": f"Unknown strategy: {strategy}"}
+
+        candle_min = INTERVAL_MINUTES[interval]
+        old_cm = perp_strategies.CANDLE_MINUTES
+        perp_strategies.CANDLE_MINUTES = candle_min
+        try:
+            result = backtest_strategy(strategy, prices, config=config, initial_balance=10000)
+        finally:
+            perp_strategies.CANDLE_MINUTES = old_cm
+
+        days = len(prices) * candle_min / 1440
+        return {
+            "source": "binance",
+            "strategy": strategy,
+            "symbol": symbol,
+            "interval": interval,
+            "candles": len(prices),
+            "days": round(days, 1),
+            "metrics": result["metrics"],
+            "trade_count": len(result["trades"]),
+            "trades": result["trades"][:50],
+        }
 
     def _run_single(self, strategy, symbol, periods):
         if strategy not in VALID_STRATEGIES:
