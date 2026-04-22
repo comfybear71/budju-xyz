@@ -1664,7 +1664,7 @@ def strategy_bnf_reversion(prices: List[float], config: Dict) -> Optional[Dict]:
     if len(prices) < BNF_MA_PERIOD:
         return None
 
-    indicators = compute_indicators(prices)
+    indicators = build_standard_indicators(prices)
     curr_price = prices[-1]
     curr_rsi = indicators["rsi"]
     curr_atr = indicators["atr"]
