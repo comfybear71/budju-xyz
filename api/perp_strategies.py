@@ -1849,7 +1849,7 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
             entry_reason = f"[{strategy_name}] {signal['signal']}"
 
             # ── ML GATE: Ask classifier if this trade is worth taking ──
-            if ML_ENABLED and not is_test:
+            if ML_ENABLED:
                 ml_result = ml_predict(
                     strategy=strategy_name, symbol=symbol, direction=direction,
                     leverage=strat_leverage, price=curr_price, size_usd=size_usd,
