@@ -33,6 +33,7 @@ from perp_strategies import (
     DEFAULT_STRATEGIES,
     STRATEGY_FUNCS,
     MIN_CANDLES,
+    CANDLE_MINUTES,
     COOLDOWN_MINUTES,
     MAX_POSITION_PCT,
     calculate_position_size,
@@ -99,8 +100,8 @@ class SimPosition:
         """Update position with new price. Returns exit_type or None."""
         self.bars_held += 1
 
-        # Accumulate borrow fee every 60 bars (1 hour of 1-min candles)
-        if self.bars_held % 60 == 0:
+        # Accumulate borrow fee every hour (60/CANDLE_MINUTES bars)
+        if self.bars_held % max(1, 60 // CANDLE_MINUTES) == 0:
             self.cumulative_borrow_fee += self.size_usd * BORROW_FEE_PCT_HR
 
         # 1. Liquidation check (highest priority)
@@ -202,7 +203,7 @@ def backtest_strategy(strategy_name: str, prices: List[float],
     tp_mult = strat_config.get("tp_atr_mult", 3.0)
     trailing_pct = strat_config.get("trailing_stop_pct", 0)
     trailing_activation = strat_config.get("trailing_activation_pct", 0)
-    cooldown_bars = strat_config.get("cooldown_bars", COOLDOWN_MINUTES)
+    cooldown_bars = strat_config.get("cooldown_bars", COOLDOWN_MINUTES // CANDLE_MINUTES)
 
     if len(prices) < MIN_BARS_WARMUP + MIN_CANDLES:
         raise ValueError(
@@ -239,7 +240,7 @@ def backtest_strategy(strategy_name: str, prices: List[float],
 
         # Track peak equity and record equity curve (every 60 bars = 1 hour)
         peak_equity = max(peak_equity, equity)
-        if bar_idx % 60 == 0:
+        if bar_idx % max(1, 60 // CANDLE_MINUTES) == 0:
             equity_curve.append({
                 "bar": bar_idx,
                 "equity": round(equity, 2),
@@ -507,7 +508,7 @@ def _compute_metrics(trades: List[Dict], equity_curve: List[Dict],
         "sharpe_ratio": round(sharpe, 2),
         "recovery_factor": round(min(recovery_factor, 999), 2),
         "avg_trade_duration_bars": round(avg_duration, 1),
-        "avg_trade_duration_hrs": round(avg_duration / 60, 2),
+        "avg_trade_duration_hrs": round(avg_duration * CANDLE_MINUTES / 60, 2),
         "avg_win": round(avg_win, 2),
         "avg_loss": round(avg_loss, 2),
         "best_trade": round(max(pnls), 2) if pnls else 0,
@@ -705,12 +706,15 @@ def run_backtest_from_db(strategy_name: str, symbol: str,
     Returns:
         Backtest results dict
     """
-    from perp_strategies import get_price_series
+    from perp_strategies import get_price_series_15m, CANDLE_MINUTES
 
-    prices = get_price_series(symbol, count=periods)
+    # Fetch 15-min candles to match live trading timeframe
+    # Convert requested 1-min periods to 15-min candle count
+    candle_count = max(periods // CANDLE_MINUTES, MIN_BARS_WARMUP + MIN_CANDLES + 10)
+    prices = get_price_series_15m(symbol, count=candle_count)
     if len(prices) < MIN_BARS_WARMUP + MIN_CANDLES:
         raise ValueError(
-            f"Insufficient price data for {symbol}: have {len(prices)} candles, "
+            f"Insufficient price data for {symbol}: have {len(prices)} 15m candles, "
             f"need at least {MIN_BARS_WARMUP + MIN_CANDLES}. "
             f"Wait for more data to accumulate or reduce periods."
         )
