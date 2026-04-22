@@ -5,7 +5,8 @@ Serves XGBoost predictions via HTTP. Called by the perp-cron
 before opening any auto-trade position.
 
 Endpoints:
-  POST /predict  — Score a signal (returns win probability)
+  GET  /ping     — Public liveness probe (no auth)
+  POST /predict  — Score a signal (returns win probability + SHAP explanation)
   GET  /health   — Health check + model info
   POST /retrain  — Trigger model retrain
 
@@ -22,17 +23,19 @@ import numpy as np
 import joblib
 from aiohttp import web
 
+from features import (
+    MODEL_PATH, META_PATH,
+    extract_features, features_to_array,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("ml_server")
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model.joblib")
-META_PATH = os.path.join(os.path.dirname(__file__), "model_meta.json")
 API_PORT = int(os.getenv("ML_API_PORT", "8421"))
 # ML_API_SECRET is distinct from VPS_API_SECRET (used by the VPS trader) so a compromise
 # of this box does not leak credentials for the spot trader.
 # Falls back to VPS_API_SECRET only for backwards compatibility with pre-April-2026 setups.
 API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
-
 # Default confidence threshold — only allow trades scoring above this
 DEFAULT_THRESHOLD = 0.55
 
@@ -40,11 +43,71 @@ DEFAULT_THRESHOLD = 0.55
 model = None
 meta = None
 feature_names = None
+shap_explainer = None  # TreeExplainer — loaded alongside model
+
+
+# ── Human-readable SHAP factor labels ────────────────────────────────────
+
+_FEATURE_LABELS = {
+    "rsi":           ("RSI high", "RSI low"),        # pos=high RSI→win, neg=high RSI→loss
+    "atr_pct":       ("high volatility", "low volatility"),
+    "bb_width":      ("wide BBs", "tight BBs"),
+    "bb_position":   ("price at upper BB", "price at lower BB"),
+    "ema_spread_pct":("EMA spread wide", "EMA spread narrow"),
+    "confidence":    ("strong signal", "weak signal"),
+    "hour":          ("good hour", "bad hour"),
+    "day_of_week":   ("good day", "bad day"),
+    "leverage":      ("high leverage", "low leverage"),
+    "size_pct":      ("large size", "small size"),
+    "strategy":      ("this strategy favored", "this strategy unfavored"),
+    "symbol":        ("this market favored", "this market unfavored"),
+    "direction":     ("this direction favored", "this direction unfavored"),
+}
+
+
+def _shap_label(feature: str, impact: float) -> str:
+    """Convert a feature + SHAP impact into a human-readable phrase."""
+    labels = _FEATURE_LABELS.get(feature, (feature, feature))
+    return labels[0] if impact >= 0 else labels[1]
+
+
+def _explain(feat_dict: dict, shap_values: np.ndarray, names: list, top_n: int = 3) -> dict:
+    """Build a human-readable SHAP explanation from raw SHAP values.
+
+    Returns:
+        top_factors: list of {feature, value, impact, label} sorted by |impact|
+        summary: short string of top-N negative drivers (for rejection logs)
+    """
+    factors = []
+    for i, name in enumerate(names):
+        impact = float(shap_values[i])
+        factors.append({
+            "feature": name,
+            "value":   round(feat_dict.get(name, 0), 4),
+            "impact":  round(impact, 4),
+            "label":   _shap_label(name, impact),
+        })
+
+    # Sort by absolute impact descending
+    factors.sort(key=lambda x: abs(x["impact"]), reverse=True)
+    top = factors[:top_n]
+
+    # Summary string — list top negative drivers if trade was rejected
+    neg = [f"{f['feature']}={f['value']}({f['impact']:+.2f})" for f in top if f["impact"] < 0]
+    pos = [f"{f['feature']}={f['value']}({f['impact']:+.2f})" for f in top if f["impact"] >= 0]
+    summary_parts = []
+    if neg:
+        summary_parts.append("against: " + ", ".join(neg))
+    if pos:
+        summary_parts.append("for: " + ", ".join(pos))
+    summary = " | ".join(summary_parts) if summary_parts else "no dominant factors"
+
+    return {"top_factors": top, "summary": summary}
 
 
 def load_model():
-    """Load the trained model from disk."""
-    global model, meta, feature_names
+    """Load the trained model and SHAP explainer from disk."""
+    global model, meta, feature_names, shap_explainer
 
     if not os.path.exists(MODEL_PATH):
         log.warning(f"No model found at {MODEL_PATH} — predictions will return 0.5 (neutral)")
@@ -61,6 +124,18 @@ def load_model():
     else:
         feature_names = []
 
+    # Build SHAP explainer — TreeExplainer is exact and fast for XGBoost
+    try:
+        import shap
+        shap_explainer = shap.TreeExplainer(model)
+        log.info("SHAP TreeExplainer loaded")
+    except ImportError:
+        log.warning("shap not installed — SHAP explanations disabled. Run: pip install shap")
+        shap_explainer = None
+    except Exception as e:
+        log.warning(f"SHAP explainer failed to load: {e}")
+        shap_explainer = None
+
     return True
 
 
@@ -72,29 +147,17 @@ def verify_auth(request):
         log.warning("verify_auth: VPS_API_SECRET not set — rejecting request")
         return False
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:] == API_SECRET
-    return False
+    return auth.startswith("Bearer ") and auth[7:] == API_SECRET
 
 
-# ── Strategy/symbol encoding (must match train.py) ──
-
-STRATEGY_MAP = {
-    "trend_following": 0, "mean_reversion": 1, "momentum": 2,
-    "scalping": 3, "keltner": 4, "bb_squeeze": 5,
-    "ninja": 6, "grid": 7, "zone_recovery": 8,
-    "hf_scalper": 9, "sr_reversal": 10,
-}
-SYMBOL_MAP = {
-    "SOL-PERP": 0, "BTC-PERP": 1, "ETH-PERP": 2, "DOGE-PERP": 3,
-    "AVAX-PERP": 4, "LINK-PERP": 5, "SUI-PERP": 6, "RENDER-PERP": 7,
-    "JUP-PERP": 8, "WIF-PERP": 9,
-}
-DIRECTION_MAP = {"long": 0, "short": 1}
+async def handle_ping(request):
+    """Unauthenticated liveness probe. Returns 200 if the process is up, nothing else.
+    Safe to expose — reveals no information beyond that the server is running."""
+    return web.json_response({"status": "ok"})
 
 
 async def handle_predict(request):
-    """Score a trading signal. Returns win probability.
+    """Score a trading signal. Returns win probability + SHAP explanation.
 
     POST /predict
     Body: {
@@ -104,21 +167,20 @@ async def handle_predict(request):
         "leverage": 5,
         "indicators": {
             "rsi": 42.5,
-            "ema_fast": 80.5, "ema_slow": 79.2,
+            "fast_ema": 80.5, "slow_ema": 79.2,
             "atr": 1.2,
-            "bb_upper": 82, "bb_lower": 78, "bb_mid": 80,
+            "bb_upper": 82, "bb_lower": 78, "bb_middle": 80,
             "confidence": 75
         },
         "price": 80.0,
         "size_usd": 500
     }
 
-    Response: {
-        "win_probability": 0.72,
-        "should_trade": true,
-        "threshold": 0.55,
-        "model_loaded": true
-    }
+    Response adds:
+        "why": {
+            "top_factors": [{"feature": "rsi", "value": 68.2, "impact": -0.18, "label": "RSI high"}],
+            "summary": "against: rsi=68.2(-0.18), hour=3(-0.12) | for: strategy=0(+0.09)"
+        }
     """
     if not verify_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
@@ -128,7 +190,7 @@ async def handle_predict(request):
     except Exception:
         return web.json_response({"error": "Invalid JSON"}, status=400)
 
-    # If no model loaded, return neutral (don't block trades)
+    # No model yet — allow trade, don't block
     if model is None:
         return web.json_response({
             "win_probability": 0.5,
@@ -138,46 +200,22 @@ async def handle_predict(request):
             "reason": "No model trained yet — allowing trade",
         })
 
-    # Build feature vector
-    indicators = data.get("indicators", {})
-    price = float(data.get("price", 1))
+    price = float(data.get("price", 1) or 1)
 
-    features = {}
-    features["strategy"] = STRATEGY_MAP.get(data.get("strategy", ""), -1)
-    features["symbol"] = SYMBOL_MAP.get(data.get("symbol", ""), -1)
-    features["direction"] = DIRECTION_MAP.get(data.get("direction", ""), 0)
-    features["leverage"] = data.get("leverage", 5)
+    feat = extract_features(
+        strategy=data.get("strategy", ""),
+        symbol=data.get("symbol", ""),
+        direction=data.get("direction", ""),
+        leverage=data.get("leverage", 5),
+        indicators=data.get("indicators") or {},
+        price=price,
+        size_usd=data.get("size_usd", 0),
+        ts=datetime.utcnow(),
+    )
 
-    now = datetime.utcnow()
-    features["hour"] = now.hour
-    features["day_of_week"] = now.weekday()
-
-    features["rsi"] = float(indicators.get("rsi", 50))
-
-    fast_ema = float(indicators.get("fast_ema", indicators.get("ema_fast", indicators.get("ema_9", 0))))
-    slow_ema = float(indicators.get("slow_ema", indicators.get("ema_slow", indicators.get("ema_21", 0))))
-    features["ema_spread_pct"] = ((fast_ema - slow_ema) / price * 100) if price > 0 and fast_ema > 0 and slow_ema > 0 else 0
-
-    atr = float(indicators.get("atr", indicators.get("atr_value", 0)))
-    features["atr_pct"] = (atr / price * 100) if price > 0 and atr > 0 else 0
-
-    bb_upper = float(indicators.get("bb_upper", indicators.get("upper_band", 0)))
-    bb_lower = float(indicators.get("bb_lower", indicators.get("lower_band", 0)))
-    bb_mid = float(indicators.get("bb_middle", indicators.get("bb_mid", indicators.get("sma", 0))))
-    features["bb_width"] = ((bb_upper - bb_lower) / bb_mid * 100) if bb_mid > 0 else 0
-
-    if bb_upper > bb_lower:
-        features["bb_position"] = (price - bb_lower) / (bb_upper - bb_lower)
-    else:
-        features["bb_position"] = 0.5
-
-    features["confidence"] = float(indicators.get("confidence", indicators.get("hotness", 50)))
-    features["size_pct"] = float(data.get("size_usd", 0)) / 10000 * 100
-
-    # Build feature array in correct order
     try:
-        X = np.array([[features.get(f, 0) for f in feature_names]])
-        proba = model.predict_proba(X)[0][1]  # Probability of win
+        X = np.array([features_to_array(feat, feature_names)])
+        proba = float(model.predict_proba(X)[0][1])
     except Exception as e:
         log.error(f"Prediction error: {e}")
         return web.json_response({
@@ -191,13 +229,29 @@ async def handle_predict(request):
     threshold = float(data.get("threshold", DEFAULT_THRESHOLD))
     should_trade = proba >= threshold
 
-    return web.json_response({
-        "win_probability": round(float(proba), 4),
+    # SHAP explanation — best-effort, never blocks the response
+    why = None
+    if shap_explainer is not None and feature_names:
+        try:
+            sv = shap_explainer.shap_values(X)
+            # XGBoost binary: sv is shape (1, n_features) or nested list
+            if isinstance(sv, list):
+                sv = sv[1] if len(sv) > 1 else sv[0]
+            why = _explain(feat, sv[0], feature_names)
+        except Exception as e:
+            log.warning(f"SHAP failed (non-fatal): {e}")
+
+    response = {
+        "win_probability": round(proba, 4),
         "should_trade": should_trade,
         "threshold": threshold,
         "model_loaded": True,
-        "features_used": features,
-    })
+        "features_used": feat,
+    }
+    if why:
+        response["why"] = why
+
+    return web.json_response(response)
 
 
 async def handle_health(request):
@@ -208,16 +262,11 @@ async def handle_health(request):
     return web.json_response({
         "status": "ok",
         "model_loaded": model is not None,
+        "shap_enabled": shap_explainer is not None,
         "meta": meta,
         "port": API_PORT,
         "timestamp": datetime.utcnow().isoformat(),
     })
-
-
-async def handle_ping(request):
-    """Unauthenticated liveness probe. Returns 200 if the process is up, nothing else.
-    Safe to expose — reveals no information beyond that the server is running."""
-    return web.json_response({"status": "ok"})
 
 
 async def handle_retrain(request):
@@ -229,35 +278,30 @@ async def handle_retrain(request):
         from train import train_model
         success = train_model()
         if success:
-            load_model()  # Reload the new model
+            load_model()
             return web.json_response({"status": "ok", "retrained": True, "meta": meta})
         else:
             return web.json_response({"status": "error", "retrained": False,
-                                       "reason": "Insufficient training data"})
+                                      "reason": "Insufficient training data"})
     except Exception as e:
         log.error(f"Retrain error: {e}")
         return web.json_response({"status": "error", "error": str(e)}, status=500)
 
 
 def create_app():
-    """Create the aiohttp app."""
     app = web.Application()
+    app.router.add_get("/ping", handle_ping)
     app.router.add_post("/predict", handle_predict)
     app.router.add_get("/health", handle_health)
-    app.router.add_get("/ping", handle_ping)
     app.router.add_post("/retrain", handle_retrain)
     return app
 
 
 if __name__ == "__main__":
+    if not API_SECRET:
+        raise SystemExit("ML_API_SECRET (or VPS_API_SECRET) must be set before starting")
     load_model()
     app = create_app()
-    # Bind host: default to 0.0.0.0 only if explicitly set. Operators should front this
-    # with a firewall (UFW) that restricts port 8421 to Vercel IPs or require the
-    # bearer token to do anything useful anyway.
     host = os.getenv("ML_API_HOST", "0.0.0.0")
-    if not API_SECRET:
-        log.error("VPS_API_SECRET not set — refusing to start. Set the env var and restart.")
-        raise SystemExit(1)
     log.info(f"ML Prediction API starting on {host}:{API_PORT}")
     web.run_app(app, host=host, port=API_PORT)

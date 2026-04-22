@@ -35,7 +35,7 @@ from perp_engine import (
 )
 from perp_strategies import (
     get_price_series, store_price, ema, rsi, atr, sma,
-    get_strategy_config, log_signal,
+    get_strategy_config, log_signal, build_standard_indicators,
     perp_strategy_signals,
 )
 
@@ -123,6 +123,7 @@ def detect_hf_signals(prices: List[float], symbol: str) -> List[Dict]:
     price_move_pct = abs(price_move) / prev_price * 100 if prev_price > 0 else 0
 
     base_indicators = {
+        **build_standard_indicators(prices),
         "fast_ema": round(curr_fast, 6),
         "slow_ema": round(curr_slow, 6),
         "rsi": round(curr_rsi, 2),

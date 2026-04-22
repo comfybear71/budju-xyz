@@ -34,7 +34,7 @@ from typing import Dict, List, Optional
 sys.path.insert(0, os.path.dirname(__file__))
 from perp_strategies import (
     get_price_series, ema, rsi, atr, sma, bollinger_bands,
-    trend_filter, log_signal,
+    trend_filter, log_signal, build_standard_indicators,
 )
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -173,6 +173,7 @@ def strategy_keltner(prices: List[float], config: Dict) -> Optional[Dict]:
     squeeze_bars = count_squeeze_bars(prices) if is_squeeze else 0
 
     indicators = {
+        **build_standard_indicators(prices),
         "kc_upper": round(curr_upper, 6),
         "kc_middle": round(curr_mid, 6),
         "kc_lower": round(curr_lower, 6),

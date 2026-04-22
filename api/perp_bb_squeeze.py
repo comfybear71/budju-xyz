@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(__file__))
 from perp_strategies import (
     get_price_series, ema, rsi, atr, sma, bollinger_bands,
-    log_signal,
+    log_signal, build_standard_indicators,
 )
 from perp_keltner import keltner_channel
 
@@ -194,6 +194,7 @@ def strategy_bb_squeeze(prices: List[float], config: Dict) -> Optional[Dict]:
     range_expansion = recent_range > avg_range * 1.2  # 20% above average
 
     indicators = {
+        **build_standard_indicators(prices),
         "squeeze_duration": squeeze_duration,
         "bars_since_release": bars_since_release,
         "momentum": round(curr_mom, 6),
