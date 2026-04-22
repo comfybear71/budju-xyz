@@ -32,7 +32,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("ml_server")
 
 API_PORT = int(os.getenv("ML_API_PORT", "8421"))
+# ML_API_SECRET is distinct from VPS_API_SECRET (used by the VPS trader) so a compromise
+# of this box does not leak credentials for the spot trader.
+# Falls back to VPS_API_SECRET only for backwards compatibility with pre-April-2026 setups.
 API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
+# Default confidence threshold — only allow trades scoring above this
 DEFAULT_THRESHOLD = 0.55
 
 # Model state
@@ -136,16 +140,19 @@ def load_model():
 
 
 def verify_auth(request):
-    """Verify Bearer token. Fails closed when no secret is set."""
+    """Verify API secret. Fails closed — if no secret is configured, all requests are rejected."""
     if not API_SECRET:
-        log.warning("API_SECRET not set — rejecting request")
+        # Fail secure: if operator forgot to set the secret, reject everything rather than
+        # silently allowing public access.
+        log.warning("verify_auth: VPS_API_SECRET not set — rejecting request")
         return False
     auth = request.headers.get("Authorization", "")
     return auth.startswith("Bearer ") and auth[7:] == API_SECRET
 
 
 async def handle_ping(request):
-    """Public liveness probe — no auth required."""
+    """Unauthenticated liveness probe. Returns 200 if the process is up, nothing else.
+    Safe to expose — reveals no information beyond that the server is running."""
     return web.json_response({"status": "ok"})
 
 
@@ -248,7 +255,8 @@ async def handle_predict(request):
 
 
 async def handle_health(request):
-    """Health check + model info."""
+    """Health check + model info. Requires auth to prevent info leaks (model metadata,
+    feature names, accuracy) to unauthenticated scanners."""
     if not verify_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
     return web.json_response({
@@ -294,5 +302,6 @@ if __name__ == "__main__":
         raise SystemExit("ML_API_SECRET (or VPS_API_SECRET) must be set before starting")
     load_model()
     app = create_app()
-    log.info(f"ML Prediction API starting on port {API_PORT}")
-    web.run_app(app, host="0.0.0.0", port=API_PORT)
+    host = os.getenv("ML_API_HOST", "0.0.0.0")
+    log.info(f"ML Prediction API starting on {host}:{API_PORT}")
+    web.run_app(app, host=host, port=API_PORT)

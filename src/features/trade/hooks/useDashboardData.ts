@@ -140,7 +140,7 @@ export function useDashboardData(): DashboardData {
         fetchPerpPositions(wallet),
         fetchPerpTrades(wallet),
         fetchPerpMarkets(),
-        fetchPerpEquity(wallet, "all"),
+        fetchPerpEquity(wallet, "1w"),
         fetchStrategyStatus(wallet),
       ]);
 

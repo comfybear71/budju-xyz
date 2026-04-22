@@ -247,8 +247,17 @@ def get_price_series(symbol: str, count: int = 100) -> List[float]:
 
 
 def get_candle_count(symbol: str) -> int:
-    """How many candles we have stored for a symbol."""
-    return perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
+    """How many candles we have stored for a symbol. Cached in Redis (5min TTL)."""
+    from redis_cache import cache_get, cache_set
+
+    cache_key = f"perp:candle_count:{symbol}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    count = perp_price_history.count_documents({"symbol": symbol, "interval": "1m"})
+    cache_set(cache_key, count, ttl=300)  # 5 minutes — candles grow slowly
+    return count
 
 
 def get_price_series_15m(symbol: str, count: int = 100) -> List[float]:
@@ -1552,7 +1561,10 @@ REGIME_STRATEGY_WEIGHTS = {
 # ── ML Signal Classifier Gate ────────────────────────────────────────────
 
 ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
-ML_API_SECRET = os.getenv("VPS_API_SECRET", "")
+# ML_API_SECRET is the bearer token for the ML droplet. Kept separate from VPS_API_SECRET
+# (used by the spot VPS trader) so one box's compromise doesn't leak both.
+# Falls back to VPS_API_SECRET for backwards compatibility with pre-April-2026 setups.
+ML_API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
 ML_THRESHOLD = 0.40  # Lowered from 0.55 — paper trading needs data for ML to learn
 ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
 
@@ -1868,6 +1880,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
             # Place the trade
             try:
+                # Log signal BEFORE opening position so the signal timestamp precedes
+                # the trade's entry_time. train.py matches signals to trades by finding
+                # the closest signal with timestamp <= entry_time within 5 minutes.
+                # If logged after, the signal timestamp is always slightly later and
+                # the match fails — causing all indicator features to be zero.
+                log_signal(wallet, strategy_name, symbol, direction,
+                          signal["signal"], signal["indicators"], True)
+
                 position = open_position(
                     wallet=wallet,
                     symbol=symbol,
@@ -1880,9 +1900,6 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                     trailing_stop_pct=sig_trailing if sig_trailing > 0 else None,
                     entry_reason=entry_reason,
                 )
-
-                log_signal(wallet, strategy_name, symbol, direction,
-                          signal["signal"], signal["indicators"], True)
 
                 actions.append({
                     "action": "opened",
@@ -1988,7 +2005,14 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
 
 def get_strategy_status(wallet: str) -> Dict:
-    """Get current strategy status for display."""
+    """Get current strategy status for display. Uses Redis cache (90s TTL)."""
+    from redis_cache import cache_get, cache_set
+
+    cache_key = f"perp:strategy_status:{wallet[:16]}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     config = get_strategy_config(wallet)
     account = perp_accounts.find_one({"wallet": wallet})
 
@@ -2071,7 +2095,7 @@ def get_strategy_status(wallet: str) -> Dict:
     # Strategy performance (feedback loop data)
     perf_summary = get_strategy_performance_summary(wallet)
 
-    return {
+    result = {
         "auto_trading_enabled": config.get("auto_trading_enabled", False),
         "strategies": config.get("strategies", {}),
         "global_settings": config.get("global_settings", {}),
@@ -2084,3 +2108,7 @@ def get_strategy_status(wallet: str) -> Dict:
         "ml_stats": ml_stats,
         "strategy_performance": perf_summary,
     }
+
+    # Cache for 90 seconds (cron runs every 60s, so data is always <90s old)
+    cache_set(cache_key, result, ttl=90)
+    return result

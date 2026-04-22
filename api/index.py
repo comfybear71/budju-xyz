@@ -332,7 +332,7 @@ class handler(BaseHTTPRequestHandler):
                 metrics = calculate_metrics(admin_wallet)
                 positions = get_open_positions(admin_wallet)
                 trades = get_trade_history(admin_wallet, limit=50)
-                equity_curve = get_equity_curve(admin_wallet, period="all")
+                equity_curve = get_equity_curve(admin_wallet, period="1w")
                 markets = get_markets_info()
                 self._send_json(200, {
                     "account": {**account, "metrics": metrics},
@@ -405,6 +405,48 @@ class handler(BaseHTTPRequestHandler):
                 from perp_backtest import run_backtest_from_db
                 result = run_backtest_from_db(strategy, symbol, periods, balance)
                 self._send_json(200, result)
+
+            elif path == '/api/ml-training-data':
+                # Training-data pull endpoint for the hardened ML droplet.
+                # The ML droplet holds no MongoDB credentials — it fetches closed trades
+                # and signals here over HTTPS with a bearer token. If this droplet is
+                # compromised, the attacker gets ML training data, not the database.
+                training_secret = os.getenv('BUDJU_TRAINING_API_SECRET', '')
+                if not training_secret:
+                    self._send_json(503, {"error": "Training endpoint not configured"})
+                    return
+                auth_header = self.headers.get('Authorization', '')
+                if not auth_header.startswith('Bearer ') or auth_header[7:] != training_secret:
+                    self._send_json(401, {"error": "Unauthorized"})
+                    return
+
+                # Pull training data from MongoDB
+                from database import db as _db
+                limit = min(int(params.get('limit', '2000')), 10000)
+
+                # Serialise Mongo docs to JSON-safe dicts (ObjectId → str, datetime → iso)
+                from datetime import datetime as _dt
+                def _clean(doc):
+                    out = {}
+                    for k, v in doc.items():
+                        if k == '_id':
+                            continue
+                        if isinstance(v, _dt):
+                            out[k] = v.isoformat()
+                        elif isinstance(v, dict):
+                            out[k] = _clean(v)
+                        else:
+                            out[k] = v
+                    return out
+
+                trades = [_clean(t) for t in _db['perp_trades'].find({}).sort('exit_time', -1).limit(limit)]
+                signals = [_clean(s) for s in _db['perp_strategy_signals'].find({'acted': True}).sort('timestamp', -1).limit(limit * 3)]
+
+                self._send_json(200, {
+                    'trades': trades,
+                    'signals': signals,
+                    'counts': {'trades': len(trades), 'signals': len(signals)},
+                })
 
             else:
                 self._send_json(404, {"error": "Not found"})

@@ -22,7 +22,7 @@ import json
 import logging
 from datetime import datetime
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.error import URLError, HTTPError
 
 import numpy as np
 import joblib
@@ -40,6 +40,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("ml_train")
 
 # ── Config ────────────────────────────────────────────────────
+#
+# Two data-source modes:
+#   1. HTTP (preferred, post-April-2026): fetch training data from Vercel via
+#      /api/ml-training-data. No MongoDB credentials live on this box.
+#   2. MongoDB direct (legacy/fallback): connects if BUDJU_TRAINING_API_URL is not set.
+#      Kept for local development but should not be used on the hardened droplet.
 
 MONGODB_URI              = os.getenv("MONGODB_URI", "")
 DB_NAME                  = os.getenv("DB_NAME", "flub")
@@ -52,18 +58,43 @@ MIN_TRADES_TO_TRAIN      = 20
 
 def fetch_training_data_http() -> dict:
     """Fetch trades + signals from Vercel /api/ml-training-data via HTTPS.
-    Returns the parsed JSON dict or raises on failure.
+
+    Returns parsed dict with 'trades' and 'signals' lists, or None on failure.
+    Datetime strings are parsed back to datetime objects for feature extraction.
     """
     if not TRAINING_API_URL or not TRAINING_API_SECRET:
-        raise ValueError("BUDJU_TRAINING_API_URL / BUDJU_TRAINING_API_SECRET not set")
+        return None
 
     url = f"{TRAINING_API_URL}/api/ml-training-data?limit=2000"
     req = Request(url, headers={
         "Authorization": f"Bearer {TRAINING_API_SECRET}",
         "Accept": "application/json",
     })
-    with urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+    except HTTPError as e:
+        log.error(f"Training API HTTP {e.code}: {e.reason}")
+        return None
+    except URLError as e:
+        log.error(f"Training API unreachable: {e.reason}")
+        return None
+
+    # Parse datetime strings back to datetime objects so feature extraction works
+    def _parse(doc):
+        for field in ("entry_time", "exit_time", "timestamp"):
+            v = doc.get(field)
+            if isinstance(v, str):
+                try:
+                    doc[field] = datetime.fromisoformat(v.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+        return doc
+
+    data["trades"] = [_parse(t) for t in data.get("trades", [])]
+    data["signals"] = [_parse(s) for s in data.get("signals", [])]
+    log.info(f"Fetched via HTTP: {len(data['trades'])} trades, {len(data['signals'])} signals")
+    return data
 
 
 def fetch_training_data_mongodb() -> dict:
@@ -94,15 +125,10 @@ def load_training_data() -> tuple:
     """Load and join trades + signals, extract features. Returns (X, y, names)."""
 
     # Try HTTP first, fall back to MongoDB
-    raw = None
-    if TRAINING_API_URL and TRAINING_API_SECRET:
-        try:
-            raw = fetch_training_data_http()
-            log.info("Training data loaded via HTTPS API")
-        except Exception as e:
-            log.warning(f"HTTP fetch failed ({e}), trying MongoDB")
-
-    if raw is None:
+    raw = fetch_training_data_http()
+    if raw is not None:
+        log.info("Training data loaded via HTTPS API")
+    else:
         try:
             raw = fetch_training_data_mongodb()
             log.info("Training data loaded via MongoDB")
@@ -134,25 +160,27 @@ def load_training_data() -> tuple:
         key = (strategy, trade.get("symbol", ""), trade.get("direction", ""))
         candidates = signal_lookup.get(key, [])
 
-        # Best-match signal within ±5 minutes (abs time delta)
-        signal = None
+        # Find closest signal within ±5 minutes of trade entry.
+        # Using abs() because historically signals were logged AFTER the trade
+        # opened, making sig_time slightly later than entry_time. Option B
+        # (perp_strategies.py) fixes the ordering going forward, but abs()
+        # ensures historical data also matches correctly.
         entry_time = trade.get("entry_time")
+        best_signal = None
+        best_delta = 300  # max window in seconds
         if entry_time and candidates:
-            best_delta = 300
             for sig in candidates:
                 sig_time = sig.get("timestamp")
                 if sig_time:
-                    try:
-                        delta = abs((entry_time - sig_time).total_seconds())
-                    except Exception:
-                        continue
+                    delta = abs((entry_time - sig_time).total_seconds())
                     if delta < best_delta:
                         best_delta = delta
-                        signal = sig
-            if signal:
-                matched += 1
+                        best_signal = sig
 
-        if not signal:
+        signal = best_signal
+        if signal:
+            matched += 1
+        else:
             unmatched += 1
 
         indicators = signal["indicators"] if signal and isinstance(signal.get("indicators"), dict) else {}

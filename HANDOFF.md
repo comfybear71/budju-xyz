@@ -1,6 +1,6 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: April 7, 2026
+> Last updated: April 14, 2026
 
 This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
@@ -79,9 +79,85 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14 — April 7, 2026)
+## 4. Recent Changes & Fixes (March 14 — April 14, 2026)
 
-### Multi-Tier System + ML Intelligence (April 7) — MOST RECENT
+### Security Incident Recovery + ML Droplet Rebuild (April 14) — MOST RECENT
+DigitalOcean notified that `masterhq-dev-syd1` (170.64.133.9) was compromised and used
+in a DDoS attack. Full incident response and recovery completed in one session:
+
+**Immediate response:**
+- Compromised droplet destroyed via DigitalOcean control panel
+- MongoDB Atlas password rotated, `MONGODB_URI` updated on Vercel + VPS trader
+- DigitalOcean API token (`masterHQ`, read-only) deleted as precaution
+- Confirmed Anthropic / Telegram keys never lived on the droplet
+
+**Architectural hardening (PR #48 — `v2.2.0-2026-04-14`):**
+- New `vps/ml/setup-hardened.sh` one-shot script: SSH keys only, UFW deny-all-inbound,
+  fail2ban (3 fails → 1h ban), unattended-upgrades with 04:00 reboot, non-root `mlbot`
+  service user, sandboxed systemd service (ProtectSystem=strict, NoNewPrivileges,
+  PrivateTmp, SystemCallFilter). Preflight aborts if no SSH key present.
+- `ML_API_SECRET` split from `VPS_API_SECRET` so ML compromise no longer leaks VPS trader.
+- New authenticated `/api/ml-training-data` endpoint on Vercel — ML droplet pulls training
+  data via HTTPS instead of holding `MONGODB_URI`. Future compromise yields the model
+  file, not the database.
+- `/health` endpoint now requires bearer token (was leaking model metadata publicly).
+- New unauthenticated `/ping` for liveness probes.
+- Server fails closed when no secret is configured (was failing open).
+- `docs/vps/ML_DROPLET_RECOVERY.md` runbook added.
+
+**Follow-up routing fix (PR #49 — `v2.2.1-2026-04-14`):**
+- Added missing `/api/ml-training-data` rewrite to `vercel.json`.
+- Removed `ProtectHome=true` from systemd service (was blocking the service from accessing
+  its own `/home/mlbot/...` files, causing exit-code 203/EXEC).
+
+**New ML droplet operational:**
+- `budju-ml-syd1` at `209.38.27.106` (Sydney, Ubuntu 24.04, $6/mo basic)
+- All 8 hardening checks passing
+- Model retrained on **501 samples** (up from 228) with **79.2% accuracy**
+- ML gate now active for all auto-trades
+
+**Vercel env vars added/updated:**
+- `ML_API_URL=http://209.38.27.106:8421`
+- `ML_API_SECRET` (new, distinct from VPS_API_SECRET)
+- `BUDJU_TRAINING_API_SECRET` (new — caught typo `BUDJU_TRAINING_API_SECRE` mid-session)
+
+**Lessons captured in `CLAUDE.md` (#19-25):** secret separation, zero DB creds on ML box,
+fail-closed auth, public health endpoints leak info, hardening before deployment, preflight
+SSH key check, secret rotation when destroying droplets.
+
+**Findings for future investigation:**
+- Model trained on metadata only — all technical indicators (RSI, BB, ATR, EMA spread)
+  show 0.0 importance. Likely a signal-to-trade matching issue in `train.py`. Worth fixing
+  in a future session — would push accuracy higher.
+- Vercel auto-promote from master was off (deployments stuck on Preview). Fixed mid-session.
+
+**Outstanding from this session:**
+- VPS trader OS patches (`apt update && apt upgrade -y && apt autoremove -y && reboot` on
+  `budju-trader` droplet 134.199.149.205) — 68 pending updates
+- Indicator capture for ML training (signals not matching to trades properly)
+
+### Redis Caching + Performance Fix (April 13)
+- **Upstash Redis cache layer** added via `api/redis_cache.py` — lightweight helper using Upstash REST API (no pip deps)
+- **Strategy status endpoint** cached in Redis with 90s TTL — eliminates 16+ MongoDB queries per page load
+- **Equity curve** capped at 200 snapshots max (was returning 1000+ unbounded) — cached 60s-5min by period
+- **Candle counts** cached per symbol with 5min TTL — eliminates 9 `count_documents` queries per request
+- **Default equity period** changed from "all" to "1w" (frontend `useDashboardData.ts` + public API `index.py`)
+- **Result:** trade page load time reduced from ~5 minutes to ~5 seconds (60x improvement)
+- **Env vars:** `KV_REST_API_URL` and `KV_REST_API_TOKEN` added via Vercel Storage integration (upstash-kv-fuchsia-park)
+
+### NEXT: Frontend Performance Optimisations (Planned)
+Remaining improvements identified but not yet implemented:
+
+| Priority | Fix | Expected Improvement | Status |
+|----------|-----|---------------------|--------|
+| 4 | Code-split trade module more aggressively (main chunk is 1,024KB) | -1-2s initial load | Not done |
+| 5 | Reduce chart grid to 4 on all devices (currently 6 TradingCharts mount) | -1s | Not done |
+| 6 | Move strategy scanner to Web Worker (72 analyses block main thread) | -500ms | Not done |
+| 7 | Lazy-load equity/strategy data (don't fetch on mount, wait for section expand) | -1s | Not done |
+
+These are frontend-only changes. The 3 backend fixes (Redis caching) delivered the biggest impact. These remaining fixes would bring load time from ~5s to ~1-2s.
+
+### Multi-Tier System + ML Intelligence (April 7-10)
 
 **Multi-Tier Auto-Trader (Spot):**
 - Every coin now exists in ALL three tiers simultaneously (was single tier per coin)

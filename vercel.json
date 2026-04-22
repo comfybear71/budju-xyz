@@ -31,6 +31,7 @@
     { "source": "/api/leaderboard", "destination": "/api/index.py" },
     { "source": "/api/transactions", "destination": "/api/index.py" },
     { "source": "/api/debug", "destination": "/api/index.py" },
+    { "source": "/api/ml-training-data", "destination": "/api/index.py" },
     { "source": "/docs/:path*", "destination": "/docs/:path*" },
     { "source": "/assets/:path*", "destination": "/assets/:path*" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }

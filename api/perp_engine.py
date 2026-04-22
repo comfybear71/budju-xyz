@@ -1724,7 +1724,14 @@ def get_trade_history(wallet: str, limit: int = 50, symbol: str = None) -> List[
 
 
 def get_equity_curve(wallet: str, period: str = "all") -> List[Dict]:
-    """Get equity snapshots for charting."""
+    """Get equity snapshots for charting. Capped at 200 points, cached in Redis."""
+    from redis_cache import cache_get, cache_set
+
+    cache_key = f"perp:equity:{wallet[:16]}:{period}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     query = {"account_id": wallet}
 
     if period == "1d":
@@ -1734,10 +1741,15 @@ def get_equity_curve(wallet: str, period: str = "all") -> List[Dict]:
     elif period == "1m":
         query["timestamp"] = {"$gte": datetime.utcnow() - timedelta(days=30)}
 
-    snapshots = list(perp_equity.find(query, {"_id": 0}).sort("timestamp", 1))
+    snapshots = list(perp_equity.find(query, {"_id": 0}).sort("timestamp", -1).limit(200))
+    snapshots.reverse()  # Back to chronological order
     for s in snapshots:
         if isinstance(s.get("timestamp"), datetime):
             s["timestamp"] = s["timestamp"].isoformat()
+
+    # Cache: 60s for 1d, 5min for longer periods
+    ttl = 60 if period == "1d" else 300
+    cache_set(cache_key, snapshots, ttl=ttl)
     return snapshots
 
 
