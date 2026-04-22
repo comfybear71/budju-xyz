@@ -1845,9 +1845,15 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
                 )
                 win_prob = ml_result.get("win_probability", 0.5)
                 if ml_result.get("model_loaded") and not ml_result.get("should_trade", True):
+                    why = ml_result.get("why", {})
+                    why_str = why.get("summary", "") if why else ""
+                    reject_reason = f"ML rejected: {win_prob:.0%} < {ML_THRESHOLD:.0%}"
+                    if why_str:
+                        reject_reason += f" | {why_str}"
                     log_signal(wallet, strategy_name, symbol, direction,
-                              signal["signal"], {**signal["indicators"], "ml_win_prob": win_prob},
-                              False, f"ML rejected: {win_prob:.0%} win probability < {ML_THRESHOLD:.0%} threshold")
+                              signal["signal"], {**signal["indicators"], "ml_win_prob": win_prob,
+                              "ml_why": why.get("top_factors", []) if why else []},
+                              False, reject_reason)
                     actions.append({
                         "action": "ml_rejected",
                         "strategy": strategy_name,

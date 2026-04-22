@@ -6,7 +6,7 @@ before opening any auto-trade position.
 
 Endpoints:
   GET  /ping     — Public liveness probe (no auth)
-  POST /predict  — Score a signal (returns win probability)
+  POST /predict  — Score a signal (returns win probability + SHAP explanation)
   GET  /health   — Health check + model info
   POST /retrain  — Trigger model retrain
 
@@ -39,11 +39,71 @@ DEFAULT_THRESHOLD = 0.55
 model = None
 meta = None
 feature_names = None
+shap_explainer = None  # TreeExplainer — loaded alongside model
+
+
+# ── Human-readable SHAP factor labels ────────────────────────────────────
+
+_FEATURE_LABELS = {
+    "rsi":           ("RSI high", "RSI low"),        # pos=high RSI→win, neg=high RSI→loss
+    "atr_pct":       ("high volatility", "low volatility"),
+    "bb_width":      ("wide BBs", "tight BBs"),
+    "bb_position":   ("price at upper BB", "price at lower BB"),
+    "ema_spread_pct":("EMA spread wide", "EMA spread narrow"),
+    "confidence":    ("strong signal", "weak signal"),
+    "hour":          ("good hour", "bad hour"),
+    "day_of_week":   ("good day", "bad day"),
+    "leverage":      ("high leverage", "low leverage"),
+    "size_pct":      ("large size", "small size"),
+    "strategy":      ("this strategy favored", "this strategy unfavored"),
+    "symbol":        ("this market favored", "this market unfavored"),
+    "direction":     ("this direction favored", "this direction unfavored"),
+}
+
+
+def _shap_label(feature: str, impact: float) -> str:
+    """Convert a feature + SHAP impact into a human-readable phrase."""
+    labels = _FEATURE_LABELS.get(feature, (feature, feature))
+    return labels[0] if impact >= 0 else labels[1]
+
+
+def _explain(feat_dict: dict, shap_values: np.ndarray, names: list, top_n: int = 3) -> dict:
+    """Build a human-readable SHAP explanation from raw SHAP values.
+
+    Returns:
+        top_factors: list of {feature, value, impact, label} sorted by |impact|
+        summary: short string of top-N negative drivers (for rejection logs)
+    """
+    factors = []
+    for i, name in enumerate(names):
+        impact = float(shap_values[i])
+        factors.append({
+            "feature": name,
+            "value":   round(feat_dict.get(name, 0), 4),
+            "impact":  round(impact, 4),
+            "label":   _shap_label(name, impact),
+        })
+
+    # Sort by absolute impact descending
+    factors.sort(key=lambda x: abs(x["impact"]), reverse=True)
+    top = factors[:top_n]
+
+    # Summary string — list top negative drivers if trade was rejected
+    neg = [f"{f['feature']}={f['value']}({f['impact']:+.2f})" for f in top if f["impact"] < 0]
+    pos = [f"{f['feature']}={f['value']}({f['impact']:+.2f})" for f in top if f["impact"] >= 0]
+    summary_parts = []
+    if neg:
+        summary_parts.append("against: " + ", ".join(neg))
+    if pos:
+        summary_parts.append("for: " + ", ".join(pos))
+    summary = " | ".join(summary_parts) if summary_parts else "no dominant factors"
+
+    return {"top_factors": top, "summary": summary}
 
 
 def load_model():
-    """Load the trained model from disk."""
-    global model, meta, feature_names
+    """Load the trained model and SHAP explainer from disk."""
+    global model, meta, feature_names, shap_explainer
 
     if not os.path.exists(MODEL_PATH):
         log.warning(f"No model found at {MODEL_PATH} — predictions will return 0.5 (neutral)")
@@ -59,6 +119,18 @@ def load_model():
         log.info(f"Model metadata: {meta.get('samples')} samples, {meta.get('accuracy', 0):.1%} accuracy")
     else:
         feature_names = []
+
+    # Build SHAP explainer — TreeExplainer is exact and fast for XGBoost
+    try:
+        import shap
+        shap_explainer = shap.TreeExplainer(model)
+        log.info("SHAP TreeExplainer loaded")
+    except ImportError:
+        log.warning("shap not installed — SHAP explanations disabled. Run: pip install shap")
+        shap_explainer = None
+    except Exception as e:
+        log.warning(f"SHAP explainer failed to load: {e}")
+        shap_explainer = None
 
     return True
 
@@ -78,7 +150,7 @@ async def handle_ping(request):
 
 
 async def handle_predict(request):
-    """Score a trading signal. Returns win probability.
+    """Score a trading signal. Returns win probability + SHAP explanation.
 
     POST /predict
     Body: {
@@ -96,6 +168,12 @@ async def handle_predict(request):
         "price": 80.0,
         "size_usd": 500
     }
+
+    Response adds:
+        "why": {
+            "top_factors": [{"feature": "rsi", "value": 68.2, "impact": -0.18, "label": "RSI high"}],
+            "summary": "against: rsi=68.2(-0.18), hour=3(-0.12) | for: strategy=0(+0.09)"
+        }
     """
     if not verify_auth(request):
         return web.json_response({"error": "Unauthorized"}, status=401)
@@ -142,14 +220,31 @@ async def handle_predict(request):
         })
 
     threshold = float(data.get("threshold", DEFAULT_THRESHOLD))
+    should_trade = proba >= threshold
 
-    return web.json_response({
+    # SHAP explanation — best-effort, never blocks the response
+    why = None
+    if shap_explainer is not None and feature_names:
+        try:
+            sv = shap_explainer.shap_values(X)
+            # XGBoost binary: sv is shape (1, n_features) or nested list
+            if isinstance(sv, list):
+                sv = sv[1] if len(sv) > 1 else sv[0]
+            why = _explain(feat, sv[0], feature_names)
+        except Exception as e:
+            log.warning(f"SHAP failed (non-fatal): {e}")
+
+    response = {
         "win_probability": round(proba, 4),
-        "should_trade": proba >= threshold,
+        "should_trade": should_trade,
         "threshold": threshold,
         "model_loaded": True,
         "features_used": feat,
-    })
+    }
+    if why:
+        response["why"] = why
+
+    return web.json_response(response)
 
 
 async def handle_health(request):
@@ -159,6 +254,7 @@ async def handle_health(request):
     return web.json_response({
         "status": "ok",
         "model_loaded": model is not None,
+        "shap_enabled": shap_explainer is not None,
         "meta": meta,
         "port": API_PORT,
         "timestamp": datetime.utcnow().isoformat(),
