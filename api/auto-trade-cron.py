@@ -70,6 +70,7 @@ ASSET_CG_IDS = {
     "BNB": "binancecoin", "ENA": "ethena", "NEXO": "nexo",
     "HYPE": "hyperliquid", "RENDER": "render-token", "FET": "fetch-ai",
     "TAO": "bittensor", "PEPE": "pepe", "LUNA": "terra-luna-2",
+    "JUP": "jupiter-exchange-solana",
 }
 
 # ── HTTP Helper ───────────────────────────────────────────────
