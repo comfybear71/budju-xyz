@@ -752,6 +752,46 @@ export async function recordDeposit(
   }
 }
 
+export async function recordWithdrawal(
+  adminWallet: string,
+  walletAddress: string,
+  amountUsd: number,
+  totalPoolValue: number,
+  currency: string = "USDC",
+): Promise<{ success: boolean; shares_burned?: number; nav?: number; error?: string }> {
+  try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+
+    const res = await fetchWithRetry("/api/withdrawal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...auth,
+        walletAddress,
+        amount: amountUsd,
+        totalPoolValue,
+        currency,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return { success: false, error: data.error || "Withdrawal recording failed" };
+    }
+
+    delete cache["admin_stats"];
+    delete cache[`position_${walletAddress}`];
+    delete cache[`txns_${walletAddress}`];
+
+    alog.log(`Withdrawal recorded: $${amountUsd.toFixed(2)} USD → ${data.shares_burned?.toFixed(2)} shares burned at NAV $${data.nav?.toFixed(4)}`, "success");
+    return { success: true, shares_burned: data.shares_burned, nav: data.nav };
+  } catch (err: any) {
+    alog.log(`Withdrawal error: ${err.message}`, "error");
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 /** User self-service deposit: record on-chain USDC transfer in MongoDB */
 export async function submitUserDeposit(
   walletAddress: string,

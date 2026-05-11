@@ -15,6 +15,7 @@ from database import (
     get_user_portfolio,
     get_user_deposits,
     record_deposit,
+    record_withdrawal,
     record_trade,
     get_all_active_users,
     calculate_pool_allocations,
@@ -531,6 +532,26 @@ class handler(BaseHTTPRequestHandler):
                 result = record_deposit(
                     wallet_address, float(amount), tx_hash,
                     float(pool_value), currency
+                )
+                self._send_json(200, result)
+
+            elif path == '/api/withdrawal':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+
+                wallet_address = body.get('walletAddress')
+                amount = body.get('amount')
+                pool_value = body.get('totalPoolValue')
+                currency = body.get('currency', 'USDC')
+
+                if not all([wallet_address, amount, pool_value]):
+                    self._send_json(400, {"error": "walletAddress, amount, and totalPoolValue required"})
+                    return
+
+                result = record_withdrawal(
+                    wallet_address, float(amount), float(pool_value), currency
                 )
                 self._send_json(200, result)
 

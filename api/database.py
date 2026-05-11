@@ -345,6 +345,63 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
     }
 
 
+def record_withdrawal(wallet_address: str, amount: float, total_pool_value: float,
+                      currency: str = "USDC") -> Dict:
+    """Record a withdrawal — burns shares proportional to amount at current NAV."""
+    user = users_collection.find_one({"walletAddress": wallet_address})
+    if not user:
+        raise ValueError("User not found")
+
+    pool = get_pool_state()
+    total_shares = pool.get("totalShares", 0)
+    if total_shares <= 0:
+        raise ValueError("Pool not initialized")
+
+    nav = total_pool_value / total_shares if total_shares > 0 else 1.0
+    shares_to_burn = amount / nav
+    user_shares = user.get("shares", 0.0)
+
+    if shares_to_burn > user_shares:
+        shares_to_burn = user_shares
+
+    withdrawal = {
+        "userId": wallet_address,
+        "amount": amount,
+        "currency": currency,
+        "shares": shares_to_burn,
+        "nav": nav,
+        "timestamp": datetime.utcnow(),
+        "status": "completed",
+    }
+    withdrawals_collection.insert_one(withdrawal)
+
+    pool_state_collection.update_one(
+        {"_id": "pool"},
+        {"$inc": {"totalShares": -shares_to_burn}}
+    )
+
+    new_shares = max(0, user_shares - shares_to_burn)
+    total_withdrawn = user.get("totalWithdrawn", 0.0) + amount
+    users_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": {
+            "shares": new_shares,
+            "totalWithdrawn": total_withdrawn,
+        }}
+    )
+
+    _recalculate_allocations()
+
+    return {
+        "success": True,
+        "shares_burned": shares_to_burn,
+        "nav": nav,
+        "totalShares": total_shares - shares_to_burn,
+        "newTotalWithdrawn": total_withdrawn,
+        "userShares": new_shares,
+    }
+
+
 def _recalculate_allocations():
     pool = get_pool_state()
     total_shares = pool["totalShares"]
