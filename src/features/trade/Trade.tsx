@@ -18,6 +18,7 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
+import RecordWithdrawalView from "./components/RecordWithdrawalView";
 import { lazy } from "react";
 const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
@@ -82,6 +83,7 @@ const Trade = () => {
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showWithdrawal, setShowWithdrawal] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
   const [showDepositBreakdown, setShowDepositBreakdown] = useState(false);
   const [depositBreakdown, setDepositBreakdown] = useState<LeaderboardEntry[]>([]);
@@ -422,7 +424,7 @@ const Trade = () => {
           {!loading && (
             <div className="space-y-4">
               {/* ─── Portfolio Chart (hidden when any trade view is open) ────── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   <PortfolioChart
                     assets={assets}
@@ -480,21 +482,23 @@ const Trade = () => {
                 {/* Admin: nav buttons — FLUB-style pills in a dark container (hidden on perp page) */}
                 {isAdmin && !showHighRisk && (
                   <div
-                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk ? "" : "mb-3"}`}
+                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
                   >
                     <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
                       {([
                         { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
-                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } } },
+                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } } },
                         { key: "trigger", label: "Trigger", icon: "\u2699", active: showTriggerView, color: "amber",
-                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowDeposit(false); setShowHighRisk(false); } },
+                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } },
                         { key: "auto", label: "Auto", icon: "\u2728", active: showAutoAdmin, color: "emerald",
-                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowDeposit(false); setShowHighRisk(false); } },
+                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } },
                         { key: "deposit", label: "Deposit", icon: "+", active: showDeposit, color: "green",
-                          onClick: () => { setShowDeposit(!showDeposit); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                          onClick: () => { setShowDeposit(!showDeposit); setShowWithdrawal(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                        { key: "withdraw", label: "Withdraw", icon: "-", active: showWithdrawal, color: "red",
+                          onClick: () => { setShowWithdrawal(!showWithdrawal); setShowDeposit(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
-                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); } },
+                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
                       ] as const).map((btn) => {
                         const colorMap: Record<string, { active: string; inactive: string }> = {
                           blue:    { active: "bg-blue-500/25 text-blue-200 border-blue-400/60 shadow-[0_0_8px_rgba(59,130,246,0.25)]", inactive: "bg-blue-500/8 text-blue-300/70 border-blue-500/25 hover:bg-blue-500/15 hover:text-blue-200 hover:border-blue-400/50" },
@@ -588,7 +592,7 @@ const Trade = () => {
                 )}
 
                 {/* USDC Balance + Crypto/USDC Ratio Meter — visible to all, hidden when trade views open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (() => {
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (() => {
                   const cryptoValue = assets.reduce((s, a) => s + a.usdValue, 0);
                   const totalVal = cryptoValue + usdcBalance;
                   const cryptoPct = totalVal > 0 ? Math.round((cryptoValue / totalVal) * 100) : 0;
@@ -648,7 +652,7 @@ const Trade = () => {
                 })()}
 
                 {/* Cash Balances + Admin Balance — hidden when any trade view is open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && isAdmin && (
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && isAdmin && (
                   <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -676,7 +680,7 @@ const Trade = () => {
                 )}
 
                 {/* Pool Stats Grid - admin only, hidden when any trade view is open */}
-                {!((showAutoAdmin || showTriggerView || showDeposit || showTradePanel || showHighRisk) && isAdmin) && poolStats && (
+                {!((showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk) && isAdmin) && poolStats && (
                   <>
                     {isAdmin && (
                     <>
@@ -862,6 +866,16 @@ const Trade = () => {
                     onSuccess={handleRefresh}
                   />
                 )}
+
+                {showWithdrawal && isAdmin && (
+                  <RecordWithdrawalView
+                    adminWallet={walletAddress}
+                    totalPoolValue={totalPoolValue}
+                    poolStats={poolStats}
+                    onClose={() => setShowWithdrawal(false)}
+                    onSuccess={handleRefresh}
+                  />
+                )}
               </AnimatePresence>
 
               {/* ─── High Risk View (new trading dashboard) ─── */}
@@ -872,7 +886,7 @@ const Trade = () => {
               )}
 
               {/* ─── Holdings (hidden when any trade view is open) ── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showTradePanel && !showHighRisk && (
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={assets}
