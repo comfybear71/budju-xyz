@@ -119,6 +119,7 @@ export const ASSET_CONFIG: Record<
   TAO: { color: "#000000", icon: "τ", name: "Bittensor", coingeckoId: "bittensor" },
   PEPE: { color: "#00b84d", icon: "🐸", name: "Pepe", coingeckoId: "pepe" },
   LUNA: { color: "#5643c8", icon: "L", name: "Terra", coingeckoId: "terra-luna-2" },
+  LUNC: { color: "#ffe14d", icon: "L", name: "Luna Classic", coingeckoId: "terra-luna" },
   BONK: { color: "#f59e0b", icon: "🐕", name: "Bonk", coingeckoId: "bonk" },
   WIF: { color: "#a855f7", icon: "🐶", name: "dogwifhat", coingeckoId: "dogwifcoin" },
   JUP: { color: "#22d3ee", icon: "J", name: "Jupiter", coingeckoId: "jupiter-exchange-solana" },
