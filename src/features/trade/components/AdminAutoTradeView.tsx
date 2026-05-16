@@ -140,6 +140,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   }));
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const recentTrades = tradeLog.filter((e) => e.time && new Date(e.time).getTime() > oneDayAgo);
+  const buyCount24h = recentTrades.filter((e) => e.side !== "SELL").length;
+  const sellCount24h = recentTrades.filter((e) => e.side === "SELL").length;
 
   const [tierError, setTierError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
@@ -908,10 +912,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
               {tradeLog.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
-                    {buyCount} Buy{buyCount !== 1 ? "s" : ""}
+                    {buyCount} Buy{buyCount !== 1 ? "s" : ""}{buyCount24h > 0 && <span style={{ opacity: 0.7 }}> ({buyCount24h} today)</span>}
                   </span>
                   <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
-                    {sellCount} Sell{sellCount !== 1 ? "s" : ""}
+                    {sellCount} Sell{sellCount !== 1 ? "s" : ""}{sellCount24h > 0 && <span style={{ opacity: 0.7 }}> ({sellCount24h} today)</span>}
                   </span>
                 </div>
               )}

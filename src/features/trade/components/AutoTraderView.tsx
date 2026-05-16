@@ -150,6 +150,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   const tradeLog = state?.autoTradeLog || [];
   const buyCount = tradeLog.filter((e: any) => e.side?.toLowerCase() !== "sell").length;
   const sellCount = tradeLog.filter((e: any) => e.side?.toLowerCase() === "sell").length;
+  const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  const buyCount24h = tradeLog.filter((e: any) => e.side?.toLowerCase() !== "sell" && (e.timestamp || e.time) && new Date(e.timestamp || e.time).getTime() > oneDayAgo).length;
+  const sellCount24h = tradeLog.filter((e: any) => e.side?.toLowerCase() === "sell" && (e.timestamp || e.time) && new Date(e.timestamp || e.time).getTime() > oneDayAgo).length;
   const botActive = state?.autoBotActive ?? false;
 
   // Detect recently traded coins from trade log (within last 60s)
@@ -642,10 +645,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                         {tradeLog.length > 0 && (
                           <div className="flex items-center gap-1.5">
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(34,197,94,0.15)", color: "#22c55e" }}>
-                              {buyCount} Buy{buyCount !== 1 ? "s" : ""}
+                              {buyCount} Buy{buyCount !== 1 ? "s" : ""}{buyCount24h > 0 && <span style={{ opacity: 0.7 }}> ({buyCount24h} today)</span>}
                             </span>
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.15)", color: "#ef4444" }}>
-                              {sellCount} Sell{sellCount !== 1 ? "s" : ""}
+                              {sellCount} Sell{sellCount !== 1 ? "s" : ""}{sellCount24h > 0 && <span style={{ opacity: 0.7 }}> ({sellCount24h} today)</span>}
                             </span>
                           </div>
                         )}
