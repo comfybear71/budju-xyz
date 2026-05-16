@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchSwyftxOrderHistory, type PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 
 interface Props {
@@ -24,7 +24,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const [countdown, setCountdown] = useState(30);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
-  const [swyftxTrades, setSwyftxTrades] = useState<any[]>([]);
   const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
   const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<number, boolean>>({});
 
@@ -35,11 +34,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     autoTrader.setOnStateChange(refresh);
     return () => autoTrader.setOnStateChange(() => {});
   }, [autoTrader, refresh]);
-
-  // Load actual Swyftx trade history on mount (no signing needed — proxy handles auth)
-  useEffect(() => {
-    fetchSwyftxOrderHistory(50).then(setSwyftxTrades).catch(() => {});
-  }, []);
 
   // Countdown timer for next price check
   useEffect(() => {
@@ -134,27 +128,16 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  // Use Swyftx trades (actual exchange data) for the trade log
-  // Swyftx BUY: 'quantity' = AUD spent, 'amount' = crypto received
-  // Swyftx SELL: 'quantity' = crypto sold, total AUD = quantity * price
-  const tradeLog = swyftxTrades.map((t: any) => {
-    const price = t.trigger || t.price || 0;
-    const isSell = t.type === "sell";
-    const cryptoQty = isSell
-      ? (t.quantity || 0)
-      : (price > 0 ? (t.quantity || 0) / price : (t.amount || 0));
-    const audTotal = isSell
-      ? (t.quantity || 0) * price
-      : (t.quantity || 0); // quantity IS the AUD amount for buys
-    return {
-      time: t.timestamp || "",
-      coin: t.coin || "",
-      side: (isSell ? "SELL" : "BUY") as "BUY" | "SELL",
-      quantity: cryptoQty,
-      price,
-      amount: audTotal,
-    };
-  });
+  const state = autoTrader.getState();
+  const rawLog = state?.autoTradeLog || [];
+  const tradeLog = rawLog.map((entry: any) => ({
+    time: entry.timestamp || entry.time || "",
+    coin: entry.coin || "",
+    side: (entry.side?.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+    quantity: Number(entry.qty) || 0,
+    price: Number(entry.price) || 0,
+    amount: (Number(entry.qty) || 0) * (Number(entry.price) || 0),
+  }));
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
 
