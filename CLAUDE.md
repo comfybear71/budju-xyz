@@ -72,8 +72,8 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 ## Architecture
 
 - **Frontend:** React 19 SPA built with Vite 6, TypeScript, Tailwind CSS 4. NOT Next.js — this is a Vite SPA with client-side routing via react-router-dom v7.
-- **Backend:** Vercel serverless functions — Python (15 files: `api/index.py`, `api/database.py`, `api/auto-trade-cron.py`, `api/perp-cron.py`, `api/perp_engine.py`, `api/perp_strategies.py`, `api/perp_pending_orders.py`, `api/perp_exchange.py`, `api/perp_position_manager.py`, `api/perp_backtest.py`, `api/perp_bb_squeeze.py`, `api/perp_grid_strategy.py`, `api/perp_hf_scalper.py`, `api/perp_keltner.py`, `api/perp_ninja_strategy.py`, `api/perp_sr_reversal.py`, `api/perp_zone_recovery.py`) and TypeScript (10 files: `api/telegram.ts`, `api/telegram-cron.ts`, `api/proxy.ts`, `api/jupiter.ts`, `api/rpc.ts`, `api/marketing.ts`, `api/binance.ts`, `api/klines.ts`, `api/vps-proxy.ts`).
-- **Database:** MongoDB Atlas (DB name: `flub` — legacy). 24 collections total (see below).
+- **Backend:** Vercel serverless functions — Python (20 files: `api/index.py`, `api/database.py`, `api/auto-trade-cron.py`, `api/perp-cron.py`, `api/perp_engine.py`, `api/perp_strategies.py`, `api/perp_pending_orders.py`, `api/perp_exchange.py`, `api/perp_position_manager.py`, `api/perp_backtest.py`, `api/perp_bb_squeeze.py`, `api/perp_grid_strategy.py`, `api/perp_hf_scalper.py`, `api/perp_keltner.py`, `api/perp_ninja_strategy.py`, `api/perp_sr_reversal.py`, `api/perp_zone_recovery.py`, `api/ml-status.py`, `api/backtest.py`, `api/redis_cache.py`) and TypeScript (11 files: `api/telegram.ts`, `api/telegram-cron.ts`, `api/proxy.ts`, `api/jupiter.ts`, `api/rpc.ts`, `api/marketing.ts`, `api/binance.ts`, `api/klines.ts`, `api/vps-proxy.ts`, `api/wallet-qr.ts`).
+- **Database:** MongoDB Atlas Flex (DB name: `flub` — legacy, upgraded from free tier to Flex 5GB in May 2026 after hitting 512MB limit). 24 collections total (see below).
 - **VPS Bot:** Standalone DigitalOcean VPS trading bot in `vps/` — monitors 16 Solana tokens via Jupiter Price API, executes on-chain via Jupiter DEX.
 - **Deployment:** Vercel. Cron jobs defined in `vercel.json`.
 
@@ -88,7 +88,7 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 - `src/constants/` — config.ts, routes.ts, addresses.ts
 - `src/context/` — ThemeContext.tsx (dark/light mode)
 - `src/types/` — global.d.ts, gtag.d.ts
-- `api/` — All serverless functions (26 files)
+- `api/` — All serverless functions (31 files)
 - `vps/` — Standalone VPS trading bot (8 files)
 - `vps/ml/` — ML signal classifier (train.py, server.py, requirements.txt)
 - `tests/` — Python tests (test_auth.py, test_circuit_breakers.py, test_pool_math.py)
@@ -162,7 +162,8 @@ npm run test:quick # Python pytest tests/ -q
 - **SPA routing:** All routes handled client-side via react-router-dom. The vercel.json catch-all rewrite `/(.*) → /index.html` enables this. All page routes are lazy-loaded with Suspense.
 - **Provider stack:** QueryClientProvider > BrowserRouter > ThemeProvider > WalletProvider > ErrorBoundary > Suspense > Layout > Routes. Plus Vercel Analytics.
 - **API authentication:** Admin endpoints previously used Ed25519 signature verification — this was removed in March 2026 to simplify. Rate limiting: 30 req/min read, 10 req/min write on main API; 60 req/min on RPC; 20 req/min on Jupiter.
-- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 25+ assets via CoinGecko, executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. **Multi-tier system (April 2026):** Every coin exists in ALL three tiers simultaneously with independent buy/sell deviation bands, cooldowns, and allocations. Target keys are compound: `targets["BTC:1"]`, `targets["BTC:2"]`, `targets["BTC:3"]`. Each tier fires independently — T1 catches -3% dips, T2 catches -6% dips, T3 catches -10% crashes. `tierAssignments` is `Record<string, number[]>` (coin → array of tier nums, default `[1,2,3]`). Backward compat: old single-tier format auto-migrated on load. After a BUY, only the buy band ratchets down — the sell band stays anchored high. After SELL, both reset fresh.
+- **Auto-trader (Spot):** Server-side cron (`api/auto-trade-cron.py`) runs every 5 min, monitors 27 assets via CoinGecko (28 with LUNC), executes on Swyftx. Client-side component in `src/features/trade/services/autoTrader.ts`. **Multi-tier system (April 2026):** Every coin exists in ALL three tiers simultaneously with independent buy/sell deviation bands, cooldowns, and allocations. Target keys are compound: `targets["BTC:1"]`, `targets["BTC:2"]`, `targets["BTC:3"]`. Each tier fires independently — T1 catches -3% dips, T2 catches -6% dips, T3 catches -10% crashes. `tierAssignments` is `Record<string, number[]>` (coin → array of tier nums, default `[1,2,3]`). Backward compat: old single-tier format auto-migrated on load. After a BUY, only the buy band ratchets down — the sell band stays anchored high. After SELL, both reset fresh. **Settlement guard (May 2026):** 2-minute cooldown between cron cycles after trades execute, prevents rapid-fire double execution while Swyftx balances settle. **Order verification:** After placing an order, checks Swyftx order status (cancelled/failed) before logging as executed.
+- **Deposit/Withdrawal:** Admin can record deposits (`RecordDepositView.tsx`) and withdrawals (`RecordWithdrawalView.tsx`). Both support AUD and USDC with NAV-based share issuance/burning. Backend: `record_deposit()` and `record_withdrawal()` in `database.py`, endpoints in `index.py`.
 - **Telegram bot:** Webhook handler in `api/telegram.ts`, scheduled messages in `api/telegram-cron.ts` (4x daily at 0/6/12/18 UTC). Bot has AI Q&A via Claude Haiku, auto-moderation, interactive menus. Auto re-registers webhook every cron run.
 - **Share-based pool accounting:** NAV = totalPoolValue / totalShares. Users get shares proportional to deposits.
 - **Real-time prices:** Binance WebSocket singleton (`binanceWs.ts`) with 3 fallback endpoints (stream.binance.com → data-stream.binance.com → stream.binance.us). 60+ assets tracked.
@@ -229,7 +230,9 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 
 ### Core Files
 - **Engine:** `api/perp_engine.py` — position lifecycle, PnL, liquidation, fees, partial close, pyramiding, flipping, core/satellite, pending orders
-- **Strategies:** `api/perp_strategies.py` — 10 strategies total (6 in main loop + 4 separate runners)
+- **Strategies:** `api/perp_strategies.py` — 11 strategies total (7 in main loop + 4 separate runners). Strategies run on **15-minute candles** (not 1-min — backtesting proved 1-min is pure noise).
+- **Signal Funnel:** `api/ml-status.py` — Public endpoint showing signal pipeline: every filter rejection (cooldown, correlation, regime, low volatility, overextension, ML gate) with reasons
+- **Backtest API:** `api/backtest.py` — Public endpoint for running backtests on stored price data or Binance historical data (up to 6 months). Supports per-strategy, per-symbol, or full grid mode
 - **Cron:** `api/perp-cron.py` — runs every 1 minute, fetches CoinGecko prices, seeds Binance historical candles, updates positions, checks SL/TP/liquidation/trailing, runs auto-trader strategies, snapshots equity, sends Telegram alerts
 - **Pending Orders:** `api/perp_pending_orders.py` — limit/stop order system (limit_buy, limit_sell, buy_stop, sell_stop), 24h expiry
 - **Position Manager:** `api/perp_position_manager.py` — pyramiding, re-entry, funding analysis, position flipping, core/satellite
@@ -237,7 +240,7 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 - **Backtest:** `api/perp_backtest.py` — backtesting engine using same strategy functions as live
 
 ### Strategy Files
-- `api/perp_strategies.py` — Core 6: trend following, mean reversion, momentum, scalping, keltner, bb_squeeze
+- `api/perp_strategies.py` — Core 7: trend following, mean reversion, momentum, scalping, keltner, bb_squeeze, bnf_reversion
 - `api/perp_ninja_strategy.py` — Ninja Ambush (confluence-based pending orders at key levels)
 - `api/perp_grid_strategy.py` — Grid Trading (ATR-based grid with smooth martingale)
 - `api/perp_zone_recovery.py` — Zone Recovery (hedge recovery with escalating lots)
@@ -246,28 +249,31 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 - `api/perp_bb_squeeze.py` — BB Squeeze detection
 - `api/perp_sr_reversal.py` — Support/Resistance reversal
 
-### All 10 Strategies
+### All 11 Strategies
 
 | # | Strategy | Default | Leverage | Cooldown | Notes |
 |---|----------|---------|----------|----------|-------|
 | 1 | Trend Following | ON | 5x | 2hr | EMA 9/21 cross + RSI |
 | 2 | Mean Reversion | ON | 3x | 2hr | BB bounce + RSI 30/70 (no trend filter) |
 | 3 | Momentum | ON | 5x | 2hr | Breakout + range expansion |
-| 4 | Scalping | OFF | 3x | 2hr | RSI(5) + EMA slope (noisy on 1-min) |
+| 4 | Scalping | OFF | 3x | 2hr | RSI(5) + EMA slope |
 | 5 | Keltner Channel | OFF | 3x | 2hr | MR + squeeze breakout auto-mode |
 | 6 | BB Squeeze | OFF | 4x | 2hr | Squeeze release + momentum |
 | 7 | Ninja Ambush | OFF | 2x | N/A | Confluence pending orders |
 | 8 | Grid Trading | OFF | 2x | 1hr | ATR grid + smooth martingale |
 | 9 | Zone Recovery | OFF | 3x | 2hr | Hedge recovery + escalating lots |
 | 10 | HF Scalper | OFF | 5x | 5min | 4 fast signals, all markets |
+| 11 | BNF Reversion | OFF | 2x | 2hr | Extreme deviation (5%+) from 100-period MA. Inspired by Takashi Kotegawa |
 
 ### ML Intelligence Layer (April 2026)
 - **Feedback Loop:** `perp_strategy_performance` tracks rolling 20-trade win rate per strategy/market. Auto-disables strategies below 25% win rate. Reduces sizing 50% below 35%. Boosts 1.5x above 55%. Updated in real-time from `close_position()`.
 - **Regime Detection:** `detect_market_regime()` classifies each market as trending/ranging/volatile using ADX + BB width. `REGIME_STRATEGY_WEIGHTS` table scales strategy sizing — e.g. mean reversion blocked in trending markets, trend following blocked in ranges.
-- **ML Signal Classifier:** XGBoost model trained on closed trades (`vps/ml/train.py`). Served via HTTP API on DigitalOcean port 8421 (`vps/ml/server.py`). Every auto-trade is scored before execution — signals below 55% win probability are rejected. Model trained on 228 trades at 78.1% accuracy. Top features: leverage, day_of_week, strategy, hour.
+- **ML Signal Classifier:** XGBoost model trained on closed trades (`vps/ml/train.py`) with `scale_pos_weight` for class imbalance correction. Served via HTTP API on DigitalOcean port 8421 (`vps/ml/server.py`). SHAP TreeExplainer provides human-readable rejection reasons. ML threshold: **30%** win probability (lowered from 55% → 40% → 30% based on data showing model was over-filtering with limited samples).
 - **ML API:** `ml_predict()` in `perp_strategies.py` calls the VPS ML server. Graceful fallback — if API is down, trades proceed normally. Entry reasons tagged with ML score: `[strategy] signal (ML:72%)`.
+- **Signal Funnel:** `api/ml-status.py` provides full pipeline visibility. Shows every filter stage: cooldown, already_open, correlation, performance_disabled, low_volatility, overextended, regime, size, balance, ml. Frontend component `MLBrainPanel.tsx` displays funnel bars, ML decisions, and recent filter rejections with reasons.
+- **Signal Filters (pipeline order):** Strategy disabled → Max positions → Price not available → Already open → Correlation guard → Total position limit → Cooldown → Performance feedback → Regime filter → Low volatility filter → Overextension filter → Position size check → Balance check → ML gate → Trade
 - **Telegram Alerts:** All trade opens (long/short) and closes (wins/losses) sent to Telegram with strategy, symbol, size, SL/TP, P&L.
-- **VPS ML Service:** Runs on masterhq-dev-syd1 (170.64.133.9:8421) as `budju-ml` systemd service. Retrain via `POST /retrain`. Health check via `GET /health`.
+- **VPS ML Service:** Runs on budju-ml-syd1 as `budju-ml` systemd service. Retrain via `POST /retrain` (hourly cron via `vps/ml/retrain_cron.py`). Health check via `GET /health` (requires auth). Liveness: `GET /ping`.
 
 ### Charts Frontend
 - **TradingChart.tsx** — lightweight-charts with Binance WebSocket, AI predictions, position overlays, strategy labels
@@ -292,11 +298,20 @@ MAX_PENDING_ORDERS = 30
 - Liquidation: scaled MM = min(5%, 50%/leverage)
 
 ### Meta-Features
+- **15-Minute Candles** — All strategies run on 15-min candle data (`CANDLE_MINUTES = 15`). ATR scaled by `sqrt(60/15) = 2.0`. Backtesting proved zero strategies are profitable on 1-minute noise.
 - **Equity Curve Trading** — EMA of equity curve; reduces sizing during cold streaks
-- **50-period EMA Trend Filter** — Applied to trend/momentum/scalping (mean reversion exempted)
+- **50-period EMA Trend Filter** — Applied to trend/momentum/scalping (mean reversion exempted). On 15-min candles = 12.5 hours of trend data.
 - **Drawdown Protection** — Half-size at 5% drawdown, stop at 10%
 - **Correlation Guard** — Max 1 position across BTC/ETH/SOL group (HF Scalper exempted)
+- **Low Volatility Filter** — `REGIME_LOW_VOL_BB = 0.005` (BB width < 0.5%) blocks all directional strategies. Only mean reversion allowed in dead markets. Shows as "Low Volatility" in Signal Funnel.
+- **Overextension Filter** — `OVEREXTENSION_PCT = 0.05` blocks directional trades when price has already moved 5%+ in signal direction over last 6 hours (`OVEREXTENSION_LOOKBACK = 360` 1-min candles). Prevents buying tops / shorting bottoms. Mean reversion exempt.
 - **Historical Seeding** — Price history auto-seeded from Binance to eliminate cold-start
+
+### Backtest API
+- **Endpoint:** `/api/backtest` — runs strategies against historical data
+- **Modes:** `?strategy=X&symbol=Y` (single), `?strategy=X` (all symbols), `?symbol=Y` (all strategies), no params (full grid)
+- **Binance mode:** `?source=binance&interval=4h` fetches up to 1000 candles from Binance API (4h = ~166 days, 1d = ~2.7 years)
+- **Key finding (May 2026):** Backtesting proved zero strategies are profitable on 1-min candles across all markets. Trend following on ETH was the only short-term winner (profit factor 3.3) but reverted to loss over 2 weeks. Led to the 15-min candle switch.
 
 ## Cron Jobs (vercel.json)
 
@@ -398,6 +413,18 @@ DDoS attack. DigitalOcean notified, droplet was destroyed. Recovery + hardening 
     every secret it had access to, not just the obvious ones. Full checklist in
     `docs/vps/ML_DROPLET_RECOVERY.md`.
 
+## Lessons Learned (Backtesting & Strategy — May 2026)
+
+26. **1-minute candles are confirmed unprofitable.** Backtesting across all 10 markets × 6 strategies showed ZERO profitable combinations on 1-min data over 2+ weeks. Every strategy lost money. Buy & hold beat everything. Switched all strategies to 15-min candles.
+27. **Win rate is irrelevant — profit factor matters.** Scalping had 57% win rate but lost money (avg win $23 < avg loss $33, PF 0.92). Trend following had 40% win rate but was the only profitable strategy (avg win $117 vs avg loss $24, PF 3.3). Always check profit factor, not win rate.
+28. **Fees eat all edge on short timeframes.** Total fees across all 2-week backtests exceeded $1,400. With 0.12% round-trip + borrow, you need moves of 0.5%+ to profit. 1-min moves are 0.01-0.05%.
+29. **Overextension kills momentum entries.** ETH LONG after 11% rally = buying the top. Added overextension filter: block directional trades when price moved 5%+ in signal direction over last 6 hours.
+30. **Low volatility = death for directional strategies.** SUI whipsawed 5 trades for -$53 in a $0.008 range. Added low_volatility regime (BB width < 0.5%) that blocks everything except mean reversion.
+31. **BNF reversion concept validated but needs tuning.** Inspired by Takashi Kotegawa. 6-month backtest: 28 trades, lost $333, but buy & hold lost $2,863. Strategy preserved 97% of capital in a crash. Needs wider SL (3x ATR), longs-only mode, and trend filter to avoid shorting uptrends.
+32. **MongoDB Atlas free tier (512MB) will fill up.** The perp cron writes 1-min candles + signals every minute across 10 markets. Hit 512/512 MB in May 2026 — killed the entire API (database.py crashes on index creation at import time). Upgraded to Flex (5GB, ~$3-8/month). Monitor storage usage.
+33. **Adding a new coin requires TWO config changes.** Backend: `ASSET_CG_IDS` in `auto-trade-cron.py`. Frontend: `ASSET_CONFIG` in `tradeApi.ts`. Missing either one = coin silently broken (JUP had no price, LUNC wasn't displaying). Future: move to MongoDB-based coin config.
+34. **Cron settlement guard prevents double execution.** After trades execute, Swyftx balances take 1-2 minutes to settle. Without the 2-minute guard, the next cron run sees stale (higher) balance and tries to buy everything again → orders fail on Swyftx but may be logged as executed.
+
 ## Lessons Learned (Failed Features)
 
 1. **Accumulation sparkline charts on holdings cards — FAILED & REVERTED (March 25, 2026).** 7 commits, all reverted. The MongoDB `trades` collection is EMPTY — trades are done directly on Swyftx, not recorded in MongoDB. The `/api/accumulation` endpoint returns `{}`. Do NOT attempt to build charts from this endpoint. Trade history IS available via `fetchSwyftxOrderHistory()` in `tradeApi.ts` (hits Swyftx API), but any chart implementation needs: (a) verify data exists FIRST before building UI, (b) proper sizing/design — 20px was too small, 40px was too dominant, absolute-positioned background overlays are invisible, (c) don't make 7 incremental "let me try this" commits.
@@ -419,3 +446,8 @@ DDoS attack. DigitalOcean notified, droplet was destroyed. Recovery + hardening 
 - TP exits fill at TP target price (like limit order), SL exits at SL target price. Only market/manual/trailing exits apply slippage.
 - Drift Protocol live trading deps exceed Vercel 500MB Lambda limit — needs separate infra if activated.
 - Perp cron-based monitoring has 1-min intervals — price can gap past SL/TP between ticks.
+- `CANDLE_MINUTES = 15` is a module-level constant in `perp_strategies.py`. Changes affect ATR scaling globally (including backtester).
+- Backtest API with `source=binance` temporarily overrides `CANDLE_MINUTES` for the interval (e.g., 240 for 4h). Not thread-safe but OK for single-threaded Vercel.
+- Admin trade log and non-admin trade log MUST use the same data source (`state.autoTradeLog` from MongoDB). Previously admin used Swyftx with buggy AUD/USD mapping — fixed May 2026.
+- The overextension filter uses 1-min data (`get_price_series`) for precise high/low detection even though strategies use 15-min data.
+- Signal Funnel (`MLBrainPanel.tsx`) shows filter categories: cooldown, already_open, correlation, performance, low_volatility, overextended, regime, size, balance, ml, traded. Each has a unique color/icon.

@@ -1,6 +1,6 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: April 14, 2026
+> Last updated: May 18, 2026
 
 This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
@@ -30,13 +30,13 @@ This document describes the full current state of the BUDJU project for handoff 
 - **14 page modules:** home, trade (largest), bank, pool, swap, spot, nft, shop, tokenomics, burn, balance, how-to-buy, marketing, not-found
 
 ### Backend (Vercel Serverless)
-- **26 API files** (15 Python, 11 TypeScript)
-- **Python:** Main REST API (`index.py`), MongoDB layer (`database.py`), spot auto-trader cron, perp trading engine + 10 strategy files + cron + backtest + exchange adapter
+- **31 API files** (20 Python, 11 TypeScript)
+- **Python:** Main REST API (`index.py`), MongoDB layer (`database.py`), spot auto-trader cron (with settlement guard + order verification), perp trading engine + 11 strategy files + cron + backtest + exchange adapter, signal funnel API (`ml-status.py`), backtest API (`backtest.py` — supports Binance historical data)
 - **TypeScript:** Telegram bot + cron, Swyftx proxy, Jupiter proxy, Solana RPC proxy, Binance/klines proxy, marketing API, VPS proxy
 
 ### Database
-- **MongoDB Atlas** (DB name: `flub` — legacy)
-- **22 collections** covering user accounts, pool accounting, spot trades, perp trading (accounts, positions, orders, trades, equity, funding, price history, strategy config, signals, pending orders, position management, grid state, zone state)
+- **MongoDB Atlas Flex** (DB name: `flub` — legacy, upgraded from free 512MB to Flex 5GB May 2026)
+- **24 collections** covering user accounts, pool accounting, spot trades, deposits, withdrawals, perp trading (accounts, positions, orders, trades, equity, funding, price history, strategy config, signals, pending orders, position management, grid state, zone state, strategy performance, equity curve)
 
 ### VPS Bot
 - **DigitalOcean** ($4-5/mo, Ubuntu 24.04, systemd service `budju-trader`)
@@ -79,9 +79,41 @@ This document describes the full current state of the BUDJU project for handoff 
 
 ---
 
-## 4. Recent Changes & Fixes (March 14 — April 14, 2026)
+## 4. Recent Changes & Fixes (March 14 — May 2026)
 
-### Security Incident Recovery + ML Droplet Rebuild (April 14) — MOST RECENT
+### May 2026 — Strategy Overhaul, Signal Funnel, Backtesting, Auto-Trader Fixes
+
+**Signal Pipeline Visibility (PRs #59-60):**
+- ML Brain panel showing live ML decisions with SHAP reasons
+- Signal Funnel replacing ML Brain — full pipeline visibility showing every filter rejection (cooldown, correlation, regime, low_volatility, overextended, performance, ML gate)
+- ML threshold lowered from 55% → 40% → 30% to prevent over-filtering with limited samples
+
+**Strategy Filters (PRs #61-62):**
+- Low-volatility regime filter (BB width < 0.5%) blocks directional strategies in dead markets
+- Overextension filter (5%+ move in signal direction over 6hrs) blocks chasing into extended moves
+
+**15-Minute Candle Migration (PRs #65-66):**
+- Backtesting proved ZERO strategies are profitable on 1-minute candles across all markets
+- Switched all strategy execution and regime detection to 15-min candles
+- ATR scaling adjusted from sqrt(60) to sqrt(4) for new timeframe
+
+**Backtest API (PRs #63-64, #69):**
+- Public `/api/backtest` endpoint for data-driven strategy evaluation
+- Supports Binance historical data (`source=binance&interval=4h`) for up to 6 months of data
+- BNF reversion strategy (PR #67-68) inspired by Takashi Kotegawa — extreme deviation mean reversion
+
+**Auto-Trader Fixes (PRs #70-76):**
+- Added JUP and LUNC to CoinGecko price map + frontend ASSET_CONFIG (coins were silently broken)
+- Record Withdrawal button matching deposit flow (AUD/USDC, NAV-based share burning)
+- Fixed admin trade log to use MongoDB data (was using buggy Swyftx mapping with AUD prices)
+- Added 24-hour buy/sell counts to trade log header
+- Settlement guard: 2-minute cooldown between cron cycles after trades (prevents double execution)
+- Order verification: checks Swyftx order status after placement (catches cancelled/failed orders)
+
+**Infrastructure:**
+- MongoDB Atlas upgraded from free tier (512MB) to Flex (5GB, ~$3-8/month) after hitting storage limit that killed entire API
+
+### Security Incident Recovery + ML Droplet Rebuild (April 14)
 DigitalOcean notified that `masterhq-dev-syd1` (170.64.133.9) was compromised and used
 in a DDoS attack. Full incident response and recovery completed in one session:
 
