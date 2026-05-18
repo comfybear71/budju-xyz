@@ -216,6 +216,19 @@ def place_market_order(asset_code, side, amount_usdc, code_to_id):
     has_error = data.get("error") or "error" in msg or "fail" in msg
 
     if order_id and not has_error:
+        # Verify order wasn't rejected by checking status
+        try:
+            time.sleep(1)
+            verify = _http_json(
+                SWYFTX_BASE + f"/orders/{order_id}/",
+                headers=_swyftx_headers(),
+            )
+            status = verify.get("status", 0)
+            # Swyftx statuses: 2=pending, 3=open, 4=filled, 5=partially_filled, 6=cancelled, 7=failed
+            if status in (6, 7):
+                return False, None, f"Order {order_id} rejected by Swyftx (status={status})"
+        except Exception:
+            pass  # Verification failed — assume order is OK (don't block on verify failure)
         return True, order_id, None
     err = data.get("error") or data.get("message") or "No order confirmation"
     return False, None, str(err) if isinstance(err, str) else json.dumps(err)
@@ -411,6 +424,22 @@ def run_auto_trade_check():
     code_to_id = None  # Lazy-loaded only if a trade is needed
     trades_executed = []
     decisions = []  # Structured log of every decision for debugging
+
+    # Settlement guard: if trades executed very recently, skip this run
+    # to let Swyftx balances settle (prevents double-execution)
+    last_trade_time = 0
+    for entry in trade_log[:5]:
+        ts = entry.get("timestamp") or entry.get("time")
+        if ts:
+            try:
+                t = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
+                last_trade_time = max(last_trade_time, t)
+            except Exception:
+                pass
+    if last_trade_time > 0 and (now_ms - last_trade_time) < 120_000:
+        log.append(f"Settlement guard: trades executed {(now_ms - last_trade_time) / 1000:.0f}s ago, skipping this cycle to let balances settle")
+        _save_heartbeat(auto_active, now_ms)
+        return {"tradesExecuted": 0, "trades": [], "log": log, "skipped": "settlement_guard"}
 
     for code, tier_num in active_pairs:
         ck = f"{code}:{tier_num}"  # Compound key
