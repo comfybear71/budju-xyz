@@ -565,11 +565,16 @@ def run_auto_trade_check():
 
                 usdc_balance -= trade_amount
 
+                # Calculate portfolio value for Telegram message
+                _portfolio_usd = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
+
                 send_telegram(
                     f"🤖 <b>Auto BUY</b>\n"
                     f"🛒 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
                     f"📦 ${trade_amount:,.2f} USDC\n"
-                    f"🆔 {order_id}"
+                    f"🆔 {order_id}\n"
+                    f"💰 USDC remaining: ${usdc_balance:,.2f}\n"
+                    f"📊 Portfolio: ${_portfolio_usd:,.0f}"
                 )
             else:
                 log.append(f"{code}: BUY failed — {err}")
@@ -677,11 +682,16 @@ def run_auto_trade_check():
                     "price": round(current_price, 2),
                 })
 
+                # Calculate portfolio value for Telegram message
+                _portfolio_usd = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
+
                 send_telegram(
                     f"🤖 <b>Auto SELL</b>\n"
                     f"💸 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
                     f"📦 ${sell_value:,.2f} USDC\n"
-                    f"🆔 {order_id}"
+                    f"🆔 {order_id}\n"
+                    f"💰 USDC remaining: ${usdc_balance:,.2f}\n"
+                    f"📊 Portfolio: ${_portfolio_usd:,.0f}"
                 )
             else:
                 log.append(f"{code}: SELL failed — {err}")
