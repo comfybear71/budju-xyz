@@ -31,8 +31,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const refresh = useCallback(() => setTick((n) => n + 1), []);
 
   useEffect(() => {
-    autoTrader.setOnStateChange(refresh);
-    return () => autoTrader.setOnStateChange(() => {});
+    autoTrader?.setOnStateChange?.(refresh);
+    return () => autoTrader?.setOnStateChange?.(() => {});
   }, [autoTrader, refresh]);
 
   // Countdown timer for next price check
@@ -45,10 +45,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
   // Feed prices to autoTrader
   useEffect(() => {
-    autoTrader.updatePrices(prices);
+    autoTrader?.updatePrices?.(prices);
   }, [autoTrader, prices]);
 
-  const snapshot = autoTrader.getSnapshot();
+  const snapshot = autoTrader?.getSnapshot?.() || {};
   const botActive = snapshot.isActive;
 
   // Build asset balance lookup: code → { balance, usdValue }
@@ -128,7 +128,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  const state = autoTrader.getState();
+  const state = autoTrader?.getState?.() || null;
   const rawLog = state?.autoTradeLog || [];
   const tradeLog = rawLog.map((entry: any) => ({
     time: entry.timestamp || entry.time || "",
