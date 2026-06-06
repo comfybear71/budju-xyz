@@ -753,6 +753,32 @@ export async function fetchCoinStats(force = false): Promise<CoinStatsResponse |
   });
 }
 
+export interface CoinTradePoint {
+  t: string;
+  side: "buy" | "sell";
+  price: number;
+  qty: number;
+}
+
+export interface CoinTradesResponse {
+  coin: string;
+  count: number;
+  trades: CoinTradePoint[];
+}
+
+/** Fetch individual buy/sell points for one coin (for the detail chart). */
+export async function fetchCoinTrades(coin: string): Promise<CoinTradesResponse | null> {
+  return cached(`coin_trades_${coin}`, 60_000, async () => {
+    try {
+      const res = await fetchWithRetry(`/api/coin-trades?coin=${encodeURIComponent(coin)}`);
+      if (!res.ok) return null;
+      return (await res.json()) as CoinTradesResponse;
+    } catch {
+      return null;
+    }
+  });
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,

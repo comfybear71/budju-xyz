@@ -559,6 +559,28 @@ def get_coin_stats() -> Dict:
     }
 
 
+def get_coin_trades(coin: str, limit: int = 500) -> Dict:
+    """Individual buy/sell points for one coin, oldest first — for the detail chart."""
+    cursor = (
+        trades_collection.find(
+            {"coin": coin, "price": {"$gt": 0}, "amount": {"$gt": 0}},
+            {"_id": 0, "type": 1, "price": 1, "amount": 1, "timestamp": 1},
+        )
+        .sort("timestamp", 1)
+        .limit(limit)
+    )
+    trades = []
+    for d in cursor:
+        ts = d.get("timestamp")
+        trades.append({
+            "t": ts.isoformat() + "Z" if isinstance(ts, datetime) else ts,
+            "side": d.get("type"),
+            "price": float(d.get("price", 0) or 0),
+            "qty": float(d.get("amount", 0) or 0),
+        })
+    return {"coin": coin, "count": len(trades), "trades": trades}
+
+
 def get_all_active_users() -> List[Dict]:
     users = users_collection.find({"isActive": True})
     return [format_user_data(user) for user in users]

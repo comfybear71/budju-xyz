@@ -18,6 +18,7 @@ from database import (
     record_withdrawal,
     record_trade,
     get_coin_stats,
+    get_coin_trades,
     get_all_active_users,
     calculate_pool_allocations,
     is_admin,
@@ -214,6 +215,14 @@ class handler(BaseHTTPRequestHandler):
             elif path == '/api/coin-stats':
                 # Public, read-only per-coin trading analytics (cost-basis stats).
                 self._send_json(200, get_coin_stats())
+
+            elif path == '/api/coin-trades':
+                # Public, read-only individual buy/sell points for one coin (detail chart).
+                coin = params.get('coin')
+                if not coin:
+                    self._send_json(400, {"error": "coin parameter required"})
+                    return
+                self._send_json(200, get_coin_trades(coin))
 
             elif path == '/api/user/position':
                 wallet = params.get('wallet')

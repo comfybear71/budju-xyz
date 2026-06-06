@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
-import { fetchCoinStats, ASSET_CONFIG, type CoinStat, type CoinStatsResponse } from "../services/tradeApi";
+import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinTradePoint } from "../services/tradeApi";
+import CoinTradeChart from "./CoinTradeChart";
 
 interface Props {
   isOpen: boolean;
@@ -52,6 +53,18 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [countdown, setCountdown] = useState(30);
+  // undefined = not fetched, null = loading, array = loaded
+  const [tradePoints, setTradePoints] = useState<Record<string, CoinTradePoint[] | null>>({});
+
+  // Lazy-load a coin's individual trades when its row is expanded (for the chart)
+  useEffect(() => {
+    if (!expanded || tradePoints[expanded] !== undefined) return;
+    setTradePoints((prev) => ({ ...prev, [expanded]: null }));
+    fetchCoinTrades(expanded).then((res) => {
+      setTradePoints((prev) => ({ ...prev, [expanded]: res?.trades || [] }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expanded]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -247,7 +260,7 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
                             </button>
                             {isOpen2 && (
                               <div className="px-3 pb-3 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                                <DetailGrid r={r} />
+                                <DetailGrid r={r} points={tradePoints[r.coin]} />
                               </div>
                             )}
                           </div>
@@ -306,7 +319,7 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
                               {isOpen2 && (
                                 <tr style={{ background: "rgba(255,255,255,0.015)" }}>
                                   <td colSpan={9} className="px-4 py-3">
-                                    <DetailGrid r={r} wide />
+                                    <DetailGrid r={r} wide points={tradePoints[r.coin]} />
                                   </td>
                                 </tr>
                               )}
@@ -351,8 +364,21 @@ const HeroCard = ({ icon, label, coin, value, valueColor }: { icon: React.ReactN
   </div>
 );
 
-const DetailGrid = ({ r, wide }: { r: Row; wide?: boolean }) => (
-  <div className={`grid ${wide ? "grid-cols-3 lg:grid-cols-4" : "grid-cols-2"} gap-x-4 gap-y-1.5`}>
+const DetailGrid = ({ r, wide, points }: { r: Row; wide?: boolean; points?: CoinTradePoint[] | null }) => (
+  <div>
+    {/* Buy/sell scatter chart */}
+    <div className="mb-3">
+      {points === undefined || points === null ? (
+        <div className="flex justify-center py-8">
+          <div className="w-5 h-5 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
+        </div>
+      ) : points.length === 0 ? (
+        <div className="text-[10px] text-slate-600 text-center py-4">No trade points to chart.</div>
+      ) : (
+        <CoinTradeChart trades={points} avgCost={r.avgCost} currentPrice={r.currentPrice} />
+      )}
+    </div>
+    <div className={`grid ${wide ? "grid-cols-3 lg:grid-cols-4" : "grid-cols-2"} gap-x-4 gap-y-1.5`}>
     <Stat label="Buys / Sells" value={`${r.buys} / ${r.sells}`} />
     <Stat label="Trades / week" value={r.tradesPerWeek ? r.tradesPerWeek.toString() : "—"} />
     <Stat label="Avg cost" value={fmtPrice(r.avgCost)} />
@@ -372,6 +398,7 @@ const DetailGrid = ({ r, wide }: { r: Row; wide?: boolean }) => (
         ⚠ Some of this coin was transferred in from an outside wallet, so cost basis &amp; P&L are partial.
       </div>
     )}
+    </div>
   </div>
 );
 
