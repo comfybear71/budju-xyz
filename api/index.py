@@ -267,7 +267,9 @@ class handler(BaseHTTPRequestHandler):
                 if not wallet or not is_admin(wallet):
                     self._send_json(403, {"error": "Admin access required"})
                     return
-                self._send_json(200, get_deposit_summary(wallet))
+                # No wallet arg => sum across all admin wallets (the admin's own deposits),
+                # robust to which admin wallet is connected.
+                self._send_json(200, get_deposit_summary())
 
             elif path == '/api/admin/stats':
                 pool_value = params.get('poolValue')

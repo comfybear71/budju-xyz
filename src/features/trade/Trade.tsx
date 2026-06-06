@@ -489,7 +489,7 @@ const Trade = () => {
                     className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
                   >
-                    <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
+                    <div className="flex flex-wrap gap-1.5">
                       {([
                         { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
                           onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } } },

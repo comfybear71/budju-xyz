@@ -594,20 +594,32 @@ def get_coin_trades(coin: str, limit: int = 500) -> Dict:
 
 
 def get_deposit_summary(wallet: str = None) -> Dict:
-    """Deposit totals + the deposit list in one call, scoped to a wallet so the
-    card's totals and the void list always match. Excludes voided from totals."""
-    deposits = get_user_deposits(wallet) if wallet else []
+    """Deposit totals + the deposit list in one call. Defaults to the admin's
+    own deposits (userId in ADMIN_WALLETS) so it's correct regardless of which
+    admin wallet is connected and excludes the small public users. Pass a
+    specific wallet to scope to it. Totals exclude voided; list includes voided."""
+    if wallet:
+        query = {"userId": wallet}
+    else:
+        query = {"userId": {"$in": ADMIN_WALLETS}}
+    deposits: List[Dict] = []
     total = 0.0
     count = 0
     by_currency: Dict[str, float] = {}
-    for d in deposits:
-        if d.get("status") == "voided":
-            continue
-        amt = float(d.get("amount", 0) or 0)
-        total += amt
-        count += 1
-        ccy = d.get("currency", "USDC")
-        by_currency[ccy] = by_currency.get(ccy, 0.0) + amt
+    for doc in deposits_collection.find(query, {"_id": 0, "userId": 0}).sort("timestamp", -1):
+        d = dict(doc)
+        ts = d.get("timestamp")
+        if isinstance(ts, datetime):
+            d["timestamp"] = ts.isoformat() + "Z"
+        if isinstance(d.get("voidedAt"), datetime):
+            d["voidedAt"] = d["voidedAt"].isoformat() + "Z"
+        deposits.append(d)
+        if d.get("status") != "voided":
+            amt = float(d.get("amount", 0) or 0)
+            total += amt
+            count += 1
+            ccy = d.get("currency", "USDC")
+            by_currency[ccy] = by_currency.get(ccy, 0.0) + amt
     return {
         "totalDeposited": round(total, 2),
         "count": count,
