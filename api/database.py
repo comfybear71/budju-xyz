@@ -593,17 +593,16 @@ def get_coin_trades(coin: str, limit: int = 500) -> Dict:
     return {"coin": coin, "count": len(trades), "trades": trades}
 
 
-def get_deposit_summary() -> Dict:
-    """Total capital deposited across all (non-voided) deposits — for the
-    Pool Performance card. Amounts are summed at their recorded value."""
-    cursor = deposits_collection.find(
-        {"status": {"$ne": "voided"}},
-        {"_id": 0, "amount": 1, "currency": 1},
-    )
+def get_deposit_summary(wallet: str = None) -> Dict:
+    """Deposit totals + the deposit list in one call, scoped to a wallet so the
+    card's totals and the void list always match. Excludes voided from totals."""
+    deposits = get_user_deposits(wallet) if wallet else []
     total = 0.0
     count = 0
     by_currency: Dict[str, float] = {}
-    for d in cursor:
+    for d in deposits:
+        if d.get("status") == "voided":
+            continue
         amt = float(d.get("amount", 0) or 0)
         total += amt
         count += 1
@@ -613,6 +612,7 @@ def get_deposit_summary() -> Dict:
         "totalDeposited": round(total, 2),
         "count": count,
         "byCurrency": {k: round(v, 2) for k, v in by_currency.items()},
+        "deposits": deposits,
     }
 
 
