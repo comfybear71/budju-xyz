@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint } from "react-icons/fa";
+import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
 import { fetchCoinStats, ASSET_CONFIG, type CoinStat, type CoinStatsResponse } from "../services/tradeApi";
 
 interface Props {
@@ -9,9 +9,9 @@ interface Props {
   prices: Record<string, number>;
 }
 
-type SortKey = "pnl" | "trades" | "accumulated";
+type SortKey = "coin" | "trades" | "avgCost" | "current" | "realized" | "unrealized" | "pnl" | "held";
+type SortDir = "asc" | "desc";
 
-// Per-coin row enriched with live-price-derived figures
 interface Row extends CoinStat {
   currentPrice: number;
   marketValue: number;
@@ -43,10 +43,13 @@ const fmtQty = (n: number) => {
   return n.toPrecision(4);
 };
 
+const pnlColor = (n: number) => (n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#64748b");
+
 const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
   const [data, setData] = useState<CoinStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("pnl");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,17 +61,23 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
     });
   }, [isOpen]);
 
+  const setSort = (k: SortKey) => {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortKey(k);
+      setSortDir(k === "coin" ? "asc" : "desc");
+    }
+  };
+
   const rows = useMemo<Row[]>(() => {
     if (!data?.coins) return [];
     const enriched = data.coins.map((c) => {
       const currentPrice = Number(prices[c.coin]) || 0;
       const marketValue = c.qtyHeld > 0 ? c.qtyHeld * currentPrice : 0;
       const unrealizedPnL =
-        c.qtyHeld > 0 && c.avgCost > 0 && currentPrice > 0
-          ? (currentPrice - c.avgCost) * c.qtyHeld
-          : 0;
-      const unrealizedPct =
-        c.avgCost > 0 && currentPrice > 0 ? (currentPrice / c.avgCost - 1) * 100 : 0;
+        c.qtyHeld > 0 && c.avgCost > 0 && currentPrice > 0 ? (currentPrice - c.avgCost) * c.qtyHeld : 0;
+      const unrealizedPct = c.avgCost > 0 && currentPrice > 0 ? (currentPrice / c.avgCost - 1) * 100 : 0;
       return {
         ...c,
         currentPrice,
@@ -79,14 +88,28 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
         totalTrades: c.buys + c.sells,
       };
     });
-    const sorted = [...enriched];
-    if (sortKey === "pnl") sorted.sort((a, b) => b.totalPnL - a.totalPnL);
-    else if (sortKey === "trades") sorted.sort((a, b) => b.totalTrades - a.totalTrades);
-    else sorted.sort((a, b) => b.marketValue - a.marketValue);
-    return sorted;
-  }, [data, prices, sortKey]);
+    const dir = sortDir === "asc" ? 1 : -1;
+    const val = (r: Row): number | string => {
+      switch (sortKey) {
+        case "coin": return r.coin;
+        case "trades": return r.totalTrades;
+        case "avgCost": return r.avgCost;
+        case "current": return r.currentPrice;
+        case "realized": return r.realizedPnL;
+        case "unrealized": return r.unrealizedPnL;
+        case "held": return r.marketValue;
+        default: return r.totalPnL;
+      }
+    };
+    return [...enriched].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (typeof va === "string" || typeof vb === "string") {
+        return String(va).localeCompare(String(vb)) * dir;
+      }
+      return (va - vb) * dir;
+    });
+  }, [data, prices, sortKey, sortDir]);
 
-  // Hero highlights
   const hero = useMemo(() => {
     if (rows.length === 0) return null;
     const mostTraded = rows.reduce((m, r) => (r.totalTrades > m.totalTrades ? r : m), rows[0]);
@@ -100,47 +123,8 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
     [data],
   );
 
-  const SortChip = ({ k, label }: { k: SortKey; label: string }) => (
-    <button
-      onClick={() => setSortKey(k)}
-      className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all"
-      style={{
-        background: sortKey === k ? "rgba(20,184,166,0.2)" : "rgba(255,255,255,0.04)",
-        color: sortKey === k ? "#2dd4bf" : "#64748b",
-        border: `1px solid ${sortKey === k ? "rgba(20,184,166,0.4)" : "rgba(255,255,255,0.06)"}`,
-      }}
-    >
-      {label}
-    </button>
-  );
-
-  const HeroCard = ({
-    icon,
-    label,
-    row,
-    valueColor,
-  }: {
-    icon: React.ReactNode;
-    label: string;
-    row: Row;
-    valueColor: string;
-  }) => (
-    <div
-      className="flex-shrink-0 rounded-xl p-2.5 snap-start"
-      style={{ width: 120, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-    >
-      <div className="flex items-center gap-1.5 mb-1">
-        {icon}
-        <span className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">{label}</span>
-      </div>
-      <div className="text-[13px] font-bold" style={{ color: ASSET_CONFIG[row.coin]?.color || "#e2e8f0" }}>
-        {row.coin}
-      </div>
-      <div className="text-[10px] font-bold font-mono" style={{ color: valueColor }}>
-        {label === "Most traded" ? `${row.totalTrades} trades` : fmtUsd(row.totalPnL)}
-      </div>
-    </div>
-  );
+  const SortIcon = ({ k }: { k: SortKey }) =>
+    sortKey !== k ? <FaSort size={8} className="text-slate-600" /> : sortDir === "desc" ? <FaSortDown size={8} className="text-teal-400" /> : <FaSortUp size={8} className="text-teal-400" />;
 
   return (
     <AnimatePresence>
@@ -157,10 +141,9 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "tween", duration: 0.3 }}
-            className="absolute inset-x-0 bottom-0 top-14 bg-[#0a0a1a] rounded-t-2xl overflow-y-auto pb-20"
-            style={{ maxWidth: 420, margin: "0 auto" }}
+            className="absolute inset-x-0 bottom-0 top-14 bg-[#0a0a1a] rounded-t-2xl overflow-y-auto pb-20 mx-auto w-full max-w-[440px] md:max-w-6xl md:rounded-t-3xl"
           >
-            <div className="p-4">
+            <div className="p-4 md:p-6">
               {/* Header */}
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
@@ -172,13 +155,9 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
                       <rect x="17" y="13" width="3" height="4" />
                     </svg>
                   </div>
-                  <span className="text-base font-bold text-slate-200">Coin Stats</span>
+                  <span className="text-base md:text-lg font-bold text-slate-200">Coin Stats</span>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center"
-                  style={{ background: "rgba(255,255,255,0.06)" }}
-                >
+                <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)" }}>
                   <FaTimes size={14} className="text-slate-400" />
                 </button>
               </div>
@@ -194,104 +173,131 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
               ) : (
                 <>
                   {/* Summary line */}
-                  <div className="text-[10px] text-slate-500 text-center mb-3">
+                  <div className="text-[10px] md:text-xs text-slate-500 text-center md:text-left mb-3">
                     {data.totalTrades.toLocaleString()} trades across {data.coinCount} coins
                     {fundingTotal > 0 && <> · {fmtUsd(fundingTotal)} converted to USDC</>}
                   </div>
 
                   {/* Hero strip */}
                   {hero && (
-                    <div className="flex gap-2 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x" style={{ scrollbarWidth: "thin" }}>
-                      <HeroCard icon={<FaFire size={10} color="#f97316" />} label="Most traded" row={hero.mostTraded} valueColor="#f97316" />
-                      <HeroCard icon={<FaTrophy size={10} color="#22c55e" />} label="Best" row={hero.best} valueColor="#22c55e" />
-                      <HeroCard icon={<FaTint size={10} color="#ef4444" />} label="Biggest bleeder" row={hero.worst} valueColor="#ef4444" />
+                    <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4">
+                      <HeroCard icon={<FaFire size={11} color="#f97316" />} label="Most traded" coin={hero.mostTraded.coin} value={`${hero.mostTraded.totalTrades} trades`} valueColor="#f97316" />
+                      <HeroCard icon={<FaTrophy size={11} color="#22c55e" />} label="Best" coin={hero.best.coin} value={fmtUsd(hero.best.totalPnL)} valueColor="#22c55e" />
+                      <HeroCard icon={<FaTint size={11} color="#ef4444" />} label="Biggest bleeder" coin={hero.worst.coin} value={fmtUsd(hero.worst.totalPnL)} valueColor="#ef4444" />
                     </div>
                   )}
 
-                  {/* Sort chips */}
-                  <div className="flex items-center gap-2 mb-2.5">
-                    <span className="text-[9px] uppercase tracking-wider text-slate-600 font-bold">Sort</span>
-                    <SortChip k="pnl" label="P&L" />
-                    <SortChip k="trades" label="Trades" />
-                    <SortChip k="accumulated" label="Held" />
-                  </div>
-
-                  {/* Coin cards */}
-                  <div className="space-y-1.5">
-                    {rows.map((r) => {
-                      const cfg = ASSET_CONFIG[r.coin] || { color: "#64748b" };
-                      const pnlColor = r.totalPnL > 0 ? "#22c55e" : r.totalPnL < 0 ? "#ef4444" : "#64748b";
-                      const isOpen2 = expanded === r.coin;
-                      return (
-                        <div
-                          key={r.coin}
-                          className="rounded-lg overflow-hidden"
-                          style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}
+                  {/* ── MOBILE: card list ── */}
+                  <div className="md:hidden">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="text-[9px] uppercase tracking-wider text-slate-600 font-bold">Sort</span>
+                      {([["pnl", "P&L"], ["trades", "Trades"], ["held", "Held"]] as [SortKey, string][]).map(([k, label]) => (
+                        <button
+                          key={k}
+                          onClick={() => setSort(k)}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-lg transition-all"
+                          style={{
+                            background: sortKey === k ? "rgba(20,184,166,0.2)" : "rgba(255,255,255,0.04)",
+                            color: sortKey === k ? "#2dd4bf" : "#64748b",
+                            border: `1px solid ${sortKey === k ? "rgba(20,184,166,0.4)" : "rgba(255,255,255,0.06)"}`,
+                          }}
                         >
-                          {/* Card head — tap to expand */}
-                          <button
-                            onClick={() => setExpanded(isOpen2 ? null : r.coin)}
-                            className="w-full flex items-center justify-between px-3 py-2.5"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {isOpen2 ? <FaChevronDown size={9} className="text-slate-600" /> : <FaChevronRight size={9} className="text-slate-600" />}
-                              <span className="text-[13px] font-bold" style={{ color: cfg.color }}>{r.coin}</span>
-                              <span className="text-[9px] text-slate-500">{r.totalTrades} trades</span>
-                              {r.costBasisPartial && (
-                                <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>
-                                  PARTIAL
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <div className="text-[12px] font-bold font-mono" style={{ color: pnlColor }}>
-                                {fmtUsd(r.totalPnL)}
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="space-y-1.5">
+                      {rows.map((r) => {
+                        const cfg = ASSET_CONFIG[r.coin] || { color: "#64748b" };
+                        const isOpen2 = expanded === r.coin;
+                        return (
+                          <div key={r.coin} className="rounded-lg overflow-hidden" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                            <button onClick={() => setExpanded(isOpen2 ? null : r.coin)} className="w-full flex items-center justify-between px-3 py-2.5">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {isOpen2 ? <FaChevronDown size={9} className="text-slate-600" /> : <FaChevronRight size={9} className="text-slate-600" />}
+                                <span className="text-[13px] font-bold" style={{ color: cfg.color }}>{r.coin}</span>
+                                <span className="text-[9px] text-slate-500">{r.totalTrades} trades</span>
+                                {r.costBasisPartial && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>PARTIAL</span>}
                               </div>
-                              <div className="text-[9px] font-mono text-slate-500">
-                                {fmtUsd(r.marketValue)} held
+                              <div className="text-right">
+                                <div className="text-[12px] font-bold font-mono" style={{ color: pnlColor(r.totalPnL) }}>{fmtUsd(r.totalPnL)}</div>
+                                <div className="text-[9px] font-mono text-slate-500">{fmtUsd(r.marketValue)} held</div>
                               </div>
-                            </div>
-                          </button>
-
-                          {/* Detail */}
-                          {isOpen2 && (
-                            <div className="px-3 pb-3 pt-1 grid grid-cols-2 gap-x-3 gap-y-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-                              <Stat label="Buys / Sells" value={`${r.buys} / ${r.sells}`} />
-                              <Stat label="Trades / week" value={r.tradesPerWeek ? r.tradesPerWeek.toString() : "—"} />
-                              <Stat label="Avg cost" value={fmtPrice(r.avgCost)} />
-                              <Stat label="Current" value={fmtPrice(r.currentPrice)} />
-                              <Stat label="Cheapest buy" value={fmtPrice(r.cheapestBuy)} color="#22c55e" />
-                              <Stat label="Dearest buy" value={fmtPrice(r.dearestBuy)} color="#ef4444" />
-                              <Stat label="Lowest sell" value={fmtPrice(r.cheapestSell)} color="#f97316" />
-                              <Stat label="Highest sell" value={fmtPrice(r.dearestSell)} color="#22c55e" />
-                              <Stat label="Qty held" value={fmtQty(r.qtyHeld)} />
-                              <Stat label="Held value" value={fmtUsd(r.marketValue)} />
-                              <Stat label="Total spent" value={fmtUsd(r.spent)} />
-                              <Stat label="Total received" value={fmtUsd(r.received)} />
-                              <Stat
-                                label="Realised P&L"
-                                value={fmtUsd(r.realizedPnL)}
-                                color={r.realizedPnL > 0 ? "#22c55e" : r.realizedPnL < 0 ? "#ef4444" : undefined}
-                              />
-                              <Stat
-                                label="Unrealised P&L"
-                                value={`${fmtUsd(r.unrealizedPnL)} (${r.unrealizedPct > 0 ? "+" : ""}${r.unrealizedPct.toFixed(1)}%)`}
-                                color={r.unrealizedPnL > 0 ? "#22c55e" : r.unrealizedPnL < 0 ? "#ef4444" : undefined}
-                              />
-                              {r.costBasisPartial && (
-                                <div className="col-span-2 text-[9px] text-amber-500/80 mt-1">
-                                  ⚠ Some of this coin was transferred in from an outside wallet, so cost basis &amp; P&L are partial.
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            </button>
+                            {isOpen2 && (
+                              <div className="px-3 pb-3 pt-1" style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                                <DetailGrid r={r} />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
 
-                  <div className="text-[9px] text-slate-600 text-center mt-3">
-                    Read-only · realised P&L from sells, unrealised from live prices · avg-cost method
+                  {/* ── DESKTOP: sortable table ── */}
+                  <div className="hidden md:block rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[11px] uppercase tracking-wider text-slate-500" style={{ background: "rgba(255,255,255,0.03)" }}>
+                          <Th label="Coin" k="coin" align="left" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="coin" />} />
+                          <Th label="Trades" k="trades" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="trades" />} />
+                          <Th label="Avg Cost" k="avgCost" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="avgCost" />} />
+                          <Th label="Current" k="current" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="current" />} />
+                          <Th label="Realised" k="realized" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="realized" />} />
+                          <Th label="Unrealised" k="unrealized" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="unrealized" />} />
+                          <Th label="Total P&L" k="pnl" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="pnl" />} />
+                          <Th label="Held" k="held" sortKey={sortKey} onSort={setSort} icon={<SortIcon k="held" />} />
+                          <th className="w-6" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r, i) => {
+                          const cfg = ASSET_CONFIG[r.coin] || { color: "#64748b" };
+                          const isOpen2 = expanded === r.coin;
+                          return (
+                            <Fragment key={r.coin}>
+                              <tr
+                                onClick={() => setExpanded(isOpen2 ? null : r.coin)}
+                                className="cursor-pointer transition-colors hover:bg-white/[0.03]"
+                                style={{ borderTop: i === 0 ? "none" : "1px solid rgba(255,255,255,0.04)" }}
+                              >
+                                <td className="px-3 py-2.5 text-left">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold" style={{ color: cfg.color }}>{r.coin}</span>
+                                    {r.costBasisPartial && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>PARTIAL</span>}
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-400 text-xs">
+                                  <span className="text-green-400">{r.buys}</span><span className="text-slate-600">/</span><span className="text-red-400">{r.sells}</span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-xs">{fmtPrice(r.avgCost)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-xs">{fmtPrice(r.currentPrice)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-xs" style={{ color: pnlColor(r.realizedPnL) }}>{fmtUsd(r.realizedPnL)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-xs" style={{ color: pnlColor(r.unrealizedPnL) }}>
+                                  {fmtUsd(r.unrealizedPnL)}
+                                  <span className="text-slate-600"> ({r.unrealizedPct > 0 ? "+" : ""}{r.unrealizedPct.toFixed(0)}%)</span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right font-mono font-bold" style={{ color: pnlColor(r.totalPnL) }}>{fmtUsd(r.totalPnL)}</td>
+                                <td className="px-3 py-2.5 text-right font-mono text-slate-300 text-xs">{fmtUsd(r.marketValue)}</td>
+                                <td className="px-2 text-slate-600">{isOpen2 ? <FaChevronDown size={9} /> : <FaChevronRight size={9} />}</td>
+                              </tr>
+                              {isOpen2 && (
+                                <tr style={{ background: "rgba(255,255,255,0.015)" }}>
+                                  <td colSpan={9} className="px-4 py-3">
+                                    <DetailGrid r={r} wide />
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="text-[9px] md:text-[10px] text-slate-600 text-center md:text-left mt-3">
+                    Read-only · realised P&L from sells, unrealised from live prices · avg-cost method · click a {`row`} for detail
                   </div>
                 </>
               )}
@@ -302,6 +308,51 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
     </AnimatePresence>
   );
 };
+
+const Th = ({ label, k, sortKey, onSort, icon, align = "right" }: { label: string; k: SortKey; sortKey: SortKey; onSort: (k: SortKey) => void; icon: React.ReactNode; align?: "left" | "right" }) => (
+  <th className={`px-3 py-2.5 font-bold ${align === "left" ? "text-left" : "text-right"}`}>
+    <button onClick={() => onSort(k)} className={`inline-flex items-center gap-1 hover:text-teal-400 transition-colors ${sortKey === k ? "text-teal-400" : ""}`}>
+      {align === "left" && icon}
+      {label}
+      {align === "right" && icon}
+    </button>
+  </th>
+);
+
+const HeroCard = ({ icon, label, coin, value, valueColor }: { icon: React.ReactNode; label: string; coin: string; value: string; valueColor: string }) => (
+  <div className="rounded-xl p-2.5 md:p-3.5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+    <div className="flex items-center gap-1.5 mb-1">
+      {icon}
+      <span className="text-[9px] md:text-[10px] uppercase tracking-wider text-slate-500 font-bold truncate">{label}</span>
+    </div>
+    <div className="text-[14px] md:text-lg font-bold" style={{ color: ASSET_CONFIG[coin]?.color || "#e2e8f0" }}>{coin}</div>
+    <div className="text-[10px] md:text-sm font-bold font-mono" style={{ color: valueColor }}>{value}</div>
+  </div>
+);
+
+const DetailGrid = ({ r, wide }: { r: Row; wide?: boolean }) => (
+  <div className={`grid ${wide ? "grid-cols-3 lg:grid-cols-4" : "grid-cols-2"} gap-x-4 gap-y-1.5`}>
+    <Stat label="Buys / Sells" value={`${r.buys} / ${r.sells}`} />
+    <Stat label="Trades / week" value={r.tradesPerWeek ? r.tradesPerWeek.toString() : "—"} />
+    <Stat label="Avg cost" value={fmtPrice(r.avgCost)} />
+    <Stat label="Current" value={fmtPrice(r.currentPrice)} />
+    <Stat label="Cheapest buy" value={fmtPrice(r.cheapestBuy)} color="#22c55e" />
+    <Stat label="Dearest buy" value={fmtPrice(r.dearestBuy)} color="#ef4444" />
+    <Stat label="Lowest sell" value={fmtPrice(r.cheapestSell)} color="#f97316" />
+    <Stat label="Highest sell" value={fmtPrice(r.dearestSell)} color="#22c55e" />
+    <Stat label="Qty held" value={fmtQty(r.qtyHeld)} />
+    <Stat label="Held value" value={fmtUsd(r.marketValue)} />
+    <Stat label="Total spent" value={fmtUsd(r.spent)} />
+    <Stat label="Total received" value={fmtUsd(r.received)} />
+    <Stat label="Realised P&L" value={fmtUsd(r.realizedPnL)} color={pnlColor(r.realizedPnL)} />
+    <Stat label="Unrealised P&L" value={`${fmtUsd(r.unrealizedPnL)} (${r.unrealizedPct > 0 ? "+" : ""}${r.unrealizedPct.toFixed(1)}%)`} color={pnlColor(r.unrealizedPnL)} />
+    {r.costBasisPartial && (
+      <div className="col-span-2 lg:col-span-4 text-[9px] text-amber-500/80 mt-1">
+        ⚠ Some of this coin was transferred in from an outside wallet, so cost basis &amp; P&L are partial.
+      </div>
+    )}
+  </div>
+);
 
 const Stat = ({ label, value, color }: { label: string; value: string; color?: string }) => (
   <div className="flex items-center justify-between">
