@@ -111,9 +111,9 @@ export function parseCompoundKey(key: string): { coin: string; tier: number } {
 // ── Constants ────────────────────────────────────────────────
 
 export const TIER_CONFIG: Record<number, TierConfig> = {
-  1: { name: "Blue Chips", color: "#3b82f6", devMin: 1, devMax: 15, allocMin: 1, allocMax: 25 },
-  2: { name: "Alts", color: "#eab308", devMin: 2, devMax: 20, allocMin: 1, allocMax: 20 },
-  3: { name: "Speculative", color: "#f97316", devMin: 3, devMax: 30, allocMin: 1, allocMax: 15 },
+  1: { name: "Dip", color: "#3b82f6", devMin: 1, devMax: 15, allocMin: 1, allocMax: 25 },
+  2: { name: "Dive", color: "#eab308", devMin: 2, devMax: 20, allocMin: 1, allocMax: 20 },
+  3: { name: "Crash", color: "#f97316", devMin: 3, devMax: 30, allocMin: 1, allocMax: 15 },
 };
 
 const ALL_TIERS = [1, 2, 3];

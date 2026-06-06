@@ -458,6 +458,103 @@ def record_trade(coin: str, trade_type: str, amount: float, price: float,
     }
 
 
+# Assets that are funding/cash rather than tradeable positions (excluded from coin cards)
+FUNDING_ASSETS = {"USDC", "USD", "AUD", "AUDT", "USDT", "USDC.E"}
+
+
+def get_coin_stats() -> Dict:
+    """Read-only per-coin trading analytics aggregated from the trades collection.
+
+    Returns average-cost (cost-basis) stats only. Current price / unrealized PnL
+    are layered on the client with live prices, so this endpoint stays fast and
+    price-source agnostic. USDC/AUD etc. are split out as `funding` (the AUD->USDC
+    conversions that feed the bot), not treated as tradeable coins.
+    """
+    pipeline = [
+        {"$match": {"coin": {"$ne": None}, "price": {"$gt": 0}, "amount": {"$gt": 0}}},
+        {"$group": {
+            "_id": "$coin",
+            "buys": {"$sum": {"$cond": [{"$eq": ["$type", "buy"]}, 1, 0]}},
+            "sells": {"$sum": {"$cond": [{"$eq": ["$type", "sell"]}, 1, 0]}},
+            "qtyBought": {"$sum": {"$cond": [{"$eq": ["$type", "buy"]}, "$amount", 0]}},
+            "qtySold": {"$sum": {"$cond": [{"$eq": ["$type", "sell"]}, "$amount", 0]}},
+            "spent": {"$sum": {"$cond": [{"$eq": ["$type", "buy"]}, {"$multiply": ["$amount", "$price"]}, 0]}},
+            "received": {"$sum": {"$cond": [{"$eq": ["$type", "sell"]}, {"$multiply": ["$amount", "$price"]}, 0]}},
+            "cheapestBuy": {"$min": {"$cond": [{"$eq": ["$type", "buy"]}, "$price", None]}},
+            "dearestBuy": {"$max": {"$cond": [{"$eq": ["$type", "buy"]}, "$price", None]}},
+            "firstTrade": {"$min": "$timestamp"},
+            "lastTrade": {"$max": "$timestamp"},
+        }},
+        {"$sort": {"spent": -1}},
+    ]
+
+    rows = list(trades_collection.aggregate(pipeline))
+    coins: List[Dict] = []
+    funding: List[Dict] = []
+    total_trades = 0
+
+    for r in rows:
+        coin = r["_id"]
+        buys = int(r.get("buys", 0) or 0)
+        sells = int(r.get("sells", 0) or 0)
+        total = buys + sells
+        total_trades += total
+
+        qty_bought = float(r.get("qtyBought", 0) or 0)
+        qty_sold = float(r.get("qtySold", 0) or 0)
+        qty_held = qty_bought - qty_sold
+        spent = float(r.get("spent", 0) or 0)
+        received = float(r.get("received", 0) or 0)
+        avg_cost = (spent / qty_bought) if qty_bought > 0 else 0.0
+        # Average-cost realized PnL: sale proceeds minus cost of the qty sold
+        realized = (received - (qty_sold * avg_cost)) if qty_bought > 0 else received
+
+        first_ts = r.get("firstTrade")
+        last_ts = r.get("lastTrade")
+        per_week = 0.0
+        try:
+            if isinstance(first_ts, datetime) and isinstance(last_ts, datetime):
+                span_days = max((last_ts - first_ts).total_seconds() / 86400.0, 1.0)
+                per_week = round(total / span_days * 7, 1)
+        except Exception:
+            per_week = 0.0
+
+        entry = {
+            "coin": coin,
+            "buys": buys,
+            "sells": sells,
+            "qtyBought": qty_bought,
+            "qtySold": qty_sold,
+            "qtyHeld": qty_held,
+            "spent": round(spent, 2),
+            "received": round(received, 2),
+            "avgCost": avg_cost,
+            "cheapestBuy": r.get("cheapestBuy"),
+            "dearestBuy": r.get("dearestBuy"),
+            "realizedPnL": round(realized, 2),
+            "tradesPerWeek": per_week,
+            "firstTrade": first_ts.isoformat() + "Z" if isinstance(first_ts, datetime) else first_ts,
+            "lastTrade": last_ts.isoformat() + "Z" if isinstance(last_ts, datetime) else last_ts,
+            # No buys but holdings/sells exist => transferred in from an outside wallet,
+            # so the cost basis (and therefore PnL) is only partial. Flag it, don't lie.
+            "costBasisPartial": (qty_bought <= 0 and sells > 0) or (qty_held < -1e-9),
+        }
+
+        if str(coin).upper() in FUNDING_ASSETS:
+            entry["isFunding"] = True
+            funding.append(entry)
+        else:
+            coins.append(entry)
+
+    return {
+        "generatedAt": datetime.utcnow().isoformat() + "Z",
+        "totalTrades": total_trades,
+        "coinCount": len(coins),
+        "coins": coins,
+        "funding": funding,
+    }
+
+
 def get_all_active_users() -> List[Dict]:
     users = users_collection.find({"isActive": True})
     return [format_user_data(user) for user in users]
