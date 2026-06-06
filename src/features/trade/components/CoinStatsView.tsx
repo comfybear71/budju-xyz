@@ -262,6 +262,8 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
                               <Stat label="Current" value={fmtPrice(r.currentPrice)} />
                               <Stat label="Cheapest buy" value={fmtPrice(r.cheapestBuy)} color="#22c55e" />
                               <Stat label="Dearest buy" value={fmtPrice(r.dearestBuy)} color="#ef4444" />
+                              <Stat label="Lowest sell" value={fmtPrice(r.cheapestSell)} color="#f97316" />
+                              <Stat label="Highest sell" value={fmtPrice(r.dearestSell)} color="#22c55e" />
                               <Stat label="Qty held" value={fmtQty(r.qtyHeld)} />
                               <Stat label="Held value" value={fmtUsd(r.marketValue)} />
                               <Stat label="Total spent" value={fmtUsd(r.spent)} />

@@ -721,6 +721,8 @@ export interface CoinStat {
   avgCost: number;
   cheapestBuy: number | null;
   dearestBuy: number | null;
+  cheapestSell: number | null;
+  dearestSell: number | null;
   realizedPnL: number;
   tradesPerWeek: number;
   firstTrade: string | null;
