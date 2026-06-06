@@ -793,6 +793,7 @@ export interface DepositSummary {
   totalDeposited: number;
   count: number;
   byCurrency: Record<string, number>;
+  deposits: DepositRecord[];
 }
 
 /** Admin: total deposited (non-voided) for the Pool Performance card */
