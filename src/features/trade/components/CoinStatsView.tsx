@@ -51,6 +51,7 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
   const [sortKey, setSortKey] = useState<SortKey>("pnl");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [countdown, setCountdown] = useState(30);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -58,7 +59,21 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
     fetchCoinStats().then((d) => {
       setData(d);
       setLoading(false);
+      setCountdown(30);
     });
+  }, [isOpen]);
+
+  // Auto-refresh trade-history stats every 30s while open (prices update live regardless)
+  useEffect(() => {
+    if (!isOpen) return;
+    const refresh = setInterval(() => {
+      fetchCoinStats(true).then((d) => {
+        if (d) setData(d);
+        setCountdown(30);
+      });
+    }, 30_000);
+    const tick = setInterval(() => setCountdown((c) => (c > 0 ? c - 1 : 0)), 1_000);
+    return () => { clearInterval(refresh); clearInterval(tick); };
   }, [isOpen]);
 
   const setSort = (k: SortKey) => {
@@ -173,9 +188,15 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
               ) : (
                 <>
                   {/* Summary line */}
-                  <div className="text-[10px] md:text-xs text-slate-500 text-center md:text-left mb-3">
-                    {data.totalTrades.toLocaleString()} trades across {data.coinCount} coins
-                    {fundingTotal > 0 && <> · {fmtUsd(fundingTotal)} converted to USDC</>}
+                  <div className="flex items-center justify-center md:justify-between gap-2 text-[10px] md:text-xs text-slate-500 mb-3">
+                    <span>
+                      {data.totalTrades.toLocaleString()} trades across {data.coinCount} coins
+                      {fundingTotal > 0 && <> · {fmtUsd(fundingTotal)} converted to USDC</>}
+                    </span>
+                    <span className="flex items-center gap-1 whitespace-nowrap text-slate-600">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                      live · refresh {countdown}s
+                    </span>
                   </div>
 
                   {/* Hero strip */}
