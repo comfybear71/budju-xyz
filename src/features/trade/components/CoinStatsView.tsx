@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
-import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinTradePoint } from "../services/tradeApi";
+import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinTradePoint, type PortfolioAsset } from "../services/tradeApi";
 import CoinTradeChart from "./CoinTradeChart";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   prices: Record<string, number>;
+  assets?: PortfolioAsset[];
 }
 
 type SortKey = "coin" | "trades" | "avgCost" | "current" | "realized" | "unrealized" | "pnl" | "held";
@@ -15,9 +16,11 @@ type SortDir = "asc" | "desc";
 
 interface Row extends CoinStat {
   currentPrice: number;
+  realQty: number;
   marketValue: number;
   unrealizedPnL: number;
   unrealizedPct: number;
+  heldPartial: boolean;
   totalPnL: number;
   totalTrades: number;
 }
@@ -46,7 +49,7 @@ const fmtQty = (n: number) => {
 
 const pnlColor = (n: number) => (n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#64748b");
 
-const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
+const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
   const [data, setData] = useState<CoinStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("pnl");
@@ -100,18 +103,28 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
 
   const rows = useMemo<Row[]>(() => {
     if (!data?.coins) return [];
+    // Real Swyftx balances are the source of truth for what's actually held.
+    const balMap: Record<string, { balance: number; usdValue: number }> = {};
+    for (const a of assets) if (a.balance > 0) balMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
     const enriched = data.coins.map((c) => {
       const currentPrice = Number(prices[c.coin]) || 0;
-      const marketValue = c.qtyHeld > 0 ? c.qtyHeld * currentPrice : 0;
+      const bal = balMap[c.coin];
+      // Held qty/value come from the actual balance when available, not buys−sells.
+      const realQty = bal ? bal.balance : c.qtyHeld;
+      const marketValue = realQty > 0 && currentPrice > 0 ? realQty * currentPrice : (bal?.usdValue ?? 0);
       const unrealizedPnL =
-        c.qtyHeld > 0 && c.avgCost > 0 && currentPrice > 0 ? (currentPrice - c.avgCost) * c.qtyHeld : 0;
+        realQty > 0 && c.avgCost > 0 && currentPrice > 0 ? (currentPrice - c.avgCost) * realQty : 0;
       const unrealizedPct = c.avgCost > 0 && currentPrice > 0 ? (currentPrice / c.avgCost - 1) * 100 : 0;
+      // Actual holding differs materially from what recorded trades account for ⇒ cost basis partial.
+      const heldPartial = !!bal && c.qtyBought > 0 && Math.abs(bal.balance - c.qtyHeld) > Math.max(c.qtyHeld * 0.05, 1e-12);
       return {
         ...c,
         currentPrice,
+        realQty,
         marketValue,
         unrealizedPnL,
         unrealizedPct,
+        heldPartial,
         totalPnL: c.realizedPnL + unrealizedPnL,
         totalTrades: c.buys + c.sells,
       };
@@ -136,7 +149,7 @@ const CoinStatsView = ({ isOpen, onClose, prices }: Props) => {
       }
       return (va - vb) * dir;
     });
-  }, [data, prices, sortKey, sortDir]);
+  }, [data, prices, assets, sortKey, sortDir]);
 
   const hero = useMemo(() => {
     if (rows.length === 0) return null;
@@ -387,17 +400,22 @@ const DetailGrid = ({ r, wide, points }: { r: Row; wide?: boolean; points?: Coin
     <Stat label="Dearest buy" value={fmtPrice(r.dearestBuy)} color="#ef4444" />
     <Stat label="Lowest sell" value={fmtPrice(r.cheapestSell)} color="#f97316" />
     <Stat label="Highest sell" value={fmtPrice(r.dearestSell)} color="#22c55e" />
-    <Stat label="Qty held" value={fmtQty(r.qtyHeld)} />
+    <Stat label="Qty held" value={fmtQty(r.realQty)} />
     <Stat label="Held value" value={fmtUsd(r.marketValue)} />
     <Stat label="Total spent" value={fmtUsd(r.spent)} />
     <Stat label="Total received" value={fmtUsd(r.received)} />
     <Stat label="Realised P&L" value={fmtUsd(r.realizedPnL)} color={pnlColor(r.realizedPnL)} />
     <Stat label="Unrealised P&L" value={`${fmtUsd(r.unrealizedPnL)} (${r.unrealizedPct > 0 ? "+" : ""}${r.unrealizedPct.toFixed(1)}%)`} color={pnlColor(r.unrealizedPnL)} />
-    {r.costBasisPartial && (
+    {r.heldPartial ? (
+      <div className="col-span-2 lg:col-span-4 text-[9px] text-amber-500/80 mt-1">
+        ⚠ Live holding ({fmtQty(r.realQty)}) is larger than recorded trades account for ({fmtQty(r.qtyHeld)}).
+        Held value is exact (from Swyftx); unrealised P&amp;L is an estimate (partial cost basis).
+      </div>
+    ) : r.costBasisPartial ? (
       <div className="col-span-2 lg:col-span-4 text-[9px] text-amber-500/80 mt-1">
         ⚠ Some of this coin was transferred in from an outside wallet, so cost basis &amp; P&L are partial.
       </div>
-    )}
+    ) : null}
     </div>
   </div>
 );
