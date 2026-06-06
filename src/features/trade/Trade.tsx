@@ -487,9 +487,9 @@ const Trade = () => {
                 {isAdmin && !showHighRisk && (
                   <div
                     className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk ? "" : "mb-3"}`}
-                    style={{ scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.2) transparent", WebkitOverflowScrolling: "touch" }}
                   >
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
                       {([
                         { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
                           onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } } },
@@ -503,6 +503,8 @@ const Trade = () => {
                           onClick: () => { setShowWithdrawal(!showWithdrawal); setShowDeposit(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
                         { key: "perf", label: "P&L", icon: "📊", active: showPerformance, color: "green",
                           onClick: () => setShowPerformance(true) },
+                        { key: "coinstats", label: "Coin Stats", icon: "\uD83E\uDE99", active: showStats, color: "teal",
+                          onClick: () => setShowStats(true) },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
                       ] as const).map((btn) => {
@@ -512,6 +514,7 @@ const Trade = () => {
                           emerald: { active: "bg-emerald-500/25 text-emerald-200 border-emerald-400/60 shadow-[0_0_8px_rgba(16,185,129,0.25)]", inactive: "bg-emerald-500/8 text-emerald-300/70 border-emerald-500/25 hover:bg-emerald-500/15 hover:text-emerald-200 hover:border-emerald-400/50" },
                           green:   { active: "bg-green-500/25 text-green-200 border-green-400/60 shadow-[0_0_8px_rgba(34,197,94,0.25)]", inactive: "bg-green-500/8 text-green-300/70 border-green-500/25 hover:bg-green-500/15 hover:text-green-200 hover:border-green-400/50" },
                           red:     { active: "bg-red-500/25 text-red-200 border-red-400/60 shadow-[0_0_8px_rgba(239,68,68,0.25)]", inactive: "bg-red-500/8 text-red-300/70 border-red-500/25 hover:bg-red-500/15 hover:text-red-200 hover:border-red-400/50" },
+                          teal:    { active: "bg-teal-500/25 text-teal-200 border-teal-400/60 shadow-[0_0_8px_rgba(20,184,166,0.25)]", inactive: "bg-teal-500/8 text-teal-300/70 border-teal-500/25 hover:bg-teal-500/15 hover:text-teal-200 hover:border-teal-400/50" },
                         };
                         const colors = colorMap[btn.color] || colorMap.blue;
                         return (
