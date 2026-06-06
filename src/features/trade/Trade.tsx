@@ -16,6 +16,7 @@ import TradePanel from "./components/TradePanel";
 import TriggerTradeView from "./components/TriggerTradeView";
 import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
+import CoinStatsView from "./components/CoinStatsView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
 import RecordWithdrawalView from "./components/RecordWithdrawalView";
@@ -85,6 +86,7 @@ const Trade = () => {
   const [showDeposit, setShowDeposit] = useState(false);
   const [showWithdrawal, setShowWithdrawal] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [showDepositBreakdown, setShowDepositBreakdown] = useState(false);
   const [depositBreakdown, setDepositBreakdown] = useState<LeaderboardEntry[]>([]);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
@@ -524,52 +526,53 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Non-admin: 3 insight cards (Orders / Auto Trader / Live Charts) */}
+                {/* Non-admin: insight buttons (Orders / Auto Trader / Live Charts / Stats) — one scrollable row */}
                 {!isAdmin && (
-                  <div className="space-y-2 mb-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setShowTriggerView(!showTriggerView)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
-                        style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
-                      >
-                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
+                  <div
+                    className="flex gap-2 overflow-x-auto pb-1 mb-3 -mx-1 px-1 snap-x"
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+                  >
+                    {/* Orders */}
+                    <button
+                      onClick={() => setShowTriggerView(!showTriggerView)}
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
+                          <circle cx="12" cy="12" r="10" />
+                          <polyline points="12 6 12 12 16 14" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300">Orders</div>
+                        <div className="text-[10px] font-bold text-purple-400">
+                          {pendingOrderCount > 0 ? `${pendingOrderCount} pending` : "None"}
                         </div>
-                        <div className="text-left">
-                          <div className="text-[11px] font-bold text-slate-300">Orders</div>
-                          <div className="text-[10px] font-bold text-purple-400">
-                            {pendingOrderCount > 0
-                              ? `${pendingOrderCount} pending`
-                              : "None"}
-                          </div>
+                      </div>
+                    </button>
+                    {/* Auto Trader */}
+                    <button
+                      onClick={() => setShowAutoTrader(true)}
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
+                          <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
+                        <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
+                          {traderState?.autoBotActive ? "Active" : "Inactive"}
                         </div>
-                      </button>
-                      <button
-                        onClick={() => setShowAutoTrader(true)}
-                        className="flex-1 flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.02] hover:brightness-125"
-                        style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
-                      >
-                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2">
-                            <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-                          </svg>
-                        </div>
-                        <div className="text-left">
-                          <div className="text-[11px] font-bold text-slate-300">Auto Trader</div>
-                          <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
-                            {traderState?.autoBotActive ? "Active" : "Inactive"}
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                    {/* Live Charts button — opens read-only dashboard */}
+                      </div>
+                    </button>
+                    {/* Live Charts + AI Predictions */}
                     <button
                       onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
-                      className="w-full flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:scale-[1.01] hover:brightness-125"
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
                       style={{
                         background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
                         border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
@@ -578,15 +581,32 @@ const Trade = () => {
                       <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
                         <span className="text-sm">📈</span>
                       </div>
-                      <div className="text-left flex-1">
-                        <div className="text-[11px] font-bold text-slate-300">Live Charts + AI Predictions</div>
-                        <div className="text-[10px] font-bold text-red-400">
-                          6 markets • Real-time
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                          Live Charts{" "}
+                          <span className="text-[8px] bg-blue-500/15 text-blue-400 px-1 py-0.5 rounded font-mono border border-blue-500/20 align-middle">NEW</span>
                         </div>
+                        <div className="text-[10px] font-bold text-red-400">AI Predictions</div>
                       </div>
-                      <span className="text-[9px] bg-blue-500/15 text-blue-400 px-1.5 py-0.5 rounded font-mono border border-blue-500/20">
-                        NEW
-                      </span>
+                    </button>
+                    {/* Stats */}
+                    <button
+                      onClick={() => setShowStats(true)}
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      style={{ background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(20,184,166,0.15)" }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2dd4bf" strokeWidth="2">
+                          <path d="M3 3v18h18" />
+                          <rect x="7" y="11" width="3" height="6" />
+                          <rect x="12" y="7" width="3" height="10" />
+                          <rect x="17" y="13" width="3" height="4" />
+                        </svg>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300">Stats</div>
+                        <div className="text-[10px] font-bold text-teal-400">Per-coin</div>
+                      </div>
                     </button>
                   </div>
                 )}
@@ -989,6 +1009,11 @@ const Trade = () => {
         prices={prices}
         changes={changes}
         assets={assets}
+      />
+      <CoinStatsView
+        isOpen={showStats}
+        onClose={() => setShowStats(false)}
+        prices={prices}
       />
     </main>
   );
