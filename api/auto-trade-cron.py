@@ -248,6 +248,7 @@ def send_telegram(text):
                 "text": text,
                 "parse_mode": "HTML",
             },
+            retries=2,
         )
     except Exception:
         pass  # Non-critical
@@ -561,21 +562,12 @@ def run_auto_trade_check():
                     "coin": code, "side": "BUY",
                     "amount": round(trade_amount, 2),
                     "price": round(current_price, 2),
+                    "qty": quantity,
                 })
 
                 usdc_balance -= trade_amount
-
-                # Calculate portfolio value for Telegram message
-                _portfolio_usd = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
-
-                send_telegram(
-                    f"🤖 <b>Auto BUY</b>\n"
-                    f"🛒 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
-                    f"📦 ${trade_amount:,.2f} USDC\n"
-                    f"🆔 {order_id}\n"
-                    f"💰 USDC remaining: ${usdc_balance:,.2f}\n"
-                    f"📊 Portfolio: ${_portfolio_usd:,.0f}"
-                )
+                # Telegram alert is batched into one digest per run (see end of loop)
+                # to avoid Telegram's per-chat rate limit silently dropping bursts.
             else:
                 log.append(f"{code}: BUY failed — {err}")
                 decisions.append({
@@ -680,19 +672,9 @@ def run_auto_trade_check():
                     "coin": code, "side": "SELL",
                     "amount": round(sell_value, 2),
                     "price": round(current_price, 2),
+                    "qty": quantity,
                 })
-
-                # Calculate portfolio value for Telegram message
-                _portfolio_usd = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
-
-                send_telegram(
-                    f"🤖 <b>Auto SELL</b>\n"
-                    f"💸 {quantity:.6f} {code} @ ${current_price:,.2f}\n"
-                    f"📦 ${sell_value:,.2f} USDC\n"
-                    f"🆔 {order_id}\n"
-                    f"💰 USDC remaining: ${usdc_balance:,.2f}\n"
-                    f"📊 Portfolio: ${_portfolio_usd:,.0f}"
-                )
+                # Telegram alert is batched into one digest per run (see end of loop).
             else:
                 log.append(f"{code}: SELL failed — {err}")
                 decisions.append({
@@ -732,6 +714,26 @@ def run_auto_trade_check():
     })
 
     log.append(f"Done: {len(trades_executed)} trade(s) executed")
+
+    # Send ONE Telegram digest for the whole run, with the *final* USDC + portfolio.
+    # (Per-trade messages used to exceed Telegram's ~20/min per-chat limit on bursts
+    #  and get silently dropped, leaving a stale "USDC remaining" in the channel.)
+    if trades_executed:
+        final_portfolio = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
+        buys = [t for t in trades_executed if t.get("side") == "BUY"]
+        sells = [t for t in trades_executed if t.get("side") == "SELL"]
+        lines = [f"🤖 <b>Auto-Trade</b> — {len(trades_executed)} trade(s)"]
+        if buys:
+            lines.append(f"\n🟢 <b>{len(buys)} BUY</b>")
+            for t in buys[:25]:
+                lines.append(f"🛒 {t.get('qty', 0):.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
+        if sells:
+            lines.append(f"\n🔴 <b>{len(sells)} SELL</b>")
+            for t in sells[:25]:
+                lines.append(f"💸 {t.get('qty', 0):.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
+        lines.append(f"\n💰 USDC remaining: ${usdc_balance:,.2f}")
+        lines.append(f"📊 Portfolio: ${final_portfolio:,.0f}")
+        send_telegram("\n".join(lines))
 
     return {
         "tradesExecuted": len(trades_executed),
