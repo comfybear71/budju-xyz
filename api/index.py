@@ -17,6 +17,7 @@ from database import (
     record_deposit,
     record_withdrawal,
     record_trade,
+    get_coin_stats,
     get_all_active_users,
     calculate_pool_allocations,
     is_admin,
@@ -209,6 +210,10 @@ class handler(BaseHTTPRequestHandler):
 
                 deposits = get_user_deposits(wallet)
                 self._send_json(200, {"deposits": deposits, "count": len(deposits)})
+
+            elif path == '/api/coin-stats':
+                # Public, read-only per-coin trading analytics (cost-basis stats).
+                self._send_json(200, get_coin_stats())
 
             elif path == '/api/user/position':
                 wallet = params.get('wallet')
