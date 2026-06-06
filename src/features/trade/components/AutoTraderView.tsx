@@ -352,16 +352,23 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     </span>
                   </div>
 
-                  {/* Coin monitoring grouped by tier */}
+                  {/* Coin monitoring — horizontal tier columns (swipe between tiers) */}
                   {monitoringCount === 0 ? (
                     <div className="text-[10px] text-slate-500 text-center py-4 mb-3">
                       No coins configured for monitoring yet.
                     </div>
-                  ) : Object.entries(grouped).map(([tierKey, coins]) => {
+                  ) : (
+                  <div
+                    className="flex gap-3 overflow-x-auto pb-3 mb-3 -mx-1 px-1 snap-x snap-mandatory"
+                    style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+                  >
+                  {Object.entries(grouped).map(([tierKey, coins]) => {
                     const tierCfg = (state?.autoTierAssets || {})[tierKey] || {};
-                    const tierName = tierCfg.name || tierKey.replace("tier", "Tier ");
                     // Read tier settings from DB, with defaults
                     const tierNum = parseInt(tierKey.replace("tier", "")) || 0;
+                    const tierMeta = TIER_CONFIG[tierNum] || { name: tierCfg.name || tierKey.replace("tier", "Tier "), color: "#a855f7" };
+                    const tierName = tierMeta.name;
+                    const tierColor = tierMeta.color;
                     const dev = Number(tierCfg.deviation) || (tierNum === 1 ? 3 : 4);
                     const sellDev = Number(tierCfg.sellDeviation) || dev * 2;
                     const alloc = Number(tierCfg.allocation) || 5;
@@ -369,16 +376,23 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     const tierActive = coins.some((c: any) => c.isTierActive);
 
                     return (
-                      <div key={tierKey} className="mb-3">
-                        {/* Tier header — collapsible */}
-                        <button
-                          onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierKey]: !prev[tierKey] }))}
-                          className="w-full flex items-center justify-between mb-2 hover:opacity-80 transition-opacity"
+                      <div
+                        key={tierKey}
+                        className="flex-shrink-0 snap-start rounded-xl flex flex-col"
+                        style={{
+                          width: "min(330px, 86vw)",
+                          background: `${tierColor}0d`,
+                          border: `1px solid ${tierColor}30`,
+                        }}
+                      >
+                        {/* Tier column header (sticky) */}
+                        <div
+                          className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-t-xl sticky top-0 z-10"
+                          style={{ background: `${tierColor}1f`, borderBottom: `1px solid ${tierColor}30`, backdropFilter: "blur(6px)" }}
                         >
-                          <div className="flex items-center gap-2">
-                            {expandedMonitorTiers[tierKey] ? <FaChevronDown size={8} style={{ color: "#a855f7" }} /> : <FaChevronRight size={8} style={{ color: "#a855f7" }} />}
-                            <span className="text-[12px] font-bold" style={{ color: "#a855f7" }}>
-                              {tierKey.replace("tier", "T")} – {tierName}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: tierColor }}>
+                              {tierKey.replace("tier", "T")} · {tierName}
                             </span>
                             <span
                               className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg"
@@ -389,27 +403,21 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             >
                               {tierActive ? "ACTIVE" : "OFF"}
                             </span>
-                            {!expandedMonitorTiers[tierKey] && (
-                              <span className="text-[9px] text-slate-500">
-                                ({coins.length} coin{coins.length !== 1 ? "s" : ""})
-                              </span>
-                            )}
                           </div>
-                          <div className="flex gap-2 text-[9px]">
-                            <span className="text-slate-500">
-                              Buy <span className="font-bold text-green-400">-{dev}%</span>
-                            </span>
-                            <span className="text-slate-500">
-                              Sell <span className="font-bold text-red-400">+{sellDev}%</span>
-                            </span>
-                            <span className="text-slate-500">
-                              Alloc <span className="font-bold text-blue-400">{alloc}%</span>
-                            </span>
-                          </div>
-                        </button>
+                          <span className="text-[9px] text-slate-500 whitespace-nowrap">
+                            {coins.length} coin{coins.length !== 1 ? "s" : ""}
+                          </span>
+                        </div>
 
-                        {/* Coin cards within tier — collapsible */}
-                        {expandedMonitorTiers[tierKey] && <div className="space-y-1.5">
+                        {/* Tier settings summary row */}
+                        <div className="flex gap-2 text-[9px] px-3 py-1.5" style={{ borderBottom: `1px solid ${tierColor}20` }}>
+                          <span className="text-slate-500">Buy <span className="font-bold text-green-400">-{dev}%</span></span>
+                          <span className="text-slate-500">Sell <span className="font-bold text-red-400">+{sellDev}%</span></span>
+                          <span className="text-slate-500">Alloc <span className="font-bold text-blue-400">{alloc}%</span></span>
+                        </div>
+
+                        {/* Coin cards within tier (scrolls vertically inside the column) */}
+                        <div className="space-y-1.5 p-2 overflow-y-auto" style={{ maxHeight: "58vh" }}>
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -632,10 +640,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               </div>
                             );
                           })}
-                        </div>}
+                        </div>
                       </div>
                     );
                   })}
+                  </div>
+                  )}
 
                   {/* Trade Log */}
                   <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>
