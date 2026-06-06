@@ -709,6 +709,47 @@ export function clearCacheKeys(...keys: string[]) {
   for (const key of keys) delete cache[key];
 }
 
+export interface CoinStat {
+  coin: string;
+  buys: number;
+  sells: number;
+  qtyBought: number;
+  qtySold: number;
+  qtyHeld: number;
+  spent: number;
+  received: number;
+  avgCost: number;
+  cheapestBuy: number | null;
+  dearestBuy: number | null;
+  realizedPnL: number;
+  tradesPerWeek: number;
+  firstTrade: string | null;
+  lastTrade: string | null;
+  costBasisPartial?: boolean;
+  isFunding?: boolean;
+}
+
+export interface CoinStatsResponse {
+  generatedAt: string;
+  totalTrades: number;
+  coinCount: number;
+  coins: CoinStat[];
+  funding: CoinStat[];
+}
+
+/** Fetch read-only per-coin trading analytics (public, cost-basis stats). */
+export async function fetchCoinStats(): Promise<CoinStatsResponse | null> {
+  return cached("coin_stats", 60_000, async () => {
+    try {
+      const res = await fetchWithRetry("/api/coin-stats");
+      if (!res.ok) return null;
+      return (await res.json()) as CoinStatsResponse;
+    } catch {
+      return null;
+    }
+  });
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,
