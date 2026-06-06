@@ -19,6 +19,7 @@ import AutoTraderView from "./components/AutoTraderView";
 import CoinStatsView from "./components/CoinStatsView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
 import RecordDepositView from "./components/RecordDepositView";
+import PoolPerformanceView from "./components/PoolPerformanceView";
 import RecordWithdrawalView from "./components/RecordWithdrawalView";
 import { lazy } from "react";
 const TradeDashboard = lazy(() => import("./TradeDashboard"));
@@ -87,6 +88,7 @@ const Trade = () => {
   const [showWithdrawal, setShowWithdrawal] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showPerformance, setShowPerformance] = useState(false);
   const [showDepositBreakdown, setShowDepositBreakdown] = useState(false);
   const [depositBreakdown, setDepositBreakdown] = useState<LeaderboardEntry[]>([]);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
@@ -499,6 +501,8 @@ const Trade = () => {
                           onClick: () => { setShowDeposit(!showDeposit); setShowWithdrawal(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
                         { key: "withdraw", label: "Withdraw", icon: "-", active: showWithdrawal, color: "red",
                           onClick: () => { setShowWithdrawal(!showWithdrawal); setShowDeposit(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                        { key: "perf", label: "P&L", icon: "📊", active: showPerformance, color: "green",
+                          onClick: () => setShowPerformance(true) },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
                       ] as const).map((btn) => {
@@ -1014,6 +1018,13 @@ const Trade = () => {
         isOpen={showStats}
         onClose={() => setShowStats(false)}
         prices={prices}
+      />
+      <PoolPerformanceView
+        isOpen={showPerformance}
+        onClose={() => setShowPerformance(false)}
+        adminWallet={walletAddress}
+        totalPoolValue={totalPoolValue}
+        onChanged={() => { clearCache(); loadData(); }}
       />
     </main>
   );
