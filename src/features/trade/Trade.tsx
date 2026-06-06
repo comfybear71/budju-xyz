@@ -1018,6 +1018,7 @@ const Trade = () => {
         isOpen={showStats}
         onClose={() => setShowStats(false)}
         prices={prices}
+        assets={assets}
       />
       <PoolPerformanceView
         isOpen={showPerformance}
