@@ -8,7 +8,7 @@
 # ==========================================
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
@@ -292,6 +292,18 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
     user = users_collection.find_one({"walletAddress": wallet_address})
     if not user:
         raise ValueError("User not found")
+
+    # Idempotency guard: block an identical deposit recorded in the last 5 minutes
+    # (prevents accidental double-clicks / retries from minting phantom shares).
+    duplicate = deposits_collection.find_one({
+        "userId": wallet_address,
+        "amount": amount,
+        "currency": currency,
+        "status": {"$ne": "voided"},
+        "timestamp": {"$gte": datetime.utcnow() - timedelta(minutes=5)},
+    })
+    if duplicate:
+        raise ValueError("Duplicate deposit blocked: an identical deposit was recorded in the last 5 minutes.")
 
     pool = get_pool_state()
     if pool["totalShares"] <= 0:
@@ -579,6 +591,63 @@ def get_coin_trades(coin: str, limit: int = 500) -> Dict:
             "qty": float(d.get("amount", 0) or 0),
         })
     return {"coin": coin, "count": len(trades), "trades": trades}
+
+
+def get_deposit_summary() -> Dict:
+    """Total capital deposited across all (non-voided) deposits — for the
+    Pool Performance card. Amounts are summed at their recorded value."""
+    cursor = deposits_collection.find(
+        {"status": {"$ne": "voided"}},
+        {"_id": 0, "amount": 1, "currency": 1},
+    )
+    total = 0.0
+    count = 0
+    by_currency: Dict[str, float] = {}
+    for d in cursor:
+        amt = float(d.get("amount", 0) or 0)
+        total += amt
+        count += 1
+        ccy = d.get("currency", "USDC")
+        by_currency[ccy] = by_currency.get(ccy, 0.0) + amt
+    return {
+        "totalDeposited": round(total, 2),
+        "count": count,
+        "byCurrency": {k: round(v, 2) for k, v in by_currency.items()},
+    }
+
+
+def void_deposit(tx_hash: str) -> Dict:
+    """Void a deposit (e.g. an accidental duplicate): reverse its shares from
+    the pool and the user, decrement totalDeposited, and mark it voided.
+    Soft-delete (status='voided') so it stays auditable."""
+    dep = deposits_collection.find_one({"txHash": tx_hash})
+    if not dep:
+        raise ValueError("Deposit not found")
+    if dep.get("status") == "voided":
+        raise ValueError("Deposit already voided")
+
+    shares = float(dep.get("shares", 0) or 0)
+    amount = float(dep.get("amount", 0) or 0)
+    user_id = dep.get("userId")
+
+    pool_state_collection.update_one({"_id": "pool"}, {"$inc": {"totalShares": -shares}})
+    if user_id:
+        users_collection.update_one(
+            {"walletAddress": user_id},
+            {"$inc": {"shares": -shares, "totalDeposited": -amount}},
+        )
+    deposits_collection.update_one(
+        {"txHash": tx_hash},
+        {"$set": {"status": "voided", "voidedAt": datetime.utcnow()}},
+    )
+    _recalculate_allocations()
+
+    pool = get_pool_state()
+    return {
+        "success": True,
+        "voided": {"txHash": tx_hash, "amount": round(amount, 2), "shares": round(shares, 4)},
+        "totalShares": pool.get("totalShares", 0),
+    }
 
 
 def get_all_active_users() -> List[Dict]:

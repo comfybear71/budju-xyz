@@ -779,6 +779,64 @@ export async function fetchCoinTrades(coin: string): Promise<CoinTradesResponse 
   });
 }
 
+export interface DepositRecord {
+  amount: number;
+  currency: string;
+  txHash: string;
+  shares: number;
+  nav: number;
+  timestamp: string;
+  status: string;
+}
+
+export interface DepositSummary {
+  totalDeposited: number;
+  count: number;
+  byCurrency: Record<string, number>;
+}
+
+/** Admin: total deposited (non-voided) for the Pool Performance card */
+export async function fetchDepositSummary(adminWallet: string): Promise<DepositSummary | null> {
+  try {
+    const res = await fetchWithRetry(`/api/pool/deposit-summary?admin_wallet=${encodeURIComponent(adminWallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as DepositSummary;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch all deposit records for a wallet (newest first) */
+export async function fetchDeposits(wallet: string): Promise<DepositRecord[]> {
+  try {
+    const res = await fetchWithRetry(`/api/user/deposits?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.deposits || []) as DepositRecord[];
+  } catch {
+    return [];
+  }
+}
+
+/** Admin: void an accidental/duplicate deposit by txHash (reverses its shares) */
+export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+    const res = await fetchWithRetry("/api/admin/void-deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...auth, txHash }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error || `HTTP ${res.status}` };
+    delete cache["admin_stats"];
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,

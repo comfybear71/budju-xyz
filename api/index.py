@@ -19,6 +19,8 @@ from database import (
     record_trade,
     get_coin_stats,
     get_coin_trades,
+    get_deposit_summary,
+    void_deposit,
     get_all_active_users,
     calculate_pool_allocations,
     is_admin,
@@ -258,6 +260,14 @@ class handler(BaseHTTPRequestHandler):
                     return
                 allocations = calculate_pool_allocations()
                 self._send_json(200, {"allocations": allocations})
+
+            elif path == '/api/pool/deposit-summary':
+                # Admin-only: total capital deposited (non-voided) for the Pool Performance card
+                wallet = params.get('admin_wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_deposit_summary())
 
             elif path == '/api/admin/stats':
                 pool_value = params.get('poolValue')
@@ -699,6 +709,23 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = recalibrate_pool(float(pool_value))
+                self._send_json(200, result)
+
+            elif path == '/api/admin/void-deposit':
+                # Admin-only: void an accidental/duplicate deposit (reverses shares)
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                tx_hash = body.get('txHash')
+                if not tx_hash:
+                    self._send_json(400, {"error": "txHash required"})
+                    return
+                try:
+                    result = void_deposit(tx_hash)
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
                 self._send_json(200, result)
 
             # ── Perp Paper Trading POST endpoints ────────────────────
