@@ -29,6 +29,7 @@
     { "source": "/api/pool/:path*", "destination": "/api/index.py" },
     { "source": "/api/admin/:path*", "destination": "/api/index.py" },
     { "source": "/api/leaderboard", "destination": "/api/index.py" },
+    { "source": "/api/coin-stats", "destination": "/api/index.py" },
     { "source": "/api/transactions", "destination": "/api/index.py" },
     { "source": "/api/debug", "destination": "/api/index.py" },
     { "source": "/api/ml-training-data", "destination": "/api/index.py" },
