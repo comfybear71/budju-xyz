@@ -740,7 +740,8 @@ export interface CoinStatsResponse {
 }
 
 /** Fetch read-only per-coin trading analytics (public, cost-basis stats). */
-export async function fetchCoinStats(): Promise<CoinStatsResponse | null> {
+export async function fetchCoinStats(force = false): Promise<CoinStatsResponse | null> {
+  if (force) delete cache["coin_stats"];
   return cached("coin_stats", 60_000, async () => {
     try {
       const res = await fetchWithRetry("/api/coin-stats");
