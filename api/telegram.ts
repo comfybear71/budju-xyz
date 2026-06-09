@@ -14,7 +14,8 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CRON_SECRET = process.env.CRON_SECRET || "";
 
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
-const WEBSITE_URL = "https://budju.xyz";
+// www is canonical; the apex budju.xyz 307-redirects (breaks server-to-server POSTs)
+const WEBSITE_URL = "https://www.budju.xyz";
 
 // ── Telegram helpers ────────────────────────────────────────────────────
 async function sendMessage(chatId: number, text: string, parseMode = "HTML") {
