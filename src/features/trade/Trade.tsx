@@ -505,6 +505,8 @@ const Trade = () => {
                           onClick: () => setShowPerformance(true) },
                         { key: "coinstats", label: "Coin Stats", icon: "\uD83E\uDE99", active: showStats, color: "teal",
                           onClick: () => setShowStats(true) },
+                        { key: "desk", label: "Desk", icon: "\u2600\uFE0F", active: false, color: "teal",
+                          onClick: () => navigate("/desk") },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
                       ] as const).map((btn) => {
@@ -574,6 +576,23 @@ const Trade = () => {
                         <div className="text-[10px] font-bold" style={{ color: traderState?.autoBotActive ? "#22c55e" : "#64748b" }}>
                           {traderState?.autoBotActive ? "Active" : "Inactive"}
                         </div>
+                      </div>
+                    </button>
+                    {/* BUDJU Desk — daily AI briefing */}
+                    <button
+                      onClick={() => navigate("/desk")}
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      style={{ background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(20,184,166,0.15)" }}>
+                        <span className="text-sm">☀️</span>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                          Desk{" "}
+                          <span className="text-[8px] bg-teal-500/15 text-teal-300 px-1 py-0.5 rounded font-mono border border-teal-500/20 align-middle">NEW</span>
+                        </div>
+                        <div className="text-[10px] font-bold text-teal-400">Daily brief</div>
                       </div>
                     </button>
                     {/* Live Charts + AI Predictions */}
