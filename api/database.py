@@ -34,6 +34,8 @@ withdrawals_collection = db["withdrawals"]
 trader_state_collection = db["trader_state"]
 pool_state_collection = db["pool_state"]
 user_preferences_collection = db["user_preferences"]
+desk_notes_collection = db["desk_notes"]
+desk_briefs_collection = db["desk_briefs"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -45,6 +47,8 @@ withdrawals_collection.create_index([("userId", 1), ("timestamp", -1)])
 trades_collection.create_index([("coin", 1), ("timestamp", -1)])
 users_collection.create_index([("isActive", 1), ("shares", -1)])
 user_preferences_collection.create_index("walletAddress", unique=True)
+desk_notes_collection.create_index([("createdAt", -1)])
+desk_briefs_collection.create_index([("createdAt", -1)])
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -660,6 +664,65 @@ def void_deposit(tx_hash: str) -> Dict:
         "voided": {"txHash": tx_hash, "amount": round(amount, 2), "shares": round(shares, 4)},
         "totalShares": pool.get("totalShares", 0),
     }
+
+
+# ── BUDJU Desk: captured notes + daily briefs ───────────────────────────────
+
+def save_desk_note(note: Dict) -> Dict:
+    """Store a captured note (text / link / transcribed voice) for the nightly brief."""
+    doc = {
+        "type": note.get("type", "text"),
+        "raw": note.get("raw", ""),
+        "transcript": note.get("transcript"),
+        "url": note.get("url"),
+        "source": note.get("source", "telegram"),
+        "createdAt": datetime.utcnow(),
+    }
+    res = desk_notes_collection.insert_one(doc)
+    return {"success": True, "id": str(res.inserted_id)}
+
+
+def get_recent_desk_notes(days: int = 5, limit: int = 60) -> List[Dict]:
+    since = datetime.utcnow() - timedelta(days=days)
+    cursor = desk_notes_collection.find(
+        {"createdAt": {"$gte": since}}, {"_id": 0}
+    ).sort("createdAt", -1).limit(limit)
+    notes = []
+    for d in cursor:
+        d = dict(d)
+        if isinstance(d.get("createdAt"), datetime):
+            d["createdAt"] = d["createdAt"].isoformat() + "Z"
+        notes.append(d)
+    return notes
+
+
+def _serialize_brief(doc: Dict, full: bool) -> Dict:
+    d = dict(doc)
+    d.pop("_id", None)
+    if isinstance(d.get("createdAt"), datetime):
+        d["createdAt"] = d["createdAt"].isoformat() + "Z"
+    if not full:
+        # Public-lite: omit position-specific intelligence
+        d.pop("contradictions", None)
+        d.pop("notesConsidered", None)
+    return d
+
+
+def save_desk_brief(brief: Dict) -> Dict:
+    doc = dict(brief)
+    doc["createdAt"] = datetime.utcnow()
+    res = desk_briefs_collection.insert_one(doc)
+    return {"success": True, "id": str(res.inserted_id)}
+
+
+def get_latest_desk_brief(full: bool = False) -> Optional[Dict]:
+    doc = desk_briefs_collection.find_one({}, sort=[("createdAt", -1)])
+    return _serialize_brief(doc, full) if doc else None
+
+
+def get_desk_briefs(limit: int = 14, full: bool = False) -> List[Dict]:
+    cursor = desk_briefs_collection.find({}).sort("createdAt", -1).limit(limit)
+    return [_serialize_brief(d, full) for d in cursor]
 
 
 def get_all_active_users() -> List[Dict]:

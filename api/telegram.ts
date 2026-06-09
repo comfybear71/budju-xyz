@@ -7,6 +7,12 @@ const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_CHAT_ID = -1002398835975;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 
+// BUDJU Desk capture
+const DESK_OWNER_ID = parseInt(process.env.DESK_OWNER_ID || "0", 10);
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const CRON_SECRET = process.env.CRON_SECRET || "";
+
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 const WEBSITE_URL = "https://budju.xyz";
 
@@ -231,6 +237,54 @@ async function askClaude(question: string): Promise<string | null> {
     return text || null;
   } catch (e) {
     console.error("Claude API error:", e);
+    return null;
+  }
+}
+
+// ── BUDJU Desk capture ──────────────────────────────────────────────────
+async function saveDeskNote(note: { type: string; raw?: string; transcript?: string; url?: string }) {
+  try {
+    await fetch(`${WEBSITE_URL}/api/desk/note`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${CRON_SECRET}` },
+      body: JSON.stringify(note),
+    });
+    return true;
+  } catch (e) {
+    console.error("saveDeskNote error:", e);
+    return false;
+  }
+}
+
+// Download a Telegram voice note and transcribe it (Groq Whisper, OpenAI fallback)
+async function transcribeVoice(fileId: string): Promise<string | null> {
+  try {
+    const fileRes = await fetch(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
+    const filePath = (await fileRes.json())?.result?.file_path;
+    if (!filePath) return null;
+    const audioBuf = await (
+      await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${filePath}`)
+    ).arrayBuffer();
+
+    const useGroq = !!GROQ_API_KEY;
+    const key = useGroq ? GROQ_API_KEY : OPENAI_API_KEY;
+    if (!key) return null;
+    const endpoint = useGroq
+      ? "https://api.groq.com/openai/v1/audio/transcriptions"
+      : "https://api.openai.com/v1/audio/transcriptions";
+    const model = useGroq ? "whisper-large-v3-turbo" : "whisper-1";
+
+    const form = new FormData();
+    form.append("file", new Blob([audioBuf], { type: "audio/ogg" }), "voice.ogg");
+    form.append("model", model);
+    const tr = await fetch(endpoint, { method: "POST", headers: { Authorization: `Bearer ${key}` }, body: form });
+    if (!tr.ok) {
+      console.error("transcribe error", tr.status, await tr.text());
+      return null;
+    }
+    return (await tr.json())?.text || null;
+  } catch (e) {
+    console.error("transcribeVoice error:", e);
     return null;
   }
 }
@@ -859,11 +913,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true });
     }
 
+    // ── BUDJU Desk: voice-note capture (owner DM only) ──
+    if (update.message?.voice) {
+      const m = update.message;
+      const isOwnerDM = m.chat?.type === "private" && m.from?.id === DESK_OWNER_ID;
+      if (DESK_OWNER_ID && isOwnerDM) {
+        const transcript = await transcribeVoice(m.voice.file_id);
+        if (transcript) {
+          await saveDeskNote({ type: "voice", transcript });
+          await sendMessage(m.chat.id, `📥 <b>Saved to your Desk</b>\n<i>"${transcript.slice(0, 240)}"</i>`);
+        } else {
+          await sendMessage(m.chat.id, "⚠️ Couldn't transcribe that voice note — try again?");
+        }
+      }
+      return res.status(200).json({ ok: true });
+    }
+
     // ── Handle text messages ──────────────────────────────────────────
     if (update.message?.text) {
       const chatId = update.message.chat.id;
       const text = update.message.text.trim();
       const isGroupChat = update.message.chat.type === "supergroup" || update.message.chat.type === "group";
+      const isOwnerDM = update.message.chat.type === "private" && update.message.from?.id === DESK_OWNER_ID;
 
       // Auto-moderate: check for profanity in group chats
       if (isGroupChat) {
@@ -938,6 +1009,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           case "/promo":
             await handlePromo(chatId);
             break;
+          case "/note":
+            if (DESK_OWNER_ID && isOwnerDM) {
+              const noteText = text.slice(5).trim();
+              if (noteText) {
+                const isUrl = /^https?:\/\/\S+$/i.test(noteText);
+                await saveDeskNote(isUrl ? { type: "link", url: noteText } : { type: "text", raw: noteText });
+                await sendMessage(chatId, "📥 Saved to your Desk.");
+              } else {
+                await sendMessage(chatId, "Send <code>/note your thought</code>, paste a link, or send a voice note.");
+              }
+            }
+            break;
           default:
             await sendMessage(
               chatId,
@@ -945,6 +1028,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             );
         }
       } else {
+        // BUDJU Desk: owner pasting a bare link in DM → capture it
+        if (DESK_OWNER_ID && isOwnerDM && /^https?:\/\/\S+$/i.test(text)) {
+          await saveDeskNote({ type: "link", url: text });
+          await sendMessage(chatId, "📥 Link saved to your Desk.");
+          return res.status(200).json({ ok: true });
+        }
         // ── Natural language handling ────────────────────────────────
         // First: check keyword shortcuts
         const keywordAnswer = handleQuestionKeyword(text);
