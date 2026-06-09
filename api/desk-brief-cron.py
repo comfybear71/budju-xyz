@@ -14,6 +14,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -22,6 +23,7 @@ from database import (
     get_coin_stats,
     get_recent_desk_notes,
     save_desk_brief,
+    is_admin,
 )
 
 CRON_SECRET = os.getenv("CRON_SECRET", "")
@@ -245,8 +247,12 @@ def run_brief():
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        # Auth: CRON_SECRET bearer (scheduler) OR ?admin_wallet=<admin> (manual run)
+        qs = parse_qs(urlparse(self.path).query)
+        admin_wallet = (qs.get("admin_wallet") or [""])[0]
         auth = self.headers.get("Authorization", "")
-        if CRON_SECRET and auth != f"Bearer {CRON_SECRET}":
+        authorized = (bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}") or (admin_wallet and is_admin(admin_wallet))
+        if not authorized:
             self.send_response(401)
             self.end_headers()
             self.wfile.write(b'{"error":"unauthorized"}')

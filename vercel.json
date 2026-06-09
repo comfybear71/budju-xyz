@@ -43,7 +43,7 @@
   "crons": [
     {
       "path": "/api/telegram-cron",
-      "schedule": "0 0,6,12,18 * * *"
+      "schedule": "0 0,6,12,18,20 * * *"
     },
     {
       "path": "/api/auto-trade-cron",
@@ -52,10 +52,6 @@
     {
       "path": "/api/perp-cron",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/desk-brief-cron",
-      "schedule": "0 20 * * *"
     }
   ],
   "build": {
