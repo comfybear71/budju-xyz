@@ -838,6 +838,54 @@ export async function voidDeposit(adminWallet: string, txHash: string): Promise<
   }
 }
 
+export interface DeskIdea {
+  coin: string;
+  direction: string;
+  entryZone: string;
+  invalidation: string;
+  target: string;
+  leverage: string;
+  confidence: number;
+  rationale: string;
+}
+
+export interface DeskContradiction {
+  coin: string;
+  alert: string;
+  severity: string;
+}
+
+export interface DeskBrief {
+  date?: string;
+  createdAt?: string;
+  marketContext?: { regime: string; riskTone: string; summary: string };
+  ideas?: DeskIdea[];
+  contradictions?: DeskContradiction[];
+  thesisOfWeek?: string;
+  notesConsidered?: number;
+}
+
+export interface DeskBriefResponse {
+  brief: DeskBrief | null;
+  history?: DeskBrief[];
+}
+
+/** Fetch the latest BUDJU Desk brief (public-lite, or full if an admin wallet is passed). */
+export async function fetchDeskBrief(adminWallet?: string, history = false): Promise<DeskBriefResponse | null> {
+  const qs = new URLSearchParams();
+  if (adminWallet) qs.set("admin_wallet", adminWallet);
+  if (history) qs.set("history", "1");
+  return cached(`desk_brief_${adminWallet || "pub"}_${history}`, 60_000, async () => {
+    try {
+      const res = await fetchWithRetry(`/api/desk/brief?${qs.toString()}`);
+      if (!res.ok) return null;
+      return (await res.json()) as DeskBriefResponse;
+    } catch {
+      return null;
+    }
+  });
+}
+
 /** Record an admin deposit (Swyftx bank transfer) in MongoDB for share issuance */
 export async function recordDeposit(
   adminWallet: string,

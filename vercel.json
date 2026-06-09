@@ -31,6 +31,8 @@
     { "source": "/api/leaderboard", "destination": "/api/index.py" },
     { "source": "/api/coin-stats", "destination": "/api/index.py" },
     { "source": "/api/coin-trades", "destination": "/api/index.py" },
+    { "source": "/api/desk/:path*", "destination": "/api/index.py" },
+    { "source": "/api/desk-brief-cron", "destination": "/api/desk-brief-cron.py" },
     { "source": "/api/transactions", "destination": "/api/index.py" },
     { "source": "/api/debug", "destination": "/api/index.py" },
     { "source": "/api/ml-training-data", "destination": "/api/index.py" },
@@ -50,6 +52,10 @@
     {
       "path": "/api/perp-cron",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/desk-brief-cron",
+      "schedule": "0 20 * * *"
     }
   ],
   "build": {

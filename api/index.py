@@ -21,6 +21,10 @@ from database import (
     get_coin_trades,
     get_deposit_summary,
     void_deposit,
+    get_latest_desk_brief,
+    get_desk_briefs,
+    get_recent_desk_notes,
+    save_desk_note,
     get_all_active_users,
     calculate_pool_allocations,
     is_admin,
@@ -225,6 +229,22 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "coin parameter required"})
                     return
                 self._send_json(200, get_coin_trades(coin))
+
+            elif path == '/api/desk/brief':
+                # Public-lite by default; full (with position contradictions) for admin
+                wallet = params.get('admin_wallet')
+                full = bool(wallet and is_admin(wallet))
+                resp = {"brief": get_latest_desk_brief(full)}
+                if params.get('history'):
+                    resp["history"] = get_desk_briefs(14, full)
+                self._send_json(200, resp)
+
+            elif path == '/api/desk/notes':
+                wallet = params.get('admin_wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, {"notes": get_recent_desk_notes(days=14)})
 
             elif path == '/api/user/position':
                 wallet = params.get('wallet')
@@ -728,6 +748,22 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
                     return
+                self._send_json(200, result)
+
+            elif path == '/api/desk/note':
+                # Server-to-server (Telegram bot) — auth via CRON_SECRET bearer token
+                cron_secret = os.getenv('CRON_SECRET', '')
+                auth = self.headers.get('Authorization', '')
+                if not cron_secret or auth != f"Bearer {cron_secret}":
+                    self._send_json(401, {"error": "unauthorized"})
+                    return
+                result = save_desk_note({
+                    "type": body.get('type', 'text'),
+                    "raw": body.get('raw', ''),
+                    "transcript": body.get('transcript'),
+                    "url": body.get('url'),
+                    "source": body.get('source', 'telegram'),
+                })
                 self._send_json(200, result)
 
             # ── Perp Paper Trading POST endpoints ────────────────────
