@@ -5,7 +5,9 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
 const TELEGRAM_API = `https://api.telegram.org/bot${BOT_TOKEN}`;
 const GROUP_CHAT_ID = -1002398835975;
 const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
-const WEBSITE_URL = "https://budju.xyz";
+// www is canonical; apex budju.xyz 307-redirects (and redirects strip the auth header)
+const WEBSITE_URL = "https://www.budju.xyz";
+const CRON_SECRET = process.env.CRON_SECRET || "";
 
 async function sendMessage(chatId: number, text: string) {
   return fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -262,8 +264,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Keep the bot alive: ensure webhook is registered every cron run
   await ensureWebhook();
 
-  // Use the current hour to decide: even hours = promo with image, odd hours = price update
   const hour = new Date().getUTCHours();
+
+  // 20:00 UTC (6am AEST): fire the BUDJU Desk daily brief in its own function
+  // (we can't add a 4th Vercel cron, so we piggyback on this one).
+  if (hour === 20) {
+    try {
+      await fetch(`${WEBSITE_URL}/api/desk-brief-cron`, {
+        headers: { Authorization: `Bearer ${CRON_SECRET}` },
+      });
+    } catch (e) {
+      console.error("desk brief trigger error:", e);
+    }
+    return res.status(200).json({ ok: true, type: "desk-brief" });
+  }
+
+  // Use the current hour to decide: even hours = promo with image, odd hours = price update
   const isPromoRound = hour % 12 === 0; // 0:00 and 12:00 UTC = promo
   // 6:00 and 18:00 UTC = price update
 
