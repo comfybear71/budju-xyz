@@ -247,15 +247,27 @@ def run_brief():
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Auth: CRON_SECRET bearer (scheduler) OR ?admin_wallet=<admin> (manual run)
+        # Auth: CRON_SECRET bearer (scheduler), ?key=<CRON_SECRET>, or ?admin_wallet=<admin>
         qs = parse_qs(urlparse(self.path).query)
-        admin_wallet = (qs.get("admin_wallet") or [""])[0]
+        admin_wallet = (qs.get("admin_wallet") or [""])[0].strip()
+        key = (qs.get("key") or [""])[0].strip()
         auth = self.headers.get("Authorization", "")
-        authorized = (bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}") or (admin_wallet and is_admin(admin_wallet))
+        wallet_is_admin = bool(admin_wallet and is_admin(admin_wallet))
+        authorized = (
+            (bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}")
+            or (bool(CRON_SECRET) and key == CRON_SECRET)
+            or wallet_is_admin
+        )
         if not authorized:
             self.send_response(401)
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(b'{"error":"unauthorized"}')
+            self.wfile.write(json.dumps({
+                "error": "unauthorized",
+                "admin_wallet_received": admin_wallet or None,
+                "recognized_as_admin": wallet_is_admin,
+                "hint": "Use the exact wallet you connect with, or ?key=<CRON_SECRET>.",
+            }).encode())
             return
         try:
             result = run_brief()
