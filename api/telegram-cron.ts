@@ -229,7 +229,9 @@ function formatStrategyMessage(opps: Opportunity[]): string {
 }
 
 async function ensureWebhook() {
-  const webhookUrl = `https://budju.xyz/api/telegram`;
+  // Must be the canonical www host — the apex budju.xyz 307-redirects, and
+  // Telegram refuses to follow redirects for webhooks (silently drops updates).
+  const webhookUrl = `https://www.budju.xyz/api/telegram`;
   try {
     // Check current webhook status
     const infoRes = await fetch(`${TELEGRAM_API}/getWebhookInfo`);
