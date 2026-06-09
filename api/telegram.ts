@@ -1010,14 +1010,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             await handlePromo(chatId);
             break;
           case "/note":
-            if (DESK_OWNER_ID && isOwnerDM) {
-              const noteText = text.slice(5).trim();
-              if (noteText) {
-                const isUrl = /^https?:\/\/\S+$/i.test(noteText);
-                await saveDeskNote(isUrl ? { type: "link", url: noteText } : { type: "text", raw: noteText });
-                await sendMessage(chatId, "📥 Saved to your Desk.");
+            if (update.message.chat.type === "private") {
+              if (DESK_OWNER_ID && isOwnerDM) {
+                const noteText = text.slice(5).trim();
+                if (noteText) {
+                  const isUrl = /^https?:\/\/\S+$/i.test(noteText);
+                  await saveDeskNote(isUrl ? { type: "link", url: noteText } : { type: "text", raw: noteText });
+                  await sendMessage(chatId, "📥 Saved to your Desk.");
+                } else {
+                  await sendMessage(chatId, "Send <code>/note your thought</code>, paste a link, or send a voice note.");
+                }
               } else {
-                await sendMessage(chatId, "Send <code>/note your thought</code>, paste a link, or send a voice note.");
+                // Setup diagnostic
+                await sendMessage(
+                  chatId,
+                  `🔒 Desk capture isn't enabled for you yet.\n` +
+                    `Your Telegram ID: <code>${update.message.from?.id}</code>\n` +
+                    `Owner configured in this deploy: <b>${DESK_OWNER_ID ? DESK_OWNER_ID : "no — set DESK_OWNER_ID in Vercel and REDEPLOY"}</b>`,
+                );
               }
             }
             break;
