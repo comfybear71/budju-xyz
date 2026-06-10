@@ -791,8 +791,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Set webhook: GET /api/telegram?action=setWebhook&host=budju.xyz
     if (action === "setWebhook") {
-      const host = req.query.host || req.headers.host;
-      const webhookUrl = `https://${host}/api/telegram`;
+      // Always www — apex 307-redirects and Telegram drops redirected webhooks.
+      const webhookUrl = `https://www.budju.xyz/api/telegram`;
       const result = await fetch(
         `${TELEGRAM_API}/setWebhook?url=${encodeURIComponent(webhookUrl)}`,
       );
