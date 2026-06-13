@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaSync } from "react-icons/fa";
+import { FaSync, FaArrowLeft } from "react-icons/fa";
+import { useNavigate } from "react-router";
 import { useWallet } from "@hooks/useWallet";
 import { fetchDeskBrief, type DeskBrief } from "@features/trade/services/tradeApi";
 
@@ -9,6 +10,7 @@ const dirIcon = (d: string) => (d === "long" ? "🟢" : d === "short" ? "🔴" :
 const sevColor = (s: string) => (s === "high" ? "#ef4444" : s === "medium" ? "#f59e0b" : "#94a3b8");
 
 const Desk = () => {
+  const navigate = useNavigate();
   const { walletAddress } = useWallet();
   const [brief, setBrief] = useState<DeskBrief | null>(null);
   const [history, setHistory] = useState<DeskBrief[]>([]);
@@ -34,15 +36,26 @@ const Desk = () => {
     <div className="max-w-4xl mx-auto px-4 pt-20 pb-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-xl md:text-2xl font-bold text-slate-100">☀️ BUDJU Desk</h1>
-          <p className="text-[11px] md:text-xs text-slate-500">
-            Daily AI briefing — guidance only, not financial advice
-          </p>
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => navigate("/trade")}
+            aria-label="Back to Trade"
+            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all hover:brightness-125"
+            style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.25)" }}
+          >
+            <FaArrowLeft size={14} className="text-green-400" />
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-xl md:text-2xl font-bold text-slate-100 truncate">☀️ BUDJU Desk</h1>
+            <p className="text-[11px] md:text-xs text-slate-500">
+              Daily AI briefing — guidance only, not financial advice
+            </p>
+          </div>
         </div>
         <button
           onClick={load}
-          className="w-9 h-9 rounded-xl flex items-center justify-center"
+          aria-label="Refresh"
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
           style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
         >
           <FaSync size={13} className={`text-slate-400 ${loading ? "animate-spin" : ""}`} />
