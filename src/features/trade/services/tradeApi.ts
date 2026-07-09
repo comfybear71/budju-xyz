@@ -10,6 +10,15 @@ import { getActivityLog } from "./activityLog";
 
 const alog = getActivityLog();
 
+/** Localhost safety: block any write/trade that would hit production via the Vite /api proxy. */
+const LOCAL_READ_ONLY = import.meta.env.DEV;
+
+function blockLocalWrite(action: string): { success: false; error: string } {
+  const error = `Localhost read-only — ${action} blocked (no live trades/writes)`;
+  alog.log(error, "error");
+  return { success: false, error };
+}
+
 // ── Types ──────────────────────────────────────────────────
 
 export interface PortfolioAsset {
@@ -435,6 +444,11 @@ export async function fetchUserPosition(
 
 /** Register wallet with backend */
 export async function registerWallet(walletAddress: string): Promise<any> {
+  if (LOCAL_READ_ONLY) {
+    blockLocalWrite("register wallet");
+    return null;
+  }
+
   try {
     const res = await fetchWithRetry("/api/user/register", {
       method: "POST",
@@ -472,6 +486,8 @@ export async function placeTrade(order: {
   currentPrice?: number;
   swyftxAudRate?: number;
 }): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite(`place ${order.side} ${order.assetCode}`);
+
   try {
     // Validate minimum order size
     const minAmount = order.orderType === "market" ? MIN_MARKET_USDC : MIN_LIMIT_USDC;
@@ -684,6 +700,8 @@ export async function saveTraderState(
   adminWallet: string,
   updates: Record<string, unknown>,
 ): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("save trader state");
+
   try {
     const res = await fetchWithRetry("/api/state", {
       method: "POST",
@@ -821,6 +839,8 @@ export async function fetchDeposits(wallet: string): Promise<DepositRecord[]> {
 
 /** Admin: void an accidental/duplicate deposit by txHash (reverses its shares) */
 export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("void deposit");
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) return { success: false, error: "Admin signature required" };
@@ -894,6 +914,8 @@ export async function recordDeposit(
   totalPoolValue: number,
   currency: string = "USDC",
 ): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("record deposit");
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) return { success: false, error: "Admin signature required" };
@@ -937,6 +959,8 @@ export async function recordWithdrawal(
   totalPoolValue: number,
   currency: string = "USDC",
 ): Promise<{ success: boolean; shares_burned?: number; nav?: number; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("record withdrawal");
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) return { success: false, error: "Admin signature required" };
@@ -977,6 +1001,8 @@ export async function submitUserDeposit(
   txHash: string,
   totalPoolValue: number,
 ): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("submit user deposit");
+
   try {
     const res = await fetchWithRetry("/api/user-deposit", {
       method: "POST",
@@ -1011,6 +1037,11 @@ export async function recordTradeInDB(
   cryptoAmount: number,
   price: number,
 ): Promise<boolean> {
+  if (LOCAL_READ_ONLY) {
+    blockLocalWrite("record trade in DB");
+    return false;
+  }
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) return false;
@@ -1109,6 +1140,11 @@ export async function fetchSwyftxOrderHistory(
 export async function syncSwyftxTradesToDB(
   adminWallet: string,
 ): Promise<{ imported: number; skipped: number; error?: string } | null> {
+  if (LOCAL_READ_ONLY) {
+    blockLocalWrite("sync Swyftx trades");
+    return { imported: 0, skipped: 0, error: "Localhost read-only" };
+  }
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) {
@@ -1236,6 +1272,8 @@ export async function recalibratePool(
   adminWallet: string,
   totalPoolValue: number,
 ): Promise<{ success: boolean; adminCapital?: number; totalUserDeposits?: number; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("recalibrate pool");
+
   try {
     const auth = await getAdminAuth(adminWallet);
     if (!auth) return { success: false, error: "Admin signature required" };
@@ -1349,6 +1387,8 @@ export async function fetchPendingFromHistory(
 export async function cancelOrder(
   orderUuid: string,
 ): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite(`cancel order ${orderUuid}`);
+
   try {
     // Auth handled server-side by the proxy
     const res = await fetchWithRetry("/api/proxy", {

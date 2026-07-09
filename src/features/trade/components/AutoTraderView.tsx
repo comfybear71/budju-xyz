@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { fetchTraderState, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
+import { fetchTraderState, fetchCoinStats, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
 import { TIER_CONFIG } from "../services/autoTrader";
 
 interface Props {
@@ -17,12 +17,20 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
   const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<string, boolean>>({});
+  const [avgCostMap, setAvgCostMap] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetchTraderState().then((data) => {
+    Promise.all([fetchTraderState(), fetchCoinStats()]).then(([data, stats]) => {
       setState(data);
+      if (stats?.coins?.length) {
+        const map: Record<string, number> = {};
+        for (const c of stats.coins) {
+          if (c.coin && c.avgCost > 0) map[c.coin] = c.avgCost;
+        }
+        setAvgCostMap(map);
+      }
       setLoading(false);
       setCountdown(30);
     });
@@ -32,8 +40,15 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   useEffect(() => {
     if (!isOpen) return;
     const refreshInterval = setInterval(() => {
-      fetchTraderState().then((data) => {
+      Promise.all([fetchTraderState(), fetchCoinStats()]).then(([data, stats]) => {
         if (data) setState(data);
+        if (stats?.coins?.length) {
+          const map: Record<string, number> = {};
+          for (const c of stats.coins) {
+            if (c.coin && c.avgCost > 0) map[c.coin] = c.avgCost;
+          }
+          setAvgCostMap(map);
+        }
         setCountdown(30);
       });
     }, 30_000);
@@ -192,8 +207,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "tween", duration: 0.3 }}
-            className="absolute inset-x-0 bottom-0 top-14 bg-[#0a0a1a] rounded-t-2xl overflow-y-auto pb-20"
-            style={{ maxWidth: 420, margin: "0 auto" }}
+            className="absolute inset-x-0 bottom-0 top-14 mx-auto w-full max-w-[420px] md:max-w-5xl bg-[#0a0a1a] rounded-t-2xl md:rounded-t-3xl overflow-y-auto pb-20"
           >
             <div className="p-4">
               {/* Header */}
@@ -231,9 +245,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                 </div>
               ) : (
                 <>
-                  {/* ── Read-only Tier Settings Cards — horizontal scroll ── */}
+                  {/* ── Read-only Tier Settings Cards — scroll on phone, 3-col on desktop ── */}
                   <div
-                    className="flex gap-3 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x"
+                    className="flex gap-3 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
                   >
                     {[1, 2, 3].map((tierNum) => {
@@ -260,11 +274,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                       return (
                         <div
                           key={tierNum}
-                          className="flex-shrink-0 rounded-xl p-4 snap-start"
+                          className="flex-shrink-0 rounded-xl p-4 snap-start w-[min(300px,85vw)] md:w-auto md:min-w-0 md:flex-shrink"
                           style={{
                             background: `${cfg.color}10`,
                             border: `1px solid ${cfg.color}25`,
-                            width: "min(300px, 85vw)",
                           }}
                         >
                           {/* Tier title + active badge */}
@@ -359,7 +372,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     </div>
                   ) : (
                   <div
-                    className="flex gap-3 overflow-x-auto pb-3 mb-3 -mx-1 px-1 snap-x snap-mandatory"
+                    className="flex gap-3 overflow-x-auto pb-3 mb-3 -mx-1 px-1 snap-x snap-mandatory md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0 md:snap-none"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
                   >
                   {Object.entries(grouped).map(([tierKey, coins]) => {
@@ -378,9 +391,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     return (
                       <div
                         key={tierKey}
-                        className="flex-shrink-0 snap-start rounded-xl flex flex-col"
+                        className="flex-shrink-0 snap-start rounded-xl flex flex-col w-[min(330px,86vw)] md:w-auto md:min-w-0 md:flex-shrink"
                         style={{
-                          width: "min(330px, 86vw)",
                           background: `${tierColor}0d`,
                           border: `1px solid ${tierColor}30`,
                         }}
@@ -463,6 +475,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                             }
                             const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
                             const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
+                            const avgCost = avgCostMap[item.coin] || 0;
+                            const belowAvgCost = avgCost > 0 && item.currentPrice > 0 && item.currentPrice < avgCost;
 
                             return (
                               <div
@@ -519,6 +533,17 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                       </span>
                                     ) : item.inCooldown ? (
                                       <span className="text-[9px] text-yellow-500">(cooldown)</span>
+                                    ) : belowAvgCost && nearestSide === "sell" && item.hasLiveTarget && isNear ? (
+                                      <span
+                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                        style={{
+                                          background: "rgba(234,179,8,0.2)",
+                                          color: "#facc15",
+                                          border: "1px solid rgba(234,179,8,0.35)",
+                                        }}
+                                      >
+                                        BELOW COST
+                                      </span>
                                     ) : item.hasLiveTarget && isNear ? (
                                       <span
                                         className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}

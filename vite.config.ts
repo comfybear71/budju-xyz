@@ -129,6 +129,13 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: () => "",
         },
+        // Read live production APIs on localhost (portfolio, state, coin-stats).
+        // Client write guards in tradeApi.ts block trades/state changes in DEV.
+        "/api": {
+          target: "https://budju.xyz",
+          changeOrigin: true,
+          secure: true,
+        },
       },
     },
   };
