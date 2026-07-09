@@ -30,6 +30,7 @@ from database import (
     save_trader_state,
     record_trade,
     calculate_pool_allocations,
+    get_coin_stats,
 )
 
 # ── Config ────────────────────────────────────────────────────
@@ -426,6 +427,19 @@ def run_auto_trade_check():
     trades_executed = []
     decisions = []  # Structured log of every decision for debugging
 
+    # Avg-cost map for sell-below-cost guard (missing/0 = allow sells)
+    avg_cost_map = {}
+    try:
+        stats = get_coin_stats()
+        for c in stats.get("coins", []) or []:
+            coin = c.get("coin")
+            avg = float(c.get("avgCost") or 0)
+            if coin and avg > 0:
+                avg_cost_map[coin] = avg
+        log.append(f"Avg cost loaded for {len(avg_cost_map)} coins")
+    except Exception as e:
+        log.append(f"Avg cost fetch failed (sells allowed without guard): {e}")
+
     # Settlement guard: if trades executed very recently, skip this run
     # to let Swyftx balances settle (prevents double-execution)
     last_trade_time = 0
@@ -579,6 +593,17 @@ def run_auto_trade_check():
 
         # ── SELL: price rose above sell target ──
         elif current_price >= sell_target:
+            avg_cost = avg_cost_map.get(code, 0)
+            if avg_cost > 0 and current_price < avg_cost:
+                reason = f"Below avg cost (${avg_cost:.2f}) — sell blocked at ${current_price:.2f}"
+                log.append(f"{code}: {reason}")
+                decisions.append({
+                    "coin": code, "tier": tier_num, "action": "SELL", "result": "blocked",
+                    "reason": reason, "error": reason,
+                    "price": current_price, "avg_cost": avg_cost, "target": sell_target,
+                })
+                continue
+
             asset_balance = portfolio.get(code, 0)
             sell_pct = settings["allocation"] * SELL_RATIO
             quantity = round((sell_pct / 100) * asset_balance, 8)

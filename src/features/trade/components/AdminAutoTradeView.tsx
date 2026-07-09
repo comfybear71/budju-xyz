@@ -108,6 +108,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           recentTrade,
           diagnostic: diag?.reason || cronDiag || null,
           diagLevel: diag?.level || (cronDiag ? "warn" : null),
+          avgCost: autoTrader.getAvgCost(coin),
         });
       }
     }
@@ -310,9 +311,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           </div>
         )}
 
-        {/* ── Tier Cards — horizontal scroll ── */}
+        {/* ── Tier Cards — scroll on phone, 3-col on desktop ── */}
         <div
-          className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x"
+          className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0"
           style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
         >
           {tiers.map((tier) => {
@@ -322,11 +323,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
             return (
               <div
                 key={tier.num}
-                className="flex-shrink-0 rounded-xl p-4 snap-start"
+                className="flex-shrink-0 rounded-xl p-4 snap-start w-[min(300px,85vw)] md:w-auto md:min-w-0 md:flex-shrink"
                 style={{
                   background: `${tier.cfg.color}10`,
                   border: `1px solid ${tier.cfg.color}25`,
-                  width: "min(300px, 85vw)",
                 }}
               >
                 {/* Tier title + targets + ACTIVE badge */}
@@ -691,6 +691,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   }
                   const barColorBuy = isCritical ? "#22c55e" : isHot ? "#4ade80" : isNear ? "#86efac" : "#22c55e";
                   const barColorSell = isCritical ? "#ef4444" : isHot ? "#f97316" : isNear ? "#eab308" : "#ef4444";
+                  const belowAvgCost = item.avgCost > 0 && item.currentPrice > 0 && item.currentPrice < item.avgCost;
 
                   // Estimated trade amounts
                   const estBuyAmount = autoTrader.getEstimatedBuyAmount(item.coin, item.tierNum);
@@ -757,6 +758,17 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                           ) : item.inCooldown ? (
                             <span className="text-[9px] text-yellow-500">
                               (cd {autoTrader.getCooldownRemaining(compoundKey(item.coin, item.tierNum))})
+                            </span>
+                          ) : belowAvgCost && nearestSide === "sell" && item.hasTarget && isNear ? (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                              style={{
+                                background: "rgba(234,179,8,0.2)",
+                                color: "#facc15",
+                                border: "1px solid rgba(234,179,8,0.35)",
+                              }}
+                            >
+                              BELOW COST
                             </span>
                           ) : item.hasTarget && isNear ? (
                             <span
@@ -882,16 +894,20 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             )}
                           </div>
                           {/* Diagnostic reason when trade should fire but isn't */}
-                          {item.diagnostic && isCritical && (
+                          {(item.diagnostic || (belowAvgCost && nearestSide === "sell" && isNear)) && (isCritical || belowAvgCost) && (
                             <div className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
-                              background: item.diagLevel === "error" ? "rgba(239,68,68,0.12)"
+                              background: belowAvgCost ? "rgba(234,179,8,0.12)"
+                                : item.diagLevel === "error" ? "rgba(239,68,68,0.12)"
                                 : item.diagLevel === "warn" ? "rgba(234,179,8,0.12)"
                                 : "rgba(100,116,139,0.12)",
-                              color: item.diagLevel === "error" ? "#f87171"
+                              color: belowAvgCost ? "#facc15"
+                                : item.diagLevel === "error" ? "#f87171"
                                 : item.diagLevel === "warn" ? "#facc15"
                                 : "#94a3b8",
                             }}>
-                              {item.diagnostic}
+                              {belowAvgCost && nearestSide === "sell"
+                                ? `Below avg cost ($${Number(item.avgCost).toFixed(2)}) — sell blocked`
+                                : item.diagnostic}
                             </div>
                           )}
                         </div>

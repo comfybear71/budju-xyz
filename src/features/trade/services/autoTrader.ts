@@ -22,6 +22,7 @@ import {
   fetchPrices,
   fetchCashBalances,
   fetchTraderState,
+  fetchCoinStats,
   saveTraderState,
   placeTrade,
   clearCacheKeys,
@@ -164,6 +165,8 @@ export class AutoTrader {
   private _cachedAssets: PortfolioAsset[] = [];
   private _cachedPrices: Record<string, number> = {};
   private _cachedUsdcBalance: number = 0;
+  /** Avg cost (cost basis) per coin from /api/coin-stats. Missing/0 = allow sells. */
+  private _cachedAvgCost: Record<string, number> = {};
 
   // Warmup: skip first price check after resume so fresh prices load first
   private _warmup = false;
@@ -826,15 +829,28 @@ export class AutoTrader {
         await this._executeBuy(coin, tier, currentPrice, settings);
         tradeExecuted = true;
       }
-      // SELL: price rose above sell target
+      // SELL: price rose above sell target — but never sell below avg cost
       else if (currentPrice >= tgt.sell) {
-        this._setDiagnostic(ck, "Executing SELL...", "info");
-        this._log(
-          `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
-          "success",
-        );
-        await this._executeSell(coin, tier, currentPrice, settings);
-        tradeExecuted = true;
+        const avgCost = this._cachedAvgCost[coin] || 0;
+        if (avgCost > 0 && currentPrice < avgCost) {
+          this._setDiagnostic(
+            ck,
+            `Below avg cost ($${avgCost.toFixed(2)}) — sell blocked`,
+            "warn",
+          );
+          this._log(
+            `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} but price $${currentPrice.toFixed(2)} < avg cost $${avgCost.toFixed(2)} — SELL BLOCKED`,
+            "info",
+          );
+        } else {
+          this._setDiagnostic(ck, "Executing SELL...", "info");
+          this._log(
+            `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
+            "success",
+          );
+          await this._executeSell(coin, tier, currentPrice, settings);
+          tradeExecuted = true;
+        }
       }
       else {
         this._setDiagnostic(ck, `${pctToSell}% to sell, ${pctToBuy}% to buy`, "info");
@@ -1105,10 +1121,11 @@ export class AutoTrader {
         }
       }
 
-      const [assets, apiPrices, cash] = await Promise.all([
+      const [assets, apiPrices, cash, coinStats] = await Promise.all([
         fetchPortfolio(),
         fetchPrices(),
         fetchCashBalances(),
+        fetchCoinStats(),
       ]);
       this._cachedAssets = assets;
       // API prices as base, then overlay real-time WebSocket prices.
@@ -1121,9 +1138,23 @@ export class AutoTrader {
       }
       this._cachedPrices = { ...apiPrices, ...wsPrices, ...freshWs };
       this._cachedUsdcBalance = cash.usdc;
+
+      // Avg cost map for sell-below-cost guard (missing/0 = allow sells)
+      if (coinStats?.coins?.length) {
+        const avgMap: Record<string, number> = {};
+        for (const c of coinStats.coins) {
+          if (c.coin && c.avgCost > 0) avgMap[c.coin] = c.avgCost;
+        }
+        this._cachedAvgCost = avgMap;
+      }
     } catch (error: any) {
       this._log(`Data refresh error: ${error.message}`, "error");
     }
+  }
+
+  /** Public avg-cost lookup for UI (0 if unknown). */
+  getAvgCost(coin: string): number {
+    return this._cachedAvgCost[coin] || 0;
   }
 
   /** Update cached prices externally (from parent component's price ticker).
