@@ -54,6 +54,8 @@ const TriggerTradeView = ({
   const [showConfirm, setShowConfirm] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
+  // Server trade-guard warning on a manual order — admin must override to place.
+  const [guardWarning, setGuardWarning] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Pending orders + recently filled
@@ -207,8 +209,9 @@ const TriggerTradeView = ({
   };
 
   // Place trigger order
-  const handleConfirm = async () => {
+  const handleConfirm = async (override = false) => {
     if (!isAdmin || !selectedCoin || amountPct === 0 || !mode) return;
+    setGuardWarning(null);
     setIsSubmitting(true);
     setShowError(null);
 
@@ -221,9 +224,14 @@ const TriggerTradeView = ({
         triggerPrice,
         currentPrice,
         swyftxAudRate,
+        source: "manual",
+        confirm: override,
       });
 
-      if (result.success) {
+      if (result.requiresConfirm) {
+        // Guard flagged this manual trigger order — surface and require override.
+        setGuardWarning(result.error || result.warning || "This order was flagged by a trade guard.");
+      } else if (result.success) {
         setShowSuccess(true);
         setAmountPct(0);
         setTimeout(() => setShowSuccess(false), 2500);
@@ -634,6 +642,46 @@ const TriggerTradeView = ({
                           }`}
                         >
                           Confirm
+                        </button>
+                      </div>
+                    </motion.div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Trade-guard override */}
+              <AnimatePresence>
+                {guardWarning && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50"
+                    onClick={() => setGuardWarning(null)}
+                  >
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      className="p-5 rounded-xl border bg-[#1a0f0a] border-amber-500/40 max-w-xs w-full mx-4"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <h3 className="font-bold text-sm mb-2 text-amber-400">
+                        Trade guard warning
+                      </h3>
+                      <p className="text-xs text-amber-200/90 mb-4">{guardWarning}</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setGuardWarning(null)}
+                          className="flex-1 py-2.5 rounded-lg text-xs font-bold bg-white/10 text-white"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => handleConfirm(true)}
+                          className="flex-1 py-2.5 rounded-lg text-xs font-bold text-white bg-amber-500"
+                        >
+                          Override &amp; place
                         </button>
                       </div>
                     </motion.div>

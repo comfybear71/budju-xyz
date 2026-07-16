@@ -373,7 +373,13 @@ def record_withdrawal(wallet_address: str, amount: float, total_pool_value: floa
     if total_shares <= 0:
         raise ValueError("Pool not initialized")
 
-    nav = total_pool_value / total_shares if total_shares > 0 else 1.0
+    # Snapshot the PRE-withdrawal NAV. The live total_pool_value passed in is
+    # post-withdrawal (the money has already left Swyftx by the time the admin
+    # records it), so add the amount back — mirrors record_deposit's
+    # pre_deposit_value = total_pool_value - amount. Using the collapsed
+    # post-withdrawal value here would over-burn shares and drift NAV.
+    pre_withdrawal_value = total_pool_value + amount
+    nav = pre_withdrawal_value / total_shares if total_shares > 0 else 1.0
     shares_to_burn = amount / nav
     user_shares = user.get("shares", 0.0)
 
@@ -416,6 +422,89 @@ def record_withdrawal(wallet_address: str, amount: float, total_pool_value: floa
         "newTotalWithdrawn": total_withdrawn,
         "userShares": new_shares,
     }
+
+
+def correct_unrecorded_withdrawal(admin_wallet, amount, current_pool_value,
+                                  dry_run=True, marker="admin_correction_2026_07_16"):
+    """One-off, IDEMPOTENT correction for a withdrawal that was never recorded.
+
+    Reconstructs the pre-withdrawal NAV = (current_pool_value + amount)/shares,
+    burns ONLY the admin's shares at that NAV, which restores NAV and every
+    other holder's dollar value to pre-withdrawal levels.
+
+    dry_run=True (default) computes + returns the full before/after report and
+    writes NOTHING. Applies only when dry_run=False AND not already applied.
+    """
+    from withdrawal_math import reconstruct
+
+    pool = get_pool_state()
+    total_shares = pool.get("totalShares", 0)
+    if total_shares <= 0:
+        raise ValueError("Pool not initialized")
+
+    admin = users_collection.find_one({"walletAddress": admin_wallet})
+    if not admin:
+        raise ValueError("Admin wallet not found")
+    admin_shares = float(admin.get("shares", 0.0))
+
+    already = withdrawals_collection.find_one({"txHash": marker}) is not None
+
+    r = reconstruct(current_pool_value, total_shares, amount, admin_shares)
+    burn = r["sharesToBurn"]
+    current_nav = r["currentNav"]
+    restored_nav = r["restoredNav"]
+    admin_set = set(ADMIN_WALLETS)
+
+    holders = list(users_collection.find({"isActive": True}))
+    report = []
+    for u in holders:
+        w = u.get("walletAddress")
+        sh = float(u.get("shares", 0.0))
+        new_sh = (sh - burn) if (w == admin_wallet) else sh
+        report.append({
+            "wallet": w,
+            "isAdmin": w in admin_set,
+            "sharesBefore": round(sh, 6),
+            "sharesAfter": round(new_sh, 6),
+            "valueBefore": round(sh * current_nav, 2),
+            "valueAfter": round(new_sh * restored_nav, 2),
+            "totalDeposited": round(float(u.get("totalDeposited", 0.0)), 2),
+        })
+
+    result = {
+        "dryRun": dry_run,
+        "alreadyApplied": already,
+        "amount": round(amount, 2),
+        "currentPoolValue": round(current_pool_value, 2),
+        "totalShares": round(total_shares, 6),
+        "adminShares": round(admin_shares, 6),
+        "adminCoversAmount": (admin_shares * r["preWithdrawalNav"]) >= (amount - 0.01),
+        "currentNav": round(current_nav, 6),
+        "preWithdrawalNav": round(r["preWithdrawalNav"], 6),
+        "restoredNav": round(restored_nav, 6),
+        "sharesToBurn": round(burn, 6),
+        "newTotalShares": round(r["newTotalShares"], 6),
+        "holders": report,
+    }
+
+    if dry_run or already:
+        return result
+
+    # ── APPLY — only reached when dry_run=False and not already applied ──
+    pool_state_collection.update_one({"_id": "pool"}, {"$inc": {"totalShares": -burn}})
+    users_collection.update_one(
+        {"walletAddress": admin_wallet},
+        {"$inc": {"shares": -burn, "totalWithdrawn": amount}},
+    )
+    withdrawals_collection.insert_one({
+        "userId": admin_wallet, "amount": amount, "currency": "AUD",
+        "shares": burn, "nav": r["preWithdrawalNav"], "timestamp": datetime.utcnow(),
+        "status": "completed", "txHash": marker,
+        "note": "One-off correction for unrecorded 2026-07-16 withdrawal",
+    })
+    _recalculate_allocations()
+    result["applied"] = True
+    return result
 
 
 def _recalculate_allocations():

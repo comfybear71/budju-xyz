@@ -41,6 +41,9 @@ const TradePanel = ({
   const [showSuccess, setShowSuccess] = useState(false);
   const [showError, setShowError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Set when the server trade guard warns on a manual order (e.g. rebuy
+  // blocklist / min-sell). The admin must explicitly confirm to override.
+  const [guardWarning, setGuardWarning] = useState<string | null>(null);
 
   const asset = assets.find((a) => a.code === selectedAsset);
   const price = prices[selectedAsset] || asset?.priceUsd || 0;
@@ -69,8 +72,9 @@ const TradePanel = ({
     setShowConfirm(true);
   };
 
-  const confirmTrade = async () => {
+  const confirmTrade = async (override = false) => {
     setShowConfirm(false);
+    setGuardWarning(null);
     setIsSubmitting(true);
     setShowError(null);
 
@@ -81,6 +85,8 @@ const TradePanel = ({
         amount: tradeAmount,
         orderType: "market",
         currentPrice: price,
+        source: "manual",
+        confirm: override,
       });
 
       if (result.success) {
@@ -89,6 +95,10 @@ const TradePanel = ({
           setShowSuccess(false);
           setAmountPct(0);
         }, 2500);
+      } else if (result.requiresConfirm) {
+        // Guard flagged this manual order — surface the warning and let the
+        // admin explicitly override with a second confirm.
+        setGuardWarning(result.error || result.warning || "This order was flagged by a trade guard.");
       } else {
         setShowError(result.error || "Trade failed");
         setTimeout(() => setShowError(null), 4000);
@@ -331,10 +341,43 @@ const TradePanel = ({
                   Cancel
                 </button>
                 <button
-                  onClick={confirmTrade}
+                  onClick={() => confirmTrade(false)}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold text-white ${side === "buy" ? "bg-green-500" : "bg-red-500"}`}
                 >
                   Confirm
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Trade-guard override modal ── */}
+      <AnimatePresence>
+        {guardWarning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-30 rounded-xl"
+          >
+            <div className="p-5 rounded-xl border bg-[#1a0f0a] border-amber-500/40 max-w-xs w-full mx-4">
+              <h3 className="font-bold text-sm mb-2 text-amber-400 flex items-center gap-2">
+                <FaBolt /> Trade guard warning
+              </h3>
+              <p className="text-xs text-amber-200/90 mb-4">{guardWarning}</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setGuardWarning(null)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold bg-white/10 text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => confirmTrade(true)}
+                  className="flex-1 py-2 rounded-lg text-xs font-bold text-white bg-amber-500"
+                >
+                  Override &amp; place
                 </button>
               </div>
             </div>

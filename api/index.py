@@ -16,6 +16,7 @@ from database import (
     get_user_deposits,
     record_deposit,
     record_withdrawal,
+    correct_unrecorded_withdrawal,
     record_trade,
     get_coin_stats,
     get_coin_trades,
@@ -73,6 +74,7 @@ from perp_engine import (
     MARKETS,
 )
 from database import ADMIN_WALLETS
+from trade_guards import DEFAULT_REBUY_BLOCKLIST, evaluate_order
 from perp_strategies import (
     get_strategy_status,
     toggle_auto_trading,
@@ -654,6 +656,22 @@ class handler(BaseHTTPRequestHandler):
                 )
                 self._send_json(200, result)
 
+            elif path == '/api/trade/guard-check':
+                # Server-side order guard (called by api/proxy.ts before every
+                # Swyftx order). Returns allow/block/warn — no auth (decision
+                # only, no sensitive data). Bot orders hard-block; manual warn.
+                from datetime import datetime as _dtg
+                state = get_trader_state()
+                blocklist = state.get('autoRebuyBlocklist') or DEFAULT_REBUY_BLOCKLIST
+                max_dep = float(os.getenv('MAX_AUD_DEPLOYABLE', '500'))
+                min_sell = float(os.getenv('SWYFTX_MIN_SELL_USDC', '30'))
+                decision = evaluate_order(
+                    body.get('coin'), body.get('side'), body.get('amountUsd'),
+                    body.get('source'), bool(body.get('confirm', False)),
+                    blocklist, _dtg.utcnow(), max_dep, min_sell,
+                )
+                self._send_json(200, decision)
+
             elif path == '/api/trade':
                 # Admin-only: requires cryptographic signature verification
                 is_valid, error = _verify_admin(body, self)
@@ -731,6 +749,29 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = recalibrate_pool(float(pool_value))
+                self._send_json(200, result)
+
+            elif path == '/api/admin/correct-withdrawal':
+                # Admin-only: one-off idempotent correction for an unrecorded
+                # withdrawal. Defaults to DRY-RUN (writes nothing); pass
+                # execute=true to apply (after out-of-band written confirmation).
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                amount = body.get('amount')
+                pool_value = body.get('totalPoolValue')
+                if amount is None or pool_value is None:
+                    self._send_json(400, {"error": "amount and totalPoolValue required"})
+                    return
+                try:
+                    result = correct_unrecorded_withdrawal(
+                        body.get('adminWallet'), float(amount), float(pool_value),
+                        dry_run=not bool(body.get('execute', False)),
+                    )
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
                 self._send_json(200, result)
 
             elif path == '/api/admin/void-deposit':

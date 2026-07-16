@@ -485,7 +485,14 @@ export async function placeTrade(order: {
   triggerPrice?: number;
   currentPrice?: number;
   swyftxAudRate?: number;
-}): Promise<{ success: boolean; orderId?: string; error?: string }> {
+  /** Order origin — "bot" (client autoTrader, hard-blocked by guards) or
+   *  "manual" (admin UI, warn-but-allow). Defaults to "manual" so a caller
+   *  that forgets to tag itself is never silently treated as an unguarded bot
+   *  that could be hard-blocked; the bot MUST pass source:"bot" explicitly. */
+  source?: "bot" | "manual";
+  /** Explicit manual override — allows a guarded manual order to proceed. */
+  confirm?: boolean;
+}): Promise<{ success: boolean; orderId?: string; error?: string; requiresConfirm?: boolean; warning?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite(`place ${order.side} ${order.assetCode}`);
 
   try {
@@ -569,6 +576,16 @@ export async function placeTrade(order: {
       trigger: triggerAud > 0 ? String(triggerAud) : "",
     };
 
+    // Guard metadata for the server-side choke-point (proxy.ts → guard-check).
+    // amountUsd is the USDC quantity (Swyftx orders are USDC-denominated here).
+    const guard = {
+      coin: order.assetCode,
+      side: order.side,
+      amountUsd: order.amount,
+      source: order.source || "manual",
+      confirm: !!order.confirm,
+    };
+
     const res = await fetchWithRetry("/api/proxy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -576,6 +593,7 @@ export async function placeTrade(order: {
         endpoint: "/orders/",
         method: "POST",
         body: swyftxPayload,
+        guard,
       }),
     });
 
@@ -584,6 +602,26 @@ export async function placeTrade(order: {
       data = await res.json();
     } catch {
       data = {};
+    }
+
+    // ── Guard verdict (server choke-point) ───────────────────
+    // The proxy returns success:false + blocked/requiresConfirm WITHOUT
+    // forwarding to Swyftx when a guard fires. Bot orders are hard-blocked;
+    // manual orders come back with requiresConfirm and must be re-sent with
+    // confirm:true to override.
+    if (data && data.success === false && (data.blocked || data.requiresConfirm)) {
+      const gmsg = data.error || data.warning || "Order blocked by trade guard";
+      alog.log(
+        `Trade ${data.requiresConfirm ? "needs confirm" : "blocked"} (${guard.source}): ` +
+          `${order.side} ${order.assetCode} — ${gmsg}`,
+        data.requiresConfirm ? "info" : "error",
+      );
+      return {
+        success: false,
+        error: gmsg,
+        requiresConfirm: !!data.requiresConfirm,
+        warning: data.warning || undefined,
+      };
     }
 
     // Validate: HTTP must be OK AND response must contain an orderId/order confirmation
