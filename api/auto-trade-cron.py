@@ -32,6 +32,12 @@ from database import (
     calculate_pool_allocations,
     get_coin_stats,
 )
+from trade_guards import (
+    DEFAULT_REBUY_BLOCKLIST,
+    deployable_amount,
+    is_rebuy_blocked,
+    sell_below_min,
+)
 
 # ── Config ────────────────────────────────────────────────────
 
@@ -55,6 +61,15 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "500"))   # Max USDC per trade
 MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))                 # Max trades per 24h
 MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "2000"))       # Max total USDC sold per 24h
+
+# Debt-payoff-sale guards (July 2026). See trade_guards.py.
+MAX_AUD_DEPLOYABLE = float(os.getenv("MAX_AUD_DEPLOYABLE", "500"))          # Cap on deployable capital for buys
+SWYFTX_MIN_SELL_USDC = float(os.getenv("SWYFTX_MIN_SELL_USDC", "30"))       # Real Swyftx min order — skip sub-min sells
+
+# Best-effort de-dup so blocklist / min-order skips log once per warm instance
+# (avoids spamming the activity log every 5-minute cycle).
+_blocklist_logged = set()
+_minsell_logged = set()
 
 # Swyftx order types
 MARKET_BUY = 1
@@ -384,6 +399,13 @@ def run_auto_trade_check():
     cooldowns = state.get("autoCooldowns", {})
     trade_log = state.get("autoTradeLog", [])
 
+    # Rebuy blocklist (tax-loss / wash-sale guard). DB-backed + admin-editable.
+    # Seed the default on first run so it lands in the DB and can be edited there.
+    rebuy_blocklist = state.get("autoRebuyBlocklist")
+    seed_blocklist = rebuy_blocklist is None
+    if seed_blocklist:
+        rebuy_blocklist = dict(DEFAULT_REBUY_BLOCKLIST)
+
     # Build active coin-tier pairs from multi-tier assignments.
     # Assignments can be old format {coin: tierNum} or new format {coin: [1,2,3]}
     active_pairs = []  # list of (coin, tier_num)
@@ -499,7 +521,20 @@ def run_auto_trade_check():
 
         # ── BUY: price dropped below buy target ──
         if current_price <= buy_target:
-            trade_amount = (settings["allocation"] / 100) * usdc_balance
+            # Tax-loss rebuy blocklist — skip buys on recently sold coins
+            if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
+                decisions.append({
+                    "coin": code, "tier": tier_num, "action": "BUY", "result": "blocked",
+                    "reason": "rebuy_blocklist", "blocked_until": rebuy_blocklist.get(code),
+                })
+                if code not in _blocklist_logged:
+                    log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
+                    _blocklist_logged.add(code)
+                continue
+
+            # Cap deployable capital — parked funds (e.g. sale proceeds) never size buys
+            deployable = deployable_amount(usdc_balance, MAX_AUD_DEPLOYABLE)
+            trade_amount = (settings["allocation"] / 100) * deployable
             trade_amount = max(trade_amount, MIN_ORDER_USDC)
 
             if usdc_balance - trade_amount < MIN_USDC_RESERVE:
@@ -605,6 +640,20 @@ def run_auto_trade_check():
                 continue
 
             asset_balance = portfolio.get(code, 0)
+
+            # Min-order guard: sliver positions below the Swyftx minimum can't be
+            # sold — skip cleanly (single log) instead of error-looping every cycle.
+            position_value = asset_balance * current_price
+            if sell_below_min(position_value, SWYFTX_MIN_SELL_USDC):
+                if code not in _minsell_logged:
+                    log.append(f"{code}: SELL skipped — position ${position_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
+                    _minsell_logged.add(code)
+                decisions.append({
+                    "coin": code, "tier": tier_num, "action": "SELL", "result": "blocked",
+                    "reason": "below_swyftx_min", "position_value": round(position_value, 2),
+                })
+                continue
+
             sell_pct = settings["allocation"] * SELL_RATIO
             quantity = round((sell_pct / 100) * asset_balance, 8)
 
@@ -616,9 +665,9 @@ def run_auto_trade_check():
 
             sell_value = quantity * current_price
 
-            # If below minimum, sell enough to meet it (up to full balance)
-            if sell_value < MIN_ORDER_USDC:
-                min_qty = MIN_ORDER_USDC / current_price
+            # If below the Swyftx minimum, sell enough to meet it (up to full balance)
+            if sell_value < SWYFTX_MIN_SELL_USDC:
+                min_qty = SWYFTX_MIN_SELL_USDC / current_price
                 if min_qty <= asset_balance:
                     quantity = round(min_qty, 8)
                     sell_value = quantity * current_price
@@ -626,8 +675,8 @@ def run_auto_trade_check():
                     # Sell entire balance if it meets minimum
                     quantity = round(asset_balance, 8)
                     sell_value = quantity * current_price
-                    if sell_value < MIN_ORDER_USDC:
-                        reason = f"SELL signal but total holding (${sell_value:.2f}) below ${MIN_ORDER_USDC} minimum"
+                    if sell_value < SWYFTX_MIN_SELL_USDC:
+                        reason = f"SELL signal but total holding (${sell_value:.2f}) below ${SWYFTX_MIN_SELL_USDC:.0f} minimum"
                         log.append(f"{code}: {reason}")
                         decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
                         continue
@@ -727,7 +776,7 @@ def run_auto_trade_check():
     auto_active["botDeviceId"] = "server-cron"
     auto_active["botHeartbeat"] = now_ms
 
-    save_trader_state({
+    save_payload = {
         "autoActive": auto_active,
         "autoCooldowns": cooldowns,
         "autoTradeLog": trade_log,
@@ -736,7 +785,12 @@ def run_auto_trade_check():
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "tradesExecuted": len(trades_executed),
         },
-    })
+    }
+    # Only write the blocklist when seeding the default the first time — never
+    # on later runs, so admin edits in the DB are preserved.
+    if seed_blocklist:
+        save_payload["autoRebuyBlocklist"] = rebuy_blocklist
+    save_trader_state(save_payload)
 
     log.append(f"Done: {len(trades_executed)} trade(s) executed")
 
