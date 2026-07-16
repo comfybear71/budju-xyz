@@ -481,8 +481,12 @@ const Trade = () => {
               )}
 
               {/* ─── Trade Buttons + Cash + Stats (PUBLIC - visible to ALL, hidden on perp page) ── */}
+              {/* When the Auto view is open, break this card out of the max-w-2xl
+                  column on md+ and centre it (up to max-w-5xl) on the viewport so
+                  the 3-column monitoring grid has the same room as the view-only
+                  modal. Capped at 92vw to avoid horizontal scroll. */}
               {!showHighRisk && (
-              <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""}`}>
+              <div className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4 ${(showAutoAdmin || showTriggerView) && isAdmin ? "pb-2" : ""} ${showAutoAdmin && isAdmin ? "md:relative md:left-1/2 md:w-[92vw] md:max-w-5xl md:-translate-x-1/2" : ""}`}>
                 {/* Admin: nav buttons — FLUB-style pills in a dark container (hidden on perp page) */}
                 {isAdmin && !showHighRisk && (
                   <div
