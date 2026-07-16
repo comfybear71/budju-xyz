@@ -95,12 +95,15 @@ class TestRecordWithdrawalCode:
         # No non-admins to recalc → _recalculate_allocations is a no-op
         db_module.users_collection.find.return_value = []
 
-        nav = TOTAL_POOL_VALUE / TOTAL_SHARES
+        # record_withdrawal is called with the POST-withdrawal live value (money
+        # has left); it reconstructs the PRE-withdrawal NAV by adding amount back.
+        nav = TOTAL_POOL_VALUE / TOTAL_SHARES          # pre-withdrawal NAV
         expected_burn = AMOUNT / nav
+        post_withdrawal_value = TOTAL_POOL_VALUE - AMOUNT
 
-        result = db_module.record_withdrawal(admin, AMOUNT, TOTAL_POOL_VALUE, "AUD")
+        result = db_module.record_withdrawal(admin, AMOUNT, post_withdrawal_value, "AUD")
 
-        # Correct burn at NAV
+        # Burn at the correct (pre-withdrawal) NAV, not the collapsed live one
         assert result["nav"] == pytest.approx(nav)
         assert result["shares_burned"] == pytest.approx(expected_burn)
         assert result["userShares"] == pytest.approx(ADMIN_SHARES - expected_burn)
