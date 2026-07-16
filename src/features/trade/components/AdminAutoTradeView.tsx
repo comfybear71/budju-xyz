@@ -12,6 +12,8 @@ interface Props {
   onClose: () => void;
   autoTrader: AutoTrader;
   assets?: PortfolioAsset[];
+  /** Extra classes for the root panel (e.g. desktop width breakout). */
+  className?: string;
 }
 
 // Coins available for auto-trading (exclude stables/fiat)
@@ -19,7 +21,7 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
   (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
 );
 
-const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [] }: Props) => {
+const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
   const [, setTick] = useState(0);
   const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(30);
@@ -244,7 +246,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 10 }}
       transition={{ duration: 0.25 }}
-      className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden"
+      className={`rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm overflow-hidden ${className}`}
     >
       {/* Header */}
       <div className="p-4 border-b border-white/[0.06] space-y-2">

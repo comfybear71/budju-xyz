@@ -901,6 +901,7 @@ const Trade = () => {
                     onClose={() => setShowAutoAdmin(false)}
                     autoTrader={autoTrader}
                     assets={assets}
+                    className="md:relative md:left-1/2 md:w-[92vw] md:max-w-5xl md:-translate-x-1/2"
                   />
                 )}
               </AnimatePresence>
