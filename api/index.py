@@ -74,6 +74,7 @@ from perp_engine import (
     MARKETS,
 )
 from database import ADMIN_WALLETS
+from trade_guards import DEFAULT_REBUY_BLOCKLIST, evaluate_order
 from perp_strategies import (
     get_strategy_status,
     toggle_auto_trading,
@@ -654,6 +655,22 @@ class handler(BaseHTTPRequestHandler):
                     wallet_address, deposits, float(pool_value)
                 )
                 self._send_json(200, result)
+
+            elif path == '/api/trade/guard-check':
+                # Server-side order guard (called by api/proxy.ts before every
+                # Swyftx order). Returns allow/block/warn — no auth (decision
+                # only, no sensitive data). Bot orders hard-block; manual warn.
+                from datetime import datetime as _dtg
+                state = get_trader_state()
+                blocklist = state.get('autoRebuyBlocklist') or DEFAULT_REBUY_BLOCKLIST
+                max_dep = float(os.getenv('MAX_AUD_DEPLOYABLE', '500'))
+                min_sell = float(os.getenv('SWYFTX_MIN_SELL_USDC', '30'))
+                decision = evaluate_order(
+                    body.get('coin'), body.get('side'), body.get('amountUsd'),
+                    body.get('source'), bool(body.get('confirm', False)),
+                    blocklist, _dtg.utcnow(), max_dep, min_sell,
+                )
+                self._send_json(200, decision)
 
             elif path == '/api/trade':
                 # Admin-only: requires cryptographic signature verification

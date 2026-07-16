@@ -8,6 +8,33 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 const BASE_URL = "https://api.swyftx.com.au";
+const SITE_URL = "https://www.budju.xyz";
+
+// Server-side order guard — the single choke-point for the rebuy blocklist,
+// deployable cap and min-sell guard. Consults the Python /api/trade/guard-check
+// (which reads the blocklist from trader_state). Bot orders hard-block; manual
+// warn-but-allow. Fails CLOSED for bot orders (safer to skip a bot cycle than
+// to let the unguarded bot buy a blocklisted coin), fails open for manual.
+async function checkOrderGuard(guard: any): Promise<any> {
+  if (!guard || !guard.coin) return { allow: true };
+  const isBot = guard.source !== "manual";
+  const failClosed = {
+    allow: false, block: true, reason: "guard_unavailable",
+    message: "Order guard unavailable — bot order blocked",
+  };
+  try {
+    const r = await fetch(`${SITE_URL}/api/trade/guard-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(guard),
+    });
+    if (!r.ok) return isBot ? failClosed : { allow: true };
+    return await r.json();
+  } catch (e) {
+    console.error("guard-check error:", e);
+    return isBot ? failClosed : { allow: true };
+  }
+}
 
 // ── Server-side Swyftx token cache ──────────────────────────
 // Reused across warm Vercel function instances. On cold start,
@@ -112,7 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { endpoint, method, body } = req.body;
+    const { endpoint, method, body, guard } = req.body;
 
     console.log("Proxy request:", method, endpoint);
 
@@ -256,6 +283,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ── ORDER PLACEMENT — resolve asset codes to numeric IDs ──
     if (endpoint === "/orders/" && method === "POST" && body) {
+      // ── Trade guard choke-point ──────────────────────────────
+      // Every real order (bot or manual) passes through here. Bot orders
+      // that hit a guard are hard-blocked; manual orders warn-but-allow
+      // (and require an explicit confirm to override). Runs BEFORE any
+      // Swyftx token is fetched or order is forwarded.
+      const decision = await checkOrderGuard(guard);
+      if (decision && decision.allow === false) {
+        console.warn("Order blocked by guard:", JSON.stringify(decision));
+        return res.status(200).json({
+          success: false,
+          blocked: !!decision.block,
+          requiresConfirm: !!decision.requiresConfirm,
+          warning: decision.warning || null,
+          reason: decision.reason,
+          error: decision.message || "Order blocked by trade guard",
+        });
+      }
+
       const token = await getServerToken(apiKey);
       const headers = authHeaders(token);
 
@@ -315,6 +360,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const orderData = await orderRes.json();
       console.log("Order response:", orderRes.status, JSON.stringify(orderData));
+      // Surface a manual-override warning alongside a successful order so the
+      // UI can show "placed despite guard" without a second round-trip.
+      if (decision && decision.warning && orderRes.ok && orderData && typeof orderData === "object") {
+        orderData.guardWarning = decision.warning;
+      }
       return res.status(orderRes.status).json(orderData);
     }
 

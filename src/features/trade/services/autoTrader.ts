@@ -898,6 +898,7 @@ export class AutoTrader {
         side: "buy",
         amount: tradeAmount,
         orderType: "market",
+        source: "bot",
       });
 
       if (result.success) {
@@ -976,6 +977,7 @@ export class AutoTrader {
         side: "sell",
         amount: sellValue,
         orderType: "market",
+        source: "bot",
       });
 
       if (result.success) {

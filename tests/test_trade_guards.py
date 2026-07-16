@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 from trade_guards import (  # noqa: E402
     DEFAULT_REBUY_BLOCKLIST,
     deployable_amount,
+    evaluate_order,
     is_rebuy_blocked,
     sell_below_min,
 )
@@ -107,3 +108,84 @@ class TestSellMinOrder:
 
     def test_bad_input_skips_safely(self):
         assert sell_below_min(None, self.MIN) is True
+
+
+class TestEvaluateOrder:
+    """The single server-side choke-point decision (proxy.ts → guard-check).
+
+    Policy: BOT orders are hard-blocked by any guard; MANUAL orders warn and
+    are allowed only on explicit confirm. Unknown source == bot (fail-safe).
+    """
+
+    NOW = datetime(2026, 7, 16)
+    BL = {"LUNA": "2026-08-30T00:00:00Z"}
+    CAP = 500.0
+    MIN = 30.0
+
+    def _eval(self, coin, side, amt, source, confirm=False):
+        return evaluate_order(coin, side, amt, source, confirm,
+                              self.BL, self.NOW, self.CAP, self.MIN)
+
+    # ── Blocklisted buy ──────────────────────────────────────
+    def test_bot_buy_blocklisted_hard_blocked(self):
+        d = self._eval("LUNA", "buy", 100.0, "bot")
+        assert d["allow"] is False and d["block"] is True
+        assert d["requiresConfirm"] is False
+        assert d["reason"] == "rebuy_blocklist"
+
+    def test_unknown_source_treated_as_bot(self):
+        d = self._eval("LUNA", "buy", 100.0, None)
+        assert d["allow"] is False and d["block"] is True
+
+    def test_manual_buy_blocklisted_requires_confirm(self):
+        d = self._eval("LUNA", "buy", 100.0, "manual")
+        assert d["allow"] is False and d["block"] is False
+        assert d["requiresConfirm"] is True
+        assert "blocklist" in d["warning"]
+
+    def test_manual_buy_blocklisted_confirm_allows(self):
+        d = self._eval("LUNA", "buy", 100.0, "manual", confirm=True)
+        assert d["allow"] is True
+        assert "overridden" in d["warning"]
+
+    # ── Deployable cap ───────────────────────────────────────
+    def test_bot_buy_over_cap_hard_blocked(self):
+        d = self._eval("SOL", "buy", 750.0, "bot")
+        assert d["allow"] is False and d["block"] is True
+        assert d["reason"] == "deployable_cap"
+
+    def test_bot_buy_under_cap_allowed(self):
+        d = self._eval("SOL", "buy", 250.0, "bot")
+        assert d["allow"] is True
+
+    def test_manual_buy_over_cap_requires_confirm(self):
+        d = self._eval("SOL", "buy", 750.0, "manual")
+        assert d["requiresConfirm"] is True and d["allow"] is False
+
+    def test_buy_at_exact_cap_allowed(self):
+        d = self._eval("SOL", "buy", 500.0, "bot")
+        assert d["allow"] is True
+
+    # ── Min-sell ─────────────────────────────────────────────
+    def test_bot_sell_below_min_hard_blocked(self):
+        d = self._eval("SOL", "sell", 12.0, "bot")
+        assert d["allow"] is False and d["block"] is True
+        assert d["reason"] == "below_swyftx_min"
+
+    def test_manual_sell_below_min_requires_confirm(self):
+        d = self._eval("SOL", "sell", 12.0, "manual")
+        assert d["requiresConfirm"] is True
+
+    def test_sell_above_min_allowed(self):
+        d = self._eval("SOL", "sell", 100.0, "bot")
+        assert d["allow"] is True
+
+    # ── Clean paths ──────────────────────────────────────────
+    def test_bot_buy_clean_coin_allowed(self):
+        d = self._eval("SOL", "buy", 100.0, "bot")
+        assert d["allow"] is True and d["reason"] == "ok"
+
+    def test_blocklist_takes_precedence_over_cap(self):
+        # A blocklisted coin over the cap reports the blocklist reason first
+        d = self._eval("LUNA", "buy", 750.0, "bot")
+        assert d["reason"] == "rebuy_blocklist"
