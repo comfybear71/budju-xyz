@@ -3,6 +3,7 @@ import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
+import TierMonitorColumn from "./TierMonitorColumn";
 
 interface Props {
   prices: Record<string, number>;
@@ -25,7 +26,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
-  const [expandedMonitorTiers, setExpandedMonitorTiers] = useState<Record<number, boolean>>({});
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -605,46 +605,34 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           </span>
         </div>
 
-        {/* ── Coin monitoring grouped by tier ── */}
+        {/* ── Coin monitoring — 3-column tier grid (matches view-only) ── */}
         {monitoringCount === 0 ? (
           <div className="text-[10px] text-slate-500 text-center py-4">
             No active tiers. Start a tier above to begin monitoring.
           </div>
-        ) : Object.entries(grouped).map(([tierKey, coins]) => {
+        ) : (
+          <div
+            className="flex gap-3 overflow-x-auto pb-3 -mx-1 px-1 snap-x snap-mandatory md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0 md:snap-none"
+            style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+          >
+          {Object.entries(grouped).map(([tierKey, coins]) => {
           const tierNum = Number(tierKey);
           const tierCfg = TIER_CONFIG[tierNum];
+          const tierSettings = snapshot.tierSettings[`tier${tierNum}`] || {};
+          const tierActive = !!snapshot.tierActive[tierNum];
 
           return (
-            <div key={tierKey}>
-              <button
-                onClick={() => setExpandedMonitorTiers((prev) => ({ ...prev, [tierNum]: !prev[tierNum] }))}
-                className="w-full flex items-center justify-between mb-1.5 hover:opacity-80 transition-opacity"
-              >
-                <div className="flex items-center gap-1.5">
-                  {expandedMonitorTiers[tierNum] ? <FaChevronDown size={8} style={{ color: tierCfg.color }} /> : <FaChevronRight size={8} style={{ color: tierCfg.color }} />}
-                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: tierCfg.color }}>
-                    T{tierNum} – {tierCfg.name}
-                  </span>
-                  {!expandedMonitorTiers[tierNum] && (
-                    <span className="text-[9px] text-slate-500 font-normal normal-case tracking-normal">
-                      ({coins.length} coin{coins.length !== 1 ? "s" : ""})
-                    </span>
-                  )}
-                </div>
-                <div className="flex gap-2 text-[9px]">
-                  <span className="text-slate-500">
-                    Buy <span className="font-bold text-green-400">-{snapshot.tierSettings[`tier${tierNum}`]?.deviation ?? 0}%</span>
-                  </span>
-                  <span className="text-slate-500">
-                    Sell <span className="font-bold text-red-400">+{snapshot.tierSettings[`tier${tierNum}`]?.sellDeviation ?? 0}%</span>
-                  </span>
-                  <span className="text-slate-500">
-                    Alloc <span className="font-bold text-blue-400">{snapshot.tierSettings[`tier${tierNum}`]?.allocation ?? 0}%</span>
-                  </span>
-                </div>
-              </button>
-
-              {expandedMonitorTiers[tierNum] && <div className="space-y-1.5">
+            <TierMonitorColumn
+              key={tierKey}
+              tierLabel={`T${tierNum}`}
+              tierName={tierCfg.name}
+              tierColor={tierCfg.color}
+              active={tierActive}
+              coinCount={coins.length}
+              dev={tierSettings.deviation ?? 0}
+              sellDev={tierSettings.sellDeviation ?? 0}
+              alloc={tierSettings.allocation ?? 0}
+            >
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                   const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -915,10 +903,11 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                     </div>
                   );
                 })}
-              </div>}
-            </div>
+            </TierMonitorColumn>
           );
         })}
+          </div>
+        )}
 
         {/* ── Trade Log ── */}
         <div className="rounded-lg overflow-hidden" style={{ border: "1px solid rgba(59,130,246,0.15)" }}>

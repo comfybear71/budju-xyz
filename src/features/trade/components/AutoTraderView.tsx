@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { fetchTraderState, fetchCoinStats, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
 import { TIER_CONFIG } from "../services/autoTrader";
+import TierMonitorColumn from "./TierMonitorColumn";
 
 interface Props {
   isOpen: boolean;
@@ -389,47 +390,17 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     const tierActive = coins.some((c: any) => c.isTierActive);
 
                     return (
-                      <div
+                      <TierMonitorColumn
                         key={tierKey}
-                        className="flex-shrink-0 snap-start rounded-xl flex flex-col w-[min(330px,86vw)] md:w-auto md:min-w-0 md:flex-shrink"
-                        style={{
-                          background: `${tierColor}0d`,
-                          border: `1px solid ${tierColor}30`,
-                        }}
+                        tierLabel={tierKey.replace("tier", "T")}
+                        tierName={tierName}
+                        tierColor={tierColor}
+                        active={tierActive}
+                        coinCount={coins.length}
+                        dev={dev}
+                        sellDev={sellDev}
+                        alloc={alloc}
                       >
-                        {/* Tier column header (sticky) */}
-                        <div
-                          className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-t-xl sticky top-0 z-10"
-                          style={{ background: `${tierColor}1f`, borderBottom: `1px solid ${tierColor}30`, backdropFilter: "blur(6px)" }}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-[13px] font-bold whitespace-nowrap" style={{ color: tierColor }}>
-                              {tierKey.replace("tier", "T")} · {tierName}
-                            </span>
-                            <span
-                              className="text-[9px] font-bold px-1.5 py-0.5 rounded-lg"
-                              style={{
-                                background: tierActive ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
-                                color: tierActive ? "#22c55e" : "#64748b",
-                              }}
-                            >
-                              {tierActive ? "ACTIVE" : "OFF"}
-                            </span>
-                          </div>
-                          <span className="text-[9px] text-slate-500 whitespace-nowrap">
-                            {coins.length} coin{coins.length !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-
-                        {/* Tier settings summary row */}
-                        <div className="flex gap-2 text-[9px] px-3 py-1.5" style={{ borderBottom: `1px solid ${tierColor}20` }}>
-                          <span className="text-slate-500">Buy <span className="font-bold text-green-400">-{dev}%</span></span>
-                          <span className="text-slate-500">Sell <span className="font-bold text-red-400">+{sellDev}%</span></span>
-                          <span className="text-slate-500">Alloc <span className="font-bold text-blue-400">{alloc}%</span></span>
-                        </div>
-
-                        {/* Coin cards within tier (scrolls vertically inside the column) */}
-                        <div className="space-y-1.5 p-2 overflow-y-auto" style={{ maxHeight: "58vh" }}>
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
                             const changeColor = item.change24h > 0 ? "#22c55e" : item.change24h < 0 ? "#ef4444" : "#64748b";
@@ -665,8 +636,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                               </div>
                             );
                           })}
-                        </div>
-                      </div>
+                      </TierMonitorColumn>
                     );
                   })}
                   </div>
