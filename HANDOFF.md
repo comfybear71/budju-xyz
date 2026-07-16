@@ -1,6 +1,30 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: May 18, 2026
+> Last updated: July 16, 2026
+
+## Debt-Payoff-Sale Guards (July 2026) — branch `masterhq-claude` (not yet merged)
+
+Admin sold ~90% of 14 coins (LUNA, ENA, SUI, ADA, BCH, DOT, PEPE, XRP, NEO,
+DOGE, AVAX, HBAR, RENDER, XAUT) and withdrew $13,260.17 AUD (recorded via
+Record Withdrawal). Tiers T1/T2/T3 are OFF until this is merged. Added
+(all in `api/trade_guards.py` + `api/auto-trade-cron.py`):
+
+- **MAX_AUD_DEPLOYABLE** (env, default 500): buy sizing uses
+  `min(usdc_balance, cap)` — parked capital never over-deployed. `$100 USDC
+  reserve untouched.
+- **Rebuy blocklist** (`trader_state.autoRebuyBlocklist`, `{asset: iso}`):
+  seeds the 14 coins blocked until 2026-08-30; buys skip blocked assets,
+  sells still allowed; admin-editable in DB; logs once per warm instance.
+- **SWYFTX_MIN_SELL_USDC** (env, default 30): sells on positions below the
+  Swyftx minimum are skipped cleanly (no error loop).
+- **Withdrawal share-burn: verified correct** — NAV-invariant, burns only the
+  admin's shares, leaves all other holders unchanged to the cent (proven in
+  `tests/test_withdrawal_isolation.py`). No fix required.
+- **Coin Stats/P&L on shrunken positions: verified** — avg-cost divides only by
+  `qtyBought` (guarded), no divide-by-zero. No fix required.
+
+Tests: `tests/test_trade_guards.py`, `tests/test_withdrawal_isolation.py`
+(25 passing). Not deployed — admin reviews + merges manually.
 
 This document describes the full current state of the BUDJU project for handoff to external agents or platforms. Read alongside `CLAUDE.md` (architecture reference) and `docs/HANDOFF_PROMPT.md` (detailed session-by-session changelog).
 
