@@ -16,6 +16,7 @@ from database import (
     get_user_deposits,
     record_deposit,
     record_withdrawal,
+    correct_unrecorded_withdrawal,
     record_trade,
     get_coin_stats,
     get_coin_trades,
@@ -731,6 +732,29 @@ class handler(BaseHTTPRequestHandler):
                     return
 
                 result = recalibrate_pool(float(pool_value))
+                self._send_json(200, result)
+
+            elif path == '/api/admin/correct-withdrawal':
+                # Admin-only: one-off idempotent correction for an unrecorded
+                # withdrawal. Defaults to DRY-RUN (writes nothing); pass
+                # execute=true to apply (after out-of-band written confirmation).
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                amount = body.get('amount')
+                pool_value = body.get('totalPoolValue')
+                if amount is None or pool_value is None:
+                    self._send_json(400, {"error": "amount and totalPoolValue required"})
+                    return
+                try:
+                    result = correct_unrecorded_withdrawal(
+                        body.get('adminWallet'), float(amount), float(pool_value),
+                        dry_run=not bool(body.get('execute', False)),
+                    )
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
                 self._send_json(200, result)
 
             elif path == '/api/admin/void-deposit':
