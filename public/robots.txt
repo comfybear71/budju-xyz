@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://www.budju.xyz/
+
+# Legitimacy / security contacts for reviewers
+# https://www.budju.xyz/.well-known/security.txt
+# https://www.budju.xyz/security
+# https://github.com/comfybear71/budju-xyz

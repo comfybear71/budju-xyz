@@ -1,0 +1,26 @@
+{
+  "name": "BUDJU — Solana DeFi",
+  "short_name": "BUDJU",
+  "description": "BUDJU meme coin ecosystem on Solana. Wallet swaps use official Jupiter APIs. Terms: https://www.budju.xyz/terms",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#FF69B4",
+  "lang": "en",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "/images/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/images/budju.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}

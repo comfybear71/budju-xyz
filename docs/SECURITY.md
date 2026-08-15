@@ -8,8 +8,10 @@ If you discover a security vulnerability in BUDJU, please report it responsibly.
 
 ### How to Report
 
-1. Email: Send details to the project maintainer via the contact information on [budju.xyz](https://budju.xyz)
-2. Include:
+1. Email: [support@budjucoin.com](mailto:support@budjucoin.com) or [sfrench71@me.com](mailto:sfrench71@me.com)
+2. Machine-readable contact: [https://www.budju.xyz/.well-known/security.txt](https://www.budju.xyz/.well-known/security.txt)
+3. Public policy page: [https://www.budju.xyz/security](https://www.budju.xyz/security)
+4. Include:
    - Description of the vulnerability
    - Steps to reproduce
    - Potential impact
@@ -25,21 +27,24 @@ If you discover a security vulnerability in BUDJU, please report it responsibly.
 
 The following are in scope:
 - API endpoints (`api/`)
-- Authentication and authorization (Ed25519 signature verification)
+- Authentication and authorization
 - Auto-trading logic (`api/auto-trade-cron.py`)
 - Database access patterns
 - Frontend wallet integration
 
 The following are out of scope:
-- Third-party services (Swyftx, CoinGecko, Helius, Vercel)
+- Third-party services (Swyftx, CoinGecko, Helius, Vercel, Jupiter)
 - Solana blockchain protocol itself
 - Social engineering attacks
 
 ## Security Measures
 
-- Admin endpoints require Ed25519 wallet signature verification
-- Message timestamps with 5-minute replay window + nonce deduplication
-- Rate limiting: 30 req/min (read), 10 req/min (write) per IP
-- CORS restricted to approved origins
+- Rate limiting: 30 req/min (read), 10 req/min (write) per IP on main API
+- CORS restricted to approved origins (`budju.xyz`, `www.budju.xyz`, localhost)
 - Emergency trading kill-switch via `TRADING_ENABLED` environment variable
 - Cron job authentication via bearer token
+- On-chain swaps use official Jupiter Swap APIs only (no custom drain programs)
+
+## Wallet / Blowfish reviewers
+
+Technical package and follow-up email drafts: [`docs/BLOWFISH_WHITELIST.md`](./BLOWFISH_WHITELIST.md)

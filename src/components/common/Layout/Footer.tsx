@@ -239,11 +239,33 @@ const Footer = () => {
         {/* Bottom Bar */}
         <div className="budju-section-divider mb-6"></div>
         <div
-          className={`flex flex-col sm:flex-row items-center justify-between gap-2 text-xs ${
+          className={`flex flex-col sm:flex-row items-center justify-between gap-3 text-xs ${
             isDarkMode ? "text-gray-600" : "text-gray-500"
           }`}
         >
           <p>&copy; {new Date().getFullYear()} BUDJU Coin. All rights reserved.</p>
+          <nav
+            className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1"
+            aria-label="Legal"
+          >
+            <Link to={ROUTES.TERMS} className={linkClass}>
+              Terms
+            </Link>
+            <Link to={ROUTES.PRIVACY} className={linkClass}>
+              Privacy
+            </Link>
+            <Link to={ROUTES.SECURITY} className={linkClass}>
+              Security
+            </Link>
+            <a
+              href="https://github.com/comfybear71/budju-xyz"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={linkClass}
+            >
+              GitHub
+            </a>
+          </nav>
           <p>
             <span className="text-budju-pink font-medium">JOIN THE BUDJU PARADE</span>
             {" "}&middot;{" "}
