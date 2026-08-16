@@ -2,6 +2,11 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "react-icons/fa";
 import { fetchTraderState, fetchCoinStats, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
+import {
+  isRebuyBlocked,
+  rebuyBlockedUntilLabel,
+  resolveRebuyBlocklist,
+} from "../services/rebuyBlocklist";
 import { TIER_CONFIG } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 
@@ -77,6 +82,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     const autoActive = state._rawAutoActive || {};
     const liveTargets = autoActive.targets || {};
     const tierActive = autoActive.tierActive || {};
+    const rebuyBlocklist = resolveRebuyBlocklist(state.autoRebuyBlocklist);
 
     const items: any[] = [];
 
@@ -102,6 +108,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
         const cooldownKey = cooldowns[ck] || cooldowns[coin]; // fallback
 
         const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? tierActive[tierKey] ?? tier.active);
+        const rebuyBlocked = isRebuyBlocked(rebuyBlocklist, coin);
 
         items.push({
           coin,
@@ -116,6 +123,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
           inCooldown: !!(cooldownKey && Date.now() < cooldownKey),
           hasLiveTarget: !!live,
           isTierActive,
+          rebuyBlocked,
+          rebuyUntil: rebuyBlocked ? rebuyBlockedUntilLabel(rebuyBlocklist, coin) : null,
         });
       }
     }
@@ -131,6 +140,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
         const cp = Number(prices[coin]) || 0;
         const change = Number(changes[coin]) || 0;
         const isTierActive = !!(tierActive[tierNum] ?? tierActive[String(tierNum)] ?? true);
+        const rebuyBlocked = isRebuyBlocked(rebuyBlocklist, coin);
         items.push({
           coin,
           tierKey,
@@ -144,6 +154,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
           inCooldown: false,
           hasLiveTarget: true,
           isTierActive,
+          rebuyBlocked,
+          rebuyUntil: rebuyBlocked ? rebuyBlockedUntilLabel(rebuyBlocklist, coin) : null,
         });
       }
     }
@@ -366,6 +378,31 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     </span>
                   </div>
 
+                  {(() => {
+                    const blocked = new Set(
+                      Object.values(grouped)
+                        .flat()
+                        .filter((i: any) => i.rebuyBlocked)
+                        .map((i: any) => i.coin),
+                    );
+                    if (blocked.size === 0) return null;
+                    return (
+                      <div
+                        className="rounded-lg p-2 mb-3 text-[10px] leading-snug"
+                        style={{
+                          background: "rgba(168,85,247,0.12)",
+                          border: "1px solid rgba(168,85,247,0.3)",
+                          color: "#e9d5ff",
+                        }}
+                      >
+                        <span className="font-bold text-purple-300">Tax-loss rebuy block:</span>{" "}
+                        {Array.from(blocked).sort().join(", ")} — bot will not buy these until{" "}
+                        <span className="font-mono font-bold">30 Aug 2026</span>. Your USDC is fine;
+                        SOL/BTC/ETH/etc. not on this list can still buy when they hit targets.
+                      </div>
+                    );
+                  })()}
+
                   {/* Coin monitoring — horizontal tier columns (swipe between tiers) */}
                   {monitoringCount === 0 ? (
                     <div className="text-[10px] text-slate-500 text-center py-4 mb-3">
@@ -456,7 +493,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                 style={{
                                   background: justTraded
                                     ? `rgba(${celebColor},0.15)`
-                                    : item.inCooldown
+                                    : item.rebuyBlocked
+                                      ? "rgba(168,85,247,0.06)"
+                                      : item.inCooldown
                                       ? "rgba(234,179,8,0.05)"
                                       : isCritical && item.hasLiveTarget
                                         ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
@@ -466,7 +505,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                   border: `1px solid ${
                                     justTraded
                                       ? `rgba(${celebColor},0.5)`
-                                      : item.inCooldown
+                                      : item.rebuyBlocked
+                                        ? "rgba(168,85,247,0.35)"
+                                        : item.inCooldown
                                         ? "rgba(234,179,8,0.2)"
                                         : isCritical && item.hasLiveTarget
                                           ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
@@ -476,7 +517,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                   }`,
                                   boxShadow: justTraded
                                     ? `0 0 20px rgba(${celebColor},0.25), inset 0 0 16px rgba(${celebColor},0.08)`
-                                    : isCritical && item.hasLiveTarget && !item.inCooldown
+                                    : item.rebuyBlocked
+                                      ? "none"
+                                      : isCritical && item.hasLiveTarget && !item.inCooldown
                                       ? nearestSide === "buy"
                                         ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
                                         : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
@@ -501,6 +544,18 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                         }}
                                       >
                                         {celebBuy ? "BOUGHT!" : "SOLD!"}
+                                      </span>
+                                    ) : item.rebuyBlocked ? (
+                                      <span
+                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                        style={{
+                                          background: "rgba(168,85,247,0.2)",
+                                          color: "#c084fc",
+                                          border: "1px solid rgba(168,85,247,0.4)",
+                                        }}
+                                        title={`Tax-loss rebuy blocklist until ${item.rebuyUntil || "expiry"}`}
+                                      >
+                                        REBUY BLOCKED{item.rebuyUntil ? ` · ${item.rebuyUntil}` : ""}
                                       </span>
                                     ) : item.inCooldown ? (
                                       <span className="text-[9px] text-yellow-500">(cooldown)</span>
@@ -620,6 +675,12 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                     </span>
                                     <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
                                       {formatPrice(recent.amount)} {celebBuy ? "USDC" : "value"}
+                                    </span>
+                                  </div>
+                                ) : item.rebuyBlocked ? (
+                                  <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                                    <span className="text-[9px] font-mono" style={{ color: "#c084fc" }}>
+                                      Tax-loss rebuy blocked{item.rebuyUntil ? ` until ${item.rebuyUntil}` : ""}
                                     </span>
                                   </div>
                                 ) : item.hasLiveTarget && !item.inCooldown ? (

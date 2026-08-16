@@ -32,6 +32,11 @@ import {
   type TraderState,
 } from "./tradeApi";
 import { CODE_TO_BINANCE } from "@lib/services/binanceWs";
+import {
+  isRebuyBlocked,
+  rebuyBlockedUntilLabel,
+  resolveRebuyBlocklist,
+} from "./rebuyBlocklist";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -91,6 +96,8 @@ export interface AutoTraderSnapshot {
   deviceId: string;
   coinDiagnostics: Record<string, CoinDiagnostic>;
   cronDiagnostics: Record<string, string>;
+  /** Effective tax-loss rebuy blocklist (coin → ISO expiry). */
+  rebuyBlocklist: Record<string, string>;
 }
 
 type LogFn = (message: string, level?: "info" | "success" | "error") => void;
@@ -142,6 +149,8 @@ export class AutoTrader {
   coinDiagnostics: Record<string, CoinDiagnostic> = {};
   cronDiagnostics: Record<string, string> = {};
   recentTrades: Record<string, RecentTrade> = {};
+  /** Effective rebuy blocklist after resolveRebuyBlocklist(). */
+  rebuyBlocklist: Record<string, string> = resolveRebuyBlocklist(null);
 
   // Device ownership — generate fresh ID each session (tab identification only)
   private _deviceId = Math.random().toString(36).substring(2, 10);
@@ -258,6 +267,9 @@ export class AutoTrader {
         }
       }
     }
+
+    // Tax-loss rebuy blocklist (null → seed default until 30 Aug 2026)
+    this.rebuyBlocklist = resolveRebuyBlocklist(state.autoRebuyBlocklist);
 
     // Load cooldowns — migrate old "BTC" keys to compound "BTC:1" keys
     const rawCooldowns = state.autoCooldowns || {};
@@ -879,6 +891,21 @@ export class AutoTrader {
     const ck = compoundKey(code, tier);
     const usdcBalance = this._cachedUsdcBalance;
 
+    // Tax-loss rebuy blocklist — same guard as server cron / proxy
+    if (isRebuyBlocked(this.rebuyBlocklist, code)) {
+      const until = rebuyBlockedUntilLabel(this.rebuyBlocklist, code) || "expiry";
+      this._setDiagnostic(
+        ck,
+        `Tax-loss rebuy blocked until ${until}`,
+        "warn",
+      );
+      this._log(
+        `Skipping ${code} (T${tier}) buy — tax-loss rebuy blocklist until ${until}`,
+        "info",
+      );
+      return;
+    }
+
     const tradeAmount = Math.max((settings.allocation / 100) * usdcBalance, MIN_ORDER_USDC);
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
       this._setDiagnostic(ck, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
@@ -1450,7 +1477,7 @@ export class AutoTrader {
     const balance = asset?.balance ?? 0;
     const price = this._cachedPrices[code] || 0;
     const sellPercent = settings.allocation * SELL_RATIO;
-    let quantity = (sellPercent / 100) * balance;
+    const quantity = (sellPercent / 100) * balance;
     let value = quantity * price;
     if (value < MIN_ORDER_USDC && price > 0) {
       const minQty = MIN_ORDER_USDC / price;
@@ -1483,7 +1510,17 @@ export class AutoTrader {
       deviceId: this._deviceId,
       coinDiagnostics: { ...this.coinDiagnostics },
       cronDiagnostics: { ...this.cronDiagnostics },
+      rebuyBlocklist: { ...this.rebuyBlocklist },
     };
+  }
+
+  /** Whether bot buys are blocked for this coin (tax-loss rebuy guard). */
+  isRebuyBlocked(coin: string): boolean {
+    return isRebuyBlocked(this.rebuyBlocklist, coin);
+  }
+
+  rebuyBlockedUntil(coin: string): string | null {
+    return rebuyBlockedUntilLabel(this.rebuyBlocklist, coin);
   }
 
   // ── Cleanup ─────────────────────────────────────────────

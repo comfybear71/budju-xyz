@@ -111,6 +111,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           diagnostic: diag?.reason || cronDiag || null,
           diagLevel: diag?.level || (cronDiag ? "warn" : null),
           avgCost: autoTrader.getAvgCost(coin),
+          rebuyBlocked: autoTrader.isRebuyBlocked(coin),
+          rebuyUntil: autoTrader.rebuyBlockedUntil(coin),
         });
       }
     }
@@ -699,7 +701,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                       style={{
                         background: justTraded
                           ? `rgba(${celebColor},${tradeAge < 5 ? 0.18 : 0.1})`
-                          : item.inCooldown
+                          : item.rebuyBlocked
+                            ? "rgba(168,85,247,0.06)"
+                            : item.inCooldown
                             ? "rgba(234,179,8,0.05)"
                             : isCritical && item.hasTarget
                               ? nearestSide === "buy" ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)"
@@ -709,7 +713,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                         border: `1px solid ${
                           justTraded
                             ? `rgba(${celebColor},0.5)`
-                            : item.inCooldown
+                            : item.rebuyBlocked
+                              ? "rgba(168,85,247,0.35)"
+                              : item.inCooldown
                               ? "rgba(234,179,8,0.2)"
                               : isCritical && item.hasTarget
                                 ? nearestSide === "buy" ? "rgba(34,197,94,0.4)" : "rgba(239,68,68,0.4)"
@@ -719,7 +725,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                         }`,
                         boxShadow: justTraded
                           ? `0 0 20px rgba(${celebColor},0.25), inset 0 0 16px rgba(${celebColor},0.08)`
-                          : isCritical && item.hasTarget && !item.inCooldown
+                          : item.rebuyBlocked
+                            ? "none"
+                            : isCritical && item.hasTarget && !item.inCooldown
                             ? nearestSide === "buy"
                               ? "0 0 12px rgba(34,197,94,0.15), inset 0 0 12px rgba(34,197,94,0.05)"
                               : "0 0 12px rgba(239,68,68,0.15), inset 0 0 12px rgba(239,68,68,0.05)"
@@ -744,6 +752,18 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                               }}
                             >
                               {celebBuy ? "BOUGHT!" : "SOLD!"}
+                            </span>
+                          ) : item.rebuyBlocked ? (
+                            <span
+                              className="text-[9px] font-bold px-1.5 py-0.5 rounded"
+                              style={{
+                                background: "rgba(168,85,247,0.2)",
+                                color: "#c084fc",
+                                border: "1px solid rgba(168,85,247,0.4)",
+                              }}
+                              title={`Tax-loss rebuy blocklist until ${item.rebuyUntil || "expiry"}`}
+                            >
+                              REBUY BLOCKED{item.rebuyUntil ? ` · ${item.rebuyUntil}` : ""}
                             </span>
                           ) : item.inCooldown ? (
                             <span className="text-[9px] text-yellow-500">
@@ -861,6 +881,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                           </span>
                           <span className="text-[9px] font-bold font-mono" style={{ color: celebBuy ? "#22c55e" : "#ef4444" }}>
                             {formatPrice(recentTrade.amount)} {celebBuy ? "USDC" : "value"}
+                          </span>
+                        </div>
+                      ) : item.rebuyBlocked ? (
+                        <div className="mt-1.5 pt-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+                          <span className="text-[9px] font-mono" style={{ color: "#c084fc" }}>
+                            Tax-loss rebuy blocked{item.rebuyUntil ? ` until ${item.rebuyUntil}` : ""} — buys skipped on purpose
                           </span>
                         </div>
                       ) : item.hasTarget && !item.inCooldown ? (

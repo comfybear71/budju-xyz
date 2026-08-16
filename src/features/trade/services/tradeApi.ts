@@ -91,6 +91,8 @@ export interface TraderState {
     timestamp: string;
   }>;
   currentAutoTier?: string;
+  /** Tax-loss rebuy blocklist: coin → ISO expiry. null/missing → seed default applies. */
+  autoRebuyBlocklist?: Record<string, string> | null;
   /** Raw autoActive object from server for safe merging on save */
   _rawAutoActive?: any;
 }
@@ -724,6 +726,12 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         autoCooldowns: data.autoCooldowns || {},
         autoTradeLog: tradeLog,
         currentAutoTier: data.currentAutoTier,
+        // null means "never seeded" → UI/bot use DEFAULT_REBUY_BLOCKLIST;
+        // {} means admin cleared all blocks.
+        autoRebuyBlocklist:
+          data.autoRebuyBlocklist === undefined
+            ? null
+            : data.autoRebuyBlocklist,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch (err) {
