@@ -12,17 +12,14 @@ these are read-only decision helpers the cron consults before acting.
 """
 from datetime import datetime
 
-# Coins sold ~90% for tax-loss purposes (July 2026). Blocked from rebuy until
-# 30 Aug 2026 to avoid ATO wash-sale risk. This is the seed default only —
-# it is written to trader_state.autoRebuyBlocklist on first run and is
-# admin-editable from there (change dates or remove coins in the DB).
-DEFAULT_REBUY_BLOCKLIST = {
-    coin: "2026-08-30T00:00:00Z"
-    for coin in (
-        "LUNA", "ENA", "SUI", "ADA", "BCH", "DOT", "PEPE",
-        "XRP", "NEO", "DOGE", "AVAX", "HBAR", "RENDER", "XAUT",
-    )
-}
+# Tax-loss rebuy blocklist was seeded in July 2026 (14 coins until 2026-08-30).
+# Operator released those restrictions early on 2026-08-16 — seed is empty and
+# any legacy Aug-30 entries still in Mongo are treated as expired.
+REBUY_EARLY_LIFT_AT = datetime(2026, 8, 16)
+REBUY_LEGACY_EXPIRY = datetime(2026, 8, 30)
+
+# Empty seed — do not re-block coins on fresh installs / first cron seed.
+DEFAULT_REBUY_BLOCKLIST = {}
 
 
 def deployable_amount(balance: float, max_deployable: float) -> float:
@@ -57,11 +54,18 @@ def is_rebuy_blocked(blocklist, code: str, now: datetime) -> bool:
 
     Missing entries, malformed dates, or expired blocks all return False
     (i.e. buys are allowed). ``blocklist`` is {ASSET: blocked_until_iso}.
+
+    Legacy July-2026 entries that expire on/before 2026-08-30 are treated as
+    released once ``now`` is on/after 2026-08-16 (operator early lift). Newer
+    admin-added blocks with a later expiry still enforce normally.
     """
     if not blocklist or not code:
         return False
     until = _parse_iso(blocklist.get(code))
     if until is None:
+        return False
+    # Early lift of the original tax-loss window
+    if now >= REBUY_EARLY_LIFT_AT and until <= REBUY_LEGACY_EXPIRY:
         return False
     return now < until
 

@@ -400,11 +400,22 @@ def run_auto_trade_check():
     trade_log = state.get("autoTradeLog", [])
 
     # Rebuy blocklist (tax-loss / wash-sale guard). DB-backed + admin-editable.
-    # Seed the default on first run so it lands in the DB and can be edited there.
+    # Operator lifted the July-2026 restrictions on 2026-08-16 — clear any
+    # legacy stored entries so Mongo matches the empty DEFAULT seed.
     rebuy_blocklist = state.get("autoRebuyBlocklist")
-    seed_blocklist = rebuy_blocklist is None
-    if seed_blocklist:
+    seed_blocklist = False
+    if rebuy_blocklist is None:
         rebuy_blocklist = dict(DEFAULT_REBUY_BLOCKLIST)
+        seed_blocklist = True
+    elif isinstance(rebuy_blocklist, dict) and len(rebuy_blocklist) > 0:
+        log.append(
+            f"Lifting tax-loss rebuy blocklist ({len(rebuy_blocklist)} coins) — "
+            f"operator release 2026-08-16"
+        )
+        rebuy_blocklist = {}
+        seed_blocklist = True  # persist the clear so proxy/UI stop seeing old entries
+    else:
+        rebuy_blocklist = rebuy_blocklist or {}
 
     # Build active coin-tier pairs from multi-tier assignments.
     # Assignments can be old format {coin: tierNum} or new format {coin: [1,2,3]}
