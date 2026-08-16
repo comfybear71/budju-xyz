@@ -4,6 +4,13 @@
       { "key": "Cache-Control", "value": "no-store, no-cache, must-revalidate, max-age=0" },
       { "key": "Pragma", "value": "no-cache" },
       { "key": "Expires", "value": "0" }
+    ]},
+    { "source": "/.well-known/security.txt", "headers": [
+      { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+      { "key": "Cache-Control", "value": "public, max-age=3600" }
+    ]},
+    { "source": "/site.webmanifest", "headers": [
+      { "key": "Content-Type", "value": "application/manifest+json" }
     ]}
   ],
   "rewrites": [
@@ -39,7 +46,10 @@
     { "source": "/api/ml-training-data", "destination": "/api/index.py" },
     { "source": "/docs/:path*", "destination": "/docs/:path*" },
     { "source": "/assets/:path*", "destination": "/assets/:path*" },
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    { "source": "/.well-known/:path*", "destination": "/.well-known/:path*" },
+    { "source": "/site.webmanifest", "destination": "/site.webmanifest" },
+    { "source": "/robots.txt", "destination": "/robots.txt" },
+    { "source": "/((?!assets/|\\.well-known/).*)", "destination": "/index.html" }
   ],
   "crons": [
     {

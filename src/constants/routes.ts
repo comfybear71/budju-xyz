@@ -14,6 +14,9 @@ export const ROUTES = {
   DESK: "/desk",             // BUDJU Desk — daily AI briefing
   SPOT: "/spot",             // VPS Spot Trading
   MARKETING: "/marketing",   // Marketing materials
+  TERMS: "/terms",           // Terms of Service
+  PRIVACY: "/privacy",       // Privacy Policy
+  SECURITY: "/security",     // Security / disclosure
 };
 
 // Route names for navbar
@@ -31,4 +34,7 @@ export const ROUTE_NAMES = {
   [ROUTES.DESK]: "Desk",              // Name for Desk
   [ROUTES.SPOT]: "Spot",              // Name for Spot
   [ROUTES.MARKETING]: "Marketing",    // Name for Marketing
+  [ROUTES.TERMS]: "Terms",
+  [ROUTES.PRIVACY]: "Privacy",
+  [ROUTES.SECURITY]: "Security",
 };

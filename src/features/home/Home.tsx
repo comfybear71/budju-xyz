@@ -32,6 +32,9 @@ const Home = () => {
     updateOgTag("title", `${APP_NAME} — Trading Bot`);
     updateOgTag("description", APP_DESCRIPTION);
     updateOgTag("type", "website");
+    updateOgTag("url", "https://www.budju.xyz/");
+    updateOgTag("image", "https://www.budju.xyz/images/budju.png");
+    updateOgTag("site_name", APP_NAME);
   }, []);
 
   const updateOgTag = (property: string, content: string) => {

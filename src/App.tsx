@@ -33,6 +33,9 @@ const Desk = lazy(() => import("@features/desk/Desk"));
 const Spot = lazy(() => import("@features/spot/Spot"));
 const Marketing = lazy(() => import("@features/marketing/Marketing"));
 const AuthConnect = lazy(() => import("@features/auth/AuthConnectPage"));
+const Terms = lazy(() => import("@features/legal/Terms"));
+const Privacy = lazy(() => import("@features/legal/Privacy"));
+const Security = lazy(() => import("@features/legal/Security"));
 const NotFound = lazy(() => import("@features/not-found/NotFound"));
 
 // Loading fallback component
@@ -95,6 +98,9 @@ const App = () => {
                 <Route path="/spot" element={<Spot />} />
                 <Route path="/marketing" element={<Marketing />} />
                 <Route path="/auth/connect" element={<AuthConnect />} />
+                <Route path="/terms" element={<Terms />} />
+                <Route path="/privacy" element={<Privacy />} />
+                <Route path="/security" element={<Security />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </Layout>
