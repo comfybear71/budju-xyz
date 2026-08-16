@@ -396,9 +396,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                         }}
                       >
                         <span className="font-bold text-purple-300">Tax-loss rebuy block:</span>{" "}
-                        {Array.from(blocked).sort().join(", ")} — bot will not buy these until{" "}
-                        <span className="font-mono font-bold">30 Aug 2026</span>. Your USDC is fine;
-                        SOL/BTC/ETH/etc. not on this list can still buy when they hit targets.
+                        {Array.from(blocked).sort().join(", ")} — bot will not buy these until
+                        their listed expiry.
                       </div>
                     );
                   })()}
