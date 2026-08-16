@@ -53,15 +53,21 @@ class TestRebuyBlocklist:
 
     BL = {"LUNA": "2026-08-30T00:00:00Z", "ENA": "2026-08-30T00:00:00Z"}
 
-    def test_blocked_before_expiry(self):
+    def test_blocked_before_early_lift(self):
+        # Before the 16 Aug early-lift date, legacy Aug-30 blocks still apply
         now = datetime(2026, 7, 16)
         assert is_rebuy_blocked(self.BL, "LUNA", now) is True
 
-    def test_allowed_after_expiry(self):
+    def test_allowed_after_early_lift(self):
+        # Operator released restrictions on 2026-08-16 — Aug-30 entries no longer block
+        now = datetime(2026, 8, 16)
+        assert is_rebuy_blocked(self.BL, "LUNA", now) is False
+
+    def test_allowed_after_original_expiry(self):
         now = datetime(2026, 9, 1)
         assert is_rebuy_blocked(self.BL, "LUNA", now) is False
 
-    def test_not_blocked_at_exact_expiry(self):
+    def test_not_blocked_at_exact_legacy_expiry(self):
         now = datetime(2026, 8, 30)
         assert is_rebuy_blocked(self.BL, "LUNA", now) is False
 
@@ -76,15 +82,14 @@ class TestRebuyBlocklist:
     def test_malformed_date_allows(self):
         assert is_rebuy_blocked({"LUNA": "not-a-date"}, "LUNA", datetime(2026, 7, 16)) is False
 
-    def test_default_blocklist_has_all_14_coins(self):
-        expected = {"LUNA", "ENA", "SUI", "ADA", "BCH", "DOT", "PEPE",
-                    "XRP", "NEO", "DOGE", "AVAX", "HBAR", "RENDER", "XAUT"}
-        assert set(DEFAULT_REBUY_BLOCKLIST.keys()) == expected
+    def test_default_blocklist_is_empty_after_lift(self):
+        assert DEFAULT_REBUY_BLOCKLIST == {}
 
-    def test_default_blocklist_blocks_now_but_not_september(self):
-        for coin in DEFAULT_REBUY_BLOCKLIST:
-            assert is_rebuy_blocked(DEFAULT_REBUY_BLOCKLIST, coin, datetime(2026, 7, 16)) is True
-            assert is_rebuy_blocked(DEFAULT_REBUY_BLOCKLIST, coin, datetime(2026, 9, 15)) is False
+    def test_newer_admin_block_still_enforced_after_lift(self):
+        # Admin can still add a block that expires after the legacy Aug-30 window
+        bl = {"SOL": "2026-12-01T00:00:00Z"}
+        assert is_rebuy_blocked(bl, "SOL", datetime(2026, 8, 20)) is True
+        assert is_rebuy_blocked(bl, "SOL", datetime(2026, 12, 2)) is False
 
 
 class TestSellMinOrder:
