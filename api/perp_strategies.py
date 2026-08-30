@@ -1598,56 +1598,6 @@ REGIME_STRATEGY_WEIGHTS = {
     },
 }
 
-# ── ML Signal Classifier Gate ────────────────────────────────────────────
-
-ML_API_URL = os.getenv("ML_API_URL", "")  # e.g. "http://your-vps:8421"
-# ML_API_SECRET is the bearer token for the ML droplet. Kept separate from VPS_API_SECRET
-# (used by the spot VPS trader) so one box's compromise doesn't leak both.
-# Falls back to VPS_API_SECRET for backwards compatibility with pre-April-2026 setups.
-ML_API_SECRET = os.getenv("ML_API_SECRET") or os.getenv("VPS_API_SECRET", "")
-ML_THRESHOLD = 0.30  # Lowered from 0.40 — 574 samples too few for aggressive filtering
-ML_ENABLED = bool(ML_API_URL)  # Only active when URL is configured
-
-
-def ml_predict(strategy: str, symbol: str, direction: str, leverage: int,
-               price: float, size_usd: float, indicators: Dict) -> Dict:
-    """Call the ML prediction API to score a signal.
-
-    Returns: {"win_probability": float, "should_trade": bool, "model_loaded": bool}
-    Falls back to allowing the trade if ML API is unavailable.
-    """
-    if not ML_ENABLED:
-        return {"win_probability": 0.5, "should_trade": True, "model_loaded": False,
-                "reason": "ML not configured"}
-
-    payload = json.dumps({
-        "strategy": strategy,
-        "symbol": symbol,
-        "direction": direction,
-        "leverage": leverage,
-        "price": price,
-        "size_usd": size_usd,
-        "indicators": indicators,
-        "threshold": ML_THRESHOLD,
-    }).encode()
-
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "PerpCron/1.0",
-    }
-    if ML_API_SECRET:
-        headers["Authorization"] = f"Bearer {ML_API_SECRET}"
-
-    try:
-        req = Request(f"{ML_API_URL}/predict", data=payload, headers=headers, method="POST")
-        with urlopen(req, timeout=3) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        # ML API down — don't block trades, just log
-        return {"win_probability": 0.5, "should_trade": True, "model_loaded": False,
-                "error": str(e), "reason": "ML API unavailable — allowing trade"}
-
-
 # ── BNF Reversion Strategy ───────────────────────────────────────────────
 # Inspired by Takashi Kotegawa: only trade extreme deviations from the mean.
 # Waits for price to crash 5%+ below MA (or rally 5%+ above), then trades
@@ -1990,43 +1940,10 @@ def run_auto_trader(wallet: str, prices: Dict[str, float]) -> List[Dict]:
 
             entry_reason = f"[{strategy_name}] {signal['signal']}"
 
-            # ── ML GATE: Ask classifier if this trade is worth taking ──
-            if ML_ENABLED:
-                ml_result = ml_predict(
-                    strategy=strategy_name, symbol=symbol, direction=direction,
-                    leverage=strat_leverage, price=curr_price, size_usd=size_usd,
-                    indicators=signal.get("indicators", {}),
-                )
-                win_prob = ml_result.get("win_probability", 0.5)
-                if ml_result.get("model_loaded") and not ml_result.get("should_trade", True):
-                    why = ml_result.get("why", {})
-                    why_str = why.get("summary", "") if why else ""
-                    reject_reason = f"ML rejected: {win_prob:.0%} < {ML_THRESHOLD:.0%}"
-                    if why_str:
-                        reject_reason += f" | {why_str}"
-                    log_signal(wallet, strategy_name, symbol, direction,
-                              signal["signal"], {**signal["indicators"], "ml_win_prob": win_prob,
-                              "ml_why": why.get("top_factors", []) if why else []},
-                              False, reject_reason,
-                              rejected_by="ml")
-                    actions.append({
-                        "action": "ml_rejected",
-                        "strategy": strategy_name,
-                        "symbol": symbol,
-                        "direction": direction,
-                        "win_probability": round(win_prob, 4),
-                        "threshold": ML_THRESHOLD,
-                    })
-                    continue
-                # ML approved — log the probability for tracking
-                signal["indicators"]["ml_win_prob"] = win_prob
-                entry_reason = f"[{strategy_name}] {signal['signal']} (ML:{win_prob:.0%})"
-
             # Place the trade
             try:
                 # Log signal BEFORE opening position so the signal timestamp precedes
-                # the trade's entry_time. train.py matches signals to trades by finding
-                # the closest signal with timestamp <= entry_time within 5 minutes.
+                # the trade's entry_time.
                 # If logged after, the signal timestamp is always slightly later and
                 # the match fails — causing all indicator features to be zero.
                 log_signal(wallet, strategy_name, symbol, direction,
@@ -2202,40 +2119,6 @@ def get_strategy_status(wallet: str) -> Dict:
             "duration_minutes": test_mode.get("duration_minutes", 60),
         }
 
-    # ML stats — lightweight, no external API call (avoid blocking dashboard load)
-    ml_stats = {
-        "enabled": ML_ENABLED,
-        "threshold": ML_THRESHOLD,
-        "model_loaded": ML_ENABLED,  # If URL is configured, assume model is running
-    }
-
-    # Count ML-approved vs rejected from recent signals
-    ml_approved = 0
-    ml_rejected = 0
-    ml_approved_wins = 0
-    ml_approved_total = 0
-    for sig in recent:
-        indicators = sig.get("indicators", {})
-        if "ml_win_prob" in indicators:
-            if sig.get("acted"):
-                ml_approved += 1
-            else:
-                ml_rejected += 1
-
-    # ML-approved trade win rate from closed trades
-    ml_trades = list(perp_trades.find(
-        {"account_id": wallet, "entry_reason": {"$regex": r"\(ML:"}},
-        {"realized_pnl": 1},
-    ))
-    if ml_trades:
-        ml_approved_total = len(ml_trades)
-        ml_approved_wins = sum(1 for t in ml_trades if t.get("realized_pnl", 0) > 0)
-    ml_stats["approved_trades"] = ml_approved_total
-    ml_stats["approved_wins"] = ml_approved_wins
-    ml_stats["approved_win_rate"] = round(ml_approved_wins / ml_approved_total, 4) if ml_approved_total > 0 else None
-    ml_stats["recent_approved"] = ml_approved
-    ml_stats["recent_rejected"] = ml_rejected
-
     # Strategy performance (feedback loop data)
     perf_summary = get_strategy_performance_summary(wallet)
 
@@ -2249,7 +2132,6 @@ def get_strategy_status(wallet: str) -> Dict:
         "strategy_positions": strategy_positions,
         "trading_paused": account.get("trading_paused", False) if account else False,
         "test_mode": test_info,
-        "ml_stats": ml_stats,
         "strategy_performance": perf_summary,
     }
 

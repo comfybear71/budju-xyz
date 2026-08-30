@@ -166,22 +166,6 @@ export interface TestMode {
   duration_minutes: number;
 }
 
-export interface MLStats {
-  enabled: boolean;
-  model_loaded: boolean;
-  accuracy: number | null;
-  samples: number | null;
-  trained_at: string | null;
-  threshold: number;
-  approved_trades: number;
-  approved_wins: number;
-  approved_win_rate: number | null;
-  recent_approved: number;
-  recent_rejected: number;
-  feature_importance: Record<string, number> | null;
-  error?: string;
-}
-
 export interface StrategyPerformance {
   strategy: string;
   symbol: string;
@@ -203,7 +187,6 @@ export interface StrategyStatus {
   candle_counts: Record<string, number>;
   min_candles_required: number;
   test_mode?: TestMode | null;
-  ml_stats?: MLStats;
   strategy_performance?: Record<string, StrategyPerformance>;
 }
 

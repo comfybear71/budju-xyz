@@ -287,7 +287,7 @@ const HighRiskDashboard = ({ onClose, readOnly = false }: Props) => {
 
   const handleReset = async () => {
     if (!wallet) { setError("Wallet not connected"); return; }
-    if (!confirm("Reset paper account to $10,000?\n\nOpen positions will be closed. Trade history is KEPT for ML training.")) return;
+    if (!confirm("Reset paper account to $10,000?\n\nOpen positions will be closed. Trade history is kept.")) return;
     try {
       setLoading(true);
       await resetPerpAccount(wallet, true);

@@ -72,7 +72,7 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 ## Architecture
 
 - **Frontend:** React 19 SPA built with Vite 6, TypeScript, Tailwind CSS 4. NOT Next.js — this is a Vite SPA with client-side routing via react-router-dom v7.
-- **Backend:** Vercel serverless functions — Python (20 files: `api/index.py`, `api/database.py`, `api/auto-trade-cron.py`, `api/perp-cron.py`, `api/perp_engine.py`, `api/perp_strategies.py`, `api/perp_pending_orders.py`, `api/perp_exchange.py`, `api/perp_position_manager.py`, `api/perp_backtest.py`, `api/perp_bb_squeeze.py`, `api/perp_grid_strategy.py`, `api/perp_hf_scalper.py`, `api/perp_keltner.py`, `api/perp_ninja_strategy.py`, `api/perp_sr_reversal.py`, `api/perp_zone_recovery.py`, `api/ml-status.py`, `api/backtest.py`, `api/redis_cache.py`) and TypeScript (11 files: `api/telegram.ts`, `api/telegram-cron.ts`, `api/proxy.ts`, `api/jupiter.ts`, `api/rpc.ts`, `api/marketing.ts`, `api/binance.ts`, `api/klines.ts`, `api/vps-proxy.ts`, `api/wallet-qr.ts`).
+- **Backend:** Vercel serverless functions — Python (`api/index.py`, `api/database.py`, `api/auto-trade-cron.py`, `api/perp-cron.py`, `api/perp_engine.py`, `api/perp_strategies.py`, `api/perp_pending_orders.py`, `api/perp_exchange.py`, `api/perp_position_manager.py`, `api/perp_backtest.py`, `api/perp_bb_squeeze.py`, `api/perp_grid_strategy.py`, `api/perp_hf_scalper.py`, `api/perp_keltner.py`, `api/perp_ninja_strategy.py`, `api/perp_sr_reversal.py`, `api/perp_zone_recovery.py`, `api/backtest.py`, `api/redis_cache.py`) and TypeScript (11 files: `api/telegram.ts`, `api/telegram-cron.ts`, `api/proxy.ts`, `api/jupiter.ts`, `api/rpc.ts`, `api/marketing.ts`, `api/binance.ts`, `api/klines.ts`, `api/vps-proxy.ts`, `api/wallet-qr.ts`).
 - **Database:** MongoDB Atlas Flex (DB name: `flub` — legacy, upgraded from free tier to Flex 5GB in May 2026 after hitting 512MB limit). 24 collections total (see below).
 - **VPS Bot:** Standalone DigitalOcean VPS trading bot in `vps/` — monitors 16 Solana tokens via Jupiter Price API, executes on-chain via Jupiter DEX.
 - **Deployment:** Vercel. Cron jobs defined in `vercel.json`.
@@ -89,8 +89,7 @@ BUDJU is a Solana meme coin ecosystem with a website, automated trading platform
 - `src/context/` — ThemeContext.tsx (dark/light mode)
 - `src/types/` — global.d.ts, gtag.d.ts
 - `api/` — All serverless functions (31 files)
-- `vps/` — Standalone VPS trading bot (8 files)
-- `vps/ml/` — ML signal classifier (train.py, server.py, requirements.txt)
+- `vps/` — Standalone VPS trading bot (spot Solana tokens via Jupiter)
 - `tests/` — Python tests (test_auth.py, test_circuit_breakers.py, test_pool_math.py)
 - `docs/` — Project documentation (all .md files except README.md, CLAUDE.md, HANDOFF.md live here)
 
@@ -209,14 +208,9 @@ DRIFT_RPC_URL        # Or uses HELIUS_API_KEY
 DRIFT_SUBACCOUNT     # Default: 0
 DRIFT_DEVNET         # true for devnet
 
-# VPS Bot (spot trading bot on DigitalOcean droplet — separate from ML)
+# VPS Bot (spot trading bot on DigitalOcean droplet — optional, separate from perps)
 VPS_API_URL          # VPS API base URL
-VPS_API_SECRET       # Bearer token for VPS trader API (distinct from ML_API_SECRET)
-
-# ML Signal Classifier (hardened DigitalOcean droplet — see docs/vps/ML_DROPLET_RECOVERY.md)
-ML_API_URL                  # ML prediction server (e.g. http://<ip>:8421)
-ML_API_SECRET               # Bearer token for predict/health/retrain
-BUDJU_TRAINING_API_SECRET   # Bearer token for /api/ml-training-data (ML pulls training data)
+VPS_API_SECRET       # Bearer token for VPS trader API
 
 # Frontend (VITE_ prefix)
 VITE_ENVIRONMENT
@@ -231,7 +225,6 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 ### Core Files
 - **Engine:** `api/perp_engine.py` — position lifecycle, PnL, liquidation, fees, partial close, pyramiding, flipping, core/satellite, pending orders
 - **Strategies:** `api/perp_strategies.py` — 11 strategies total (7 in main loop + 4 separate runners). Strategies run on **15-minute candles** (not 1-min — backtesting proved 1-min is pure noise).
-- **Signal Funnel:** `api/ml-status.py` — Public endpoint showing signal pipeline: every filter rejection (cooldown, correlation, regime, low volatility, overextension, ML gate) with reasons
 - **Backtest API:** `api/backtest.py` — Public endpoint for running backtests on stored price data or Binance historical data (up to 6 months). Supports per-strategy, per-symbol, or full grid mode
 - **Cron:** `api/perp-cron.py` — runs every 1 minute, fetches CoinGecko prices, seeds Binance historical candles, updates positions, checks SL/TP/liquidation/trailing, runs auto-trader strategies, snapshots equity, sends Telegram alerts
 - **Pending Orders:** `api/perp_pending_orders.py` — limit/stop order system (limit_buy, limit_sell, buy_stop, sell_stop), 24h expiry
@@ -265,15 +258,12 @@ Paper trading perpetual futures with $10K virtual USDC. Supports 10 markets (SOL
 | 10 | HF Scalper | OFF | 5x | 5min | 4 fast signals, all markets |
 | 11 | BNF Reversion | OFF | 2x | 2hr | Extreme deviation (5%+) from 100-period MA. Inspired by Takashi Kotegawa |
 
-### ML Intelligence Layer (April 2026)
+### Strategy Intelligence (non-ML)
 - **Feedback Loop:** `perp_strategy_performance` tracks rolling 20-trade win rate per strategy/market. Auto-disables strategies below 25% win rate. Reduces sizing 50% below 35%. Boosts 1.5x above 55%. Updated in real-time from `close_position()`.
 - **Regime Detection:** `detect_market_regime()` classifies each market as trending/ranging/volatile using ADX + BB width. `REGIME_STRATEGY_WEIGHTS` table scales strategy sizing — e.g. mean reversion blocked in trending markets, trend following blocked in ranges.
-- **ML Signal Classifier:** XGBoost model trained on closed trades (`vps/ml/train.py`) with `scale_pos_weight` for class imbalance correction. Served via HTTP API on DigitalOcean port 8421 (`vps/ml/server.py`). SHAP TreeExplainer provides human-readable rejection reasons. ML threshold: **30%** win probability (lowered from 55% → 40% → 30% based on data showing model was over-filtering with limited samples).
-- **ML API:** `ml_predict()` in `perp_strategies.py` calls the VPS ML server. Graceful fallback — if API is down, trades proceed normally. Entry reasons tagged with ML score: `[strategy] signal (ML:72%)`.
-- **Signal Funnel:** `api/ml-status.py` provides full pipeline visibility. Shows every filter stage: cooldown, already_open, correlation, performance_disabled, low_volatility, overextended, regime, size, balance, ml. Frontend component `MLBrainPanel.tsx` displays funnel bars, ML decisions, and recent filter rejections with reasons.
-- **Signal Filters (pipeline order):** Strategy disabled → Max positions → Price not available → Already open → Correlation guard → Total position limit → Cooldown → Performance feedback → Regime filter → Low volatility filter → Overextension filter → Position size check → Balance check → ML gate → Trade
+- **Signal Filters (pipeline order):** Strategy disabled → Max positions → Price not available → Already open → Correlation guard → Total position limit → Cooldown → Performance feedback → Regime filter → Low volatility filter → Overextension filter → Position size check → Balance check → Trade
 - **Telegram Alerts:** All trade opens (long/short) and closes (wins/losses) sent to Telegram with strategy, symbol, size, SL/TP, P&L.
-- **VPS ML Service:** Runs on budju-ml-syd1 as `budju-ml` systemd service. Retrain via `POST /retrain` (hourly cron via `vps/ml/retrain_cron.py`). Health check via `GET /health` (requires auth). Liveness: `GET /ping`.
+- **ML droplet removed (Aug 2026):** The DigitalOcean XGBoost/SHAP classifier (`vps/ml/`, `ML_API_*`, `MLBrainPanel`) was removed. Perps continue without an ML gate. Destroy the `budju-ml-*` droplet in DigitalOcean to stop billing.
 
 ### Charts Frontend
 - **TradingChart.tsx** — lightweight-charts with Binance WebSocket, AI predictions, position overlays, strategy labels
@@ -450,4 +440,4 @@ DDoS attack. DigitalOcean notified, droplet was destroyed. Recovery + hardening 
 - Backtest API with `source=binance` temporarily overrides `CANDLE_MINUTES` for the interval (e.g., 240 for 4h). Not thread-safe but OK for single-threaded Vercel.
 - Admin trade log and non-admin trade log MUST use the same data source (`state.autoTradeLog` from MongoDB). Previously admin used Swyftx with buggy AUD/USD mapping — fixed May 2026.
 - The overextension filter uses 1-min data (`get_price_series`) for precise high/low detection even though strategies use 15-min data.
-- Signal Funnel (`MLBrainPanel.tsx`) shows filter categories: cooldown, already_open, correlation, performance, low_volatility, overextended, regime, size, balance, ml, traded. Each has a unique color/icon.
+- Low volatility filter blocks directional strategies when BB width is very tight; mean reversion may still trade.

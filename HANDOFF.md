@@ -1,6 +1,19 @@
 # HANDOFF.md — BUDJU Project State & Handoff
 
-> Last updated: July 16, 2026
+> Last updated: August 30, 2026
+
+## ML droplet removed (August 2026)
+
+Perp ML (XGBoost on DigitalOcean `budju-ml-*`, `vps/ml/`, `ML_API_*` env vars,
+`/api/ml-status`, `MLBrainPanel`, `/api/ml-training-data`) was removed. Paper
+perps stay on Vercel without an ML gate. **Destroy the ML droplet in DigitalOcean
+to stop billing.** Spot Solana VPS trader (`vps/` non-ml, port 8420) is separate —
+only destroy that droplet if you also want to stop that service.
+
+Live Jupiter/Drift perps remain future work (`api/perp_exchange.py`); paper perps
+continue via `api/perp-cron.py`.
+
+---
 
 ## Debt-Payoff-Sale Guards (July 2026)
 
