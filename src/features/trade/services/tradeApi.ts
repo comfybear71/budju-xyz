@@ -1032,6 +1032,16 @@ export async function recordWithdrawal(
   }
 }
 
+/** Live Swyftx pool value (crypto + cash), same formula as Trade.tsx. */
+export async function fetchLivePoolValue(): Promise<number> {
+  const [portfolio, cash] = await Promise.all([
+    fetchPortfolio().catch(() => [] as PortfolioAsset[]),
+    fetchCashBalances().catch(() => ({ usdc: 0, aud: 0 })),
+  ]);
+  const crypto = portfolio.reduce((s, a) => s + (a.usdValue || 0), 0);
+  return crypto + cash.usdc + cash.aud * AUD_TO_USD;
+}
+
 /** User self-service deposit: record on-chain USDC transfer in MongoDB */
 export async function submitUserDeposit(
   walletAddress: string,
@@ -1041,11 +1051,24 @@ export async function submitUserDeposit(
 ): Promise<{ success: boolean; shares?: number; nav?: number; error?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("submit user deposit");
 
+  // Shares MUST be issued at the live NAV. Callers that have no pool value on
+  // hand (the wallet Deposit modal) pass 0 — fetch it here rather than letting
+  // the backend guess, otherwise the depositor inherits the pool's existing
+  // P&L instead of starting flat.
+  let poolValue = totalPoolValue;
+  if (!poolValue || poolValue <= 0) {
+    try {
+      poolValue = await fetchLivePoolValue();
+    } catch {
+      poolValue = 0; // backend falls back to its stored NAV snapshot
+    }
+  }
+
   try {
     const res = await fetchWithRetry("/api/user-deposit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ walletAddress, amount, txHash, totalPoolValue }),
+      body: JSON.stringify({ walletAddress, amount, txHash, totalPoolValue: poolValue }),
     });
 
     const data = await res.json();
