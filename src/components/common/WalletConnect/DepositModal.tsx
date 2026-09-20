@@ -48,7 +48,10 @@ const DepositModal = ({
         val,
       );
 
-      // Step 2: Record deposit in MongoDB (poolValue=0 lets backend use current state)
+      // Step 2: Record deposit in MongoDB. Pass 0 for the pool value — this
+      // component has no live Swyftx figure, and the backend prices the deposit
+      // off its stored NAV snapshot instead. Do NOT pass a made-up number here:
+      // a wrong pool value mints shares at the wrong NAV and shifts P&L.
       const result = await submitUserDeposit(walletAddress, val, txSignature, 0);
 
       if (!result.success) {

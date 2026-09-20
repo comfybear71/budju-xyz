@@ -121,11 +121,92 @@ def format_user_data(user: Dict) -> Dict:
 def get_pool_state() -> Dict:
     doc = pool_state_collection.find_one({"_id": "pool"})
     if not doc:
-        return {"totalShares": 0, "initialized": None}
+        return {"totalShares": 0, "initialized": None,
+                "lastNav": None, "lastPoolValue": None, "navUpdatedAt": None}
     return {
         "totalShares": doc.get("totalShares", 0),
-        "initialized": doc.get("initialized")
+        "initialized": doc.get("initialized"),
+        "lastNav": doc.get("lastNav"),
+        "lastPoolValue": doc.get("lastPoolValue"),
+        "navUpdatedAt": doc.get("navUpdatedAt"),
     }
+
+
+# ── NAV snapshotting ────────────────────────────────────────────────────────
+# A deposit must be priced at the NAV that existed *before* it landed. The old
+# code fell back to NAV $1.00 whenever it could not work one out, which silently
+# minted shares at the wrong price and moved every holder's P&L. We now keep a
+# rolling snapshot of the last known-good NAV so there is always a sane price to
+# fall back on, and refuse to guess when there isn't.
+
+NAV_SANITY_FACTOR = 1.5   # reject a snapshot >50% away from the last one
+
+
+def _snapshot_nav(total_pool_value: float, force: bool = False) -> Optional[float]:
+    """Persist the current NAV on pool_state. Returns the NAV stored, or None.
+
+    `total_pool_value` must be a live, real pool value. Garbage values (<= 0)
+    are ignored, and a value that would move NAV by more than NAV_SANITY_FACTOR
+    is rejected unless `force` is set (initialize / recalibrate).
+    """
+    try:
+        total_pool_value = float(total_pool_value or 0)
+    except (TypeError, ValueError):
+        return None
+    if total_pool_value <= 0:
+        return None
+
+    doc = pool_state_collection.find_one({"_id": "pool"})
+    if not doc:
+        return None
+    total_shares = float(doc.get("totalShares", 0) or 0)
+    if total_shares <= 0:
+        return None
+
+    nav = total_pool_value / total_shares
+    if nav <= 0:
+        return None
+
+    prev = doc.get("lastNav")
+    if not force and prev and float(prev) > 0:
+        ratio = nav / float(prev)
+        if ratio > NAV_SANITY_FACTOR or ratio < (1.0 / NAV_SANITY_FACTOR):
+            return None
+
+    pool_state_collection.update_one(
+        {"_id": "pool"},
+        {"$set": {
+            "lastNav": nav,
+            "lastPoolValue": total_pool_value,
+            "navUpdatedAt": datetime.utcnow(),
+        }},
+    )
+    return nav
+
+
+def _resolve_deposit_nav(pre_deposit_value: float, total_shares: float) -> tuple:
+    """Work out the NAV a deposit should be priced at.
+
+    Returns (nav, source). Raises ValueError rather than guessing $1.00 when the
+    pool already holds shares but no NAV can be established — minting at the
+    wrong NAV is worse than failing the deposit.
+    """
+    if total_shares <= 0:
+        # Genuinely the first money in: NAV is $1.00 by definition.
+        return 1.0, "bootstrap"
+
+    if pre_deposit_value and pre_deposit_value > 0:
+        return pre_deposit_value / total_shares, "live"
+
+    last_nav = get_pool_state().get("lastNav")
+    if last_nav and float(last_nav) > 0:
+        return float(last_nav), "last_snapshot"
+
+    raise ValueError(
+        "Cannot price this deposit: no live pool value supplied and no NAV "
+        "snapshot available. Open the admin dashboard (which refreshes the NAV "
+        "snapshot) and try again."
+    )
 
 
 def get_user_shares_total() -> float:
@@ -155,7 +236,10 @@ def initialize_pool(total_pool_value: float) -> Dict:
     pool_state_collection.insert_one({
         "_id": "pool",
         "totalShares": total_pool_value,
-        "initialized": datetime.utcnow()
+        "initialized": datetime.utcnow(),
+        "lastNav": 1.0,
+        "lastPoolValue": total_pool_value,
+        "navUpdatedAt": datetime.utcnow(),
     })
 
     return {
@@ -208,7 +292,10 @@ def recalibrate_pool(total_pool_value: float) -> Dict:
         {"_id": "pool"},
         {"$set": {
             "totalShares": total_pool_value,
-            "recalibrated": datetime.utcnow()
+            "recalibrated": datetime.utcnow(),
+            "lastNav": 1.0,
+            "lastPoolValue": total_pool_value,
+            "navUpdatedAt": datetime.utcnow(),
         }},
         upsert=True
     )
@@ -292,7 +379,20 @@ def get_user_deposits(wallet_address: str) -> List[Dict]:
 # ── Deposit with Share Issuance ─────────────────────────────────────────────
 
 def record_deposit(wallet_address: str, amount: float, tx_hash: str,
-                   total_pool_value: float, currency: str = "USDC") -> Dict:
+                   total_pool_value: float, currency: str = "USDC",
+                   value_includes_deposit: bool = True) -> Dict:
+    """Record a deposit and issue shares at the PRE-deposit NAV.
+
+    `value_includes_deposit` says whether `total_pool_value` already contains
+    this deposit:
+      True  — admin records a deposit after the money has landed in Swyftx, so
+              the live pool value includes it and we subtract it back out.
+      False — self-service Phantom deposit. The USDC went on-chain to
+              POOL_WALLET, so the Swyftx-derived pool value does NOT include it
+              and must be used as-is.
+    Getting this wrong (or passing 0) is what used to mint shares at NAV $1.00
+    and move every holder's P&L the moment a deposit was recorded.
+    """
     user = users_collection.find_one({"walletAddress": wallet_address})
     if not user:
         raise ValueError("User not found")
@@ -311,14 +411,23 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
 
     pool = get_pool_state()
     if pool["totalShares"] <= 0:
-        initialize_pool(total_pool_value)
-        pool = get_pool_state()
+        # Only bootstrap the pool from a real pool value. A 0/blank value here
+        # would create a pool whose NAV is meaningless.
+        if total_pool_value and total_pool_value > 0:
+            initialize_pool(total_pool_value)
+            pool = get_pool_state()
 
-    pre_deposit_value = total_pool_value - amount
-    if pre_deposit_value <= 0:
-        nav = 1.0
+    try:
+        supplied_value = float(total_pool_value or 0)
+    except (TypeError, ValueError):
+        supplied_value = 0.0
+
+    if supplied_value > 0 and value_includes_deposit:
+        pre_deposit_value = supplied_value - amount
     else:
-        nav = pre_deposit_value / pool["totalShares"]
+        pre_deposit_value = supplied_value
+
+    nav, nav_source = _resolve_deposit_nav(pre_deposit_value, pool["totalShares"])
 
     shares_issued = amount / nav
 
@@ -329,6 +438,9 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
         "txHash": tx_hash,
         "shares": shares_issued,
         "nav": nav,
+        "navSource": nav_source,
+        "valueIncludesDeposit": value_includes_deposit,
+        "poolValueAtDeposit": supplied_value or None,
         "timestamp": datetime.utcnow(),
         "status": "completed"
     }
@@ -351,10 +463,16 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
 
     _recalculate_allocations()
 
+    # NAV is unchanged by a deposit: new shares were priced at the old NAV, so
+    # post-deposit pool value / post-deposit shares == nav. Re-snapshot it so
+    # the next deposit has a fresh fallback even if no admin page is opened.
+    _snapshot_nav(nav * (pool["totalShares"] + shares_issued), force=True)
+
     return {
         "success": True,
         "shares": shares_issued,
         "nav": nav,
+        "navSource": nav_source,
         "totalShares": pool["totalShares"] + shares_issued,
         "newTotalDeposited": new_total_deposited,
         "userShares": new_shares
@@ -413,6 +531,8 @@ def record_withdrawal(wallet_address: str, amount: float, total_pool_value: floa
     )
 
     _recalculate_allocations()
+
+    _snapshot_nav(nav * (total_shares - shares_to_burn), force=True)
 
     return {
         "success": True,
@@ -755,6 +875,75 @@ def void_deposit(tx_hash: str) -> Dict:
     }
 
 
+def reprice_deposit(tx_hash: str, correct_nav: float, dry_run: bool = True) -> Dict:
+    """Re-issue a deposit's shares at the correct NAV.
+
+    Use this to repair a deposit that was minted at the wrong NAV (e.g. the
+    self-service Phantom deposits that fell back to NAV $1.00 and instantly
+    shifted every holder's P&L). Adjusts the user's shares and the pool's
+    totalShares by the difference — `amount` and `totalDeposited` are untouched
+    because the money itself was correct.
+
+    Always run with dry_run=True first and check the numbers.
+    """
+    if not correct_nav or correct_nav <= 0:
+        raise ValueError("correct_nav must be greater than 0")
+
+    dep = deposits_collection.find_one({"txHash": tx_hash})
+    if not dep:
+        raise ValueError("Deposit not found")
+    if dep.get("status") == "voided":
+        raise ValueError("Deposit is voided — nothing to reprice")
+
+    amount = float(dep.get("amount", 0) or 0)
+    old_shares = float(dep.get("shares", 0) or 0)
+    old_nav = float(dep.get("nav", 0) or 0)
+    user_id = dep.get("userId")
+    if amount <= 0 or not user_id:
+        raise ValueError("Deposit has no amount or user — cannot reprice")
+
+    new_shares = amount / correct_nav
+    delta = new_shares - old_shares
+
+    pool = get_pool_state()
+    result = {
+        "txHash": tx_hash,
+        "wallet": user_id,
+        "amount": round(amount, 2),
+        "oldNav": round(old_nav, 6),
+        "newNav": round(correct_nav, 6),
+        "oldShares": round(old_shares, 4),
+        "newShares": round(new_shares, 4),
+        "sharesDelta": round(delta, 4),
+        "totalSharesBefore": round(float(pool.get("totalShares", 0) or 0), 4),
+        "totalSharesAfter": round(float(pool.get("totalShares", 0) or 0) + delta, 4),
+        "dryRun": dry_run,
+    }
+
+    if dry_run:
+        result["success"] = True
+        result["applied"] = False
+        return result
+
+    pool_state_collection.update_one({"_id": "pool"}, {"$inc": {"totalShares": delta}})
+    users_collection.update_one({"walletAddress": user_id}, {"$inc": {"shares": delta}})
+    deposits_collection.update_one(
+        {"txHash": tx_hash},
+        {"$set": {
+            "shares": new_shares,
+            "nav": correct_nav,
+            "navSource": "repriced",
+            "repricedAt": datetime.utcnow(),
+            "repricedFrom": {"nav": old_nav, "shares": old_shares},
+        }},
+    )
+    _recalculate_allocations()
+
+    result["success"] = True
+    result["applied"] = True
+    return result
+
+
 # ── BUDJU Desk: captured notes + daily briefs ───────────────────────────────
 
 def save_desk_note(note: Dict) -> Dict:
@@ -865,6 +1054,11 @@ def get_admin_stats(total_pool_value: float) -> Dict:
     pool = get_pool_state()
     total_shares = pool["totalShares"]
     nav = total_pool_value / total_shares if total_shares > 0 else 1.0
+
+    # The admin dashboard polls this with a live Swyftx pool value — the best
+    # regular source of truth for NAV. Keep the snapshot fresh so a later
+    # self-service deposit has a correct price to fall back on.
+    _snapshot_nav(total_pool_value)
 
     # User stats exclude admin wallets (admins manage the pool, not investors)
     non_admin_users = list(users_collection.find({
