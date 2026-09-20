@@ -22,6 +22,7 @@ from database import (
     get_coin_trades,
     get_deposit_summary,
     void_deposit,
+    reprice_deposit,
     get_latest_desk_brief,
     get_desk_briefs,
     get_recent_desk_notes,
@@ -512,9 +513,12 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "Invalid transaction hash"})
                     return
 
+                # The USDC went on-chain to POOL_WALLET, not to Swyftx, so any
+                # pool value the client has does NOT include this deposit.
                 result = record_deposit(
                     wallet_address, float(amount), tx_hash,
-                    float(pool_value), 'USDC'
+                    float(pool_value), 'USDC',
+                    value_includes_deposit=False
                 )
                 self._send_json(200, result)
 
@@ -744,6 +748,29 @@ class handler(BaseHTTPRequestHandler):
                     return
                 try:
                     result = void_deposit(tx_hash)
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
+                self._send_json(200, result)
+
+            elif path == '/api/admin/reprice-deposit':
+                # Admin-only: re-issue a deposit's shares at the correct NAV.
+                # Repairs deposits minted at the wrong NAV (the old NAV $1.00
+                # fallback). Defaults to a dry run — pass execute=true to apply.
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                tx_hash = body.get('txHash')
+                correct_nav = body.get('nav')
+                if not tx_hash or correct_nav is None:
+                    self._send_json(400, {"error": "txHash and nav required"})
+                    return
+                try:
+                    result = reprice_deposit(
+                        tx_hash, float(correct_nav),
+                        dry_run=not bool(body.get('execute', False)),
+                    )
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
                     return
