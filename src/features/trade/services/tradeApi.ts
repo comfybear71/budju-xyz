@@ -139,6 +139,9 @@ export const ASSET_CONFIG: Record<
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
 
+/** Coins the auto-trader must never buy again (operator permanent denylist). */
+export const PERMANENT_BUY_DENYLIST = new Set(["ENA", "PEPE", "LUNA", "LUNC"]);
+
 // ── Admin Auth Helper ─────────────────────────────────────
 // Returns admin wallet identity for API requests.
 // No wallet signing needed — the backend accepts the wallet address

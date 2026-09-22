@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { ASSET_CONFIG, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 
@@ -18,7 +18,7 @@ interface Props {
 
 // Coins available for auto-trading (exclude stables/fiat)
 const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
-  (c) => c !== "USDC" && c !== "AUD" && c !== "USD"
+  (c) => c !== "USDC" && c !== "AUD" && c !== "USD" && !PERMANENT_BUY_DENYLIST.has(c)
 );
 
 const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
