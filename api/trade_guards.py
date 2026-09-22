@@ -21,6 +21,10 @@ REBUY_LEGACY_EXPIRY = datetime(2026, 8, 30)
 # Empty seed — do not re-block coins on fresh installs / first cron seed.
 DEFAULT_REBUY_BLOCKLIST = {}
 
+# Permanent buy denylist — never auto-buy (or bot-buy) these again.
+# Admin can still force a manual buy with explicit confirm via evaluate_order.
+PERMANENT_BUY_DENYLIST = frozenset({"ENA", "PEPE", "LUNA", "LUNC"})
+
 
 def deployable_amount(balance: float, max_deployable: float) -> float:
     """Capital the bot may size a buy from = min(balance, cap).
@@ -49,6 +53,11 @@ def _parse_iso(value):
         return None
 
 
+def is_permanently_buy_denied(code: str) -> bool:
+    """True if ``code`` is on the permanent buy denylist."""
+    return bool(code) and code.upper() in PERMANENT_BUY_DENYLIST
+
+
 def is_rebuy_blocked(blocklist, code: str, now: datetime) -> bool:
     """True if ``code`` is on the rebuy blocklist and the block has not expired.
 
@@ -58,7 +67,11 @@ def is_rebuy_blocked(blocklist, code: str, now: datetime) -> bool:
     Legacy July-2026 entries that expire on/before 2026-08-30 are treated as
     released once ``now`` is on/after 2026-08-16 (operator early lift). Newer
     admin-added blocks with a later expiry still enforce normally.
+    Permanent denylist coins are always blocked here too (belt-and-braces for
+    callers that only check this helper).
     """
+    if code and is_permanently_buy_denied(code):
+        return True
     if not blocklist or not code:
         return False
     until = _parse_iso(blocklist.get(code))
@@ -119,6 +132,11 @@ def evaluate_order(coin, side, amount_usd, source, confirm, blocklist, now,
         amt = None
 
     if side == "buy":
+        if is_permanently_buy_denied(coin or ""):
+            return deny(
+                "permanent_buy_denylist",
+                f"{coin} is permanently blocked from buys (operator denylist)",
+            )
         if is_rebuy_blocked(blocklist, coin, now):
             until = blocklist.get(coin) if blocklist else "?"
             return deny("rebuy_blocklist", f"{coin} is on the tax-loss rebuy blocklist until {until}")

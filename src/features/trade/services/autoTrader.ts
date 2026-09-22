@@ -28,6 +28,7 @@ import {
   clearCacheKeys,
   getAdminAuth,
   ASSET_CONFIG,
+  PERMANENT_BUY_DENYLIST,
   type PortfolioAsset,
   type TraderState,
 } from "./tradeApi";
@@ -403,10 +404,21 @@ export class AutoTrader {
   // ── Default Assignments ─────────────────────────────────
 
   private _ensureDefaultAssignments() {
-    if (Object.keys(this.tierAssignments).length > 0) return;
+    if (Object.keys(this.tierAssignments).length > 0) {
+      let changed = false;
+      for (const code of Object.keys(this.tierAssignments)) {
+        if (PERMANENT_BUY_DENYLIST.has(code)) {
+          delete this.tierAssignments[code];
+          changed = true;
+        }
+      }
+      if (changed) this._saveTierAssignments();
+      return;
+    }
     // Assign all known crypto assets to ALL tiers by default
     for (const code of Object.keys(ASSET_CONFIG)) {
       if (code === "AUD" || code === "USDC" || code === "USD") continue;
+      if (PERMANENT_BUY_DENYLIST.has(code)) continue;
       this.tierAssignments[code] = [...ALL_TIERS];
     }
     this._saveTierAssignments();
@@ -416,6 +428,7 @@ export class AutoTrader {
 
   /** Add a coin to a specific tier */
   assignCoin(code: string, tierNum: number) {
+    if (PERMANENT_BUY_DENYLIST.has(code)) return; // never assign denied coins
     const tiers = this.tierAssignments[code] || [];
     if (!tiers.includes(tierNum)) {
       tiers.push(tierNum);

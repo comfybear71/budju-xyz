@@ -34,7 +34,9 @@ from database import (
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
+    REBUY_LEGACY_EXPIRY,
     deployable_amount,
+    is_permanently_buy_denied,
     is_rebuy_blocked,
     sell_below_min,
 )
@@ -401,27 +403,41 @@ def run_auto_trade_check():
     trade_log = state.get("autoTradeLog", [])
 
     # Rebuy blocklist (tax-loss / wash-sale guard). DB-backed + admin-editable.
-    # Operator lifted the July-2026 restrictions on 2026-08-16 — clear any
-    # legacy stored entries so Mongo matches the empty DEFAULT seed.
+    # Only strip *legacy* July-2026 entries (expiry on/before 2026-08-30). Newer
+    # admin blocks with later expiries must persist across cron runs.
     rebuy_blocklist = state.get("autoRebuyBlocklist")
     seed_blocklist = False
     if rebuy_blocklist is None:
         rebuy_blocklist = dict(DEFAULT_REBUY_BLOCKLIST)
         seed_blocklist = True
-    elif isinstance(rebuy_blocklist, dict) and len(rebuy_blocklist) > 0:
-        log.append(
-            f"Lifting tax-loss rebuy blocklist ({len(rebuy_blocklist)} coins) — "
-            f"operator release 2026-08-16"
-        )
-        rebuy_blocklist = {}
-        seed_blocklist = True  # persist the clear so proxy/UI stop seeing old entries
+    elif isinstance(rebuy_blocklist, dict):
+        cleaned = {}
+        dropped = []
+        for code, until in rebuy_blocklist.items():
+            try:
+                until_dt = datetime.fromisoformat(str(until).replace("Z", "").replace("+00:00", ""))
+            except (ValueError, TypeError):
+                cleaned[code] = until
+                continue
+            if until_dt <= REBUY_LEGACY_EXPIRY:
+                dropped.append(code)
+            else:
+                cleaned[code] = until
+        if dropped:
+            log.append(
+                f"Dropped {len(dropped)} legacy tax-loss rebuy block(s): {', '.join(sorted(dropped))}"
+            )
+            seed_blocklist = True
+        rebuy_blocklist = cleaned
     else:
-        rebuy_blocklist = rebuy_blocklist or {}
+        rebuy_blocklist = {}
 
     # Build active coin-tier pairs from multi-tier assignments.
     # Assignments can be old format {coin: tierNum} or new format {coin: [1,2,3]}
     active_pairs = []  # list of (coin, tier_num)
     for coin, tiers in tier_assignments.items():
+        if is_permanently_buy_denied(coin):
+            continue  # never monitor / buy denied coins
         if isinstance(tiers, list):
             # New multi-tier format: coin is in multiple tiers
             for t in tiers:
@@ -533,7 +549,16 @@ def run_auto_trade_check():
 
         # ── BUY: price dropped below buy target ──
         if current_price <= buy_target:
-            # Tax-loss rebuy blocklist — skip buys on recently sold coins
+            # Permanent denylist + tax-loss rebuy blocklist — never buy these
+            if is_permanently_buy_denied(code):
+                decisions.append({
+                    "coin": code, "tier": tier_num, "action": "BUY", "result": "blocked",
+                    "reason": "permanent_buy_denylist",
+                })
+                if code not in _blocklist_logged:
+                    log.append(f"{code}: BUY skipped — permanent buy denylist")
+                    _blocklist_logged.add(code)
+                continue
             if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
                 decisions.append({
                     "coin": code, "tier": tier_num, "action": "BUY", "result": "blocked",
