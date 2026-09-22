@@ -87,6 +87,7 @@ ASSET_CG_IDS = {
     "HYPE": "hyperliquid", "RENDER": "render-token", "FET": "fetch-ai",
     "TAO": "bittensor", "PEPE": "pepe", "LUNA": "terra-luna-2",
     "JUP": "jupiter-exchange-solana", "LUNC": "terra-luna",
+    "SKY": "sky", "SYRUP": "syrup", "LDO": "lido-dao",
 }
 
 # ── HTTP Helper ───────────────────────────────────────────────
