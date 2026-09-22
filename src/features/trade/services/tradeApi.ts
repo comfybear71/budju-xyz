@@ -132,6 +132,9 @@ export const ASSET_CONFIG: Record<
   BONK: { color: "#f59e0b", icon: "🐕", name: "Bonk", coingeckoId: "bonk" },
   WIF: { color: "#a855f7", icon: "🐶", name: "dogwifhat", coingeckoId: "dogwifcoin" },
   JUP: { color: "#22d3ee", icon: "J", name: "Jupiter", coingeckoId: "jupiter-exchange-solana" },
+  SKY: { color: "#38bdf8", icon: "S", name: "Sky", coingeckoId: "sky" },
+  SYRUP: { color: "#a3e635", icon: "M", name: "Maple Finance", coingeckoId: "syrup" },
+  LDO: { color: "#00a3ff", icon: "L", name: "Lido DAO", coingeckoId: "lido-dao" },
   USDC: { color: "#22c55e", icon: "$", name: "USD Coin", coingeckoId: "usd-coin" },
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
