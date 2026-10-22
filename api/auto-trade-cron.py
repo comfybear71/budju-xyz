@@ -397,6 +397,17 @@ def run_auto_trade_check():
         log.append(f"Browser active (device={bot_device}, heartbeat {(now_ms - bot_heartbeat) // 1000}s ago) — skipping")
         return {"skipped": True, "reason": "Browser is actively trading", "log": log}
 
+    # Claim ownership NOW, before any Swyftx calls — not after the trading
+    # loop finishes. A cron run that fires several real orders can take many
+    # seconds; leaving the heartbeat stale for that whole window let a
+    # browser's own ownership check (which claims its heartbeat up front,
+    # before its own loop) read a >5-min-old heartbeat mid-run, conclude the
+    # cron wasn't active, and start its OWN concurrent buy loop against the
+    # same real USDC balance — both loops individually decrement their own
+    # balance correctly, but neither sees the other's spend, so the combined
+    # total blew straight through the $100 reserve floor on 2026-10-22.
+    _save_heartbeat(auto_active, now_ms)
+
     tier_assets = state.get("autoTiers", state.get("autoTierAssets", {}))
     tier_assignments = state.get("autoTierAssignments", {})
     cooldowns = state.get("autoCooldowns", {})
