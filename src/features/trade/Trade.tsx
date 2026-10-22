@@ -475,8 +475,23 @@ const Trade = () => {
                     onSelectAsset={isAdmin ? handleSelectAsset : undefined}
                   />
 
+                  {/* NAV — visible to EVERYONE (connected, not connected, admin
+                      or not). Deposits buy shares at this price: lower NAV
+                      means more shares per dollar, and existing shares are
+                      worth more as NAV rises. */}
+                  {poolStats && (
+                    <div className="flex items-center justify-center gap-1.5 mt-3">
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider">
+                        Share Price (NAV)
+                      </span>
+                      <span className="text-xs font-bold font-mono text-purple-400">
+                        ${poolStats.nav.toFixed(4)}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Admin: tap coin to trade / User: connect to join */}
-                  <p className="text-center text-xs text-slate-500 mt-3">
+                  <p className="text-center text-xs text-slate-500 mt-1">
                     {isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
                   </p>
 
