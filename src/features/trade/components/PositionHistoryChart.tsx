@@ -59,8 +59,12 @@ const PositionHistoryChart = ({ points, label }: Props) => {
     const valuePath = `M ${valuePoints.map((v) => `${v.x},${v.y}`).join(" L ")}`;
     const areaPath = `${valuePath} L ${valuePoints[valuePoints.length - 1].x},${padding.top + chartH} L ${valuePoints[0].x},${padding.top + chartH} Z`;
 
+    // P&L must add back anything already withdrawn — cumulativeDeposited is
+    // a lifetime gross figure that a withdrawal never reduces, so comparing
+    // it straight against the remaining value makes a withdrawal look like
+    // a loss instead of realized value.
     const last = points[points.length - 1];
-    const isUp = last.value >= last.cumulativeDeposited;
+    const isUp = last.value + last.cumulativeWithdrawn >= last.cumulativeDeposited;
 
     return {
       width, height, padding, chartW, chartH,
@@ -82,7 +86,7 @@ const PositionHistoryChart = ({ points, label }: Props) => {
   const strokeColor = isUp ? "#34d399" : "#f87171";
   const fillColor = isUp ? "#34d399" : "#f87171";
   const last = points[points.length - 1];
-  const pnl = last.value - last.cumulativeDeposited;
+  const pnl = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
 
   return (
     <div>

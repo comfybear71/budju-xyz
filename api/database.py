@@ -346,7 +346,7 @@ def get_user_position(wallet_address: str, total_pool_value: float) -> Dict:
     if not user:
         return {
             "shares": 0, "nav": 1.0, "currentValue": 0,
-            "allocation": 0, "totalDeposited": 0
+            "allocation": 0, "totalDeposited": 0, "totalWithdrawn": 0
         }
 
     pool = get_pool_state()
@@ -359,7 +359,12 @@ def get_user_position(wallet_address: str, total_pool_value: float) -> Dict:
         "nav": nav,
         "currentValue": user_shares * nav,
         "allocation": (user_shares / total_shares * 100) if total_shares > 0 else 0,
-        "totalDeposited": user.get("totalDeposited", 0.0)
+        "totalDeposited": user.get("totalDeposited", 0.0),
+        # P&L must be (currentValue + totalWithdrawn) - totalDeposited, not just
+        # currentValue - totalDeposited — totalDeposited is a lifetime gross
+        # figure that's never reduced by a withdrawal, so money already taken
+        # out would otherwise look like a loss instead of realized value.
+        "totalWithdrawn": user.get("totalWithdrawn", 0.0)
     }
 
 
