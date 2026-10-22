@@ -16,6 +16,7 @@ from database import (
     get_user_portfolio,
     get_user_deposits,
     record_deposit,
+    verify_onchain_usdc_deposit,
     record_withdrawal,
     correct_unrecorded_withdrawal,
     record_trade,
@@ -528,6 +529,20 @@ class handler(BaseHTTPRequestHandler):
 
                 if len(str(tx_hash)) < 20:
                     self._send_json(400, {"error": "Invalid transaction hash"})
+                    return
+
+                # Confirm the transaction actually landed on-chain and moved the
+                # claimed amount before issuing any shares. Without this, a
+                # signature that was signed+broadcast but never confirmed (e.g.
+                # expired blockhash) gets trusted blindly and mints phantom
+                # shares for money that never arrived — see
+                # verify_onchain_usdc_deposit's docstring for the 2026-10-22
+                # incident this closes.
+                is_valid, verify_error = verify_onchain_usdc_deposit(
+                    tx_hash, wallet_address, float(amount)
+                )
+                if not is_valid:
+                    self._send_json(400, {"error": verify_error})
                     return
 
                 # The USDC went on-chain to POOL_WALLET, not to Swyftx, so any

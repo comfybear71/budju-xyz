@@ -8,8 +8,10 @@
 # ==========================================
 
 import os
+import json
+import urllib.request
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from pymongo import MongoClient
 from pymongo.errors import DuplicateKeyError
 import base58
@@ -22,6 +24,17 @@ DB_NAME = os.getenv("DB_NAME", "flub")
 
 # Admin wallet addresses (set via env var, comma-separated)
 ADMIN_WALLETS = [w.strip() for w in os.getenv("ADMIN_WALLETS", "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq").split(",") if w.strip()]
+
+# On-chain deposit address and token mint — mirrors src/constants/addresses.ts
+# and api/rpc.ts's endpoint selection (Helius if configured, else public RPC).
+POOL_WALLET = os.getenv("POOL_WALLET", "2DfxgAZ655zkgt16r53e6qZ9Cf2Rse7iCGnypDk3nFhD")
+USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+_HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
+_SOLANA_RPC_PRIMARY = (
+    f"https://mainnet.helius-rpc.com/?api-key={_HELIUS_API_KEY}" if _HELIUS_API_KEY
+    else "https://api.mainnet-beta.solana.com"
+)
+_SOLANA_RPC_FALLBACK = "https://api.mainnet-beta.solana.com"
 
 client = MongoClient(MONGODB_URI)
 db = client[DB_NAME]
@@ -400,6 +413,94 @@ def get_user_deposits(wallet_address: str) -> List[Dict]:
     return deposits
 
 
+# ── On-chain Deposit Verification ───────────────────────────────────────────
+# A wallet's signAndSendTransaction() only guarantees a transaction was
+# signed and broadcast — not that it was ever confirmed. On Solana, a
+# transaction can be silently dropped (e.g. its blockhash expires before any
+# validator includes it) with no error surfaced to the app, yet the caller
+# still gets back a perfectly valid-looking signature. Confirmed live on
+# 2026-10-22: a self-service deposit was recorded and credited ~430 pool
+# shares (~$350) for a transaction that does not exist anywhere on the
+# Solana ledger — no USDC ever arrived. This verifies the transaction
+# actually landed and moved the claimed amount before any shares are issued.
+
+def _solana_rpc(method: str, params: list, timeout: int = 10) -> Dict:
+    """Minimal stdlib-only Solana JSON-RPC call. Tries Helius first (if
+    configured), falls back to the public RPC on any failure."""
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
+    endpoints = [_SOLANA_RPC_PRIMARY]
+    if _SOLANA_RPC_PRIMARY != _SOLANA_RPC_FALLBACK:
+        endpoints.append(_SOLANA_RPC_FALLBACK)
+    last_error = None
+    for url in endpoints:
+        try:
+            req = urllib.request.Request(
+                url, data=body, headers={"Content-Type": "application/json"}, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode())
+        except Exception as e:
+            last_error = e
+    raise last_error
+
+
+def verify_onchain_usdc_deposit(tx_hash: str, sender_wallet: str, claimed_amount: float) -> Tuple[bool, Optional[str]]:
+    """Confirm a self-service deposit's signature actually exists on-chain,
+    succeeded, and moved at least `claimed_amount` USDC into POOL_WALLET.
+    Returns (is_valid, error_message)."""
+    if not tx_hash or len(str(tx_hash)) < 64:
+        return False, "Invalid transaction signature"
+
+    try:
+        resp = _solana_rpc(
+            "getTransaction",
+            [tx_hash, {"encoding": "jsonParsed", "maxSupportedTransactionVersion": 0}],
+        )
+    except Exception:
+        return False, "Could not reach Solana to verify this transaction. Please try again shortly."
+
+    result = resp.get("result")
+    if not result:
+        return False, (
+            "Transaction not found on-chain. If you just sent it, it may still be "
+            "confirming — wait a few seconds and try again. If it keeps failing, "
+            "the transfer likely didn't go through and no USDC left your wallet."
+        )
+
+    if result.get("meta", {}).get("err") is not None:
+        return False, "This transaction failed on-chain — no USDC was transferred."
+
+    meta = result.get("meta", {})
+    pre_balances = {b.get("owner"): b for b in meta.get("preTokenBalances", []) if b.get("mint") == USDC_MINT}
+    post_balances = {b.get("owner"): b for b in meta.get("postTokenBalances", []) if b.get("mint") == USDC_MINT}
+
+    def _ui_amount(balances: dict, owner: str) -> float:
+        return (balances.get(owner, {}).get("uiTokenAmount", {}) or {}).get("uiAmount") or 0
+
+    pool_delta = _ui_amount(post_balances, POOL_WALLET) - _ui_amount(pre_balances, POOL_WALLET)
+    if pool_delta <= 0:
+        return False, "This transaction didn't transfer any USDC into the BUDJU pool wallet."
+
+    if pool_delta < claimed_amount - 0.01:
+        return False, (
+            f"On-chain transfer (${pool_delta:.2f} USDC) is less than the claimed "
+            f"deposit (${claimed_amount:.2f}). Not recording a deposit larger than "
+            f"what actually arrived."
+        )
+
+    # Confirm the funds actually came from the wallet claiming the deposit —
+    # otherwise anyone could replay someone else's real deposit signature.
+    # The sender must appear in the transaction's own USDC balance deltas
+    # with a decrease; absence from those deltas is just as suspicious as a
+    # non-negative delta (it means this signature moved USDC into the pool
+    # from someone else entirely).
+    sender_delta = _ui_amount(post_balances, sender_wallet) - _ui_amount(pre_balances, sender_wallet)
+    if sender_delta >= 0:
+        return False, "This transaction wasn't sent from your wallet."
+
+    return True, None
+
+
 # ── Deposit with Share Issuance ─────────────────────────────────────────────
 
 def record_deposit(wallet_address: str, amount: float, tx_hash: str,
@@ -420,6 +521,11 @@ def record_deposit(wallet_address: str, amount: float, tx_hash: str,
     user = users_collection.find_one({"walletAddress": wallet_address})
     if not user:
         raise ValueError("User not found")
+
+    # Guard against the same on-chain signature being recorded twice (e.g. a
+    # resubmitted/replayed txHash double-minting shares for one real transfer).
+    if deposits_collection.find_one({"txHash": tx_hash, "status": {"$ne": "voided"}}):
+        raise ValueError("This transaction has already been recorded as a deposit.")
 
     # Idempotency guard: block an identical deposit recorded in the last 5 minutes
     # (prevents accidental double-clicks / retries from minting phantom shares).
