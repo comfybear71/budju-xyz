@@ -3,6 +3,7 @@
 # ==========================================
 from http.server import BaseHTTPRequestHandler
 import json
+from datetime import datetime
 import os
 import sys
 import time
@@ -86,6 +87,15 @@ from perp_strategies import (
 
 # ── CORS origin check ──────────────────────────────────────────────────
 ALLOWED_ORIGINS = ["https://budju.xyz", "https://www.budju.xyz"]
+
+
+def _json_datetime_default(obj):
+    """json.dumps(default=...) fallback: ISO-format any raw datetime that a
+    handler forgot to convert, instead of 500ing the whole response."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 
 def get_cors_origin(headers) -> str:
     origin = headers.get('Origin', '')
@@ -1104,7 +1114,12 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps(data).encode('utf-8'))
+        # Some DB-returned dicts carry raw datetime fields that individual
+        # handlers forget to isoformat() (e.g. pool_state's "initialized"/
+        # "navUpdatedAt", or reprice_deposit's "repricedAt"). Fall back to a
+        # generic datetime->ISO-string converter so one missed field doesn't
+        # 500 the whole endpoint.
+        self.wfile.write(json.dumps(data, default=_json_datetime_default).encode('utf-8'))
 
     def _read_body(self):
         content_length = int(self.headers.get('Content-Length', 0))
