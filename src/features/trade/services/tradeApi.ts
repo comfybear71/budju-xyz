@@ -78,6 +78,9 @@ export interface UserPosition {
   currentValue: number;
   allocation: number;
   totalDeposited: number;
+  /** Lifetime withdrawn — totalDeposited is never reduced by a withdrawal,
+   * so P&L must be (currentValue + totalWithdrawn) - totalDeposited. */
+  totalWithdrawn: number;
 }
 
 export interface TraderState {

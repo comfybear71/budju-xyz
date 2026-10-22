@@ -865,27 +865,44 @@ const Trade = () => {
                             {isAdmin ? "Your Personal Position" : "Your Position"}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
-                            <div className="text-base font-bold text-white font-mono">{formatUsd(userValue)}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">P&L</div>
-                            <div className={`text-base font-bold font-mono flex items-center gap-1 ${(userValue - userPosition.totalDeposited) >= 0 ? "text-green-400" : "text-red-400"}`}>
-                              {(userValue - userPosition.totalDeposited) >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
-                              {formatUsd(Math.abs(userValue - userPosition.totalDeposited))}
+                        {(() => {
+                          // P&L must account for money already taken OUT via a
+                          // withdrawal — totalDeposited is a lifetime gross
+                          // figure that's never reduced by one, so comparing it
+                          // straight against currentValue makes a withdrawal
+                          // look like a loss instead of realized value.
+                          const totalWithdrawn = userPosition.totalWithdrawn || 0;
+                          const netPnl = userValue + totalWithdrawn - userPosition.totalDeposited;
+                          return (
+                            <div className="grid grid-cols-2 gap-3 mb-3">
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
+                                <div className="text-base font-bold text-white font-mono">{formatUsd(userValue)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Net P&L</div>
+                                <div className={`text-base font-bold font-mono flex items-center gap-1 ${netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                  {netPnl >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
+                                  {formatUsd(Math.abs(netPnl))}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
+                                <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
+                                <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
+                              </div>
+                              {totalWithdrawn > 0 && (
+                                <div className="col-span-2">
+                                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Withdrawn</div>
+                                  <div className="text-sm font-bold text-amber-400/80 font-mono">{formatUsd(totalWithdrawn)}</div>
+                                </div>
+                              )}
                             </div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
-                            <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
-                            <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
-                          </div>
-                        </div>
+                          );
+                        })()}
 
                         {/* Deposit/value history line chart — built from this
                             wallet's own real deposit & withdrawal records. */}
