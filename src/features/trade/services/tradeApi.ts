@@ -55,6 +55,9 @@ export interface TradeTransaction {
   timestamp: string | null;
   txHash?: string;
   swyftxId?: string;
+  /** Shares burned (withdrawal) — mirrors deposit's shares/nav for charting. */
+  shares?: number;
+  nav?: number;
 }
 
 export interface AdminStats {
@@ -849,6 +852,7 @@ export interface DepositRecord {
   nav: number;
   timestamp: string;
   status: string;
+  navSource?: string;
 }
 
 export interface DepositSummary {
@@ -879,6 +883,80 @@ export async function fetchDeposits(wallet: string): Promise<DepositRecord[]> {
   } catch {
     return [];
   }
+}
+
+/** One point in a wallet's reconstructed deposit/value history (see buildPositionHistory). */
+export interface PositionHistoryPoint {
+  timestamp: string;
+  type: "deposit" | "withdrawal" | "now";
+  /** This event's own amount — undefined for the synthetic "now" point. */
+  amount?: number;
+  cumulativeShares: number;
+  /** Lifetime deposits (never reduced by withdrawals — matches the "Deposited" stat shown elsewhere). */
+  cumulativeDeposited: number;
+  cumulativeWithdrawn: number;
+  /** cumulativeShares × NAV at that moment (deposit/withdrawal NAV for past points, live NAV for "now"). */
+  value: number;
+}
+
+/**
+ * Reconstruct a wallet's deposit/value history from its own deposit and
+ * withdrawal records. There's no stored daily NAV time series for the spot
+ * pool, so historical "value" points are only as precise as the NAV
+ * recorded on each deposit/withdrawal itself — real data, not interpolated
+ * guesses, but sparse (one point per transaction, plus a live "now" point).
+ */
+export function buildPositionHistory(
+  deposits: DepositRecord[],
+  withdrawals: TradeTransaction[],
+  current: { shares: number; nav: number; value: number; totalDeposited: number },
+): PositionHistoryPoint[] {
+  type Event = { timestamp: string; type: "deposit" | "withdrawal"; shares: number; nav: number; amount: number };
+
+  const events: Event[] = [];
+  for (const d of deposits) {
+    if (!d.timestamp || d.status === "voided") continue;
+    events.push({ timestamp: d.timestamp, type: "deposit", shares: d.shares || 0, nav: d.nav || 0, amount: d.amount || 0 });
+  }
+  for (const w of withdrawals) {
+    if (!w.timestamp || w.type !== "withdrawal") continue;
+    events.push({ timestamp: w.timestamp, type: "withdrawal", shares: w.shares || 0, nav: w.nav || 0, amount: w.amount || 0 });
+  }
+  events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  let cumShares = 0;
+  let cumDeposited = 0;
+  let cumWithdrawn = 0;
+  const points: PositionHistoryPoint[] = events.map((e) => {
+    if (e.type === "deposit") {
+      cumShares += e.shares;
+      cumDeposited += e.amount;
+    } else {
+      cumShares = Math.max(0, cumShares - e.shares);
+      cumWithdrawn += e.amount;
+    }
+    const navAtEvent = e.nav > 0 ? e.nav : current.nav;
+    return {
+      timestamp: e.timestamp,
+      type: e.type,
+      amount: e.amount,
+      cumulativeShares: cumShares,
+      cumulativeDeposited: cumDeposited,
+      cumulativeWithdrawn: cumWithdrawn,
+      value: cumShares * navAtEvent,
+    };
+  });
+
+  points.push({
+    timestamp: new Date().toISOString(),
+    type: "now",
+    cumulativeShares: current.shares,
+    cumulativeDeposited: current.totalDeposited,
+    cumulativeWithdrawn: cumWithdrawn,
+    value: current.value,
+  });
+
+  return points;
 }
 
 /** Admin: void an accidental/duplicate deposit by txHash (reverses its shares) */

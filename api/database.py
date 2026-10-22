@@ -1190,7 +1190,11 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
                 "type": "withdrawal",
                 "amount": wd.get("amount", 0),
                 "currency": wd.get("currency", "USDC"),
-                "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None
+                "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None,
+                # Mirrors the deposit branch above — needed to reconstruct a
+                # wallet's share/value history over time (see PositionHistoryChart).
+                "shares": wd.get("shares", 0),
+                "nav": wd.get("nav", 0)
             })
 
         # Filter trades to only those where this wallet has an allocation

@@ -25,6 +25,8 @@ import { lazy } from "react";
 const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
+import PositionHistoryChart from "./components/PositionHistoryChart";
+import CommunityDepositsView from "./components/CommunityDepositsView";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -35,6 +37,9 @@ import {
   fetchLeaderboard,
   fetchTraderState,
   fetchEnrichedPendingOrders,
+  fetchDeposits,
+  fetchTransactions,
+  buildPositionHistory,
   registerWallet,
   recalibratePool,
   clearCache,
@@ -44,6 +49,7 @@ import {
   type UserPosition,
   type LeaderboardEntry,
   type TraderState,
+  type PositionHistoryPoint,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
@@ -65,6 +71,7 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
+  const [positionHistory, setPositionHistory] = useState<PositionHistoryPoint[]>([]);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -218,10 +225,31 @@ const Trade = () => {
         setPendingOrderCount(0);
       }
 
-      // Fetch user position if connected (non-admin)
-      if (isConnected && !isAdmin && poolVal > 0) {
+      // Fetch this wallet's own position + deposit/withdrawal history to chart
+      // it — both regular users and the admin wallet have their own shares
+      // and deposits (admin's pool-wide stats are a separate thing, shown
+      // in the stats grid above).
+      if (isConnected && poolVal > 0) {
         const pos = await fetchUserPosition(walletAddress, poolVal);
         setUserPosition(pos);
+
+        if (pos) {
+          const [deposits, txns] = await Promise.all([
+            fetchDeposits(walletAddress),
+            fetchTransactions(walletAddress).catch(() => []),
+          ]);
+          const withdrawals = txns.filter((t) => t.type === "withdrawal");
+          setPositionHistory(
+            buildPositionHistory(deposits, withdrawals, {
+              shares: pos.shares,
+              nav: pos.nav,
+              value: pos.currentValue,
+              totalDeposited: pos.totalDeposited,
+            }),
+          );
+        }
+      } else {
+        setPositionHistory([]);
       }
 
       activityLog.log("Connected — all data loaded", "success");
@@ -760,7 +788,9 @@ const Trade = () => {
                       ))}
                     </div>
 
-                    {/* Deposit breakdown (admin only) */}
+                    {/* Deposit breakdown (admin only) — click any wallet to
+                        drill into exactly what/when they deposited, plus
+                        their own deposit/value chart. */}
                     <AnimatePresence>
                       {showDepositBreakdown && depositBreakdown.length > 0 && (
                         <motion.div
@@ -769,20 +799,11 @@ const Trade = () => {
                           exit={{ opacity: 0, height: 0 }}
                           className="overflow-hidden mb-2"
                         >
-                          <div className="rounded-xl border border-green-500/20 bg-slate-900/60 p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-green-400/70">User Deposits</span>
-                              <button onClick={() => setShowDepositBreakdown(false)} className="text-[10px] text-slate-500 hover:text-white">Close</button>
-                            </div>
-                            <div className="space-y-1.5">
-                              {depositBreakdown.map((user) => (
-                                <div key={user.walletAddress} className="flex items-center justify-between py-1 px-1.5 rounded-lg hover:bg-slate-800/40">
-                                  <span className="text-[11px] text-slate-400 font-mono">{user.walletShort}</span>
-                                  <span className="text-[11px] font-bold text-green-400 font-mono">{formatUsd(user.totalDeposited)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          <CommunityDepositsView
+                            entries={depositBreakdown}
+                            totalPoolValue={totalPoolValue}
+                            onClose={() => setShowDepositBreakdown(false)}
+                          />
                         </motion.div>
                       )}
                     </AnimatePresence>
@@ -818,16 +839,18 @@ const Trade = () => {
                     </>
                     )}
 
-                    {/* User Position — visible for connected non-admin users */}
-                    {isConnected && !isAdmin && userPosition && (
+                    {/* Your Position — visible for ANY connected wallet (admin gets
+                        their own personal stake here, separate from the pool-wide
+                        stats grid above) */}
+                    {isConnected && userPosition && (
                       <>
                         <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
                           <HiOutlineWallet className="w-3 h-3 text-blue-400" />
                           <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
-                            Your Position
+                            {isAdmin ? "Your Personal Position" : "Your Position"}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-3 mb-3">
                           <div>
                             <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
                             <div className="text-base font-bold text-white font-mono">{formatUsd(userValue)}</div>
@@ -847,6 +870,12 @@ const Trade = () => {
                             <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
                             <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
                           </div>
+                        </div>
+
+                        {/* Deposit/value history line chart — built from this
+                            wallet's own real deposit & withdrawal records. */}
+                        <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 pt-2.5">
+                          <PositionHistoryChart points={positionHistory} />
                         </div>
                       </>
                     )}
