@@ -227,6 +227,75 @@ class TestDepositNavSanityCheck:
             db_module._resolve_deposit_nav(0, 16992.0)
 
 
+class TestRepriceDepositResnapshotsNav:
+    """Test that reprice_deposit() repairs pool_state.lastNav, not just shares.
+
+    Regression coverage for a second bug found while fixing the 2026-10-22
+    fairness incident: record_deposit() force-snapshots lastNav on every
+    deposit (even a bad one), so the original $5 deposit had already poisoned
+    pool_state.lastNav to the broken ~$0.006 value. reprice_deposit() fixed
+    the user's shares but left that poisoned snapshot in place — meaning the
+    very next deposit's sanity check in _resolve_deposit_nav() would compare
+    against the broken snapshot, reject the correct live NAV as an outlier,
+    and fall back to the broken value, reintroducing the same bug.
+    """
+
+    def _setup(self, db_module, total_shares_before):
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "totalShares": total_shares_before, "lastNav": 0.00597,
+        }
+        db_module.deposits_collection.find_one.return_value = {
+            "txHash": "abc123", "userId": "wallet1",
+            "amount": 5.0, "shares": 837.55, "nav": 0.00597, "status": "completed",
+        }
+
+    def test_apply_resnapshots_lastnav_to_correct_value(self, db_module):
+        """_snapshot_nav must be called with a (pool_value, total_shares) pair
+        whose ratio is exactly correct_nav — regardless of how pool_state's
+        totalShares happens to mutate in real Mongo between the $inc and the
+        resnapshot (a MagicMock doesn't simulate that mutation, so we assert
+        on the snapshot call's own internal consistency instead)."""
+        self._setup(db_module, total_shares_before=17825.0)
+        correct_nav = 0.8295138261750823
+
+        with patch.object(db_module, "_snapshot_nav") as mock_snapshot:
+            result = db_module.reprice_deposit("abc123", correct_nav, dry_run=False)
+
+        assert result["applied"] is True
+        mock_snapshot.assert_called_once()
+        pool_value_arg = mock_snapshot.call_args.args[0]
+        new_total_shares = result["totalSharesAfter"]
+        assert pool_value_arg / new_total_shares == pytest.approx(correct_nav)
+        assert mock_snapshot.call_args.kwargs.get("force") is True
+
+    def test_resnapshot_is_consistent_even_when_shares_already_correct(self, db_module):
+        """Re-running the fixed reprice (e.g. to repair a live, already-
+        corrected deposit's poisoned snapshot) must be a safe no-op on shares
+        — only the snapshot should move."""
+        correct_nav = 0.8295138261750823
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "totalShares": 16998.85, "lastNav": 0.00597,
+        }
+        db_module.deposits_collection.find_one.return_value = {
+            "txHash": "abc123", "userId": "wallet1",
+            "amount": 5.0, "shares": 5.0 / correct_nav, "nav": correct_nav,
+            "status": "completed",
+        }
+
+        with patch.object(db_module, "_snapshot_nav") as mock_snapshot:
+            result = db_module.reprice_deposit("abc123", correct_nav, dry_run=False)
+
+        assert result["sharesDelta"] == pytest.approx(0.0, abs=1e-6)
+        inc_calls = [
+            call for call in db_module.pool_state_collection.update_one.call_args_list
+            if "$inc" in call.args[1]
+        ]
+        assert inc_calls[-1].args[1]["$inc"]["totalShares"] == pytest.approx(0.0, abs=1e-6)
+        mock_snapshot.assert_called_once()
+        pool_value_arg = mock_snapshot.call_args.args[0]
+        assert pool_value_arg / 16998.85 == pytest.approx(correct_nav)
+
+
 class TestUserPosition:
     """Test user position value calculations."""
 
