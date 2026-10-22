@@ -410,14 +410,21 @@ export async function fetchLeaderboard(poolValue: number): Promise<LeaderboardEn
   });
 }
 
-/** Fetch transactions from MongoDB — throws on failure so callers can show errors */
+/** Fetch transactions from MongoDB — throws on failure so callers can show errors
+ *  Pass isAdmin=true for the admin's own view: the admin wallet is deliberately
+ *  excluded from pool allocations (see calculate_pool_allocations), so a
+ *  wallet-scoped buy/sell query for the admin's own address is *always* empty
+ *  by design — admin=true switches to the full pool-wide "Pool Trade" feed.
+ */
 export async function fetchTransactions(
   wallet: string,
+  isAdmin: boolean = false,
 ): Promise<TradeTransaction[]> {
   // Bypass cache so we always get fresh data when the user opens Activity
   delete cache[`txns_${wallet}`];
 
-  const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}`);
+  const adminParam = isAdmin ? "&admin=true" : "";
+  const res = await fetchWithRetry(`/api/transactions?wallet=${wallet}${adminParam}`);
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(body || `API error ${res.status}`);

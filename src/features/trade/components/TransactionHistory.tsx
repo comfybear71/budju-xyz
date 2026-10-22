@@ -38,9 +38,12 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   walletAddress?: string;
+  /** Admin's own wallet is excluded from pool allocations, so a wallet-scoped
+   *  buy/sell query is always empty for it — request the full pool feed instead. */
+  isAdmin?: boolean;
 }
 
-const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
+const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) => {
   const [transactions, setTransactions] = useState<TradeTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,7 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
     setLoading(true);
     setError(null);
     try {
-      const txns = await fetchTransactions(walletAddress);
+      const txns = await fetchTransactions(walletAddress, isAdmin);
       setTransactions(txns);
     } catch (err: any) {
       console.error("Failed to load transactions:", err);
@@ -65,7 +68,7 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress }: Props) => {
     } finally {
       setLoading(false);
     }
-  }, [walletAddress]);
+  }, [walletAddress, isAdmin]);
 
   useEffect(() => {
     if (!isOpen) return;

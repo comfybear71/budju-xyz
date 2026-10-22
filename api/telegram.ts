@@ -17,6 +17,14 @@ const TOKEN_ADDRESS = "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump";
 // www is canonical; the apex budju.xyz 307-redirects (breaks server-to-server POSTs)
 const WEBSITE_URL = "https://www.budju.xyz";
 
+// Mirrors api/database.py's ADMIN_WALLETS default/parsing exactly.
+const ADMIN_WALLETS = (
+  process.env.ADMIN_WALLETS || "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq"
+)
+  .split(",")
+  .map((w) => w.trim())
+  .filter(Boolean);
+
 // ── Telegram helpers ────────────────────────────────────────────────────
 async function sendMessage(chatId: number, text: string, parseMode = "HTML") {
   return fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -352,6 +360,52 @@ async function handlePrice(chatId: number) {
     `🌐 <a href="${WEBSITE_URL}">budjucoin.com</a>`;
 
   await sendMessage(chatId, msg);
+}
+
+// ── Trade Alert (client-side auto-trader digest) ─────────────────────────
+// Mirrors api/auto-trade-cron.py's send_telegram() digest format exactly.
+// The browser-side bot (src/features/trade/services/autoTrader.ts) has no
+// other path to Telegram — only the server cron posts alerts on its own,
+// so trades the *browser* executes need this endpoint or they're silent.
+interface TradeAlertTrade {
+  coin: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  price: number;
+  amount: number;
+}
+
+async function handleTradeAlert(
+  trades: TradeAlertTrade[],
+  usdcBalance: number,
+  portfolioValue: number,
+) {
+  if (!trades.length) return;
+
+  const buys = trades.filter((t) => t.side === "BUY");
+  const sells = trades.filter((t) => t.side === "SELL");
+
+  const lines = [`🤖 <b>Auto-Trade</b> — ${trades.length} trade(s)`];
+  if (buys.length) {
+    lines.push(`\n🟢 <b>${buys.length} BUY</b>`);
+    for (const t of buys.slice(0, 25)) {
+      lines.push(
+        `🛒 ${t.qty.toFixed(4)} ${t.coin} @ $${t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}  ($${t.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })})`,
+      );
+    }
+  }
+  if (sells.length) {
+    lines.push(`\n🔴 <b>${sells.length} SELL</b>`);
+    for (const t of sells.slice(0, 25)) {
+      lines.push(
+        `💸 ${t.qty.toFixed(4)} ${t.coin} @ $${t.price.toLocaleString(undefined, { maximumFractionDigits: 2 })}  ($${t.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })})`,
+      );
+    }
+  }
+  lines.push(`\n💰 USDC remaining: $${usdcBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
+  lines.push(`📊 Portfolio: $${Math.round(portfolioValue).toLocaleString()}`);
+
+  await sendMessage(GROUP_CHAT_ID, lines.join("\n"));
 }
 
 async function handleChart(chatId: number) {
@@ -858,6 +912,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle webhook POST from Telegram
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Trade alert from the browser-side auto-trader (not a Telegram webhook
+  // update — Telegram's own payloads never carry a top-level "action" field).
+  if (req.body?.action === "tradeAlert") {
+    const { adminWallet, trades, usdcBalance, portfolioValue } = req.body;
+    if (!adminWallet || !ADMIN_WALLETS.includes(adminWallet)) {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+    if (!Array.isArray(trades) || trades.length === 0) {
+      return res.status(400).json({ error: "trades array required" });
+    }
+    try {
+      await handleTradeAlert(trades, Number(usdcBalance) || 0, Number(portfolioValue) || 0);
+    } catch {
+      // Non-critical — never let a Telegram hiccup surface as a trade failure.
+    }
+    return res.status(200).json({ ok: true });
   }
 
   try {

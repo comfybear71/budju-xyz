@@ -1130,6 +1130,7 @@ const Trade = () => {
         isOpen={showTransactions}
         onClose={() => { setShowTransactions(false); setActiveNav("home"); }}
         walletAddress={walletAddress}
+        isAdmin={isAdmin}
       />
       <PendingOrdersView
         isOpen={showPendingOrders}
