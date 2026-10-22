@@ -161,6 +161,72 @@ class TestShareIssuance:
         assert shares_issued == pytest.approx(833.333, rel=1e-3)
 
 
+class TestDepositNavSanityCheck:
+    """Test _resolve_deposit_nav's sanity check against the last NAV snapshot.
+
+    Regression coverage for the 2026-10-22 fairness bug: a self-service
+    deposit's "live" pool value silently collapsed to USDC-cash-only (missing
+    all crypto holdings), pricing a $5 deposit at a NAV ~140x too low and
+    minting ~140x too many shares. A live value must now be sanity-checked
+    against the last known-good NAV snapshot before being trusted.
+    """
+
+    def test_live_value_within_band_is_trusted(self, db_module):
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": 0.83,
+        }
+        nav, source = db_module._resolve_deposit_nav(14000.0, 16992.0)
+        assert source == "live"
+        assert nav == pytest.approx(14000.0 / 16992.0)
+
+    def test_degraded_live_value_is_rejected(self, db_module):
+        """The real-world bug: pool value computed as cash-only ($101)
+        instead of crypto+cash (~$14,000), against a pool whose last known
+        NAV was ~$0.83/share. The degraded value must be rejected in favour
+        of the snapshot, not used to price the deposit."""
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": 0.83,
+        }
+        nav, source = db_module._resolve_deposit_nav(101.44, 16992.0)
+        assert source == "last_snapshot_rejected_live"
+        assert nav == pytest.approx(0.83)
+
+    def test_implausibly_high_live_value_is_also_rejected(self, db_module):
+        """Sanity check applies symmetrically — a value too far ABOVE the
+        last snapshot is just as untrustworthy as one too far below."""
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": 0.83,
+        }
+        nav, source = db_module._resolve_deposit_nav(2_000_000.0, 16992.0)
+        assert source == "last_snapshot_rejected_live"
+        assert nav == pytest.approx(0.83)
+
+    def test_live_value_accepted_when_no_snapshot_exists(self, db_module):
+        """With nothing to sanity-check against yet, a live value is trusted
+        as-is (matches pre-existing behaviour for a pool with no history)."""
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": None,
+        }
+        nav, source = db_module._resolve_deposit_nav(101.44, 16992.0)
+        assert source == "live"
+        assert nav == pytest.approx(101.44 / 16992.0)
+
+    def test_no_live_value_falls_back_to_snapshot(self, db_module):
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": 0.83,
+        }
+        nav, source = db_module._resolve_deposit_nav(0, 16992.0)
+        assert source == "last_snapshot"
+        assert nav == pytest.approx(0.83)
+
+    def test_no_live_value_and_no_snapshot_raises(self, db_module):
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "lastNav": None,
+        }
+        with pytest.raises(ValueError):
+            db_module._resolve_deposit_nav(0, 16992.0)
+
+
 class TestUserPosition:
     """Test user position value calculations."""
 

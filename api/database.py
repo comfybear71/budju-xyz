@@ -190,16 +190,35 @@ def _resolve_deposit_nav(pre_deposit_value: float, total_shares: float) -> tuple
     Returns (nav, source). Raises ValueError rather than guessing $1.00 when the
     pool already holds shares but no NAV can be established — minting at the
     wrong NAV is worse than failing the deposit.
+
+    A "live" pool value is still just a client-supplied number — if the
+    client's crypto/price fetch silently degraded (e.g. returned $0 for
+    holdings instead of failing), it can produce a wildly wrong NAV and
+    over/under-mint shares. Sanity-check a live value against the last known
+    snapshot using the same NAV_SANITY_FACTOR bound used for snapshots
+    themselves; a live value outside that band is rejected in favour of the
+    snapshot (real fairness bug fixed 2026-10-22: a $5 self-service deposit
+    was priced off a "pool value" that only counted USDC cash, not crypto
+    holdings, minting ~140x too many shares).
     """
     if total_shares <= 0:
         # Genuinely the first money in: NAV is $1.00 by definition.
         return 1.0, "bootstrap"
 
-    if pre_deposit_value and pre_deposit_value > 0:
-        return pre_deposit_value / total_shares, "live"
-
     last_nav = get_pool_state().get("lastNav")
-    if last_nav and float(last_nav) > 0:
+    has_last_nav = bool(last_nav and float(last_nav) > 0)
+
+    if pre_deposit_value and pre_deposit_value > 0:
+        live_nav = pre_deposit_value / total_shares
+        if has_last_nav:
+            ratio = live_nav / float(last_nav)
+            if ratio > NAV_SANITY_FACTOR or ratio < (1.0 / NAV_SANITY_FACTOR):
+                # Live value disagrees with the last snapshot by more than the
+                # sanity band — trust the snapshot, not the live fetch.
+                return float(last_nav), "last_snapshot_rejected_live"
+        return live_nav, "live"
+
+    if has_last_nav:
         return float(last_nav), "last_snapshot"
 
     raise ValueError(

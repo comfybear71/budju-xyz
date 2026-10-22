@@ -1040,11 +1040,43 @@ export async function recordWithdrawal(
 
 /** Live Swyftx pool value (crypto + cash), same formula as Trade.tsx. */
 export async function fetchLivePoolValue(): Promise<number> {
-  const [portfolio, cash] = await Promise.all([
-    fetchPortfolio().catch(() => [] as PortfolioAsset[]),
-    fetchCashBalances().catch(() => ({ usdc: 0, aud: 0 })),
+  // fetchPortfolio()'s own usdValue is derived from Swyftx's aud_value field,
+  // which is unreliable/zero for this account — Trade.tsx's dashboard never
+  // trusts it directly, it always re-prices each asset with a live CoinGecko
+  // price first. This function used to skip that re-pricing step, so a
+  // perfectly "successful" fetch could still value every crypto holding at
+  // $0 and return a pool value of USDC-cash-only — which is exactly what
+  // happened on 2026-10-22: a $5 deposit got priced against a $101 "pool
+  // value" instead of the real ~$14,000 (crypto + cash), minting ~140x too
+  // many shares. Always merge live prices the same way the dashboard does.
+  const [portfolioResult, pricesResult, cashResult] = await Promise.allSettled([
+    fetchPortfolio(),
+    fetchPrices(),
+    fetchCashBalances(),
   ]);
-  const crypto = portfolio.reduce((s, a) => s + (a.usdValue || 0), 0);
+
+  if (portfolioResult.status === "rejected" || pricesResult.status === "rejected") {
+    throw new Error("Could not fetch live portfolio/price data for pool valuation");
+  }
+
+  const portfolio = portfolioResult.value;
+  const prices = pricesResult.value;
+  const cash = cashResult.status === "fulfilled" ? cashResult.value : { usdc: 0, aud: 0 };
+
+  const crypto = portfolio.reduce((sum, a) => {
+    const livePrice = prices[a.code];
+    const usdValue = livePrice && a.balance > 0 ? a.balance * livePrice : a.usdValue || 0;
+    return sum + usdValue;
+  }, 0);
+
+  // A pool that genuinely holds crypto but values it at $0 means the
+  // portfolio/price fetch silently degraded, not that the holdings are
+  // worthless. Refuse rather than return a garbage "live" value — the caller
+  // falls back to the backend's sanity-checked NAV snapshot instead.
+  if (portfolio.length > 0 && crypto <= 0) {
+    throw new Error("Pool valuation looks degraded (nonzero holdings priced at $0)");
+  }
+
   return crypto + cash.usdc + cash.aud * AUD_TO_USD;
 }
 
