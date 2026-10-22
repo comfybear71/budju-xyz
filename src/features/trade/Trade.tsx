@@ -27,6 +27,7 @@ import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PositionHistoryChart from "./components/PositionHistoryChart";
 import CommunityDepositsView from "./components/CommunityDepositsView";
+import PoolNavChart from "./components/PoolNavChart";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -40,6 +41,8 @@ import {
   fetchDeposits,
   fetchTransactions,
   buildPositionHistory,
+  fetchNavHistory,
+  appendLiveNav,
   registerWallet,
   recalibratePool,
   clearCache,
@@ -50,6 +53,7 @@ import {
   type LeaderboardEntry,
   type TraderState,
   type PositionHistoryPoint,
+  type NavHistoryPoint,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
@@ -72,6 +76,7 @@ const Trade = () => {
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [positionHistory, setPositionHistory] = useState<PositionHistoryPoint[]>([]);
+  const [navHistory, setNavHistory] = useState<NavHistoryPoint[]>([]);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -211,6 +216,12 @@ const Trade = () => {
       if (poolVal > 0) {
         const stats = await fetchAdminStats(poolVal);
         setPoolStats(stats);
+
+        // NAV-over-time — public, visible to every visitor regardless of
+        // connection/admin status. Reconstructed from every deposit/withdrawal's
+        // own recorded NAV, plus today's live NAV appended on the client.
+        const navPoints = await fetchNavHistory();
+        setNavHistory(stats ? appendLiveNav(navPoints, stats.nav) : navPoints);
       }
 
       // Fetch trader state for insight cards (bot status, tier config)
@@ -489,6 +500,11 @@ const Trade = () => {
                       </span>
                     </div>
                   )}
+
+                  {/* NAV-over-time — public, visible to every visitor. Throw more
+                      money in when NAV is low (more shares per dollar); existing
+                      shares are worth more as NAV rises. */}
+                  {navHistory.length >= 2 && <PoolNavChart points={navHistory} />}
 
                   {/* Admin: tap coin to trade / User: connect to join */}
                   <p className="text-center text-xs text-slate-500 mt-1">
@@ -905,10 +921,35 @@ const Trade = () => {
                         })()}
 
                         {/* Deposit/value history line chart — built from this
-                            wallet's own real deposit & withdrawal records. */}
+                            wallet's own real deposit & withdrawal records.
+                            This is YOUR shares only: another wallet depositing
+                            or withdrawing doesn't move it — new shares are
+                            issued at the current NAV so it never dilutes or
+                            inflates what you already hold, it only moves with
+                            price/NAV changes on your own balance. */}
                         <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 pt-2.5">
                           <PositionHistoryChart points={positionHistory} />
                         </div>
+
+                        {/* Combined P&L — the WHOLE pool's result (admin capital
+                            + every investor's), not just the admin's own slice
+                            shown above. Answers "is the pool overall up or down". */}
+                        {isAdmin && poolStats && (
+                          <div className="mt-3 rounded-xl border border-slate-700/30 bg-slate-800/40 p-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] text-slate-500 uppercase tracking-wider">
+                                Combined P&L (Admin + Investors)
+                              </span>
+                              <span className={`text-sm font-bold font-mono flex items-center gap-1 ${poolStats.combinedPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                                {poolStats.combinedPnl >= 0 ? <FaArrowUp size={9} /> : <FaArrowDown size={9} />}
+                                {formatUsd(Math.abs(poolStats.combinedPnl))}
+                                <span className="text-slate-500 font-normal ml-1">
+                                  ({poolStats.combinedPnlPercent >= 0 ? "+" : ""}{poolStats.combinedPnlPercent.toFixed(1)}%)
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
                   </>
