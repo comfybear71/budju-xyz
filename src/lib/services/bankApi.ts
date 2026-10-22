@@ -17,6 +17,7 @@ import {
   // getTokenByAddress,
   // TokenInfo,
 } from "@lib/services/tokenRegistry";
+import { getWalletProvider, WalletName } from "@lib/web3/connection";
 
 // Types
 export interface DepositParams {
@@ -63,23 +64,19 @@ const debugWallet = (wallet: any): void => {
 };
 
 /**
- * Verify wallet and get connected wallet adapter
+ * Verify wallet and get connected wallet adapter.
+ *
+ * Delegates to the centralized `getWalletProvider()` in connection.ts, which
+ * also knows about the Jupiter wallet (both the browser extension via
+ * Wallet Standard and Jupiter Mobile's in-app browser). This used to check
+ * only `window.solana`/`window.solflare` directly, which meant it could
+ * never recognize a Jupiter-connected wallet at all — pass the actually
+ * connected wallet's name (from useWallet()'s connection state) when known,
+ * to avoid guessing which provider to use.
  */
-export const getConnectedWallet = (): any => {
-  // Check for Phantom wallet
-  if (window.solana?.isPhantom && window.solana.isConnected) {
-    return window.solana;
-  }
-
-  // Check for Solflare wallet
-  if (window.solflare?.isSolflare && window.solflare.isConnected) {
-    return window.solflare;
-  }
-
-  // Check for other wallets
-  if (window.solana && !window.solana.isPhantom && window.solana.isConnected) {
-    return window.solana;
-  }
+export const getConnectedWallet = (walletName?: WalletName): any => {
+  const provider = getWalletProvider(walletName);
+  if (provider) return provider;
 
   throw new Error("No connected wallet found");
 };

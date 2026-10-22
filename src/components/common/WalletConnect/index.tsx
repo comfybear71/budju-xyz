@@ -1399,6 +1399,7 @@ const WalletConnect = ({
       {showDeposit && connection.wallet?.address && (
         <DepositModal
           walletAddress={connection.wallet.address}
+          walletName={connection.wallet.name}
           usdcBalance={usdcBalance}
           onClose={() => setShowDeposit(false)}
           onSuccess={() => handleRefresh()}

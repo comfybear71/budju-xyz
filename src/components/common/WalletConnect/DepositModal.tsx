@@ -5,9 +5,14 @@ import { POOL_WALLET } from "@constants/addresses";
 import { sendUsdcDeposit } from "@lib/services/depositService";
 import { submitUserDeposit } from "@/features/trade/services/tradeApi";
 import { getConnectedWallet } from "@lib/services/bankApi";
+import { WalletName } from "@lib/web3/connection";
 
 interface DepositModalProps {
   walletAddress: string;
+  // Which wallet is actually connected (phantom/solflare/jupiter/other), so
+  // getConnectedWallet() doesn't have to guess — it previously had no way
+  // to recognize a Jupiter-connected wallet at all.
+  walletName?: WalletName;
   usdcBalance: number;
   onClose: () => void;
   onSuccess: () => void;
@@ -15,6 +20,7 @@ interface DepositModalProps {
 
 const DepositModal = ({
   walletAddress,
+  walletName,
   usdcBalance,
   onClose,
   onSuccess,
@@ -41,7 +47,7 @@ const DepositModal = ({
 
     try {
       // Step 1: Send USDC on-chain
-      const provider = getConnectedWallet();
+      const provider = getConnectedWallet(walletName);
       const txSignature = await sendUsdcDeposit(
         provider,
         walletAddress,
@@ -97,8 +103,8 @@ const DepositModal = ({
 
         {/* Description */}
         <p className="text-[13px] text-gray-400 mb-3 leading-relaxed">
-          Send USDC from your Phantom wallet to the BUDJU pool. Your allocation
-          is based on your deposit percentage of the total pool.
+          Send USDC from your connected wallet to the BUDJU pool. Your
+          allocation is based on your deposit percentage of the total pool.
         </p>
 
         {/* Available balance */}
@@ -147,7 +153,7 @@ const DepositModal = ({
           <div className="py-4 text-center">
             <div className="w-9 h-9 border-[3px] border-white/10 border-t-emerald-500 rounded-full mx-auto mb-2 animate-spin" />
             <div className="text-[13px] text-gray-400">
-              Waiting for Phantom approval...
+              Waiting for wallet approval...
             </div>
           </div>
         )}
