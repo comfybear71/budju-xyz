@@ -9,6 +9,7 @@
 import { WALLET_ADAPTER_NETWORK, RPC_ENDPOINT } from "@constants/addresses";
 import walletService from "@lib/services/walletService";
 import { getWallets } from "@wallet-standard/app";
+import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 
 // Wallet types
 export type WalletName = "phantom" | "solflare" | "jupiter" | "other";
@@ -84,7 +85,70 @@ function findJupiterStandardWallet(): any {
   }
 }
 
-/** Wrap a Wallet Standard wallet into our SolanaWallet interface */
+const BASE58_ALPHABET =
+  "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/**
+ * Minimal base58 encoder (no external dependency — "bs58" is only a
+ * transitive dep in this project, not a declared one). Used to turn the raw
+ * signature bytes a Wallet Standard wallet returns into the base58 string
+ * the rest of the app expects (same format Phantom/Solflare return).
+ */
+function base58Encode(bytes: Uint8Array): string {
+  if (bytes.length === 0) return "";
+  const digits = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let leadingZeros = 0;
+  while (leadingZeros < bytes.length && bytes[leadingZeros] === 0) {
+    leadingZeros++;
+  }
+  let result = BASE58_ALPHABET[0].repeat(leadingZeros);
+  for (let i = digits.length - 1; i >= 0; i--) {
+    result += BASE58_ALPHABET[digits[i]];
+  }
+  return result;
+}
+
+/** Serialize a transaction to the raw bytes the Wallet Standard API expects */
+function serializeForSigning(tx: Transaction | VersionedTransaction): Uint8Array {
+  if (tx instanceof VersionedTransaction) return tx.serialize();
+  // Legacy Transaction isn't signed yet at this point, so signatures can't
+  // be required/verified when producing the wire bytes to hand to the wallet.
+  return tx.serialize({ requireAllSignatures: false, verifySignatures: false });
+}
+
+/** Rebuild a signed transaction object from the bytes the wallet hands back */
+function deserializeSigned(
+  bytes: Uint8Array,
+  original: Transaction | VersionedTransaction,
+): Transaction | VersionedTransaction {
+  if (original instanceof VersionedTransaction) {
+    return VersionedTransaction.deserialize(bytes);
+  }
+  return Transaction.from(bytes);
+}
+
+/**
+ * Wrap a Wallet Standard wallet into our SolanaWallet interface.
+ *
+ * The Wallet Standard sign features (`solana:signTransaction`,
+ * `solana:signAndSendTransaction`, `solana:signMessage`) take
+ * `{ account, transaction/message: Uint8Array, chain }` input objects and
+ * return an *array* of outputs — not a raw transaction object and not a
+ * single result. This wrapper translates both directions so the rest of the
+ * app can keep treating every wallet the same way it treats Phantom.
+ */
 function wrapStandardWallet(stdWallet: any): SolanaWallet | null {
   if (!stdWallet) return null;
 
@@ -93,6 +157,14 @@ function wrapStandardWallet(stdWallet: any): SolanaWallet | null {
   const disconnectFeature = features["standard:disconnect"];
 
   if (!connectFeature) return null;
+
+  // The sign features need the full WalletAccount object returned by
+  // connect(), not just the address string derived from it — keep it.
+  let connectedAccount: any = null;
+
+  const getChain = (): string =>
+    connectedAccount?.chains?.find((c: string) => c.startsWith("solana:")) ||
+    "solana:mainnet";
 
   // Build a SolanaWallet-compatible wrapper
   const wrapper: SolanaWallet = {
@@ -105,49 +177,75 @@ function wrapStandardWallet(stdWallet: any): SolanaWallet | null {
       const accounts = result?.accounts || [];
       if (accounts.length > 0) {
         const acct = accounts[0];
-        // Account.address is a Uint8Array (public key bytes) or string
+        connectedAccount = acct;
+        // Account.address is a base58 string per the Wallet Standard spec;
+        // fall back to deriving it from publicKey bytes just in case.
         let address: string;
         if (typeof acct.address === "string") {
           address = acct.address;
         } else if (acct.publicKey) {
-          // Some implementations provide publicKey as bytes
-          const { PublicKey } = await import("@solana/web3.js");
           address = new PublicKey(acct.publicKey).toString();
         } else {
-          const { PublicKey } = await import("@solana/web3.js");
           address = new PublicKey(acct.address).toString();
         }
-        wrapper.publicKey = { toString: () => address };
+        // A real PublicKey (not just a toString() shim) so callers that
+        // build transactions with wallet.publicKey (feePayer, ATAs, etc.)
+        // work the same way they do for Phantom/Solflare.
+        wrapper.publicKey = new PublicKey(address);
         wrapper.isConnected = true;
       }
     },
     disconnect: async () => {
       if (disconnectFeature) await disconnectFeature.disconnect();
       wrapper.isConnected = false;
+      connectedAccount = null;
     },
   };
 
   // Wire up transaction signing if available
   const signTxFeature = features["solana:signTransaction"];
   if (signTxFeature) {
-    wrapper.signTransaction = async (tx: any) => {
-      const result = await signTxFeature.signTransaction(tx);
-      return result?.signedTransaction || result;
+    wrapper.signTransaction = async (tx: Transaction | VersionedTransaction) => {
+      if (!connectedAccount) throw new Error("Jupiter wallet not connected");
+      const [result] = await signTxFeature.signTransaction({
+        account: connectedAccount,
+        transaction: serializeForSigning(tx),
+        chain: getChain(),
+      });
+      if (!result?.signedTransaction) {
+        throw new Error("Jupiter wallet did not return a signed transaction");
+      }
+      return deserializeSigned(result.signedTransaction, tx);
     };
   }
 
   const signAndSendFeature = features["solana:signAndSendTransaction"];
   if (signAndSendFeature) {
-    wrapper.signAndSendTransaction = async (tx: any) => {
-      const result = await signAndSendFeature.signAndSendTransaction(tx);
-      return { signature: result?.signature || result };
+    wrapper.signAndSendTransaction = async (
+      tx: Transaction | VersionedTransaction,
+    ) => {
+      if (!connectedAccount) throw new Error("Jupiter wallet not connected");
+      const [result] = await signAndSendFeature.signAndSendTransaction({
+        account: connectedAccount,
+        transaction: serializeForSigning(tx),
+        chain: getChain(),
+      });
+      if (!result?.signature) {
+        throw new Error("Jupiter wallet did not return a transaction signature");
+      }
+      return { signature: base58Encode(result.signature) };
     };
   }
 
   const signMsgFeature = features["solana:signMessage"];
   if (signMsgFeature) {
     wrapper.signMessage = async (msg: Uint8Array) => {
-      return await signMsgFeature.signMessage(msg);
+      if (!connectedAccount) throw new Error("Jupiter wallet not connected");
+      const [result] = await signMsgFeature.signMessage({
+        account: connectedAccount,
+        message: msg,
+      });
+      return result;
     };
   }
 
@@ -196,13 +294,24 @@ const waitForProvider = (timeout = 2000): Promise<void> =>
 const getPhantomAdapter = (): SolanaWallet | undefined =>
   window.phantom?.solana || window.solana;
 
+// Cache the wrapped Jupiter adapter itself (not just the raw Wallet
+// Standard registry entry). wrapStandardWallet() closes over connection
+// state (the connected account, isConnected, publicKey) in local variables,
+// so creating a fresh wrapper on every call — as this used to do — threw
+// that state away and looked "disconnected" on every call after the first.
+let _jupiterWrappedWallet: SolanaWallet | undefined;
+
 /** Get the Jupiter wallet adapter (window.jupiter or Wallet Standard) */
 const getJupiterAdapter = (): SolanaWallet | undefined => {
-  // Check legacy window.jupiter first
+  // Check legacy window.jupiter first (Jupiter Mobile in-app browser)
   if (window.jupiter) return window.jupiter;
-  // Check Wallet Standard
+  // Check Wallet Standard (Jupiter browser extension)
   const std = _jupiterStandardWallet || findJupiterStandardWallet();
-  return wrapStandardWallet(std) || undefined;
+  if (!std) return undefined;
+  if (!_jupiterWrappedWallet) {
+    _jupiterWrappedWallet = wrapStandardWallet(std) || undefined;
+  }
+  return _jupiterWrappedWallet;
 };
 
 /**
