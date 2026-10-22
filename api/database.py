@@ -1106,6 +1106,17 @@ def get_admin_stats(total_pool_value: float) -> Dict:
     total_deposited = sum(u.get("totalDeposited", 0) for u in non_admin_users)
     total_value = sum(u.get("shares", 0) * nav for u in non_admin_users)
 
+    # Combined P&L — the WHOLE pool's trading result, admin capital included.
+    # Unlike totalUserDeposited/totalUserValue above (investors only), this
+    # answers "has the pool as a whole made or lost money" across every
+    # wallet. Must add back totalWithdrawn — it's never subtracted from
+    # totalDeposited (same gross-vs-net issue as get_user_position()).
+    all_active_users = list(users_collection.find({"isActive": True}))
+    combined_deposited = sum(u.get("totalDeposited", 0) for u in all_active_users)
+    combined_withdrawn = sum(u.get("totalWithdrawn", 0) for u in all_active_users)
+    combined_value = sum(u.get("shares", 0) * nav for u in all_active_users)
+    combined_pnl = combined_value + combined_withdrawn - combined_deposited
+
     last_dep = deposits_collection.find_one(sort=[("timestamp", -1)])
     last_user = users_collection.find_one(sort=[("joinedDate", -1)])
     trade_count = trades_collection.count_documents({})
@@ -1126,8 +1137,50 @@ def get_admin_stats(total_pool_value: float) -> Dict:
         "lastDepositWallet": (last_dep.get("userId", "")[:4] + "..." + last_dep.get("userId", "")[-4:]) if last_dep and len(last_dep.get("userId", "")) > 8 else None,
         "lastDepositAmount": last_dep.get("amount", 0) if last_dep else 0,
         "lastUserJoined": last_user.get("joinedDate").isoformat() if last_user and last_user.get("joinedDate") else None,
-        "pnlPercent": round(((total_value / total_deposited) - 1) * 100, 2) if total_deposited > 0 else 0
+        "pnlPercent": round(((total_value / total_deposited) - 1) * 100, 2) if total_deposited > 0 else 0,
+        "combinedDeposited": round(combined_deposited, 2),
+        "combinedWithdrawn": round(combined_withdrawn, 2),
+        "combinedValue": round(combined_value, 2),
+        "combinedPnl": round(combined_pnl, 2),
+        "combinedPnlPercent": round((combined_pnl / combined_deposited) * 100, 2) if combined_deposited > 0 else 0,
     }
+
+
+def get_pool_nav_timeline() -> List[Dict]:
+    """Reconstruct the pool's NAV over time from every deposit/withdrawal/reprice
+    ever recorded (pool-wide, not scoped to one wallet). There's no stored daily
+    NAV time series — each deposit/withdrawal already carries the NAV it was
+    priced at, so this is real historical data, just sparse (one point per
+    transaction). Wallet identity and dollar amounts are intentionally omitted —
+    this endpoint is public and only exposes NAV + event type, nothing about
+    who moved money or how much.
+    """
+    points: List[Dict] = []
+
+    for dep in deposits_collection.find(
+        {"status": {"$ne": "voided"}}, {"timestamp": 1, "nav": 1}
+    ).sort("timestamp", 1):
+        if not dep.get("timestamp") or not dep.get("nav"):
+            continue
+        points.append({
+            "timestamp": dep["timestamp"].isoformat(),
+            "nav": round(dep["nav"], 6),
+            "type": "deposit",
+        })
+
+    for wd in withdrawals_collection.find(
+        {"status": {"$ne": "voided"}}, {"timestamp": 1, "nav": 1}
+    ).sort("timestamp", 1):
+        if not wd.get("timestamp") or not wd.get("nav"):
+            continue
+        points.append({
+            "timestamp": wd["timestamp"].isoformat(),
+            "nav": round(wd["nav"], 6),
+            "type": "withdrawal",
+        })
+
+    points.sort(key=lambda p: p["timestamp"])
+    return points
 
 
 def get_all_transactions(wallet_address: str = None, is_admin_request: bool = False) -> List[Dict]:

@@ -32,7 +32,15 @@ const PositionHistoryChart = ({ points, label }: Props) => {
     const t1 = new Date(points[points.length - 1].timestamp).getTime();
     const tRange = Math.max(t1 - t0, 1);
 
-    const allValues = points.flatMap((p) => [p.value, p.cumulativeDeposited]);
+    // "Net invested" = cumulativeDeposited - cumulativeWithdrawn — this is
+    // what's actually still "at risk" in the pool right now. cumulativeDeposited
+    // alone is a lifetime-gross figure that never drops on a withdrawal, which
+    // made the dashed line stay pinned at its peak forever and made a
+    // withdrawal invisible on the chart. Net invested drops the moment money
+    // comes back out, so the visual gap to the value line IS the P&L.
+    const netInvestedOf = (p: PositionHistoryPoint) => p.cumulativeDeposited - p.cumulativeWithdrawn;
+
+    const allValues = points.flatMap((p) => [p.value, netInvestedOf(p)]);
     const minV = Math.min(...allValues, 0) * 0.97;
     const maxV = Math.max(...allValues) * 1.05 || 1;
     const vRange = maxV - minV || 1;
@@ -41,23 +49,29 @@ const PositionHistoryChart = ({ points, label }: Props) => {
       padding.left + ((new Date(ts).getTime() - t0) / tRange) * chartW;
     const yFor = (v: number) => padding.top + chartH - ((v - minV) / vRange) * chartH;
 
-    // "Deposited" is a step function: it jumps at each deposit and otherwise
-    // holds flat — it should never visually slope between data points.
-    const depositedStepPath: string[] = [];
+    // Net invested is a step function: it jumps at each deposit/withdrawal and
+    // otherwise holds flat — it should never visually slope between events.
+    const investedStepPath: string[] = [];
     points.forEach((p, i) => {
       const x = xFor(p.timestamp);
-      const y = yFor(p.cumulativeDeposited);
+      const y = yFor(netInvestedOf(p));
       if (i === 0) {
-        depositedStepPath.push(`M ${x},${y}`);
+        investedStepPath.push(`M ${x},${y}`);
       } else {
-        const prevY = yFor(points[i - 1].cumulativeDeposited);
-        depositedStepPath.push(`L ${x},${prevY} L ${x},${y}`);
+        const prevY = yFor(netInvestedOf(points[i - 1]));
+        investedStepPath.push(`L ${x},${prevY} L ${x},${y}`);
       }
     });
 
     const valuePoints = points.map((p) => ({ x: xFor(p.timestamp), y: yFor(p.value), p }));
     const valuePath = `M ${valuePoints.map((v) => `${v.x},${v.y}`).join(" L ")}`;
     const areaPath = `${valuePath} L ${valuePoints[valuePoints.length - 1].x},${padding.top + chartH} L ${valuePoints[0].x},${padding.top + chartH} Z`;
+
+    // Vertical ticks at every withdrawal event so a cash-out reads as an
+    // explicit annotation on the timeline, not just an unexplained dip.
+    const withdrawalTicks = valuePoints
+      .filter(({ p }) => p.type === "withdrawal")
+      .map(({ x }) => ({ x, y1: padding.top, y2: padding.top + chartH }));
 
     // P&L must add back anything already withdrawn — cumulativeDeposited is
     // a lifetime gross figure that a withdrawal never reduces, so comparing
@@ -68,8 +82,8 @@ const PositionHistoryChart = ({ points, label }: Props) => {
 
     return {
       width, height, padding, chartW, chartH,
-      depositedStepPath: depositedStepPath.join(" "),
-      valuePath, areaPath, valuePoints,
+      investedStepPath: investedStepPath.join(" "),
+      valuePath, areaPath, valuePoints, withdrawalTicks,
       minV, maxV, isUp,
     };
   }, [points]);
@@ -82,7 +96,7 @@ const PositionHistoryChart = ({ points, label }: Props) => {
     );
   }
 
-  const { width, height, padding, chartW, isUp, depositedStepPath, valuePath, areaPath, valuePoints, minV, maxV } = chart;
+  const { width, height, padding, chartW, isUp, investedStepPath, valuePath, areaPath, valuePoints, withdrawalTicks, minV, maxV } = chart;
   const strokeColor = isUp ? "#34d399" : "#f87171";
   const fillColor = isUp ? "#34d399" : "#f87171";
   const last = points[points.length - 1];
@@ -114,8 +128,18 @@ const PositionHistoryChart = ({ points, label }: Props) => {
         <path d={areaPath} fill="url(#posGrad)" />
         <path d={valuePath} fill="none" stroke={strokeColor} strokeWidth="1.75" />
 
-        {/* Deposited step line (cost basis — never reduced by withdrawals) */}
-        <path d={depositedStepPath} fill="none" stroke="#64748b" strokeWidth="1.25" strokeDasharray="3,3" />
+        {/* Net invested step line (deposited minus withdrawn — drops on a withdrawal) */}
+        <path d={investedStepPath} fill="none" stroke="#64748b" strokeWidth="1.25" strokeDasharray="3,3" />
+
+        {/* Vertical annotation at each withdrawal — makes a cash-out explicit
+            on the timeline instead of just an unlabelled dip in the lines. */}
+        {withdrawalTicks.map((t, i) => (
+          <line
+            key={`wtick-${i}`}
+            x1={t.x} x2={t.x} y1={t.y1} y2={t.y2}
+            stroke="#f59e0b" strokeWidth="1" strokeDasharray="2,2" opacity={0.4}
+          />
+        ))}
 
         {/* Event markers */}
         {valuePoints.map(({ x, y, p }, i) => (
@@ -166,7 +190,7 @@ const PositionHistoryChart = ({ points, label }: Props) => {
           <div className="flex items-center justify-between text-[10px] px-0.5">
             <span className="flex items-center gap-3">
               <span className="flex items-center gap-1 text-slate-500">
-                <span className="w-2 h-[2px] bg-slate-500 inline-block" /> Deposited
+                <span className="w-2 h-[2px] bg-slate-500 inline-block" /> Net Invested
               </span>
               <span className="flex items-center gap-1" style={{ color: strokeColor }}>
                 <span className="w-2 h-[2px] inline-block" style={{ backgroundColor: strokeColor }} /> Value

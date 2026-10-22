@@ -350,6 +350,103 @@ class TestUserPosition:
         assert pnl_pct == pytest.approx(-15.0)
 
 
+class TestCombinedPnl:
+    """get_admin_stats() combinedPnl — the WHOLE pool's result (admin capital
+    included), not just totalUserDeposited/totalUserValue which deliberately
+    exclude admin wallets. Regression coverage for the 2026-10-22 request to
+    see "the overall, like dad's profit, combined" with the admin's own.
+    """
+
+    def _setup(self, db_module, non_admin_users, admin_users):
+        db_module.pool_state_collection.find_one.return_value = {
+            "_id": "pool", "totalShares": sum(u["shares"] for u in non_admin_users + admin_users),
+        }
+
+        def fake_find(query=None, *args, **kwargs):
+            query = query or {}
+            if "$nin" in query.get("walletAddress", {}):
+                return list(non_admin_users)
+            return list(non_admin_users) + list(admin_users)
+
+        db_module.users_collection.find = MagicMock(side_effect=fake_find)
+        db_module.users_collection.find_one.return_value = None
+        db_module.deposits_collection.find_one.return_value = None
+        db_module.deposits_collection.count_documents.return_value = 0
+        db_module.withdrawals_collection.count_documents.return_value = 0
+        db_module.trades_collection.count_documents.return_value = 0
+
+    def test_combined_pnl_includes_admin_capital(self, db_module):
+        """Admin (deposited 18621.60, withdrew 13260.17) + one investor (dad,
+        deposited 3400, no withdrawals) — combined P&L must reflect BOTH."""
+        non_admin = [{"walletAddress": "dad", "shares": 5433.0, "totalDeposited": 3400.0, "totalWithdrawn": 0.0, "isActive": True}]
+        admin = [{"walletAddress": "admin", "shares": 8810.14, "totalDeposited": 18621.60, "totalWithdrawn": 13260.17, "isActive": True}]
+        self._setup(db_module, non_admin, admin)
+
+        with patch.object(db_module, "_snapshot_nav"):
+            stats = db_module.get_admin_stats(total_pool_value=(5433.0 + 8810.14) * 0.8211)
+
+        combined_deposited = 3400.0 + 18621.60
+        combined_withdrawn = 0.0 + 13260.17
+        combined_value = (5433.0 + 8810.14) * 0.8211
+        expected_pnl = combined_value + combined_withdrawn - combined_deposited
+
+        assert stats["combinedDeposited"] == pytest.approx(combined_deposited, abs=0.01)
+        assert stats["combinedWithdrawn"] == pytest.approx(combined_withdrawn, abs=0.01)
+        assert stats["combinedPnl"] == pytest.approx(expected_pnl, abs=0.01)
+        # totalUserDeposited/totalUserValue (investor-only) must stay admin-exclusive
+        assert stats["totalUserDeposited"] == pytest.approx(3400.0, abs=0.01)
+
+    def test_combined_pnl_zero_when_no_deposits(self, db_module):
+        self._setup(db_module, [], [])
+        with patch.object(db_module, "_snapshot_nav"):
+            stats = db_module.get_admin_stats(total_pool_value=0)
+        assert stats["combinedPnl"] == 0
+        assert stats["combinedPnlPercent"] == 0
+
+
+class TestPoolNavTimeline:
+    """get_pool_nav_timeline() — pool-wide NAV history reconstructed from
+    every deposit/withdrawal's own recorded NAV. Powers the public
+    "Share Price (NAV) Over Time" chart shown to every visitor."""
+
+    def test_merges_and_sorts_deposits_and_withdrawals(self, db_module):
+        dep_find = MagicMock()
+        dep_find.sort.return_value = [
+            {"timestamp": datetime(2026, 1, 1), "nav": 1.0},
+            {"timestamp": datetime(2026, 3, 1), "nav": 0.95},
+        ]
+        db_module.deposits_collection.find.return_value = dep_find
+
+        wd_find = MagicMock()
+        wd_find.sort.return_value = [
+            {"timestamp": datetime(2026, 2, 1), "nav": 0.98},
+        ]
+        db_module.withdrawals_collection.find.return_value = wd_find
+
+        points = db_module.get_pool_nav_timeline()
+
+        assert [p["type"] for p in points] == ["deposit", "withdrawal", "deposit"]
+        assert [p["nav"] for p in points] == [1.0, 0.98, 0.95]
+        # No wallet identity or dollar amount leaks into the public timeline
+        assert all(set(p.keys()) == {"timestamp", "nav", "type"} for p in points)
+
+    def test_skips_points_missing_nav_or_timestamp(self, db_module):
+        dep_find = MagicMock()
+        dep_find.sort.return_value = [
+            {"timestamp": datetime(2026, 1, 1), "nav": 0},
+            {"timestamp": None, "nav": 1.0},
+            {"timestamp": datetime(2026, 1, 2), "nav": 1.0},
+        ]
+        db_module.deposits_collection.find.return_value = dep_find
+        wd_find = MagicMock()
+        wd_find.sort.return_value = []
+        db_module.withdrawals_collection.find.return_value = wd_find
+
+        points = db_module.get_pool_nav_timeline()
+        assert len(points) == 1
+        assert points[0]["nav"] == 1.0
+
+
 class TestPoolInitialization:
     """Test pool initialization logic."""
 

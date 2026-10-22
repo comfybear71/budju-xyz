@@ -39,6 +39,7 @@ from database import (
     get_leaderboard,
     get_all_transactions,
     get_admin_stats,
+    get_pool_nav_timeline,
     get_db_debug,
     sync_deposits_from_client,
     sync_trades_from_swyftx,
@@ -311,6 +312,12 @@ class handler(BaseHTTPRequestHandler):
                     return
                 stats = get_admin_stats(float(pool_value))
                 self._send_json(200, stats)
+
+            elif path == '/api/pool/nav-history':
+                # Public — same transparency tier as /api/admin/stats and
+                # /api/leaderboard. Returns NAV-only timeline, no wallet/amount.
+                points = get_pool_nav_timeline()
+                self._send_json(200, {"points": points, "count": len(points)})
 
             elif path == '/api/leaderboard':
                 pool_value = params.get('poolValue')
