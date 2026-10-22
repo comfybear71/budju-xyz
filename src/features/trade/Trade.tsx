@@ -26,6 +26,7 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PositionHistoryChart from "./components/PositionHistoryChart";
+import CommunityDepositsView from "./components/CommunityDepositsView";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -787,7 +788,9 @@ const Trade = () => {
                       ))}
                     </div>
 
-                    {/* Deposit breakdown (admin only) */}
+                    {/* Deposit breakdown (admin only) — click any wallet to
+                        drill into exactly what/when they deposited, plus
+                        their own deposit/value chart. */}
                     <AnimatePresence>
                       {showDepositBreakdown && depositBreakdown.length > 0 && (
                         <motion.div
@@ -796,20 +799,11 @@ const Trade = () => {
                           exit={{ opacity: 0, height: 0 }}
                           className="overflow-hidden mb-2"
                         >
-                          <div className="rounded-xl border border-green-500/20 bg-slate-900/60 p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[10px] font-bold uppercase tracking-widest text-green-400/70">User Deposits</span>
-                              <button onClick={() => setShowDepositBreakdown(false)} className="text-[10px] text-slate-500 hover:text-white">Close</button>
-                            </div>
-                            <div className="space-y-1.5">
-                              {depositBreakdown.map((user) => (
-                                <div key={user.walletAddress} className="flex items-center justify-between py-1 px-1.5 rounded-lg hover:bg-slate-800/40">
-                                  <span className="text-[11px] text-slate-400 font-mono">{user.walletShort}</span>
-                                  <span className="text-[11px] font-bold text-green-400 font-mono">{formatUsd(user.totalDeposited)}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          <CommunityDepositsView
+                            entries={depositBreakdown}
+                            totalPoolValue={totalPoolValue}
+                            onClose={() => setShowDepositBreakdown(false)}
+                          />
                         </motion.div>
                       )}
                     </AnimatePresence>

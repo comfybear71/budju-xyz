@@ -852,6 +852,7 @@ export interface DepositRecord {
   nav: number;
   timestamp: string;
   status: string;
+  navSource?: string;
 }
 
 export interface DepositSummary {
