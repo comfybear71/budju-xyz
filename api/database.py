@@ -958,6 +958,19 @@ def reprice_deposit(tx_hash: str, correct_nav: float, dry_run: bool = True) -> D
     )
     _recalculate_allocations()
 
+    # The deposit that's being repriced is almost always the SAME deposit that
+    # just force-wrote a wrong lastNav into pool_state (via record_deposit's
+    # own force=True snapshot at the bad NAV). If we don't repair that
+    # snapshot here too, it's left poisoned: _resolve_deposit_nav() sanity-
+    # checks future live NAVs against it, so the NEXT deposit's correct NAV
+    # looks like an outlier against the broken snapshot, gets rejected, and
+    # falls back to the broken snapshot value — silently reintroducing this
+    # exact bug. Re-snapshotting at correct_nav is safe to run even when
+    # delta == 0 (e.g. re-running this after the fix ships): it only touches
+    # pool_state.lastNav/lastPoolValue, never shares or totalDeposited.
+    new_total_shares = float(pool.get("totalShares", 0) or 0) + delta
+    _snapshot_nav(correct_nav * new_total_shares, force=True)
+
     result["success"] = True
     result["applied"] = True
     return result
