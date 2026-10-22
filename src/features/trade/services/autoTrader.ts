@@ -73,6 +73,15 @@ export interface RecentTrade {
   time: number; // Date.now() when trade executed
 }
 
+/** One executed trade, collected per-cycle and batched into a single Telegram digest. */
+interface TradeAlertEntry {
+  coin: string;
+  side: "BUY" | "SELL";
+  qty: number;
+  price: number;
+  amount: number;
+}
+
 export interface CoinDiagnostic {
   reason: string;
   level: "info" | "warn" | "error";
@@ -808,6 +817,7 @@ export class AutoTrader {
     );
 
     let tradeExecuted = false;
+    const tradesThisCycle: TradeAlertEntry[] = [];
 
     for (const ck of Object.keys(this.targets)) {
       if (this._isOnCooldown(ck)) {
@@ -839,7 +849,8 @@ export class AutoTrader {
           `${coin} (T${tier}) hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
           "success",
         );
-        await this._executeBuy(coin, tier, currentPrice, settings);
+        const buyTrade = await this._executeBuy(coin, tier, currentPrice, settings);
+        if (buyTrade) tradesThisCycle.push(buyTrade);
         tradeExecuted = true;
       }
       // SELL: price rose above sell target — but never sell below avg cost
@@ -861,7 +872,8 @@ export class AutoTrader {
             `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
             "success",
           );
-          await this._executeSell(coin, tier, currentPrice, settings);
+          const sellTrade = await this._executeSell(coin, tier, currentPrice, settings);
+          if (sellTrade) tradesThisCycle.push(sellTrade);
           tradeExecuted = true;
         }
       }
@@ -876,6 +888,14 @@ export class AutoTrader {
       this._saveActiveState();
     }
 
+    // One batched Telegram digest per cycle — never per-trade (that already
+    // blew past Telegram's ~20/min rate limit once; see auto-trade-cron.py).
+    // This is the ONLY place the browser-side bot notifies Telegram at all;
+    // the server cron sends its own digest only for trades IT executes.
+    if (tradesThisCycle.length > 0) {
+      await this._sendTradeAlert(tradesThisCycle);
+    }
+
     this._notifyChange();
 
     // Log cooldown status
@@ -888,7 +908,7 @@ export class AutoTrader {
 
   // ── Trade Execution ─────────────────────────────────────
 
-  private async _executeBuy(code: string, tier: number, currentPrice: number, settings: TierSettings) {
+  private async _executeBuy(code: string, tier: number, currentPrice: number, settings: TierSettings): Promise<TradeAlertEntry | null> {
     const ck = compoundKey(code, tier);
     const usdcBalance = this._cachedUsdcBalance;
 
@@ -896,7 +916,7 @@ export class AutoTrader {
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
       this._setDiagnostic(ck, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
       this._log(`Skipping ${code} (T${tier}) buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve`, "error");
-      return;
+      return null;
     }
 
     const quantity = parseFloat((tradeAmount / currentPrice).toFixed(8));
@@ -919,7 +939,11 @@ export class AutoTrader {
         this._log(`${code} (T${tier}) buy executed!`, "success");
         this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
         this._setCooldown(code, tier);
-        this._recordTradeInDB(code, "buy", quantity, currentPrice);
+        // Awaited — this used to fire-and-forget, which let the DB write get
+        // silently dropped (abandoned mid-fetch) if the page navigated/reloaded
+        // before it finished. Confirmed in prod: ~half of a trade burst went
+        // missing from the trades collection this way (2026-10-22 incident).
+        await this._recordTradeInDB(code, "buy", quantity, currentPrice);
         this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
 
         // ASYMMETRIC RESET: After buy, ratchet buy band down but keep sell band anchored
@@ -935,6 +959,7 @@ export class AutoTrader {
             "info",
           );
         }
+        return { coin: code, side: "BUY" as const, qty: quantity, price: currentPrice, amount: tradeAmount };
       } else {
         this._setDiagnostic(ck, `BUY failed: ${result.error}`, "error");
         this._log(`${code} (T${tier}) buy failed: ${result.error}`, "error");
@@ -943,9 +968,10 @@ export class AutoTrader {
       this._setDiagnostic(ck, `BUY error: ${error.message}`, "error");
       this._log(`${code} (T${tier}) buy error: ${error.message}`, "error");
     }
+    return null;
   }
 
-  private async _executeSell(code: string, tier: number, currentPrice: number, settings: TierSettings) {
+  private async _executeSell(code: string, tier: number, currentPrice: number, settings: TierSettings): Promise<TradeAlertEntry | null> {
     const ck = compoundKey(code, tier);
     const asset = this._cachedAssets.find((a) => a.code === code);
     const assetBalance = asset?.balance ?? 0;
@@ -956,7 +982,7 @@ export class AutoTrader {
     if (quantity <= 0) {
       this._setDiagnostic(ck, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
       this._log(`Skipping ${code} (T${tier}) sell — insufficient balance`, "error");
-      return;
+      return null;
     }
 
     let sellValue = quantity * currentPrice;
@@ -974,7 +1000,7 @@ export class AutoTrader {
         if (sellValue < MIN_ORDER_USDC) {
           this._setDiagnostic(ck, `SELL blocked: total holding ($${sellValue.toFixed(2)}) below $${MIN_ORDER_USDC} minimum`, "error");
           this._log(`Skipping ${code} (T${tier}) sell — total holding $${sellValue.toFixed(2)} below $${MIN_ORDER_USDC} minimum`, "error");
-          return;
+          return null;
         }
       }
     }
@@ -998,7 +1024,8 @@ export class AutoTrader {
         this._log(`${code} (T${tier}) sell executed!`, "success");
         this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
         this._setCooldown(code, tier);
-        this._recordTradeInDB(code, "sell", quantity, currentPrice);
+        // Awaited for the same reason as the buy path — see comment there.
+        await this._recordTradeInDB(code, "sell", quantity, currentPrice);
         this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
 
         // After SELL: reset both bands from current price (fresh start after taking profit)
@@ -1013,6 +1040,7 @@ export class AutoTrader {
             "info",
           );
         }
+        return { coin: code, side: "SELL" as const, qty: quantity, price: currentPrice, amount: sellValue };
       } else {
         this._setDiagnostic(ck, `SELL failed: ${result.error}`, "error");
         this._log(`${code} (T${tier}) sell failed: ${result.error}`, "error");
@@ -1021,6 +1049,7 @@ export class AutoTrader {
       this._setDiagnostic(ck, `SELL error: ${error.message}`, "error");
       this._log(`${code} (T${tier}) sell error: ${error.message}`, "error");
     }
+    return null;
   }
 
   // ── Device Ownership ────────────────────────────────────
@@ -1329,6 +1358,33 @@ export class AutoTrader {
       }
     } catch {
       // Non-critical
+    }
+  }
+
+  // ── Telegram Alert ───────────────────────────────────────
+  // Only path to Telegram for browser-executed trades — the server cron
+  // sends its own digest, but only for trades it executes itself. Without
+  // this, a browser-owned trading session is completely silent on Telegram.
+  private async _sendTradeAlert(trades: TradeAlertEntry[]) {
+    if (!this._adminWallet || trades.length === 0) return;
+    try {
+      const portfolioValue =
+        this._cachedAssets.reduce((sum, a) => sum + (a.usdValue || 0), 0) +
+        this._cachedUsdcBalance;
+
+      await fetch("/api/telegram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "tradeAlert",
+          adminWallet: this._adminWallet,
+          trades,
+          usdcBalance: this._cachedUsdcBalance,
+          portfolioValue,
+        }),
+      });
+    } catch {
+      // Non-critical — a missed Telegram alert should never block trading.
     }
   }
 
