@@ -1,16 +1,8 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { HiOutlineChevronDown } from "react-icons/hi2";
-import PositionHistoryChart from "./PositionHistoryChart";
-import {
-  fetchUserPosition,
-  fetchDeposits,
-  fetchTransactions,
-  buildPositionHistory,
-  type LeaderboardEntry,
-  type PositionHistoryPoint,
-  type DepositRecord,
-} from "../services/tradeApi";
+import WalletDetailPanel from "./WalletDetailPanel";
+import { type LeaderboardEntry } from "../services/tradeApi";
 
 interface Props {
   entries: LeaderboardEntry[];
@@ -29,42 +21,14 @@ const formatDate = (iso: string | null) => {
 };
 
 /** Admin-only: the whole community's deposits, click any wallet to drill
- * into exactly what they deposited/withdrew and when, plus their own
- * deposit/value chart — same chart a user sees on their own "Your
- * Position", reused here per-wallet. */
+ * into exactly what they deposited/withdrew and when, their NAV, Net P&L,
+ * a Solscan link, and their own deposit/value chart — same chart a user
+ * sees on their own "Your Position", reused here per-wallet. */
 const CommunityDepositsView = ({ entries, totalPoolValue, onClose }: Props) => {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [loadingWallet, setLoadingWallet] = useState<string | null>(null);
-  const [historyCache, setHistoryCache] = useState<Record<string, PositionHistoryPoint[]>>({});
-  const [depositsCache, setDepositsCache] = useState<Record<string, DepositRecord[]>>({});
 
-  const toggle = async (wallet: string) => {
-    if (expanded === wallet) {
-      setExpanded(null);
-      return;
-    }
-    setExpanded(wallet);
-    if (historyCache[wallet]) return;
-
-    setLoadingWallet(wallet);
-    try {
-      const [pos, deposits, txns] = await Promise.all([
-        fetchUserPosition(wallet, totalPoolValue),
-        fetchDeposits(wallet),
-        fetchTransactions(wallet).catch(() => []),
-      ]);
-      const withdrawals = txns.filter((t) => t.type === "withdrawal");
-      const points = buildPositionHistory(deposits, withdrawals, {
-        shares: pos?.shares || 0,
-        nav: pos?.nav || 0,
-        value: pos?.currentValue || 0,
-        totalDeposited: pos?.totalDeposited || 0,
-      });
-      setHistoryCache((prev) => ({ ...prev, [wallet]: points }));
-      setDepositsCache((prev) => ({ ...prev, [wallet]: deposits.filter((d) => d.status !== "voided") }));
-    } finally {
-      setLoadingWallet(null);
-    }
+  const toggle = (wallet: string) => {
+    setExpanded((prev) => (prev === wallet ? null : wallet));
   };
 
   return (
@@ -113,34 +77,7 @@ const CommunityDepositsView = ({ entries, totalPoolValue, onClose }: Props) => {
                     className="overflow-hidden"
                   >
                     <div className="mt-1.5 mb-2 ml-4 pl-2.5 border-l border-slate-700/40">
-                      {loadingWallet === user.walletAddress ? (
-                        <div className="py-4 text-center text-[10px] text-slate-500">Loading...</div>
-                      ) : (
-                        <>
-                          <div className="rounded-lg bg-slate-800/40 p-2.5 mb-2">
-                            <PositionHistoryChart points={historyCache[user.walletAddress] || []} />
-                          </div>
-                          <div className="space-y-1">
-                            {(depositsCache[user.walletAddress] || []).map((d, i) => (
-                              <div
-                                key={d.txHash || i}
-                                className="flex items-center justify-between text-[10px] px-1 py-0.5"
-                              >
-                                <span className="text-slate-500">{formatDate(d.timestamp)}</span>
-                                <span className="text-slate-400 font-mono">
-                                  {formatUsd(d.amount)} {d.currency}
-                                  {d.navSource === "repriced" && (
-                                    <span className="text-amber-500/70 ml-1">(repriced)</span>
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                            {(depositsCache[user.walletAddress] || []).length === 0 && (
-                              <div className="text-[10px] text-slate-600 text-center py-1">No deposits on record</div>
-                            )}
-                          </div>
-                        </>
-                      )}
+                      <WalletDetailPanel wallet={user.walletAddress} totalPoolValue={totalPoolValue} />
                     </div>
                   </motion.div>
                 )}
