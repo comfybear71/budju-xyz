@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { FaArrowUp, FaArrowDown, FaExternalLinkAlt } from "react-icons/fa";
 import PositionHistoryChart from "./PositionHistoryChart";
 import {
@@ -57,12 +57,19 @@ const WalletDetailPanel = ({ wallet, totalPoolValue }: Props) => {
   const [deposits, setDeposits] = useState<DepositRecord[]>([]);
   const [history, setHistory] = useState<PositionHistoryPoint[]>([]);
 
+  // totalPoolValue changes on every live price tick from the parent — read
+  // it via a ref instead of a dependency, so a flood of price updates while
+  // this panel is open can't keep restarting the fetch (previously caused an
+  // endless loading flicker that never settled).
+  const totalPoolValueRef = useRef(totalPoolValue);
+  totalPoolValueRef.current = totalPoolValue;
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     (async () => {
       const [pos, deps, txns] = await Promise.all([
-        fetchUserPosition(wallet, totalPoolValue),
+        fetchUserPosition(wallet, totalPoolValueRef.current),
         fetchDeposits(wallet),
         fetchTransactions(wallet).catch(() => []),
       ]);
@@ -83,7 +90,7 @@ const WalletDetailPanel = ({ wallet, totalPoolValue }: Props) => {
     return () => {
       cancelled = true;
     };
-  }, [wallet, totalPoolValue]);
+  }, [wallet]);
 
   if (loading) {
     return <div className="py-4 text-center text-[10px] text-slate-500">Loading...</div>;
