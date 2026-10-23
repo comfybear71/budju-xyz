@@ -1007,6 +1007,130 @@ export function appendLiveNav(points: NavHistoryPoint[], liveNav: number): NavHi
 }
 
 /** Admin: void an accidental/duplicate deposit by txHash (reverses its shares) */
+// ── Non-custodial trading (per-user Swyftx keys) ────────────────────────
+// Oct 2026 architecture pivot — BUDJU never holds or pools user funds.
+// Each user supplies their own Swyftx API key (trade-only permissions) and
+// the bot trades directly in their own account. These calls never see the
+// raw key on the way back — only status/masked info.
+
+export interface BudjuGateStatus {
+  passes: boolean;
+  budjuBalance: number;
+  required: number;
+}
+
+/** Server-side re-check of the 10M BUDJU holding requirement — the
+ *  client-side balance check elsewhere in the app is UI-only and must not
+ *  be trusted as the actual gate before letting a wallet save a trading key. */
+export async function fetchBudjuGateStatus(wallet: string): Promise<BudjuGateStatus | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/budju-gate?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as BudjuGateStatus;
+  } catch {
+    return null;
+  }
+}
+
+export interface SwyftxKeyStatus {
+  configured: boolean;
+  exchange?: string;
+  status?: "active" | "invalid" | "revoked" | string;
+  maskedApiKey?: string;
+  addedAt?: string | null;
+  lastValidatedAt?: string | null;
+  lastError?: string | null;
+}
+
+/** Whether this wallet has a Swyftx key on file, and its validation status.
+ *  Never returns the key itself. */
+export async function fetchSwyftxKeyStatus(wallet: string): Promise<SwyftxKeyStatus> {
+  try {
+    const res = await fetchWithRetry(`/api/user/swyftx-key?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return { configured: false };
+    return (await res.json()) as SwyftxKeyStatus;
+  } catch {
+    return { configured: false };
+  }
+}
+
+/** Save (or replace) this wallet's own Swyftx API key. The backend
+ *  re-verifies the BUDJU gate and test-connects to Swyftx before storing
+ *  anything — a rejected key is never written, encrypted or otherwise. */
+export async function saveSwyftxKey(
+  walletAddress: string,
+  apiKey: string,
+): Promise<{ success: boolean; error?: string; maskedApiKey?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("save Swyftx key");
+  try {
+    const res = await fetchWithRetry("/api/user/swyftx-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, apiKey }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true, maskedApiKey: data.maskedApiKey };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+export async function removeSwyftxKey(walletAddress: string): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("remove Swyftx key");
+  try {
+    const res = await fetchWithRetry("/api/user/swyftx-key/remove", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+export interface PersonalHoldings {
+  walletAddress: string;
+  holdings: Record<string, number>;
+}
+
+/** This wallet's own, live Swyftx coin holdings — fetched with their own
+ *  key, not read from any pooled ledger. */
+export async function fetchPersonalHoldings(wallet: string): Promise<PersonalHoldings | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/personal-holdings?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as PersonalHoldings;
+  } catch {
+    return null;
+  }
+}
+
+export interface CommunityAggregateHoldings {
+  walletCount: number;
+  activeWallets: number;
+  erroredWallets: number;
+  totals: Record<string, number>;
+  perWallet: { walletAddress: string; holdings: Record<string, number> }[];
+}
+
+/** Admin-only: sum of every connected wallet's own Swyftx holdings, fetched
+ *  live via each wallet's own key. Replaces the pooled leaderboard's
+ *  "cumulative total" for non-custodial users — this is a live read across
+ *  everyone's own accounts, not a shared balance BUDJU controls. */
+export async function fetchCommunityAggregateHoldings(adminWallet: string): Promise<CommunityAggregateHoldings | null> {
+  try {
+    const res = await fetchWithRetry(`/api/community/aggregate-holdings?admin_wallet=${encodeURIComponent(adminWallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as CommunityAggregateHoldings;
+  } catch {
+    return null;
+  }
+}
+
 export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("void deposit");
 
