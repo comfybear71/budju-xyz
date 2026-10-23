@@ -172,12 +172,17 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
               <div className="space-y-1.5">
                 {filtered.map((tx, i) => {
                   const cfg = TYPE_ICONS[tx.type] || TYPE_ICONS.buy;
-                  // For BUY: amount from DB is AUD spent (don't multiply by price again)
-                  // For SELL: amount is crypto qty, multiply by price to get AUD
-                  // For deposit/withdrawal: amount is AUD directly
-                  const displayAmount = tx.type === "sell"
+                  // record_trade() always stores `amount` as the crypto
+                  // quantity bought/sold (both the server cron and the
+                  // browser auto-trader pass quantity, never a dollar
+                  // figure) — so both buy and sell need amount × price to
+                  // get the USD value. Deposits/withdrawals store amount as
+                  // USD/AUD directly, so they're left as-is.
+                  const isTrade = tx.type === "buy" || tx.type === "sell";
+                  const displayAmount = isTrade
                     ? (tx.amount || 0) * (tx.price || 0)
                     : tx.amount || 0;
+                  const quantity = tx.amount || 0;
 
                   return (
                     <motion.div
@@ -215,6 +220,11 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
                           {tx.type === "deposit" || tx.type === "sell" ? "+" : "-"}$
                           {displayAmount.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </div>
+                        {isTrade && (
+                          <div className="text-[10px] text-slate-600 font-mono">
+                            {quantity.toLocaleString(undefined, { maximumFractionDigits: 4 })} {tx.coin}
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   );
