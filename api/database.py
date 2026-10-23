@@ -29,6 +29,12 @@ ADMIN_WALLETS = [w.strip() for w in os.getenv("ADMIN_WALLETS", "AEWvE2xXaHSGdGCa
 # and api/rpc.ts's endpoint selection (Helius if configured, else public RPC).
 POOL_WALLET = os.getenv("POOL_WALLET", "2DfxgAZ655zkgt16r53e6qZ9Cf2Rse7iCGnypDk3nFhD")
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+# BUDJU token mint — mirrors src/constants/addresses.ts TOKEN_ADDRESS. Used
+# to server-side-verify the "10M BUDJU" gate for the non-custodial trading
+# feature; the client-side check in WalletConnect/Balance.tsx is UI-only and
+# must not be the only thing standing between a wallet and saving exchange keys.
+BUDJU_MINT = os.getenv("BUDJU_MINT", "2ajYe8eh8btUZRpaZ1v7ewWDkcYJmVGvPuDTU5xrpump")
+BUDJU_GATE_REQUIRED = 10_000_000
 _HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 _SOLANA_RPC_PRIMARY = (
     f"https://mainnet.helius-rpc.com/?api-key={_HELIUS_API_KEY}" if _HELIUS_API_KEY
@@ -49,6 +55,11 @@ pool_state_collection = db["pool_state"]
 user_preferences_collection = db["user_preferences"]
 desk_notes_collection = db["desk_notes"]
 desk_briefs_collection = db["desk_briefs"]
+# Non-custodial trading (Oct 2026 pivot): each user's own, encrypted Swyftx
+# API key. Deliberately a separate collection from `users` — this holds a
+# secret, so it gets its own narrow set of accessors instead of riding along
+# on every other users_collection read.
+user_exchange_keys_collection = db["user_exchange_keys"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -62,6 +73,7 @@ users_collection.create_index([("isActive", 1), ("shares", -1)])
 user_preferences_collection.create_index("walletAddress", unique=True)
 desk_notes_collection.create_index([("createdAt", -1)])
 desk_briefs_collection.create_index([("createdAt", -1)])
+user_exchange_keys_collection.create_index("walletAddress", unique=True)
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -1726,3 +1738,181 @@ def calculate_pool_allocations() -> Dict[str, float]:
         )
 
     return allocations
+
+
+# ── Non-custodial trading: per-user Swyftx API keys ─────────────────────────
+# Oct 2026 architecture pivot — BUDJU never holds or pools user funds. Each
+# user supplies their OWN Swyftx API key (trade-only permissions; withdraw
+# disabled on their end) and the bot trades directly in their account. This
+# section replaces the deposit/share/NAV flow for any wallet that sets one up.
+#
+# The existing pooled accounting (users.shares, pool_state, deposits,
+# withdrawals) is untouched and keeps serving existing pool members until
+# they're paid out — the two models coexist during the transition.
+
+from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
+from swyftx_client import SwyftxClient, SwyftxAuthError
+
+
+def get_budju_token_balance(wallet_address: str) -> float:
+    """On-chain BUDJU balance for a wallet, via the same RPC path as deposit
+    verification. The client-side check in WalletConnect/Balance.tsx is
+    UI-only (a wallet could lie about passing it) — this is the real gate
+    that must be checked again server-side before accepting an API key."""
+    try:
+        resp = _solana_rpc(
+            "getTokenAccountsByOwner",
+            [wallet_address, {"mint": BUDJU_MINT}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        )
+    except Exception:
+        raise ValueError("Could not reach Solana to verify your BUDJU balance. Please try again shortly.")
+
+    result = resp.get("result", {})
+    accounts = result.get("value", []) if isinstance(result, dict) else []
+    total = 0.0
+    for acct in accounts:
+        info = acct.get("account", {}).get("data", {}).get("parsed", {}).get("info", {})
+        ui_amount = (info.get("tokenAmount", {}) or {}).get("uiAmount")
+        if ui_amount:
+            total += float(ui_amount)
+    return total
+
+
+def check_budju_gate(wallet_address: str) -> Tuple[bool, float]:
+    """Returns (passes_gate, current_budju_balance)."""
+    balance = get_budju_token_balance(wallet_address)
+    return balance >= BUDJU_GATE_REQUIRED, balance
+
+
+def save_user_swyftx_key(wallet_address: str, api_key: str) -> Dict:
+    """Validate the BUDJU gate, test-connect the supplied key against Swyftx,
+    then store it encrypted. Never stores (or returns) the key if either
+    check fails — a key that doesn't even authenticate is worse than no key,
+    since the trading loop would otherwise waste cycles on a dead account."""
+    if not wallet_address:
+        raise ValueError("wallet_address is required")
+    if not api_key or len(api_key.strip()) < 10:
+        raise ValueError("That doesn't look like a valid Swyftx API key")
+    api_key = api_key.strip()
+
+    passes_gate, balance = check_budju_gate(wallet_address)
+    if not passes_gate:
+        raise ValueError(
+            f"This wallet holds {balance:,.0f} BUDJU — the bot requires "
+            f"{BUDJU_GATE_REQUIRED:,.0f} BUDJU to connect a trading key."
+        )
+
+    client = SwyftxClient(api_key)
+    ok, auth_error = client.test_connection()
+    if not ok:
+        raise ValueError(f"Swyftx rejected this API key: {auth_error}")
+
+    encrypted = encrypt_secret(api_key)
+    now = datetime.utcnow()
+    user_exchange_keys_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": {
+            "walletAddress": wallet_address,
+            "exchange": "swyftx",
+            "encryptedApiKey": encrypted,
+            "maskedApiKey": mask_secret(api_key),
+            "status": "active",
+            "lastValidatedAt": now,
+            "lastError": None,
+            "updatedAt": now,
+        }, "$setOnInsert": {"addedAt": now}},
+        upsert=True,
+    )
+    return {"success": True, "status": "active", "maskedApiKey": mask_secret(api_key)}
+
+
+def get_user_swyftx_key_status(wallet_address: str) -> Dict:
+    """Status only — never returns the key itself, encrypted or otherwise."""
+    doc = user_exchange_keys_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        return {"configured": False}
+    return {
+        "configured": True,
+        "exchange": doc.get("exchange", "swyftx"),
+        "status": doc.get("status", "unknown"),
+        "maskedApiKey": doc.get("maskedApiKey"),
+        "addedAt": doc.get("addedAt").isoformat() if doc.get("addedAt") else None,
+        "lastValidatedAt": doc.get("lastValidatedAt").isoformat() if doc.get("lastValidatedAt") else None,
+        "lastError": doc.get("lastError"),
+    }
+
+
+def remove_user_swyftx_key(wallet_address: str) -> Dict:
+    result = user_exchange_keys_collection.delete_one({"walletAddress": wallet_address})
+    return {"success": True, "removed": result.deleted_count > 0}
+
+
+def _get_user_swyftx_client(wallet_address: str) -> SwyftxClient:
+    """Internal only — decrypts a user's key and returns a scoped client.
+    Never call this from a request handler that echoes the result back
+    verbatim; only the derived data (balances, trade results) may leave
+    this process, never the key or client object."""
+    doc = user_exchange_keys_collection.find_one({"walletAddress": wallet_address})
+    if not doc or not doc.get("encryptedApiKey"):
+        raise ValueError("No Swyftx API key on file for this wallet")
+    api_key = decrypt_secret(doc["encryptedApiKey"])
+    return SwyftxClient(api_key)
+
+
+def get_user_personal_holdings(wallet_address: str) -> Dict:
+    """Live coin holdings for one user, fetched from THEIR OWN Swyftx
+    account via their own key — not from the pooled share ledger."""
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        holdings = client.get_holdings()
+    except SwyftxAuthError as e:
+        user_exchange_keys_collection.update_one(
+            {"walletAddress": wallet_address},
+            {"$set": {"status": "invalid", "lastError": str(e)}},
+        )
+        raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+    return {"walletAddress": wallet_address, "holdings": holdings}
+
+
+def get_community_aggregate_holdings() -> Dict:
+    """Admin view: iterate every wallet with an active, validated key and
+    fetch its holdings via that wallet's OWN credentials, then sum into a
+    per-coin community total. This is the "cumulative total" view the non-
+    custodial model replaces the pooled NAV/leaderboard with — it's a live
+    read across everyone's own accounts, not a shared ledger BUDJU controls.
+    One wallet's key failing (revoked, invalid) is logged and skipped —
+    never allowed to crash the whole aggregate."""
+    docs = list(user_exchange_keys_collection.find({"status": "active"}))
+    per_wallet = []
+    totals: Dict[str, float] = {}
+    errors = 0
+
+    for doc in docs:
+        wallet = doc.get("walletAddress")
+        try:
+            api_key = decrypt_secret(doc["encryptedApiKey"])
+            client = SwyftxClient(api_key)
+            holdings = client.get_holdings()
+            per_wallet.append({"walletAddress": wallet, "holdings": holdings})
+            for coin, amount in holdings.items():
+                totals[coin] = totals.get(coin, 0.0) + amount
+            user_exchange_keys_collection.update_one(
+                {"walletAddress": wallet},
+                {"$set": {"status": "active", "lastValidatedAt": datetime.utcnow(), "lastError": None}},
+            )
+        except SwyftxAuthError as e:
+            errors += 1
+            user_exchange_keys_collection.update_one(
+                {"walletAddress": wallet},
+                {"$set": {"status": "invalid", "lastError": str(e)}},
+            )
+        except Exception:
+            errors += 1
+
+    return {
+        "walletCount": len(docs),
+        "activeWallets": len(per_wallet),
+        "erroredWallets": errors,
+        "totals": totals,
+        "perWallet": per_wallet,
+    }
