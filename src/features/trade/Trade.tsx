@@ -28,6 +28,7 @@ import TransactionHistory from "./components/TransactionHistory";
 import PositionHistoryChart from "./components/PositionHistoryChart";
 import CommunityDepositsView from "./components/CommunityDepositsView";
 import PoolNavChart from "./components/PoolNavChart";
+import PersonalTradingView from "./components/PersonalTradingView";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -94,6 +95,7 @@ const Trade = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showPendingOrders, setShowPendingOrders] = useState(false);
   const [showAutoTrader, setShowAutoTrader] = useState(false);
+  const [showPersonalTrading, setShowPersonalTrading] = useState(false);
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
   const [showDeposit, setShowDeposit] = useState(false);
@@ -572,6 +574,8 @@ const Trade = () => {
                           onClick: () => navigate("/desk") },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
+                        { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
+                          onClick: () => setShowPersonalTrading(true) },
                       ] as const).map((btn) => {
                         const colorMap: Record<string, { active: string; inactive: string }> = {
                           blue:    { active: "bg-blue-500/25 text-blue-200 border-blue-400/60 shadow-[0_0_8px_rgba(59,130,246,0.25)]", inactive: "bg-blue-500/8 text-blue-300/70 border-blue-500/25 hover:bg-blue-500/15 hover:text-blue-200 hover:border-blue-400/50" },
@@ -695,6 +699,23 @@ const Trade = () => {
                       <div className="text-left">
                         <div className="text-[11px] font-bold text-slate-300">Stats</div>
                         <div className="text-[10px] font-bold text-teal-400">Per-coin</div>
+                      </div>
+                    </button>
+                    {/* My Exchange Key — non-custodial: connect your own Swyftx key */}
+                    <button
+                      onClick={() => setShowPersonalTrading(true)}
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}
+                    >
+                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(16,185,129,0.15)" }}>
+                        <span className="text-sm">🔑</span>
+                      </div>
+                      <div className="text-left">
+                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                          My Exchange Key{" "}
+                          <span className="text-[8px] bg-emerald-500/15 text-emerald-300 px-1 py-0.5 rounded font-mono border border-emerald-500/20 align-middle">NEW</span>
+                        </div>
+                        <div className="text-[10px] font-bold text-emerald-400">Trade your own account</div>
                       </div>
                     </button>
                   </div>
@@ -1144,6 +1165,12 @@ const Trade = () => {
         prices={prices}
         changes={changes}
         assets={assets}
+      />
+      <PersonalTradingView
+        isOpen={showPersonalTrading}
+        onClose={() => setShowPersonalTrading(false)}
+        wallet={walletAddress}
+        isAdmin={isAdmin}
       />
       <CoinStatsView
         isOpen={showStats}

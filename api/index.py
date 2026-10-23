@@ -48,7 +48,13 @@ from database import (
     recalibrate_pool,
     verify_wallet_signature,
     get_user_preferences,
-    save_user_preferences
+    save_user_preferences,
+    check_budju_gate,
+    save_user_swyftx_key,
+    get_user_swyftx_key_status,
+    remove_user_swyftx_key,
+    get_user_personal_holdings,
+    get_community_aggregate_holdings,
 )
 
 from perp_engine import (
@@ -340,6 +346,46 @@ class handler(BaseHTTPRequestHandler):
                     is_admin_request=admin_req
                 )
                 self._send_json(200, {"transactions": txns, "count": len(txns), "isAdmin": is_admin(wallet)})
+
+            # ── Non-custodial trading (per-user Swyftx keys) ─────────────
+            elif path == '/api/user/budju-gate':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    passes, balance = check_budju_gate(wallet)
+                except ValueError as e:
+                    self._send_json(502, {"error": str(e)})
+                    return
+                self._send_json(200, {"passes": passes, "budjuBalance": balance, "required": 10_000_000})
+
+            elif path == '/api/user/swyftx-key':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_user_swyftx_key_status(wallet))
+
+            elif path == '/api/user/personal-holdings':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    self._send_json(200, get_user_personal_holdings(wallet))
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
+
+            elif path == '/api/community/aggregate-holdings':
+                # Admin-only — iterates every user's own Swyftx account via
+                # their own key. Not something to expose publicly per-wallet.
+                wallet = params.get('admin_wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_community_aggregate_holdings())
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
@@ -1103,6 +1149,28 @@ class handler(BaseHTTPRequestHandler):
                     exit_price=float(body.get('exitPrice', 0)),
                     new_size_usd=float(body['newSizeUsd']) if body.get('newSizeUsd') else None,
                 )
+                self._send_json(200, result)
+
+            # ── Non-custodial trading (per-user Swyftx keys) ─────────────
+            elif path == '/api/user/swyftx-key':
+                wallet_address = body.get('walletAddress')
+                api_key = body.get('apiKey')
+                if not wallet_address or not api_key:
+                    self._send_json(400, {"error": "walletAddress and apiKey required"})
+                    return
+                # Deliberately no try/except here beyond the outer handler —
+                # ValueError (bad gate, bad key, Swyftx rejection) is caught
+                # below and returned as a 400 with the specific reason, never
+                # silently swallowed.
+                result = save_user_swyftx_key(wallet_address, api_key)
+                self._send_json(200, result)
+
+            elif path == '/api/user/swyftx-key/remove':
+                wallet_address = body.get('walletAddress')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                result = remove_user_swyftx_key(wallet_address)
                 self._send_json(200, result)
 
             # ── Core/Satellite Position Type ───────────────────────────
