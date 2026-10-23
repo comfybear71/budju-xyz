@@ -1293,7 +1293,11 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
     transactions = []
 
     if is_admin_request:
-        for dep in deposits_collection.find({}).sort("timestamp", -1):
+        # Exclude voided deposits — a voided record is a correction for money
+        # that never arrived (or was double-recorded), not a real deposit.
+        # Showing it in the Activity feed looks exactly like a legitimate
+        # deposit with no indication it was reversed.
+        for dep in deposits_collection.find({"status": {"$ne": "voided"}}).sort("timestamp", -1):
             user_wallet = dep.get("userId", "")
             transactions.append({
                 "type": "deposit",
@@ -1338,7 +1342,7 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
         if not wallet_address:
             return []
 
-        for dep in deposits_collection.find({"userId": wallet_address}).sort("timestamp", -1):
+        for dep in deposits_collection.find({"userId": wallet_address, "status": {"$ne": "voided"}}).sort("timestamp", -1):
             transactions.append({
                 "type": "deposit",
                 "amount": dep.get("amount", 0),
