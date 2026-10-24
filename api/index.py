@@ -62,6 +62,7 @@ from database import (
     get_user_trade_activity,
     get_all_users_trade_activity,
     execute_test_buy,
+    execute_test_buy_all_wallets,
     get_live_leaderboard,
     link_admin_master_key,
     record_wallet_cash_flow,
@@ -1342,13 +1343,23 @@ class handler(BaseHTTPRequestHandler):
                     return
 
             elif path == '/api/user/auto-trade':
+                # A wallet can toggle its own bot. An admin can ALSO toggle
+                # any wallet's bot from their own session (e.g. the
+                # Leaderboard's per-wallet admin controls) — requesterWallet
+                # defaults to walletAddress so existing self-service callers
+                # are unaffected.
                 wallet_address = body.get('walletAddress')
                 enabled = body.get('enabled')
+                requester = body.get('requesterWallet') or wallet_address
                 if not wallet_address or enabled is None:
                     self._send_json(400, {"error": "walletAddress and enabled required"})
                     return
-                result = set_user_auto_trade_enabled(wallet_address, bool(enabled))
-                self._send_json(200, result)
+                try:
+                    result = set_user_auto_trade_enabled(wallet_address, bool(enabled), requester)
+                    self._send_json(200, result)
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
+                    return
 
             elif path == '/api/user/test-buy':
                 # One-off real-money manual BUY through the same per-user
@@ -1367,6 +1378,24 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(200, result)
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
+                    return
+
+            elif path == '/api/admin/test-buy-all':
+                # Admin-only: run a test BUY for EVERY wallet with a Swyftx
+                # key on file in one go — proves the per-user pipeline
+                # works for the whole connected user base, not just one
+                # wallet at a time. See execute_test_buy_all_wallets()'s
+                # docstring for per-wallet failure handling.
+                requester = body.get('requesterWallet')
+                coin = body.get('coin', 'BTC')
+                if not requester:
+                    self._send_json(400, {"error": "requesterWallet required"})
+                    return
+                try:
+                    result = execute_test_buy_all_wallets(requester, coin)
+                    self._send_json(200, result)
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
                     return
 
             # ── Core/Satellite Position Type ───────────────────────────

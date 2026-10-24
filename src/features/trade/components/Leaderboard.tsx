@@ -1,12 +1,18 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTrophy, FaTimes, FaCrown, FaChevronDown, FaArrowUp, FaArrowDown } from "react-icons/fa";
+import { FaRobot, FaPowerOff } from "react-icons/fa";
 import {
   fetchLiveLeaderboard,
   fetchWalletCashFlows,
   buildLiveCashFlowHistory,
+  fetchAutoTradeStatus,
+  setAutoTradeEnabled,
+  placeTestBuyAllWallets,
   type LiveLeaderboardEntry,
   type WalletCashFlows,
+  type AutoTradeStatus,
+  type TestBuyAllResponse,
 } from "../services/tradeApi";
 import LeaderboardDoughnut from "./LeaderboardDoughnut";
 import PositionHistoryChart from "./PositionHistoryChart";
@@ -15,6 +21,9 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   isAdmin?: boolean;
+  /** The admin's own connected wallet — sent as `requesterWallet` so the
+   *  backend can authorize toggling ANOTHER wallet's bot on/off. */
+  adminWallet?: string;
 }
 
 /**
@@ -24,7 +33,7 @@ interface Props {
  * live, directly from that wallet's own key), split into %cash vs %crypto.
  * Replaces the old share/NAV-based leaderboard entirely.
  */
-const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
+const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Props) => {
   const [entries, setEntries] = useState<LiveLeaderboardEntry[]>([]);
   const [walletCount, setWalletCount] = useState(0);
   const [erroredWallets, setErroredWallets] = useState(0);
@@ -37,6 +46,18 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
   const [cashFlowsByWallet, setCashFlowsByWallet] = useState<Record<string, WalletCashFlows | null>>({});
   const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState<string | null>(null);
+
+  // Admin-only: lets the admin flip any connected wallet's auto-trade bot
+  // on/off from here, instead of relying on that wallet's own owner to
+  // self-toggle it from their "My Exchange Key" panel.
+  const [autoTradeByWallet, setAutoTradeByWallet] = useState<Record<string, AutoTradeStatus | null>>({});
+  const [togglingWallet, setTogglingWallet] = useState<string | null>(null);
+
+  // Admin-only: test a real BTC buy across EVERY connected wallet at once.
+  const [showTestBuyAllConfirm, setShowTestBuyAllConfirm] = useState(false);
+  const [testBuyingAll, setTestBuyingAll] = useState(false);
+  const [testBuyAllResponse, setTestBuyAllResponse] = useState<TestBuyAllResponse | null>(null);
+  const [testBuyAllError, setTestBuyAllError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -66,9 +87,48 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
         .then((cf) => setCashFlowsByWallet((prev) => ({ ...prev, [wallet]: cf })))
         .finally(() => setLoadingWallet((cur) => (cur === wallet ? null : cur)));
     }
+    if (!autoTradeByWallet[wallet]) {
+      fetchAutoTradeStatus(wallet).then((status) =>
+        setAutoTradeByWallet((prev) => ({ ...prev, [wallet]: status })),
+      );
+    }
+  };
+
+  /** Admin flips this wallet's bot on/off from here — the wallet owner
+   *  never has to touch their own toggle for this to take effect. */
+  const handleToggleWalletAutoTrade = async (wallet: string, nextEnabled: boolean) => {
+    setTogglingWallet(wallet);
+    const res = await setAutoTradeEnabled(wallet, nextEnabled, adminWallet);
+    if (res.success) {
+      setAutoTradeByWallet((prev) => ({
+        ...prev,
+        [wallet]: { ...(prev[wallet] as AutoTradeStatus), autoTradeEnabled: !!res.autoTradeEnabled },
+      }));
+    }
+    setTogglingWallet(null);
+    return res;
   };
 
   const formatUsdWhole = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+  /** Admin-only: fires a real BTC test buy for every wallet with a Swyftx
+   *  key on file, via the exact same per-user pipeline a real auto-trade
+   *  buy uses — proves it works for the whole connected user base at
+   *  once instead of testing one wallet at a time. */
+  const handleTestBuyAllWallets = async () => {
+    if (!adminWallet) return;
+    setTestBuyingAll(true);
+    setTestBuyAllError(null);
+    setTestBuyAllResponse(null);
+    const res = await placeTestBuyAllWallets(adminWallet, "BTC");
+    if (res.success && res.data) {
+      setTestBuyAllResponse(res.data);
+    } else {
+      setTestBuyAllError(res.error || "Test buy failed");
+    }
+    setTestBuyingAll(false);
+    setShowTestBuyAllConfirm(false);
+  };
 
   /** Admin-only drill-down: this wallet's Net P&L — deposited/withdrawn
    *  (live from their own Swyftx history, or a manual override) against
@@ -132,6 +192,44 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
               );
             })()
           )}
+
+          {/* Admin control: flip THIS wallet's bot on/off ourselves —
+              the wallet owner never has to touch their own toggle. */}
+          {(() => {
+            const autoTrade = autoTradeByWallet[entry.walletAddress];
+            if (!autoTrade) return null;
+            if (!autoTrade.configured) {
+              return (
+                <div className="mt-3 pt-3 border-t border-slate-700/30 text-[11px] text-slate-600">
+                  No Swyftx key connected for this wallet yet — bot can't be enabled.
+                </div>
+              );
+            }
+            const enabled = !!autoTrade.autoTradeEnabled;
+            const toggling = togglingWallet === entry.walletAddress;
+            return (
+              <div className="mt-3 pt-3 border-t border-slate-700/30 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <FaRobot className={enabled ? "text-emerald-400" : "text-slate-600"} size={12} />
+                  <span className={`text-[11px] font-semibold ${enabled ? "text-emerald-300" : "text-slate-500"}`}>
+                    Bot is {enabled ? "ON" : "OFF"} for this wallet
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleToggleWalletAutoTrade(entry.walletAddress, !enabled)}
+                  disabled={toggling || autoTrade.status !== "active"}
+                  className={`text-[11px] font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                    enabled
+                      ? "bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                      : "bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  }`}
+                >
+                  <FaPowerOff size={10} />
+                  {toggling ? "Working..." : enabled ? "Turn off" : "Turn on"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </motion.div>
     );
@@ -177,6 +275,77 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
               Every connected wallet's own live Swyftx balance, non-custodially — ranked by current value. BUDJU
               never holds or pools these funds.
             </div>
+
+            {/* Admin-only: real-money BTC test buy across EVERY connected
+                wallet at once, through the exact same per-user pipeline
+                a real auto-trade buy uses. */}
+            {isAdmin && (
+              <div className="mb-5 rounded-lg bg-slate-900/50 border border-slate-700/30 p-3">
+                {!showTestBuyAllConfirm && !testBuyingAll ? (
+                  <button
+                    onClick={() => setShowTestBuyAllConfirm(true)}
+                    className="w-full text-[11px] font-semibold px-3 py-2 rounded-lg bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 transition-colors"
+                  >
+                    Test BTC buy — ALL connected wallets
+                  </button>
+                ) : testBuyingAll ? (
+                  <div className="flex items-center justify-center gap-2 py-1 text-[11px] text-slate-400">
+                    <div className="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                    Running test buys across every connected wallet...
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-[11px] text-amber-300 mb-2">
+                      This places a REAL BTC buy (max($10, 4% of balance)) on EVERY wallet with a Swyftx key on
+                      file, through their own account. Wallets below the $30 reserve floor are skipped with an
+                      error, not charged.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setShowTestBuyAllConfirm(false)}
+                        className="flex-1 text-[11px] font-medium px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleTestBuyAllWallets}
+                        className="flex-1 text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors"
+                      >
+                        Confirm — place real orders
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {testBuyAllError && (
+                  <div className="mt-2 text-[11px] text-red-400">{testBuyAllError}</div>
+                )}
+
+                {testBuyAllResponse && (
+                  <div className="mt-3 pt-3 border-t border-slate-700/30">
+                    <div className="text-[11px] text-slate-400 mb-1.5">
+                      {testBuyAllResponse.succeeded} of {testBuyAllResponse.walletCount} wallet
+                      {testBuyAllResponse.walletCount === 1 ? "" : "s"} bought BTC successfully
+                      {testBuyAllResponse.failed > 0 ? `, ${testBuyAllResponse.failed} failed` : ""}.
+                    </div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {testBuyAllResponse.results.map((r) => (
+                        <div key={r.walletAddress} className="flex items-center justify-between text-[10px] font-mono">
+                          <span className="text-slate-500">
+                            {r.walletAddress.slice(0, 4)}...{r.walletAddress.slice(-4)}
+                          </span>
+                          <span className={r.success ? "text-emerald-400" : "text-red-400"}>
+                            {r.success
+                              ? `+${r.quantity} BTC ($${r.usdcSpent})`
+                              : r.error}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">

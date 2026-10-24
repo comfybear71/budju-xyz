@@ -1223,17 +1223,21 @@ export async function fetchAutoTradeStatus(wallet: string): Promise<AutoTradeSta
 }
 
 /** Explicit opt-in/opt-out for the per-user trading bot. Requires an
- *  already-active, already-validated Swyftx key. */
+ *  already-active, already-validated Swyftx key. A wallet can toggle its
+ *  own bot (the default — `requesterWallet` omitted); an admin can ALSO
+ *  toggle ANY wallet's bot by passing their own wallet as `requesterWallet`,
+ *  without that wallet owner having to do anything themselves. */
 export async function setAutoTradeEnabled(
   walletAddress: string,
   enabled: boolean,
+  requesterWallet?: string,
 ): Promise<{ success: boolean; error?: string; autoTradeEnabled?: boolean }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("toggle auto-trade");
   try {
     const res = await fetchWithRetry("/api/user/auto-trade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ walletAddress, enabled }),
+      body: JSON.stringify({ walletAddress, enabled, requesterWallet: requesterWallet || walletAddress }),
     });
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
@@ -1265,6 +1269,45 @@ export async function placeTestBuy(
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
     return { success: true, coin: data.coin, quantity: data.quantity, usdcSpent: data.usdcSpent, price: data.price };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+export interface TestBuyAllResult {
+  walletAddress: string;
+  success: boolean;
+  error?: string;
+  coin?: string;
+  quantity?: number;
+  usdcSpent?: number;
+  price?: number;
+}
+
+export interface TestBuyAllResponse {
+  walletCount: number;
+  succeeded: number;
+  failed: number;
+  results: TestBuyAllResult[];
+}
+
+/** Admin-only: run placeTestBuy() for EVERY wallet with a Swyftx key on
+ *  file, one at a time — proves the per-user pipeline works for the whole
+ *  connected user base in one click instead of testing wallet-by-wallet. */
+export async function placeTestBuyAllWallets(
+  requesterWallet: string,
+  coin: string = "BTC",
+): Promise<{ success: boolean; error?: string; data?: TestBuyAllResponse }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("place a test buy for all wallets");
+  try {
+    const res = await fetchWithRetry("/api/admin/test-buy-all", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requesterWallet, coin }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true, data: data as TestBuyAllResponse };
   } catch (err: any) {
     return { success: false, error: err.message || "Network error" };
   }
