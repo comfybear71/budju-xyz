@@ -1932,6 +1932,44 @@ def get_user_personal_holdings(wallet_address: str) -> Dict:
     return {"walletAddress": wallet_address, "holdings": holdings}
 
 
+def get_user_live_position(wallet_address: str) -> Dict:
+    """Live cumulative cash + crypto balance for one user, read straight
+    from THEIR OWN Swyftx account via their own key. This replaces the old
+    pooled shares/NAV "position" entirely — no allocation%, no shares, no
+    stale pool math. Mirrors the cash/crypto split get_live_leaderboard()
+    computes for every wallet, but for just this one."""
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        holdings = client.get_holdings()
+    except SwyftxAuthError as e:
+        user_exchange_keys_collection.update_one(
+            {"walletAddress": wallet_address},
+            {"$set": {"status": "invalid", "lastError": str(e)}},
+        )
+        raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+
+    crypto_codes = [c for c in holdings.keys() if c not in ("USDC", "USD", "AUD", "USDT")]
+    prices = get_prices_for_coins(crypto_codes)
+
+    cash_value = 0.0
+    crypto_value = 0.0
+    for code, amount in holdings.items():
+        if code in ("USDC", "USD", "AUD", "USDT"):
+            cash_value += amount
+        else:
+            crypto_value += amount * prices.get(code, 0.0)
+
+    total_value = cash_value + crypto_value
+    return {
+        "walletAddress": wallet_address,
+        "cashValue": round(cash_value, 2),
+        "cryptoValue": round(crypto_value, 2),
+        "totalValue": round(total_value, 2),
+        "pctCash": round((cash_value / total_value * 100), 1) if total_value > 0 else 0,
+        "pctCrypto": round((crypto_value / total_value * 100), 1) if total_value > 0 else 0,
+    }
+
+
 def get_community_aggregate_holdings() -> Dict:
     """Admin view: iterate every wallet with an active, validated key and
     fetch its holdings via that wallet's OWN credentials, then sum into a

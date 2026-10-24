@@ -1101,6 +1101,28 @@ export async function fetchPersonalHoldings(wallet: string): Promise<PersonalHol
   }
 }
 
+export interface LivePosition {
+  walletAddress: string;
+  cashValue: number;
+  cryptoValue: number;
+  totalValue: number;
+  pctCash: number;
+  pctCrypto: number;
+}
+
+/** This wallet's real cumulative cash + crypto balance, read live from
+ *  THEIR OWN Swyftx account via their own key. Replaces the old pooled
+ *  shares/NAV "position" — null if no active key is linked yet. */
+export async function fetchLivePosition(wallet: string): Promise<LivePosition | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/live-position?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as LivePosition;
+  } catch {
+    return null;
+  }
+}
+
 export interface CommunityAggregateHoldings {
   walletCount: number;
   activeWallets: number;
