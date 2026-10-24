@@ -1917,6 +1917,20 @@ def _get_user_swyftx_client(wallet_address: str) -> SwyftxClient:
     return SwyftxClient(api_key)
 
 
+def _is_transient_swyftx_error(err: Exception) -> bool:
+    """HTTP 429 (rate limited) and 5xx are Swyftx/network hiccups, not proof
+    the key is bad — flipping status to "invalid" on one of these silently
+    drops the wallet out of every `find({"status": "active"})` query
+    (leaderboard, aggregate holdings, ...) until someone notices and
+    manually re-links it. Confirmed live on 2026-10-24: a single 429 right
+    after linking the admin's master key marked it "invalid" and the
+    leaderboard immediately stopped even attempting that wallet. Only a
+    genuine 401/403 (or any other non-429/5xx failure) should mark a key
+    invalid — those really do mean the key was revoked or never worked."""
+    msg = str(err)
+    return "HTTP 429" in msg or "HTTP 5" in msg
+
+
 def get_user_personal_holdings(wallet_address: str) -> Dict:
     """Live coin holdings for one user, fetched from THEIR OWN Swyftx
     account via their own key — not from the pooled share ledger."""
@@ -1924,10 +1938,10 @@ def get_user_personal_holdings(wallet_address: str) -> Dict:
     try:
         holdings = client.get_holdings()
     except SwyftxAuthError as e:
-        user_exchange_keys_collection.update_one(
-            {"walletAddress": wallet_address},
-            {"$set": {"status": "invalid", "lastError": str(e)}},
-        )
+        update = {"lastError": str(e)}
+        if not _is_transient_swyftx_error(e):
+            update["status"] = "invalid"
+        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
         raise ValueError(f"Could not fetch your Swyftx balance: {e}")
     return {"walletAddress": wallet_address, "holdings": holdings}
 
@@ -1942,10 +1956,10 @@ def get_user_live_position(wallet_address: str) -> Dict:
     try:
         holdings = client.get_holdings()
     except SwyftxAuthError as e:
-        user_exchange_keys_collection.update_one(
-            {"walletAddress": wallet_address},
-            {"$set": {"status": "invalid", "lastError": str(e)}},
-        )
+        update = {"lastError": str(e)}
+        if not _is_transient_swyftx_error(e):
+            update["status"] = "invalid"
+        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
         raise ValueError(f"Could not fetch your Swyftx balance: {e}")
 
     crypto_codes = [c for c in holdings.keys() if c not in ("USDC", "USD", "AUD", "USDT")]
@@ -1998,10 +2012,10 @@ def get_community_aggregate_holdings() -> Dict:
             )
         except SwyftxAuthError as e:
             errors += 1
-            user_exchange_keys_collection.update_one(
-                {"walletAddress": wallet},
-                {"$set": {"status": "invalid", "lastError": str(e)}},
-            )
+            update = {"lastError": str(e)}
+            if not _is_transient_swyftx_error(e):
+                update["status"] = "invalid"
+            user_exchange_keys_collection.update_one({"walletAddress": wallet}, {"$set": update})
         except Exception:
             errors += 1
 
