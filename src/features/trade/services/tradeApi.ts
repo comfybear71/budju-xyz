@@ -1258,6 +1258,167 @@ export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
   }
 }
 
+// ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ──
+// BUDJU never custodies a connected wallet's funds, so it never automatically
+// sees that wallet's real Swyftx deposit/withdrawal history. An admin records
+// it here (in USD) from what the wallet owner reports from their own account,
+// so Net P&L = live value + withdrawn - deposited can be shown and charted —
+// the same shape "Your Position" used to show against pooled shares×NAV.
+
+export interface WalletCashFlow {
+  id: string;
+  type: "deposit" | "withdrawal";
+  amountUsd: number;
+  timestamp: string;
+  note?: string | null;
+}
+
+export interface WalletCashFlows {
+  walletAddress: string;
+  flows: WalletCashFlow[];
+  totalDepositedUsd: number;
+  totalWithdrawnUsd: number;
+}
+
+/** Public, wallet-scoped — a wallet's recorded lifetime deposits/withdrawals
+ *  plus running totals. Empty if an admin hasn't entered anything for it yet. */
+export async function fetchWalletCashFlows(wallet: string): Promise<WalletCashFlows | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/cash-flows?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as WalletCashFlows;
+  } catch {
+    return null;
+  }
+}
+
+export interface CommunityCashFlows {
+  walletsWithData: number;
+  perWallet: Record<string, { depositedUsd: number; withdrawnUsd: number }>;
+  totalDepositedUsd: number;
+  totalWithdrawnUsd: number;
+  timeline: {
+    timestamp: string;
+    type: "deposit" | "withdrawal";
+    amountUsd: number;
+    cumulativeDepositedUsd: number;
+    cumulativeWithdrawnUsd: number;
+  }[];
+}
+
+/** Public — aggregate deposited/withdrawn across every wallet an admin has
+ *  entered cash-flow data for (not necessarily every connected wallet). */
+export async function fetchCommunityCashFlows(): Promise<CommunityCashFlows | null> {
+  try {
+    const res = await fetchWithRetry("/api/community/cash-flows");
+    if (!res.ok) return null;
+    return (await res.json()) as CommunityCashFlows;
+  } catch {
+    return null;
+  }
+}
+
+/** Admin-only: record one lifetime deposit/withdrawal total (USD) for any
+ *  wallet. Typically called once per wallet with its full lifetime totals
+ *  (not a line-by-line import) — the chart below reconstructs a clean
+ *  "net invested" step line from whatever entries exist. */
+export async function recordWalletCashFlow(
+  adminWallet: string,
+  walletAddress: string,
+  type: "deposit" | "withdrawal",
+  amountUsd: number,
+  timestamp?: string,
+  note?: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("record cash flow");
+
+  try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+    const res = await fetchWithRetry("/api/admin/cash-flow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...auth, walletAddress, type, amountUsd, timestamp, note }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+/** Admin-only: remove a mistaken cash-flow entry. */
+export async function deleteWalletCashFlow(
+  adminWallet: string,
+  flowId: string,
+): Promise<{ success: boolean; error?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("delete cash flow");
+
+  try {
+    const auth = await getAdminAuth(adminWallet);
+    if (!auth) return { success: false, error: "Admin signature required" };
+    const res = await fetchWithRetry("/api/admin/cash-flow/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...auth, flowId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+/**
+ * Reconstruct a wallet's deposit/value history for PositionHistoryChart from
+ * its recorded cash flows + its CURRENT live Swyftx value. There's no
+ * historical daily balance for a non-custodial wallet — only the lifetime
+ * deposited/withdrawn totals an admin entered and today's real value — so
+ * every past point's "value" is set equal to net invested at that moment
+ * (no fabricated gain/loss), and only the final "now" point uses the real
+ * live total. The visible gap between the dashed net-invested line and the
+ * solid value line only ever opens up at today — that gap IS the P&L, and
+ * it's never a guess about what the account was worth in between.
+ */
+export function buildLiveCashFlowHistory(
+  flows: WalletCashFlow[],
+  liveTotalValue: number,
+): PositionHistoryPoint[] {
+  const sorted = [...flows].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+
+  let cumDeposited = 0;
+  let cumWithdrawn = 0;
+  const points: PositionHistoryPoint[] = sorted.map((f) => {
+    if (f.type === "deposit") cumDeposited += f.amountUsd;
+    else cumWithdrawn += f.amountUsd;
+    const netInvested = Math.max(0, cumDeposited - cumWithdrawn);
+    return {
+      timestamp: f.timestamp,
+      type: f.type,
+      amount: f.amountUsd,
+      cumulativeShares: 0,
+      cumulativeDeposited: cumDeposited,
+      cumulativeWithdrawn: cumWithdrawn,
+      value: netInvested,
+    };
+  });
+
+  points.push({
+    timestamp: new Date().toISOString(),
+    type: "now",
+    cumulativeShares: 0,
+    cumulativeDeposited: cumDeposited,
+    cumulativeWithdrawn: cumWithdrawn,
+    value: liveTotalValue,
+  });
+
+  return points;
+}
+
 export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("void deposit");
 
