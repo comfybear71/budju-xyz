@@ -31,6 +31,13 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = int(os.getenv("TELEGRAM_CHAT_ID", "-1002398835975"))
 
+# Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
+# x-cg-pro-api-key header — falls back to the free public API if unset.
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
+COINGECKO_MARKETS_BASE = (
+    "https://pro-api.coingecko.com/api/v3" if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3"
+)
+
 # Coins we cover: perp markets + common spot holdings → CoinGecko ids
 CG_IDS = {
     "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "DOGE": "dogecoin",
@@ -55,6 +62,13 @@ def _http_get(url, headers=None, timeout=20):
         return resp.read()
 
 
+def _coingecko_headers():
+    headers = {"User-Agent": "BudjuDesk/1.0"}
+    if COINGECKO_API_KEY:
+        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY
+    return headers
+
+
 def fetch_market(symbols):
     """CoinGecko markets for the given symbols → {SYM: {price, ch24, ch7d, mcap}}."""
     ids = ",".join(sorted({CG_IDS[s] for s in symbols if s in CG_IDS}))
@@ -63,10 +77,10 @@ def fetch_market(symbols):
     id_to_sym = {v: k for k, v in CG_IDS.items()}
     try:
         url = (
-            "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd"
+            f"{COINGECKO_MARKETS_BASE}/coins/markets?vs_currency=usd"
             f"&ids={ids}&price_change_percentage=24h,7d&per_page=250"
         )
-        data = json.loads(_http_get(url))
+        data = json.loads(_http_get(url, headers=_coingecko_headers()))
         out = {}
         for c in data:
             sym = id_to_sym.get(c.get("id"))

@@ -1772,7 +1772,7 @@ def calculate_pool_allocations() -> Dict[str, float]:
 from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from asset_registry import ASSET_CG_IDS, PERMANENT_BUY_DENYLIST, DEFAULT_MONITORED_ASSETS
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
 
 def get_budju_token_balance(wallet_address: str) -> float:
@@ -2132,6 +2132,29 @@ def get_all_users_trade_activity(requester_wallet: str) -> List[Dict]:
 # expensive full CoinGecko coin-list lookup only ever runs once per coin,
 # across every wallet, for the lifetime of the app.
 
+# Paid CoinGecko plan (any tier — Analyst/Lite/Pro/Enterprise) all serve from
+# pro-api.coingecko.com with an x-cg-pro-api-key header, regardless of tier.
+# Falls back to the free, keyless public API if no key is configured — the
+# free tier's low rate limit is exactly what caused prices (and therefore
+# the leaderboard's cash/crypto split) to silently zero out under load.
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
+COINGECKO_BASE_URL = (
+    "https://pro-api.coingecko.com/api/v3" if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3"
+)
+
+
+def _coingecko_get(path_and_query: str, timeout: int = 15):
+    """GET a CoinGecko endpoint, authenticated with the paid Pro API key
+    when configured. Centralizes the base URL/header choice so every call
+    site automatically benefits once COINGECKO_API_KEY is set."""
+    headers = {"Accept": "application/json"}
+    if COINGECKO_API_KEY:
+        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY
+    req = Request(f"{COINGECKO_BASE_URL}{path_and_query}", headers=headers)
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
 _coingecko_coin_list_cache: Optional[List[Dict]] = None
 
 
@@ -2144,8 +2167,7 @@ def _get_coingecko_coin_list() -> List[Dict]:
     if _coingecko_coin_list_cache is not None:
         return _coingecko_coin_list_cache
     try:
-        with urlopen("https://api.coingecko.com/api/v3/coins/list", timeout=20) as resp:
-            data = json.loads(resp.read().decode())
+        data = _coingecko_get("/coins/list", timeout=20)
         _coingecko_coin_list_cache = data if isinstance(data, list) else []
     except Exception:
         _coingecko_coin_list_cache = []
@@ -2177,12 +2199,7 @@ def resolve_coingecko_id(code: str) -> Optional[str]:
             cg_id = candidates[0].get("id")
         elif len(candidates) > 1:
             ids = ",".join(c["id"] for c in candidates if c.get("id"))
-            with urlopen(
-                "https://api.coingecko.com/api/v3/coins/markets"
-                f"?vs_currency=usd&ids={ids}&order=market_cap_desc&per_page=1",
-                timeout=15,
-            ) as resp:
-                ranked = json.loads(resp.read().decode())
+            ranked = _coingecko_get(f"/coins/markets?vs_currency=usd&ids={ids}&order=market_cap_desc&per_page=1")
             if isinstance(ranked, list) and ranked:
                 cg_id = ranked[0].get("id")
     except Exception:
@@ -2214,10 +2231,7 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
 
     ids_param = ",".join(sorted(set(code_to_cgid.values())))
     try:
-        with urlopen(
-            f"https://api.coingecko.com/api/v3/simple/price?ids={ids_param}&vs_currencies=usd", timeout=15
-        ) as resp:
-            data = json.loads(resp.read().decode())
+        data = _coingecko_get(f"/simple/price?ids={ids_param}&vs_currencies=usd")
     except Exception:
         return {}
 

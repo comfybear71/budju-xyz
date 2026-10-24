@@ -202,6 +202,12 @@ CRON_SECRET          # Cron job auth
 # Jupiter
 JUPITER_API_KEY      # Paid Jupiter API (optional, falls back to free)
 
+# CoinGecko
+COINGECKO_API_KEY    # Paid Pro-tier key (optional). All paid tiers (Analyst/Lite/Pro/Enterprise)
+                      # use pro-api.coingecko.com + x-cg-pro-api-key header. Falls back to the
+                      # free public API otherwise — the free tier's rate limit was silently
+                      # zeroing out crypto prices under load (leaderboard showing "100% cash").
+
 # Drift Protocol (live perps - future)
 DRIFT_PRIVATE_KEY    # Base58 wallet key
 DRIFT_RPC_URL        # Or uses HELIUS_API_KEY

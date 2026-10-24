@@ -10,6 +10,13 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 const BASE_URL = "https://api.swyftx.com.au";
 const SITE_URL = "https://www.budju.xyz";
 
+// Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
+// x-cg-pro-api-key header — falls back to the free public API if unset.
+const COINGECKO_API_KEY = process.env.COINGECKO_API_KEY || "";
+const COINGECKO_BASE_URL = COINGECKO_API_KEY
+  ? "https://pro-api.coingecko.com/api/v3"
+  : "https://api.coingecko.com/api/v3";
+
 // Server-side order guard — the single choke-point for the rebuy blocklist,
 // deployable cap and min-sell guard. Consults the Python /api/trade/guard-check
 // (which reads the blocklist from trader_state). Bot orders hard-block; manual
@@ -189,7 +196,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!ids) return res.status(400).json({ error: "ids required" });
       // Fetch both USD and AUD prices to derive a live AUD→USD exchange rate
       const cgRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd,aud&include_24hr_change=true`,
+        `${COINGECKO_BASE_URL}/simple/price?ids=${ids}&vs_currencies=usd,aud&include_24hr_change=true`,
+        COINGECKO_API_KEY ? { headers: { "x-cg-pro-api-key": COINGECKO_API_KEY } } : undefined,
       );
       const data = await cgRes.json();
       return res.status(200).json(data);
