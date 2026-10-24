@@ -868,9 +868,10 @@ const Trade = () => {
                     view is open. Replaces the old pool-stats grid, which
                     showed a stale legacy "16 users" count that had nothing
                     to do with the 4 real non-custodial wallets connected
-                    today. Every figure here is either live (wallet count,
-                    combined value) or admin-entered (deposited/withdrawn —
-                    BUDJU never sees a wallet's real Swyftx history itself). */}
+                    today. Deposited/withdrawn is auto-fetched live from
+                    each wallet's own Swyftx history via its own stored key
+                    (no admin entry needed) — "Manage totals" below is only
+                    for correcting a wallet via a manual override. */}
                 {!((showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk) && isAdmin) && isAdmin && liveLeaderboard && (
                   <>
                     {(() => {
@@ -909,11 +910,11 @@ const Trade = () => {
 
                           {communityDeposited === 0 && communityWithdrawn === 0 ? (
                             <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500 mb-2">
-                              No deposit/withdrawal totals recorded yet for any wallet — BUDJU can't see a
-                              connected wallet's real Swyftx history automatically.{" "}
+                              No deposit/withdrawal history available yet for any wallet — this fetches live from each
+                              wallet's own Swyftx account via its stored key, so check a key is linked and valid, or{" "}
                               <button onClick={() => setShowCashFlowAdmin(true)} className="text-blue-400 hover:text-blue-300 font-semibold">
-                                Record totals
-                              </button>
+                                add a manual override
+                              </button>.
                             </div>
                           ) : (
                             <div className="rounded-lg bg-slate-800/40 p-2.5 mb-2">
@@ -929,7 +930,7 @@ const Trade = () => {
                               onClick={() => setShowCashFlowAdmin(true)}
                               className="text-[10px] text-blue-400/80 hover:text-blue-300 font-mono"
                             >
-                              Manage totals
+                              Manage overrides
                             </button>
                           </div>
                         </>
@@ -1013,10 +1014,14 @@ const Trade = () => {
                           })()
                         ) : (
                           <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500 flex items-center justify-between gap-2">
-                            <span>No deposit/withdrawal history recorded for this wallet yet.</span>
+                            <span>
+                              {cashFlows?.error
+                                ? "No deposit/withdrawal history available for this wallet."
+                                : "No deposit/withdrawal history found on Swyftx for this wallet yet."}
+                            </span>
                             {isAdmin && (
                               <button onClick={() => setShowCashFlowAdmin(true)} className="text-blue-400 hover:text-blue-300 font-semibold flex-shrink-0">
-                                Record
+                                Add override
                               </button>
                             )}
                           </div>
