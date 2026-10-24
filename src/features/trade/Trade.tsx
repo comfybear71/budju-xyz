@@ -70,9 +70,13 @@ const Trade = () => {
   // BUDJU Gate — "My Exchange Key" (non-custodial Swyftx key + auto-trading)
   // is only ever shown to a wallet that actually holds 10M BUDJU. This is a
   // UI-only check (same as everywhere else this gate appears) — the backend
-  // re-verifies it server-side before a key can ever be saved.
+  // re-verifies it server-side before a key can ever be saved. Admin is
+  // exempt: the admin wallet is the operator account (it links the server's
+  // own already-configured Swyftx key, not a personal holding-gated key) and
+  // isn't guaranteed to hold 10M BUDJU itself — same as its exemption from
+  // leaderboards/allocations elsewhere in the app.
   const budjuBalance = balances.tokens.find((t) => t.symbol === "BUDJU")?.amount ?? 0;
-  const hasBudjuGateAccess = isConnected && budjuBalance >= BUDJU_GATE_REQUIRED;
+  const hasBudjuGateAccess = isAdmin || (isConnected && budjuBalance >= BUDJU_GATE_REQUIRED);
 
   // Data state
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
@@ -1130,6 +1134,8 @@ const Trade = () => {
       <Leaderboard
         isOpen={showLeaderboard}
         onClose={() => { setShowLeaderboard(false); setActiveNav("home"); }}
+        isAdmin={isAdmin}
+        adminWallet={walletAddress}
       />
       <TransactionHistory
         isOpen={showTransactions}

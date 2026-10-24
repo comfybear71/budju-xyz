@@ -45,7 +45,13 @@ from trade_guards import (
 
 SWYFTX_BASE = "https://api.swyftx.com.au"
 SWYFTX_API_KEY = os.getenv("SWYFTX_API_KEY", "")
-COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+# Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
+# x-cg-pro-api-key header — falls back to the free public API if unset.
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
+COINGECKO_URL = (
+    "https://pro-api.coingecko.com/api/v3/simple/price"
+    if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3/simple/price"
+)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 
@@ -148,7 +154,8 @@ def fetch_prices():
     """Fetch USD prices from CoinGecko for all tracked assets (with retry)."""
     ids = ",".join(ASSET_CG_IDS.values())
     url = f"{COINGECKO_URL}?ids={ids}&vs_currencies=usd,aud"
-    data = _http_json(url, retries=2, backoff=2)  # Retry up to 2x with 1s, 2s backoff
+    headers = {"x-cg-pro-api-key": COINGECKO_API_KEY} if COINGECKO_API_KEY else None
+    data = _http_json(url, headers=headers, retries=2, backoff=2)  # Retry up to 2x with 1s, 2s backoff
 
     prices = {}
     for code, cg_id in ASSET_CG_IDS.items():

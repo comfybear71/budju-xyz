@@ -1,12 +1,18 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTrophy, FaTimes, FaCrown } from "react-icons/fa";
-import { fetchLiveLeaderboard, type LiveLeaderboardEntry } from "../services/tradeApi";
+import { FaTrophy, FaTimes, FaCrown, FaChevronDown } from "react-icons/fa";
+import {
+  fetchLiveLeaderboard,
+  fetchCommunityAggregateHoldings,
+  type LiveLeaderboardEntry,
+} from "../services/tradeApi";
 import LeaderboardDoughnut from "./LeaderboardDoughnut";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
+  isAdmin?: boolean;
+  adminWallet?: string;
 }
 
 /**
@@ -16,16 +22,23 @@ interface Props {
  * live, directly from that wallet's own key), split into %cash vs %crypto.
  * Replaces the old share/NAV-based leaderboard entirely.
  */
-const Leaderboard = ({ isOpen, onClose }: Props) => {
+const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Props) => {
   const [entries, setEntries] = useState<LiveLeaderboardEntry[]>([]);
   const [walletCount, setWalletCount] = useState(0);
   const [erroredWallets, setErroredWallets] = useState(0);
   const [combinedValue, setCombinedValue] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Admin-only: per-wallet Swyftx holdings, keyed by wallet address, so a
+  // tapped entry can expand into exactly what that wallet holds on Swyftx —
+  // reuses the same live, per-wallet-key read as CommunityHoldingsSummary.
+  const [holdingsByWallet, setHoldingsByWallet] = useState<Record<string, Record<string, number>>>({});
+  const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
+    setExpandedWallet(null);
     fetchLiveLeaderboard()
       .then((lb) => {
         if (!lb) {
@@ -39,7 +52,56 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [isOpen]);
+
+    if (isAdmin && adminWallet) {
+      fetchCommunityAggregateHoldings(adminWallet).then((data) => {
+        if (!data) return;
+        const byWallet: Record<string, Record<string, number>> = {};
+        for (const w of data.perWallet) byWallet[w.walletAddress] = w.holdings;
+        setHoldingsByWallet(byWallet);
+      });
+    }
+  }, [isOpen, isAdmin, adminWallet]);
+
+  const toggleExpanded = (wallet: string) => {
+    if (!isAdmin) return;
+    setExpandedWallet((cur) => (cur === wallet ? null : wallet));
+  };
+
+  /** Admin-only drill-down: this wallet's own Swyftx holdings, per coin —
+   *  "users info on swyftx" that a tap on their entry reveals. */
+  const renderHoldingsDetail = (wallet: string) => {
+    if (expandedWallet !== wallet) return null;
+    const holdings = holdingsByWallet[wallet];
+    return (
+      <motion.div
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: "auto" }}
+        exit={{ opacity: 0, height: 0 }}
+        className="overflow-hidden"
+      >
+        <div className="mt-2 rounded-lg bg-slate-900/50 border border-slate-700/30 p-2.5">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Swyftx holdings</div>
+          {!holdings ? (
+            <div className="text-[11px] text-slate-600">Loading...</div>
+          ) : Object.keys(holdings).length === 0 ? (
+            <div className="text-[11px] text-slate-600">No balances reported</div>
+          ) : (
+            <div className="grid grid-cols-2 gap-1">
+              {Object.entries(holdings)
+                .sort((a, b) => b[1] - a[1])
+                .map(([coin, amount]) => (
+                  <div key={coin} className="flex justify-between text-[11px] font-mono">
+                    <span className="text-slate-400">{coin}</span>
+                    <span className="text-slate-200">{amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    );
+  };
 
   const podium = entries.slice(0, 3);
   const rest = entries.slice(3);
@@ -111,24 +173,36 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.1 }}
-                        className={`flex-1 max-w-[140px] rounded-xl p-3 text-center border transition-all ${
-                          isFirst
-                            ? "bg-gradient-to-b from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]"
-                            : "bg-slate-800/40 border-slate-700/30"
-                        }`}
+                        className="flex-1 max-w-[140px]"
                       >
-                        <div className="text-2xl mb-1">{medalEmojis[realIndex]}</div>
-                        <div className="flex items-center justify-center gap-1 text-xs font-mono text-slate-400 mb-1">
-                          {entry.walletShort}
-                          {entry.isAdmin && <FaCrown className="text-amber-400" size={9} />}
+                        <div
+                          onClick={() => toggleExpanded(entry.walletAddress)}
+                          className={`rounded-xl p-3 text-center border transition-all ${
+                            isFirst
+                              ? "bg-gradient-to-b from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]"
+                              : "bg-slate-800/40 border-slate-700/30"
+                          } ${isAdmin ? "cursor-pointer hover:border-slate-500/50 active:scale-95" : ""}`}
+                        >
+                          <div className="text-2xl mb-1">{medalEmojis[realIndex]}</div>
+                          <div className="flex items-center justify-center gap-1 text-xs font-mono text-slate-400 mb-1">
+                            {entry.walletShort}
+                            {entry.isAdmin && <FaCrown className="text-amber-400" size={9} />}
+                            {isAdmin && (
+                              <FaChevronDown
+                                size={8}
+                                className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
+                              />
+                            )}
+                          </div>
+                          <div className="text-base font-bold text-white font-mono">
+                            ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </div>
+                          <div className="flex justify-center gap-2 text-[10px] text-slate-500 mt-1">
+                            <span className="text-emerald-400/80">{entry.pctCash.toFixed(0)}% cash</span>
+                            <span className="text-blue-400/80">{entry.pctCrypto.toFixed(0)}% crypto</span>
+                          </div>
                         </div>
-                        <div className="text-base font-bold text-white font-mono">
-                          ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                        </div>
-                        <div className="flex justify-center gap-2 text-[10px] text-slate-500 mt-1">
-                          <span className="text-emerald-400/80">{entry.pctCash.toFixed(0)}% cash</span>
-                          <span className="text-blue-400/80">{entry.pctCrypto.toFixed(0)}% crypto</span>
-                        </div>
+                        <AnimatePresence>{renderHoldingsDetail(entry.walletAddress)}</AnimatePresence>
                       </motion.div>
                     );
                   })}
@@ -155,26 +229,39 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: 0.3 + i * 0.05 }}
-                      className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20"
                     >
-                      <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-bold text-slate-400">{i + 4}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 text-xs font-mono text-slate-400">
-                          {entry.walletShort}
-                          {entry.isAdmin && <FaCrown className="text-amber-400" size={10} />}
+                      <div
+                        onClick={() => toggleExpanded(entry.walletAddress)}
+                        className={`flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20 ${
+                          isAdmin ? "cursor-pointer hover:border-slate-600/40 active:scale-[0.99] transition-all" : ""
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs font-bold text-slate-400">{i + 4}</span>
                         </div>
-                        <div className="flex gap-2 text-[10px] text-slate-600">
-                          <span className="text-emerald-400/70">{entry.pctCash.toFixed(0)}% cash</span>
-                          <span className="text-blue-400/70">{entry.pctCrypto.toFixed(0)}% crypto</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 text-xs font-mono text-slate-400">
+                            {entry.walletShort}
+                            {entry.isAdmin && <FaCrown className="text-amber-400" size={10} />}
+                          </div>
+                          <div className="flex gap-2 text-[10px] text-slate-600">
+                            <span className="text-emerald-400/70">{entry.pctCash.toFixed(0)}% cash</span>
+                            <span className="text-blue-400/70">{entry.pctCrypto.toFixed(0)}% crypto</span>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0 flex items-center gap-2">
+                          <div className="text-sm font-bold text-white font-mono">
+                            ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          </div>
+                          {isAdmin && (
+                            <FaChevronDown
+                              size={9}
+                              className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
+                            />
+                          )}
                         </div>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-sm font-bold text-white font-mono">
-                          ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                        </div>
-                      </div>
+                      <AnimatePresence>{renderHoldingsDetail(entry.walletAddress)}</AnimatePresence>
                     </motion.div>
                   ))}
                 </div>

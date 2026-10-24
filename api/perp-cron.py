@@ -37,7 +37,13 @@ from perp_strategies import store_price, run_auto_trader, seed_all_markets
 
 # ── Config ────────────────────────────────────────────────────────────
 
-COINGECKO_URL = "https://api.coingecko.com/api/v3/simple/price"
+# Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
+# x-cg-pro-api-key header — falls back to the free public API if unset.
+COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
+COINGECKO_URL = (
+    "https://pro-api.coingecko.com/api/v3/simple/price"
+    if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3/simple/price"
+)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 CRON_SECRET = os.getenv("CRON_SECRET", "")
@@ -46,7 +52,10 @@ CRON_SECRET = os.getenv("CRON_SECRET", "")
 def fetch_prices() -> dict:
     """Fetch live USD prices from CoinGecko for all perp markets."""
     url = f"{COINGECKO_URL}?ids={COINGECKO_IDS}&vs_currencies=usd"
-    req = Request(url, headers={"Accept": "application/json"})
+    headers = {"Accept": "application/json"}
+    if COINGECKO_API_KEY:
+        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY
+    req = Request(url, headers=headers)
     try:
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
