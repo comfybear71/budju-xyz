@@ -7,7 +7,9 @@
 # key gets its own isolated client instance (own token, own cache), with no
 # risk of one user's calls reusing another user's cached token.
 
+import hashlib
 import json
+import os
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.request import Request, urlopen
@@ -19,6 +21,115 @@ MARKET_BUY = 1
 MARKET_SELL = 2
 
 TOKEN_TTL_MS = 50 * 60 * 1000  # 50 minutes, mirrors the master client
+
+# Process-local token cache, keyed by API key — the fast path, avoiding a
+# Mongo round trip on every call within the same warm instance.
+_TOKEN_CACHE: Dict[str, Tuple[str, float]] = {}
+
+# Lazily-created handle to a tiny shared MongoDB collection used ONLY as a
+# cross-process token cache. Deliberately its own standalone connection
+# (not database.py's) — database.py imports this module, so importing
+# database.py back here would be circular. If MONGODB_URI is unset or the
+# connection fails for any reason, every function below falls back to the
+# process-local cache only; nothing here ever raises or blocks a real
+# Swyftx call on a Mongo problem.
+#
+# Why this exists: multiple independent serverless functions/runtimes can
+# all hold the SAME physical Swyftx API key — the admin's personal entry
+# can be "linked" to the server's own master SWYFTX_API_KEY (see
+# link_admin_master_key in database.py), which is ALSO used by
+# auto-trade-cron.py's cron (its own separate process/cache) and proxy.ts's
+# public portfolio proxy (yet another runtime/cache). Each one refreshing
+# its own token independently hits Swyftx's tightly rate-limited
+# /auth/refresh/ endpoint for the same key from unrelated processes —
+# confirmed live on 2026-10-24: linking the admin wallet's key (== the
+# master bot's key), then loading the leaderboard and personal-holdings
+# endpoints seconds apart, immediately 429'd and silently dropped that
+# wallet from the leaderboard. A shared cache means whichever process
+# refreshes first "wins" and everyone else reuses that token for its full
+# 50-minute life instead of re-authenticating independently.
+_token_cache_collection = None
+_token_cache_collection_attempted = False
+
+
+def _get_token_cache_collection():
+    global _token_cache_collection, _token_cache_collection_attempted
+    if _token_cache_collection_attempted:
+        return _token_cache_collection
+    _token_cache_collection_attempted = True
+    try:
+        from pymongo import MongoClient
+        uri = os.getenv("MONGODB_URI")
+        if not uri:
+            return None
+        db_name = os.getenv("DB_NAME", "flub")
+        mongo_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+        _token_cache_collection = mongo_client[db_name]["swyftx_token_cache"]
+    except Exception:
+        _token_cache_collection = None
+    return _token_cache_collection
+
+
+def _http_json(url: str, method: str = "GET", body: Optional[dict] = None,
+                headers: Optional[dict] = None, timeout: int = 20) -> dict:
+    hdrs = dict(headers) if headers else {}
+    data = json.dumps(body).encode() if body is not None else None
+    if data is not None:
+        hdrs.setdefault("Content-Type", "application/json")
+    hdrs.setdefault("User-Agent", "SwyftxTrader/1.0")
+    req = Request(url, data=data, headers=hdrs, method=method)
+    with urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
+def get_cached_token(api_key: str) -> str:
+    """Resolve a valid Swyftx access token for api_key — process-local cache
+    first, then the shared Mongo cache, then a fresh /auth/refresh/ call as
+    a last resort. Shared by SwyftxClient (below) and auto-trade-cron.py's
+    own token fetching, so every caller holding the same api_key converges
+    on one token instead of each independently hammering Swyftx."""
+    now = time.time() * 1000
+    cached = _TOKEN_CACHE.get(api_key)
+    if cached and now < cached[1]:
+        return cached[0]
+
+    key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+    coll = _get_token_cache_collection()
+    if coll is not None:
+        try:
+            doc = coll.find_one({"_id": key_hash})
+            if doc and doc.get("token") and doc.get("expiresAt", 0) > now:
+                _TOKEN_CACHE[api_key] = (doc["token"], doc["expiresAt"])
+                return doc["token"]
+        except Exception:
+            pass  # Mongo unavailable — fall through to a fresh auth call
+
+    try:
+        data = _http_json(
+            SWYFTX_BASE + "/auth/refresh/",
+            method="POST",
+            body={"apiKey": api_key},
+        )
+    except HTTPError as e:
+        raise SwyftxAuthError(f"Swyftx auth failed: HTTP {e.code}")
+    except Exception as e:
+        raise SwyftxAuthError(f"Swyftx auth failed: {e}")
+    if not data.get("accessToken"):
+        raise SwyftxAuthError("Swyftx auth failed: no access token returned")
+
+    token = data["accessToken"]
+    expiry = now + TOKEN_TTL_MS
+    _TOKEN_CACHE[api_key] = (token, expiry)
+    if coll is not None:
+        try:
+            coll.update_one(
+                {"_id": key_hash},
+                {"$set": {"token": token, "expiresAt": expiry}},
+                upsert=True,
+            )
+        except Exception:
+            pass  # Shared cache write failing never blocks the caller
+    return token
 
 
 class SwyftxAuthError(Exception):
@@ -32,39 +143,13 @@ class SwyftxClient:
         if not api_key:
             raise ValueError("api_key is required")
         self._api_key = api_key
-        self._token: Optional[str] = None
-        self._token_expiry = 0.0
 
     def _http_json(self, url: str, method: str = "GET", body: Optional[dict] = None,
                     headers: Optional[dict] = None, timeout: int = 20) -> dict:
-        hdrs = dict(headers) if headers else {}
-        data = json.dumps(body).encode() if body is not None else None
-        if data is not None:
-            hdrs.setdefault("Content-Type", "application/json")
-        hdrs.setdefault("User-Agent", "SwyftxTrader/1.0")
-        req = Request(url, data=data, headers=hdrs, method=method)
-        with urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode())
+        return _http_json(url, method=method, body=body, headers=headers, timeout=timeout)
 
     def _get_token(self) -> str:
-        now = time.time() * 1000
-        if self._token and now < self._token_expiry:
-            return self._token
-        try:
-            data = self._http_json(
-                SWYFTX_BASE + "/auth/refresh/",
-                method="POST",
-                body={"apiKey": self._api_key},
-            )
-        except HTTPError as e:
-            raise SwyftxAuthError(f"Swyftx auth failed: HTTP {e.code}")
-        except Exception as e:
-            raise SwyftxAuthError(f"Swyftx auth failed: {e}")
-        if not data.get("accessToken"):
-            raise SwyftxAuthError("Swyftx auth failed: no access token returned")
-        self._token = data["accessToken"]
-        self._token_expiry = now + TOKEN_TTL_MS
-        return self._token
+        return get_cached_token(self._api_key)
 
     def _headers(self) -> dict:
         return {
