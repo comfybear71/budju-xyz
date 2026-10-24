@@ -119,3 +119,62 @@ class SwyftxClient:
             if code and balance > 0:
                 holdings[code] = holdings.get(code, 0.0) + balance
         return holdings
+
+    def get_code_to_id_map(self) -> Dict[str, str]:
+        """code -> Swyftx numeric asset ID (inverse of get_asset_map), needed
+        to place orders which address assets by ID, not code."""
+        headers = self._headers()
+        assets_list = self._http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
+        code_to_id: Dict[str, str] = {}
+        if isinstance(assets_list, list):
+            for a in assets_list:
+                if a.get("code") and a.get("id") is not None:
+                    code_to_id[str(a["code"]).upper()] = str(a["id"])
+        return code_to_id
+
+    def place_market_order(self, asset_code: str, side: str, amount_usdc: float,
+                            code_to_id: Dict[str, str]) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Place a market buy/sell order sized in USDC. Mirrors
+        auto-trade-cron.py's place_market_order(), scoped to this instance's
+        own key/token. Returns (success, order_id, error)."""
+        if amount_usdc < 7:
+            return False, None, "Below $7 minimum"
+
+        usdc_id = code_to_id.get("USDC")
+        asset_id = code_to_id.get(asset_code.upper())
+        if not usdc_id or not asset_id:
+            return False, None, f"Cannot resolve IDs for USDC/{asset_code}"
+
+        payload = {
+            "primary": usdc_id,
+            "secondary": asset_id,
+            "quantity": str(round(amount_usdc, 2)),
+            "assetQuantity": usdc_id,
+            "orderType": MARKET_BUY if side == "buy" else MARKET_SELL,
+            "trigger": "",
+        }
+
+        try:
+            data = self._http_json(SWYFTX_BASE + "/orders/", method="POST",
+                                    body=payload, headers=self._headers())
+        except HTTPError as e:
+            body_text = e.read().decode() if e.fp else ""
+            return False, None, f"HTTP {e.code}: {body_text[:200]}"
+
+        order_id = data.get("orderUuid") or data.get("orderId") or data.get("order_id")
+        msg = str(data.get("message", "")).lower()
+        has_error = data.get("error") or "error" in msg or "fail" in msg
+
+        if order_id and not has_error:
+            try:
+                time.sleep(1)
+                verify = self._http_json(SWYFTX_BASE + f"/orders/{order_id}/", headers=self._headers())
+                status = verify.get("status", 0)
+                # Swyftx statuses: 2=pending, 3=open, 4=filled, 5=partially_filled, 6=cancelled, 7=failed
+                if status in (6, 7):
+                    return False, None, f"Order {order_id} rejected by Swyftx (status={status})"
+            except Exception:
+                pass  # Verification failed — assume order is OK (don't block on verify failure)
+            return True, order_id, None
+        err = data.get("error") or data.get("message") or "No order confirmation"
+        return False, None, str(err) if isinstance(err, str) else json.dumps(err)
