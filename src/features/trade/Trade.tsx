@@ -18,9 +18,7 @@ import PendingOrdersView from "./components/PendingOrdersView";
 import AutoTraderView from "./components/AutoTraderView";
 import CoinStatsView from "./components/CoinStatsView";
 import AdminAutoTradeView from "./components/AdminAutoTradeView";
-import RecordDepositView from "./components/RecordDepositView";
 import PoolPerformanceView from "./components/PoolPerformanceView";
-import RecordWithdrawalView from "./components/RecordWithdrawalView";
 import { lazy } from "react";
 const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
@@ -33,7 +31,6 @@ import {
   fetchPrices,
   fetchChanges,
   fetchCashBalances,
-  fetchAdminStats,
   fetchUserPosition,
   fetchTraderState,
   fetchEnrichedPendingOrders,
@@ -46,7 +43,6 @@ import {
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
-  type AdminStats,
   type UserPosition,
   type TraderState,
   type LivePosition,
@@ -85,7 +81,6 @@ const Trade = () => {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [usdcBalance, setUsdcBalance] = useState(0);
   const [audBalance, setAudBalance] = useState(0);
-  const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [livePosition, setLivePosition] = useState<LivePosition | null>(null);
   // Non-custodial combined total across every connected wallet (replaces
@@ -116,8 +111,6 @@ const Trade = () => {
   const [showPersonalTrading, setShowPersonalTrading] = useState(false);
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
-  const [showDeposit, setShowDeposit] = useState(false);
-  const [showWithdrawal, setShowWithdrawal] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showPerformance, setShowPerformance] = useState(false);
@@ -242,12 +235,6 @@ const Trade = () => {
 
       // Calculate pool value for MongoDB queries (crypto + cash)
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
-
-      // Fetch pool stats for ALL visitors (public data)
-      if (poolVal > 0) {
-        const stats = await fetchAdminStats(poolVal);
-        setPoolStats(stats);
-      }
 
       // Fetch trader state for insight cards (bot status, tier config)
       const ts = await fetchTraderState();
@@ -393,7 +380,6 @@ const Trade = () => {
       setShowTradePanel(true);
       setShowTriggerView(false);
       setShowAutoAdmin(false);
-      setShowDeposit(false);
       // Scroll to top so the trade panel is visible
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
@@ -502,7 +488,7 @@ const Trade = () => {
           {!loading && (
             <div className="space-y-4">
               {/* ─── Portfolio Chart (hidden when any trade view is open) ────── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (() => {
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (() => {
                 // Default view ("Pool") is now the combined total across
                 // EVERY connected wallet — same figure the Leaderboard shows
                 // — not just the admin's own account. "Mine" is this
@@ -595,21 +581,17 @@ const Trade = () => {
                 {/* Admin: nav buttons — FLUB-style pills in a dark container (hidden on perp page) */}
                 {isAdmin && !showHighRisk && (
                   <div
-                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk ? "" : "mb-3"}`}
+                    className={`rounded-xl bg-slate-900/60 border border-white/[0.04] p-1.5 overflow-x-auto ${showAutoAdmin || showTriggerView || showTradePanel || showHighRisk ? "" : "mb-3"}`}
                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.2) transparent", WebkitOverflowScrolling: "touch" }}
                   >
                     <div className="flex gap-1.5" style={{ minWidth: "max-content" }}>
                       {([
                         { key: "instant", label: "Instant", icon: "\u26A1", active: showTradePanel, color: "blue",
-                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } } },
+                          onClick: () => { if (assets.length > 0) { setSelectedAsset(assets[0].code); setShowTradePanel(true); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } } },
                         { key: "trigger", label: "Trigger", icon: "\u2699", active: showTriggerView, color: "amber",
-                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } },
+                          onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
                         { key: "auto", label: "Auto", icon: "\u2728", active: showAutoAdmin, color: "emerald",
-                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowDeposit(false); setShowWithdrawal(false); setShowHighRisk(false); } },
-                        { key: "deposit", label: "Deposit", icon: "+", active: showDeposit, color: "green",
-                          onClick: () => { setShowDeposit(!showDeposit); setShowWithdrawal(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
-                        { key: "withdraw", label: "Withdraw", icon: "-", active: showWithdrawal, color: "red",
-                          onClick: () => { setShowWithdrawal(!showWithdrawal); setShowDeposit(false); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
+                          onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowHighRisk(false); } },
                         { key: "perf", label: "P&L", icon: "📊", active: showPerformance, color: "green",
                           onClick: () => setShowPerformance(true) },
                         { key: "coinstats", label: "Coin Stats", icon: "\uD83E\uDE99", active: showStats, color: "teal",
@@ -617,7 +599,7 @@ const Trade = () => {
                         { key: "desk", label: "Desk", icon: "\u2600\uFE0F", active: false, color: "teal",
                           onClick: () => navigate("/desk") },
                         { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
-                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
+                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); } },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
                       ] as const)
@@ -776,7 +758,7 @@ const Trade = () => {
                 {/* USDC Balance + Crypto/USDC Ratio Meter — cumulative USDC
                     cash across EVERY connected wallet (not just the admin's
                     own account), visible to all, hidden when trade views open */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (() => {
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (() => {
                   const combinedCash = liveLeaderboard
                     ? liveLeaderboard.entries.reduce((s, e) => s + e.cashValue, 0)
                     : usdcBalance;
@@ -845,7 +827,7 @@ const Trade = () => {
                 {/* Cash Balances — admin's own account only (not the legacy
                     pool subtraction, which depended on stale data from a
                     different, legacy set of investors) */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && isAdmin && (
+                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && isAdmin && (
                   <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
@@ -872,7 +854,7 @@ const Trade = () => {
                     each wallet's own Swyftx history via its own stored key
                     (no admin entry needed) — "Manage totals" below is only
                     for correcting a wallet via a manual override. */}
-                {!((showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk) && isAdmin) && isAdmin && liveLeaderboard && (
+                {!((showAutoAdmin || showTriggerView || showTradePanel || showHighRisk) && isAdmin) && isAdmin && liveLeaderboard && (
                   <>
                     {(() => {
                       const communityDeposited = communityCashFlows?.totalDepositedUsd ?? 0;
@@ -943,7 +925,7 @@ const Trade = () => {
                     the REAL cumulative cash + crypto balance read live from
                     this wallet's own linked Swyftx key (non-custodial model)
                     — not a pooled-shares allocation, no NAV, no deposited%. */}
-                {!((showAutoAdmin || showTriggerView || showDeposit || showWithdrawal || showTradePanel || showHighRisk) && isAdmin) && isConnected && (
+                {!((showAutoAdmin || showTriggerView || showTradePanel || showHighRisk) && isAdmin) && isConnected && (
                   <>
                     <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
                       <HiOutlineWallet className="w-3 h-3 text-blue-400" />
@@ -1089,29 +1071,6 @@ const Trade = () => {
                 )}
               </AnimatePresence>
 
-              {/* ─── Record Deposit View (admin only) ─── */}
-              <AnimatePresence>
-                {showDeposit && isAdmin && (
-                  <RecordDepositView
-                    adminWallet={walletAddress}
-                    totalPoolValue={totalPoolValue}
-                    poolStats={poolStats}
-                    onClose={() => setShowDeposit(false)}
-                    onSuccess={handleRefresh}
-                  />
-                )}
-
-                {showWithdrawal && isAdmin && (
-                  <RecordWithdrawalView
-                    adminWallet={walletAddress}
-                    totalPoolValue={totalPoolValue}
-                    poolStats={poolStats}
-                    onClose={() => setShowWithdrawal(false)}
-                    onSuccess={handleRefresh}
-                  />
-                )}
-              </AnimatePresence>
-
               {/* ─── High Risk View (new trading dashboard) ─── */}
               {showHighRisk && (
                 <Suspense fallback={<div className="flex items-center justify-center py-12"><div className="text-sm text-slate-400 animate-pulse">Loading dashboard...</div></div>}>
@@ -1120,7 +1079,7 @@ const Trade = () => {
               )}
 
               {/* ─── Holdings (hidden when any trade view is open) ── */}
-              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showDeposit && !showWithdrawal && !showTradePanel && !showHighRisk && (
+              {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={assets}
@@ -1206,7 +1165,6 @@ const Trade = () => {
         isOpen={showLeaderboard}
         onClose={() => { setShowLeaderboard(false); setActiveNav("home"); }}
         isAdmin={isAdmin}
-        adminWallet={walletAddress}
       />
       <TransactionHistory
         isOpen={showTransactions}

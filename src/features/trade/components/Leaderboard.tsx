@@ -1,18 +1,20 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTrophy, FaTimes, FaCrown, FaChevronDown } from "react-icons/fa";
+import { FaTrophy, FaTimes, FaCrown, FaChevronDown, FaArrowUp, FaArrowDown } from "react-icons/fa";
 import {
   fetchLiveLeaderboard,
-  fetchCommunityAggregateHoldings,
+  fetchWalletCashFlows,
+  buildLiveCashFlowHistory,
   type LiveLeaderboardEntry,
+  type WalletCashFlows,
 } from "../services/tradeApi";
 import LeaderboardDoughnut from "./LeaderboardDoughnut";
+import PositionHistoryChart from "./PositionHistoryChart";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   isAdmin?: boolean;
-  adminWallet?: string;
 }
 
 /**
@@ -22,18 +24,19 @@ interface Props {
  * live, directly from that wallet's own key), split into %cash vs %crypto.
  * Replaces the old share/NAV-based leaderboard entirely.
  */
-const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Props) => {
+const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
   const [entries, setEntries] = useState<LiveLeaderboardEntry[]>([]);
   const [walletCount, setWalletCount] = useState(0);
   const [erroredWallets, setErroredWallets] = useState(0);
   const [combinedValue, setCombinedValue] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Admin-only: per-wallet Swyftx holdings, keyed by wallet address, so a
-  // tapped entry can expand into exactly what that wallet holds on Swyftx —
-  // reuses the same live, per-wallet-key read as CommunityHoldingsSummary.
-  const [holdingsByWallet, setHoldingsByWallet] = useState<Record<string, Record<string, number>>>({});
+  // Admin-only: per-wallet Net P&L (deposited/withdrawn vs. live value),
+  // fetched on demand when an entry is expanded — not everyone's raw coin
+  // holdings, which isn't something we want to surface here (yet).
+  const [cashFlowsByWallet, setCashFlowsByWallet] = useState<Record<string, WalletCashFlows | null>>({});
   const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
+  const [loadingWallet, setLoadingWallet] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -52,27 +55,30 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-
-    if (isAdmin && adminWallet) {
-      fetchCommunityAggregateHoldings(adminWallet).then((data) => {
-        if (!data) return;
-        const byWallet: Record<string, Record<string, number>> = {};
-        for (const w of data.perWallet) byWallet[w.walletAddress] = w.holdings;
-        setHoldingsByWallet(byWallet);
-      });
-    }
-  }, [isOpen, isAdmin, adminWallet]);
+  }, [isOpen]);
 
   const toggleExpanded = (wallet: string) => {
     if (!isAdmin) return;
     setExpandedWallet((cur) => (cur === wallet ? null : wallet));
+    if (!cashFlowsByWallet[wallet]) {
+      setLoadingWallet(wallet);
+      fetchWalletCashFlows(wallet)
+        .then((cf) => setCashFlowsByWallet((prev) => ({ ...prev, [wallet]: cf })))
+        .finally(() => setLoadingWallet((cur) => (cur === wallet ? null : cur)));
+    }
   };
 
-  /** Admin-only drill-down: this wallet's own Swyftx holdings, per coin —
-   *  "users info on swyftx" that a tap on their entry reveals. */
-  const renderHoldingsDetail = (wallet: string) => {
-    if (expandedWallet !== wallet) return null;
-    const holdings = holdingsByWallet[wallet];
+  const formatUsdWhole = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+  /** Admin-only drill-down: this wallet's Net P&L — deposited/withdrawn
+   *  (live from their own Swyftx history, or a manual override) against
+   *  their current live total value — charted the same way as "Your
+   *  Position" on the main Trade page. */
+  const renderWalletDetail = (entry: LiveLeaderboardEntry) => {
+    if (expandedWallet !== entry.walletAddress) return null;
+    const cashFlows = cashFlowsByWallet[entry.walletAddress];
+    const isLoading = loadingWallet === entry.walletAddress && !cashFlows;
+
     return (
       <motion.div
         initial={{ opacity: 0, height: 0 }}
@@ -81,22 +87,45 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
         className="overflow-hidden"
       >
         <div className="mt-2 rounded-lg bg-slate-900/50 border border-slate-700/30 p-2.5">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Swyftx holdings</div>
-          {!holdings ? (
-            <div className="text-[11px] text-slate-600">Loading...</div>
-          ) : Object.keys(holdings).length === 0 ? (
-            <div className="text-[11px] text-slate-600">No balances reported</div>
-          ) : (
-            <div className="grid grid-cols-2 gap-1">
-              {Object.entries(holdings)
-                .sort((a, b) => b[1] - a[1])
-                .map(([coin, amount]) => (
-                  <div key={coin} className="flex justify-between text-[11px] font-mono">
-                    <span className="text-slate-400">{coin}</span>
-                    <span className="text-slate-200">{amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
-                  </div>
-                ))}
+          {isLoading ? (
+            <div className="flex justify-center py-4">
+              <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
             </div>
+          ) : !cashFlows || (cashFlows.totalDepositedUsd === 0 && cashFlows.totalWithdrawnUsd === 0) ? (
+            <div className="text-[11px] text-slate-600 text-center py-2">
+              {cashFlows?.error
+                ? "No deposit/withdrawal history available for this wallet."
+                : "No deposit/withdrawal history found on Swyftx for this wallet yet."}
+            </div>
+          ) : (
+            (() => {
+              const netPnl = entry.totalValue + cashFlows.totalWithdrawnUsd - cashFlows.totalDepositedUsd;
+              const netPnlPct = cashFlows.totalDepositedUsd > 0 ? (netPnl / cashFlows.totalDepositedUsd) * 100 : 0;
+              const history = buildLiveCashFlowHistory(cashFlows.flows, entry.totalValue);
+              return (
+                <>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
+                      <div className="text-sm font-bold text-slate-300 font-mono">{formatUsdWhole(cashFlows.totalDepositedUsd)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Withdrawn</div>
+                      <div className="text-sm font-bold text-amber-400/80 font-mono">{formatUsdWhole(cashFlows.totalWithdrawnUsd)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-slate-500 uppercase tracking-wider">Net P&L</div>
+                      <div className={`text-sm font-bold font-mono flex items-center gap-1 ${netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+                        {netPnl >= 0 ? <FaArrowUp size={9} /> : <FaArrowDown size={9} />}
+                        {formatUsdWhole(Math.abs(netPnl))}
+                        <span className="text-slate-500 font-normal">({netPnlPct >= 0 ? "+" : ""}{netPnlPct.toFixed(1)}%)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <PositionHistoryChart points={history} />
+                </>
+              );
+            })()
           )}
         </div>
       </motion.div>
@@ -202,7 +231,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                             <span className="text-blue-400/80">{entry.pctCrypto.toFixed(0)}% crypto</span>
                           </div>
                         </div>
-                        <AnimatePresence>{renderHoldingsDetail(entry.walletAddress)}</AnimatePresence>
+                        <AnimatePresence>{renderWalletDetail(entry)}</AnimatePresence>
                       </motion.div>
                     );
                   })}
@@ -261,7 +290,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                           )}
                         </div>
                       </div>
-                      <AnimatePresence>{renderHoldingsDetail(entry.walletAddress)}</AnimatePresence>
+                      <AnimatePresence>{renderWalletDetail(entry)}</AnimatePresence>
                     </motion.div>
                   ))}
                 </div>

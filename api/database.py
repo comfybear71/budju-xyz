@@ -1976,11 +1976,15 @@ def get_user_live_position(wallet_address: str) -> Dict:
 
     crypto_codes = [c for c in holdings.keys() if c not in ("USDC", "USD", "AUD", "USDT")]
     prices = get_prices_for_coins(crypto_codes)
+    aud_to_usd = get_aud_to_usd_rate()
 
     cash_value = 0.0
     crypto_value = 0.0
     for code, amount in holdings.items():
-        if code in ("USDC", "USD", "AUD", "USDT"):
+        if code == "AUD":
+            # AUD is worth less than 1 USD — must convert, not count 1:1.
+            cash_value += amount * aud_to_usd
+        elif code in ("USDC", "USD", "USDT"):
             cash_value += amount
         else:
             crypto_value += amount * prices.get(code, 0.0)
@@ -2337,6 +2341,7 @@ def get_live_leaderboard() -> Dict:
             wallet_holdings[wallet] = None
 
     prices = get_prices_for_coins(list(all_coins))
+    aud_to_usd = get_aud_to_usd_rate()
 
     entries = []
     errored = 0
@@ -2350,9 +2355,12 @@ def get_live_leaderboard() -> Dict:
         cash_value = 0.0
         crypto_value = 0.0
         for code, amount in holdings.items():
-            if code in ("USDC", "USD", "AUD", "USDT"):
-                # Treat all cash-equivalents as $1 — good enough for a
-                # ranking/allocation view, not a tax statement.
+            if code == "AUD":
+                # AUD is worth less than 1 USD — was previously counted
+                # 1:1 as USD here, overstating cash value for any wallet
+                # holding AUD. Convert at the live rate instead.
+                cash_value += amount * aud_to_usd
+            elif code in ("USDC", "USD", "USDT"):
                 cash_value += amount
             else:
                 crypto_value += amount * prices.get(code, 0.0)
