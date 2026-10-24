@@ -25,7 +25,6 @@ import { lazy } from "react";
 const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
-import PositionHistoryChart from "./components/PositionHistoryChart";
 import CommunityDepositsView from "./components/CommunityDepositsView";
 import PersonalTradingView from "./components/PersonalTradingView";
 import {
@@ -38,9 +37,7 @@ import {
   fetchLeaderboard,
   fetchTraderState,
   fetchEnrichedPendingOrders,
-  fetchDeposits,
-  fetchTransactions,
-  buildPositionHistory,
+  fetchLivePosition,
   registerWallet,
   recalibratePool,
   clearCache,
@@ -50,7 +47,7 @@ import {
   type UserPosition,
   type LeaderboardEntry,
   type TraderState,
-  type PositionHistoryPoint,
+  type LivePosition,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
@@ -85,7 +82,7 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
-  const [positionHistory, setPositionHistory] = useState<PositionHistoryPoint[]>([]);
+  const [livePosition, setLivePosition] = useState<LivePosition | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -240,31 +237,22 @@ const Trade = () => {
         setPendingOrderCount(0);
       }
 
-      // Fetch this wallet's own position + deposit/withdrawal history to chart
-      // it — both regular users and the admin wallet have their own shares
-      // and deposits (admin's pool-wide stats are a separate thing, shown
-      // in the stats grid above).
+      // Fetch this wallet's pooled-shares allocation — still needed for the
+      // legacy "Mine/Pool" holdings toggle and the admin's deposit/withdrawal
+      // tools, which track the shared legacy Swyftx account separately from
+      // each wallet's own non-custodial key below.
       if (isConnected && poolVal > 0) {
         const pos = await fetchUserPosition(walletAddress, poolVal);
         setUserPosition(pos);
+      }
 
-        if (pos) {
-          const [deposits, txns] = await Promise.all([
-            fetchDeposits(walletAddress),
-            fetchTransactions(walletAddress).catch(() => []),
-          ]);
-          const withdrawals = txns.filter((t) => t.type === "withdrawal");
-          setPositionHistory(
-            buildPositionHistory(deposits, withdrawals, {
-              shares: pos.shares,
-              nav: pos.nav,
-              value: pos.currentValue,
-              totalDeposited: pos.totalDeposited,
-            }),
-          );
-        }
+      // Fetch this wallet's REAL cumulative cash + crypto balance, read live
+      // from their own linked Swyftx key — this is what "Your Position"
+      // displays now, not a pooled-shares allocation. Null if no active key.
+      if (isConnected) {
+        setLivePosition(await fetchLivePosition(walletAddress));
       } else {
-        setPositionHistory([]);
+        setLivePosition(null);
       }
 
       activityLog.log("Connected — all data loaded", "success");
@@ -390,6 +378,10 @@ const Trade = () => {
     n >= 1000
       ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
       : `$${n.toFixed(2)}`;
+
+  // Whole-dollar USDC formatting — no decimal places, for the live
+  // cash/crypto position card (unlike formatUsd, which keeps cents below $1000).
+  const formatUsdWhole = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
   return (
     <main className="min-h-screen">
@@ -880,10 +872,11 @@ const Trade = () => {
                     </>
                     )}
 
-                    {/* Your Position — visible for ANY connected wallet (admin gets
-                        their own personal stake here, separate from the pool-wide
-                        stats grid above) */}
-                    {isConnected && userPosition && (
+                    {/* Your Position — visible for ANY connected wallet. Shows
+                        the REAL cumulative cash + crypto balance read live from
+                        this wallet's own linked Swyftx key (non-custodial model)
+                        — not a pooled-shares allocation, no NAV, no deposited%. */}
+                    {isConnected && (
                       <>
                         <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
                           <HiOutlineWallet className="w-3 h-3 text-blue-400" />
@@ -891,55 +884,38 @@ const Trade = () => {
                             {isAdmin ? "Your Personal Position" : "Your Position"}
                           </span>
                         </div>
-                        {(() => {
-                          // P&L must account for money already taken OUT via a
-                          // withdrawal — totalDeposited is a lifetime gross
-                          // figure that's never reduced by one, so comparing it
-                          // straight against currentValue makes a withdrawal
-                          // look like a loss instead of realized value.
-                          const totalWithdrawn = userPosition.totalWithdrawn || 0;
-                          const netPnl = userValue + totalWithdrawn - userPosition.totalDeposited;
-                          return (
-                            <div className="grid grid-cols-2 gap-3 mb-3">
-                              <div>
-                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Value</div>
-                                <div className="text-base font-bold text-white font-mono">{formatUsd(userValue)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Net P&L</div>
-                                <div className={`text-base font-bold font-mono flex items-center gap-1 ${netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                  {netPnl >= 0 ? <FaArrowUp size={10} /> : <FaArrowDown size={10} />}
-                                  {formatUsd(Math.abs(netPnl))}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
-                                <div className="text-sm font-bold text-slate-300 font-mono">{formatUsd(userPosition.totalDeposited)}</div>
-                              </div>
-                              <div>
-                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pool Share</div>
-                                <div className="text-sm font-bold text-slate-300 font-mono">{userPosition.allocation.toFixed(2)}%</div>
-                              </div>
-                              {totalWithdrawn > 0 && (
-                                <div className="col-span-2">
-                                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Withdrawn</div>
-                                  <div className="text-sm font-bold text-amber-400/80 font-mono">{formatUsd(totalWithdrawn)}</div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
 
-                        {/* Deposit/value history line chart — built from this
-                            wallet's own real deposit & withdrawal records.
-                            This is YOUR shares only: another wallet depositing
-                            or withdrawing doesn't move it — new shares are
-                            issued at the current NAV so it never dilutes or
-                            inflates what you already hold, it only moves with
-                            price/NAV changes on your own balance. */}
-                        <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 pt-2.5">
-                          <PositionHistoryChart points={positionHistory} />
-                        </div>
+                        {livePosition ? (
+                          <>
+                            <div className="grid grid-cols-3 gap-3 mb-2">
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Total</div>
+                                <div className="text-base font-bold text-white font-mono">{formatUsdWhole(livePosition.totalValue)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Cash (USDC)</div>
+                                <div className="text-sm font-bold text-cyan-300 font-mono">{formatUsdWhole(livePosition.cashValue)}</div>
+                              </div>
+                              <div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Crypto</div>
+                                <div className="text-sm font-bold text-purple-300 font-mono">{formatUsdWhole(livePosition.cryptoValue)}</div>
+                              </div>
+                            </div>
+                            <div className="h-1.5 rounded-full bg-slate-700/40 overflow-hidden flex mb-1">
+                              <div className="h-full bg-cyan-400" style={{ width: `${livePosition.pctCash}%` }} />
+                              <div className="h-full bg-purple-400" style={{ width: `${livePosition.pctCrypto}%` }} />
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500">
+                              <span>{livePosition.pctCash}% cash</span>
+                              <span>{livePosition.pctCrypto}% crypto</span>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500">
+                            Connect your own Swyftx key above ("My {isAdmin ? "Key" : "Exchange Key"}") to see your
+                            live cash + crypto balance here.
+                          </div>
+                        )}
 
                         {/* Combined P&L — the WHOLE pool's result (admin capital
                             + every investor's), not just the admin's own slice

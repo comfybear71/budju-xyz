@@ -54,6 +54,7 @@ from database import (
     get_user_swyftx_key_status,
     remove_user_swyftx_key,
     get_user_personal_holdings,
+    get_user_live_position,
     get_community_aggregate_holdings,
     get_user_auto_trade_status,
     set_user_auto_trade_enabled,
@@ -380,6 +381,20 @@ class handler(BaseHTTPRequestHandler):
                     return
                 try:
                     self._send_json(200, get_user_personal_holdings(wallet))
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
+
+            elif path == '/api/user/live-position':
+                # Real cumulative cash + crypto balance for one wallet, read
+                # from THEIR OWN Swyftx account. Replaces the old pooled
+                # shares/NAV "Your Position" card entirely.
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    self._send_json(200, get_user_live_position(wallet))
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
                     return
