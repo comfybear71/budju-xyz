@@ -1980,12 +1980,19 @@ def get_user_live_position(wallet_address: str) -> Dict:
 
     cash_value = 0.0
     crypto_value = 0.0
+    # Raw per-currency amounts, in that currency's OWN units — not
+    # converted/blended. The combined cash_value above is useful for a
+    # single total, but a wallet holding AUD + USDC must be able to see
+    # each currency separately rather than one number mislabeled "USDC".
+    cash_by_currency = {"AUD": 0.0, "USD": 0.0, "USDC": 0.0, "USDT": 0.0}
     for code, amount in holdings.items():
         if code == "AUD":
             # AUD is worth less than 1 USD — must convert, not count 1:1.
             cash_value += amount * aud_to_usd
+            cash_by_currency["AUD"] += amount
         elif code in ("USDC", "USD", "USDT"):
             cash_value += amount
+            cash_by_currency[code] += amount
         else:
             crypto_value += amount * prices.get(code, 0.0)
 
@@ -1997,6 +2004,7 @@ def get_user_live_position(wallet_address: str) -> Dict:
         "totalValue": round(total_value, 2),
         "pctCash": round((cash_value / total_value * 100), 1) if total_value > 0 else 0,
         "pctCrypto": round((crypto_value / total_value * 100), 1) if total_value > 0 else 0,
+        "cashByCurrency": {k: round(v, 2) for k, v in cash_by_currency.items()},
     }
 
 
@@ -2324,7 +2332,16 @@ def get_live_leaderboard() -> Dict:
     leaderboard for the non-custodial era."""
     docs = list(user_exchange_keys_collection.find({"status": "active"}))
 
-    # One shared price fetch for every wallet's holdings, not one per wallet.
+    # One shared price fetch AND one shared asset-ID-to-code fetch for
+    # every wallet's holdings, not one per wallet. Skipping the latter
+    # used to mean 4 wallets = 4 extra calls to Swyftx's asset list within
+    # one request; when that got rate-limited partway through, every
+    # wallet from that point on would have every non-cash balance's asset
+    # ID silently fail to resolve (see get_holdings()'s docstring) —
+    # showing up as a healthy-looking "100% cash, 0% crypto" instead of an
+    # error. get_holdings() now caches that fetch globally, so this loop
+    # only triggers it once across the whole process regardless of how
+    # many wallets are iterated.
     all_coins = set()
     wallet_holdings = {}
     for doc in docs:
@@ -2345,6 +2362,7 @@ def get_live_leaderboard() -> Dict:
 
     entries = []
     errored = 0
+    combined_cash_by_currency = {"AUD": 0.0, "USD": 0.0, "USDC": 0.0, "USDT": 0.0}
     for doc in docs:
         wallet = doc.get("walletAddress")
         holdings = wallet_holdings.get(wallet)
@@ -2354,16 +2372,22 @@ def get_live_leaderboard() -> Dict:
 
         cash_value = 0.0
         crypto_value = 0.0
+        cash_by_currency = {"AUD": 0.0, "USD": 0.0, "USDC": 0.0, "USDT": 0.0}
         for code, amount in holdings.items():
             if code == "AUD":
                 # AUD is worth less than 1 USD — was previously counted
                 # 1:1 as USD here, overstating cash value for any wallet
                 # holding AUD. Convert at the live rate instead.
                 cash_value += amount * aud_to_usd
+                cash_by_currency["AUD"] += amount
             elif code in ("USDC", "USD", "USDT"):
                 cash_value += amount
+                cash_by_currency[code] += amount
             else:
                 crypto_value += amount * prices.get(code, 0.0)
+
+        for k in combined_cash_by_currency:
+            combined_cash_by_currency[k] += cash_by_currency[k]
 
         total_value = cash_value + crypto_value
         entries.append({
@@ -2374,6 +2398,7 @@ def get_live_leaderboard() -> Dict:
             "cryptoValue": round(crypto_value, 2),
             "pctCash": round((cash_value / total_value * 100), 1) if total_value > 0 else 0,
             "pctCrypto": round((crypto_value / total_value * 100), 1) if total_value > 0 else 0,
+            "cashByCurrency": {k: round(v, 2) for k, v in cash_by_currency.items()},
             "isAdmin": wallet in ADMIN_WALLETS,
         })
 
@@ -2383,6 +2408,7 @@ def get_live_leaderboard() -> Dict:
         "walletCount": len(docs),
         "erroredWallets": errored,
         "combinedValue": round(sum(e["totalValue"] for e in entries), 2),
+        "cashByCurrency": {k: round(v, 2) for k, v in combined_cash_by_currency.items()},
     }
 
 

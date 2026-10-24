@@ -70,6 +70,83 @@ def _get_token_cache_collection():
     return _token_cache_collection
 
 
+# Process-local + shared-Mongo cache for Swyftx's asset ID -> code map
+# (GET /markets/assets/). This is public market reference data, identical
+# for every account — NOT per-API-key — yet every caller used to fetch it
+# fresh on every single get_holdings() call. get_live_leaderboard() and
+# get_community_aggregate_holdings() each call get_holdings() once PER
+# CONNECTED WALLET in a tight loop, so 4 wallets meant 4 extra back-to-back
+# hits to this endpoint on top of the balance calls, within one request —
+# the exact same 429-prone pattern already documented above for
+# /auth/refresh/. Confirmed as the live symptom on 2026-10-24: the
+# leaderboard showed every wallet (including the admin's real ~$8.8K/29-coin
+# account) as "100% cash, 0% crypto" — because when /markets/assets/ got
+# rate-limited partway through the loop, the old get_asset_map() silently
+# returned {} instead of raising (see the isinstance guard below), so every
+# non-cash balance's asset ID failed to resolve to a code and was silently
+# dropped — while USDC, which does appear directly in the balance payload
+# in some Swyftx response shapes, survived. Caching this once (it almost
+# never changes) removes the repeated calls entirely instead of just
+# reducing them.
+ASSET_MAP_TTL_MS = 10 * 60 * 1000  # 10 minutes
+_ASSET_MAP_CACHE: Dict[str, Tuple[Dict[str, str], float]] = {}
+_asset_map_cache_collection = None
+_asset_map_cache_collection_attempted = False
+
+
+def _get_asset_map_cache_collection():
+    global _asset_map_cache_collection, _asset_map_cache_collection_attempted
+    if _asset_map_cache_collection_attempted:
+        return _asset_map_cache_collection
+    _asset_map_cache_collection_attempted = True
+    try:
+        from pymongo import MongoClient
+        uri = os.getenv("MONGODB_URI")
+        if not uri:
+            return None
+        db_name = os.getenv("DB_NAME", "flub")
+        mongo_client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+        _asset_map_cache_collection = mongo_client[db_name]["swyftx_asset_map_cache"]
+    except Exception:
+        _asset_map_cache_collection = None
+    return _asset_map_cache_collection
+
+
+def get_cached_asset_map(fetch_fn) -> Dict[str, str]:
+    """Process-local cache first, then the shared Mongo cache, then
+    fetch_fn() (a real /markets/assets/ call) as a last resort — mirrors
+    get_cached_token()'s layering. Shared across EVERY SwyftxClient
+    instance and every wallet, since this data isn't account-specific."""
+    now = time.time() * 1000
+    cached = _ASSET_MAP_CACHE.get("global")
+    if cached and now < cached[1]:
+        return cached[0]
+
+    coll = _get_asset_map_cache_collection()
+    if coll is not None:
+        try:
+            doc = coll.find_one({"_id": "global"})
+            if doc and doc.get("assetMap") and doc.get("expiresAt", 0) > now:
+                _ASSET_MAP_CACHE["global"] = (doc["assetMap"], doc["expiresAt"])
+                return doc["assetMap"]
+        except Exception:
+            pass  # Mongo unavailable — fall through to a fresh fetch
+
+    asset_map = fetch_fn()
+    expiry = now + ASSET_MAP_TTL_MS
+    _ASSET_MAP_CACHE["global"] = (asset_map, expiry)
+    if coll is not None:
+        try:
+            coll.update_one(
+                {"_id": "global"},
+                {"$set": {"assetMap": asset_map, "expiresAt": expiry}},
+                upsert=True,
+            )
+        except Exception:
+            pass  # Shared cache write failing never blocks the caller
+    return asset_map
+
+
 def _extract_history_records(data, list_key: str) -> List[Dict]:
     """Swyftx's history endpoints may return a bare list, {"deposits": [...]}
     / {"withdrawals": [...]}, or some other wrapper key — the docs only show
@@ -183,34 +260,57 @@ class SwyftxClient:
             return False, str(e)
 
     def get_balances(self) -> List[Dict]:
-        """Raw per-asset balances: [{assetId, availableBalance, ...}, ...]."""
+        """Raw per-asset balances: [{assetId, availableBalance, ...}, ...].
+        Raises if Swyftx returns anything other than the documented list
+        shape (e.g. a rate-limit/error body with a 200 status) — silently
+        treating that as "no balances" would misreport a real account as
+        empty instead of surfacing the failure."""
         headers = self._headers()
         try:
-            return self._http_json(SWYFTX_BASE + "/user/balance/", headers=headers)
+            data = self._http_json(SWYFTX_BASE + "/user/balance/", headers=headers)
         except HTTPError as e:
             raise SwyftxAuthError(f"Swyftx balance fetch failed: HTTP {e.code}")
+        if not isinstance(data, list):
+            raise SwyftxAuthError(
+                f"Swyftx balance fetch returned unexpected shape: {type(data).__name__}"
+            )
+        return data
 
     def get_asset_map(self) -> Dict[str, str]:
-        """Swyftx numeric asset ID -> code (e.g. "36" -> "BTC")."""
-        headers = self._headers()
-        assets_list = self._http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
-        asset_map = {}
-        if isinstance(assets_list, list):
+        """Swyftx numeric asset ID -> code (e.g. "36" -> "BTC"). Cached
+        (see get_cached_asset_map above) — this is public reference data
+        shared by every account, not per-key, so one fetch serves every
+        wallet instead of one call each inside a leaderboard/aggregate
+        loop. Raises instead of silently returning {} on a malformed
+        response, since an empty map here makes get_holdings() drop every
+        non-cash balance as if the account held no crypto at all."""
+        def _fetch() -> Dict[str, str]:
+            headers = self._headers()
+            assets_list = self._http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
+            if not isinstance(assets_list, list):
+                raise SwyftxAuthError(
+                    f"Swyftx asset list fetch returned unexpected shape: {type(assets_list).__name__}"
+                )
+            asset_map = {}
             for a in assets_list:
                 if a.get("id") is not None:
                     asset_map[str(a["id"])] = a.get("code", "")
-        return asset_map
+            return asset_map
+        return get_cached_asset_map(_fetch)
 
-    def get_holdings(self) -> Dict[str, float]:
+    def get_holdings(self, asset_map: Optional[Dict[str, str]] = None) -> Dict[str, float]:
         """{coinCode: availableBalance} for every asset with a non-zero
-        balance, including USDC/AUD cash. One call does the asset-id lookup
-        + balance fetch together (mirrors fetch_portfolio() in
-        auto-trade-cron.py, just scoped to this instance's own key)."""
+        balance, including USDC/AUD cash. Pass a pre-fetched asset_map
+        (e.g. shared across a loop of many wallets) to skip the lookup
+        entirely; omitted, it uses get_asset_map()'s own (also cached)
+        fetch — either way this is at most one real /markets/assets/ call
+        per cache window, not one per wallet."""
         balances = self.get_balances()
-        asset_map = self.get_asset_map()
+        if asset_map is None:
+            asset_map = self.get_asset_map()
 
         holdings: Dict[str, float] = {}
-        for item in (balances if isinstance(balances, list) else []):
+        for item in balances:
             asset_id = item.get("assetId") or (item.get("asset", {}).get("id"))
             code = item.get("asset", {}).get("code") or (
                 asset_map.get(str(asset_id), "") if asset_id is not None else ""
