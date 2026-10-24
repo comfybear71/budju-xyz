@@ -22,7 +22,7 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
-import PositionHistoryChart from "./components/PositionHistoryChart";
+import GrowthAreaChart from "./components/GrowthAreaChart";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -649,7 +649,7 @@ const Trade = () => {
 
                   {/* Growth / P&L — slim area chart, same for Mine and Pool */}
                   <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <PositionHistoryChart points={growthHistory} />
+                    <GrowthAreaChart points={growthHistory} />
                   </div>
                 </div>
                 );
