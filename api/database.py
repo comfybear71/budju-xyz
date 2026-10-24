@@ -77,6 +77,11 @@ user_trades_collection = db["user_trades"]
 # the bot price and trade literally any coin a user holds, not just the
 # ~30 originally hand-picked ones.
 dynamic_coin_registry_collection = db["dynamic_coin_registry"]
+# How long a "CoinGecko id not found" resolution is trusted before
+# resolve_coingecko_id() retries it. See that function's docstring —
+# caching a negative result forever let one transient CoinGecko failure
+# silently and permanently block a coin from ever being priced/traded.
+NEGATIVE_CACHE_HOURS = 6
 # Lifetime deposit/withdrawal ledger for the non-custodial model (Oct 2026).
 # Deliberately separate from deposits_collection/withdrawals_collection —
 # those mint/burn shares against the legacy shared-pool NAV, which no
@@ -2464,9 +2469,15 @@ def _get_coingecko_coin_list() -> List[Dict]:
 def resolve_coingecko_id(code: str) -> Optional[str]:
     """Map a Swyftx asset code (e.g. "SUI") to a CoinGecko coin id, so any
     coin a connected wallet holds can be priced — not just the static
-    ASSET_CG_IDS registry. Resolved once, then cached forever in
-    `dynamic_coin_registry` (including a cached "not found", so a coin
-    CoinGecko genuinely doesn't list is never retried on every cron tick).
+    ASSET_CG_IDS registry. Resolved once, then cached in
+    `dynamic_coin_registry`. A successful resolution is cached forever. A
+    "not found" result is only cached for NEGATIVE_CACHE_HOURS and then
+    retried — caching it forever was wrong: a transient CoinGecko hiccup
+    (rate limit, timeout, or the market-cap tie-break call failing) during
+    the FIRST resolution attempt would otherwise permanently block pricing
+    for a coin CoinGecko actually lists just fine on any later attempt.
+    Confirmed live 2026-10-25: STRK ("starknet") resolves correctly when
+    tried fresh, despite a stale cached-null entry blocking it for hours.
     Several coins can share a ticker symbol; when that happens this picks
     whichever candidate has the highest market cap, since that's
     overwhelmingly the coin a licensed AU exchange like Swyftx actually
@@ -2477,7 +2488,12 @@ def resolve_coingecko_id(code: str) -> Optional[str]:
 
     cached = dynamic_coin_registry_collection.find_one({"code": code})
     if cached is not None:
-        return cached.get("cgId")
+        if cached.get("cgId"):
+            return cached["cgId"]
+        resolved_at = cached.get("resolvedAt")
+        if resolved_at and (datetime.utcnow() - resolved_at) < timedelta(hours=NEGATIVE_CACHE_HOURS):
+            return None
+        # Negative cache expired — fall through and retry below.
 
     cg_id = None
     try:
