@@ -76,6 +76,16 @@ user_trades_collection = db["user_trades"]
 # the bot price and trade literally any coin a user holds, not just the
 # ~30 originally hand-picked ones.
 dynamic_coin_registry_collection = db["dynamic_coin_registry"]
+# Lifetime deposit/withdrawal ledger for the non-custodial model (Oct 2026).
+# Deliberately separate from deposits_collection/withdrawals_collection —
+# those mint/burn shares against the legacy shared-pool NAV, which no
+# longer exists for a non-custodial wallet. This collection is just a plain
+# dollar ledger per wallet: BUDJU never sees a user's real Swyftx deposit
+# history, so an admin records it (in USD) from what that wallet's owner
+# reports from their own Swyftx transaction history. Net P&L for a wallet is
+# then: liveValue + totalWithdrawn - totalDeposited — same shape as the old
+# share-based P&L, just against a live Swyftx balance instead of shares×NAV.
+wallet_cash_flows_collection = db["wallet_cash_flows"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -93,6 +103,7 @@ user_exchange_keys_collection.create_index("walletAddress", unique=True)
 user_trader_state_collection.create_index("walletAddress", unique=True)
 user_trades_collection.create_index([("walletAddress", 1), ("timestamp", -1)])
 dynamic_coin_registry_collection.create_index("code", unique=True)
+wallet_cash_flows_collection.create_index([("walletAddress", 1), ("timestamp", 1)])
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -2363,4 +2374,136 @@ def get_live_leaderboard() -> Dict:
         "walletCount": len(docs),
         "erroredWallets": errored,
         "combinedValue": round(sum(e["totalValue"] for e in entries), 2),
+    }
+
+
+# ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ───
+# BUDJU never custodies a connected wallet's money, so it never sees that
+# wallet's real Swyftx deposit/withdrawal history automatically. An admin
+# records it in USD (from what the wallet owner reports from their own
+# Swyftx account), so the app can show real Net P&L = live value + withdrawn
+# - deposited, and chart it the same way the old share-based "Your Position"
+# chart worked — just against a live Swyftx balance instead of shares×NAV.
+
+def record_wallet_cash_flow(admin_wallet: str, wallet_address: str, flow_type: str,
+                             amount_usd: float, timestamp: Optional[str] = None,
+                             note: Optional[str] = None) -> Dict:
+    if not is_admin(admin_wallet):
+        return {"success": False, "error": "Admin access required"}
+    if not wallet_address:
+        return {"success": False, "error": "walletAddress required"}
+    if flow_type not in ("deposit", "withdrawal"):
+        return {"success": False, "error": "type must be 'deposit' or 'withdrawal'"}
+    try:
+        amount_usd = float(amount_usd)
+    except (TypeError, ValueError):
+        return {"success": False, "error": "amountUsd must be a number"}
+    if amount_usd <= 0:
+        return {"success": False, "error": "amountUsd must be positive"}
+
+    ts = datetime.utcnow()
+    if timestamp:
+        try:
+            ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            return {"success": False, "error": f"Invalid timestamp: {timestamp}"}
+
+    doc = {
+        "walletAddress": wallet_address,
+        "type": flow_type,
+        "amountUsd": round(amount_usd, 2),
+        "timestamp": ts,
+        "note": note or None,
+        "recordedBy": admin_wallet,
+        "createdAt": datetime.utcnow(),
+    }
+    result = wallet_cash_flows_collection.insert_one(doc)
+    return {"success": True, "id": str(result.inserted_id), "amountUsd": doc["amountUsd"]}
+
+
+def delete_wallet_cash_flow(admin_wallet: str, flow_id: str) -> Dict:
+    if not is_admin(admin_wallet):
+        return {"success": False, "error": "Admin access required"}
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    try:
+        oid = ObjectId(flow_id)
+    except (InvalidId, TypeError):
+        return {"success": False, "error": "Invalid flow id"}
+    result = wallet_cash_flows_collection.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        return {"success": False, "error": "Not found"}
+    return {"success": True}
+
+
+def get_wallet_cash_flows(wallet_address: str) -> Dict:
+    """One wallet's recorded lifetime deposits/withdrawals (oldest first),
+    plus the running totals a Net P&L figure needs."""
+    docs = list(
+        wallet_cash_flows_collection.find({"walletAddress": wallet_address}).sort("timestamp", 1)
+    )
+    flows = []
+    total_deposited = 0.0
+    total_withdrawn = 0.0
+    for d in docs:
+        amount = float(d.get("amountUsd", 0) or 0)
+        if d.get("type") == "deposit":
+            total_deposited += amount
+        else:
+            total_withdrawn += amount
+        flows.append({
+            "id": str(d["_id"]),
+            "type": d.get("type"),
+            "amountUsd": amount,
+            "timestamp": d["timestamp"].isoformat() if d.get("timestamp") else None,
+            "note": d.get("note"),
+        })
+    return {
+        "walletAddress": wallet_address,
+        "flows": flows,
+        "totalDepositedUsd": round(total_deposited, 2),
+        "totalWithdrawnUsd": round(total_withdrawn, 2),
+    }
+
+
+def get_community_cash_flows() -> Dict:
+    """Aggregate lifetime deposited/withdrawn across every wallet that has
+    at least one recorded cash flow — only wallets an admin has actually
+    entered data for contribute to this total; it is not assumed to cover
+    every connected wallet."""
+    docs = list(wallet_cash_flows_collection.find({}).sort("timestamp", 1))
+    per_wallet: Dict[str, Dict[str, float]] = {}
+    total_deposited = 0.0
+    total_withdrawn = 0.0
+    timeline: List[Dict] = []
+    cum_deposited = 0.0
+    cum_withdrawn = 0.0
+
+    for d in docs:
+        wallet = d.get("walletAddress")
+        amount = float(d.get("amountUsd", 0) or 0)
+        flow_type = d.get("type")
+        entry = per_wallet.setdefault(wallet, {"depositedUsd": 0.0, "withdrawnUsd": 0.0})
+        if flow_type == "deposit":
+            entry["depositedUsd"] += amount
+            total_deposited += amount
+            cum_deposited += amount
+        else:
+            entry["withdrawnUsd"] += amount
+            total_withdrawn += amount
+            cum_withdrawn += amount
+        timeline.append({
+            "timestamp": d["timestamp"].isoformat() if d.get("timestamp") else None,
+            "type": flow_type,
+            "amountUsd": round(amount, 2),
+            "cumulativeDepositedUsd": round(cum_deposited, 2),
+            "cumulativeWithdrawnUsd": round(cum_withdrawn, 2),
+        })
+
+    return {
+        "walletsWithData": len(per_wallet),
+        "perWallet": {w: {k: round(v, 2) for k, v in vals.items()} for w, vals in per_wallet.items()},
+        "totalDepositedUsd": round(total_deposited, 2),
+        "totalWithdrawnUsd": round(total_withdrawn, 2),
+        "timeline": timeline,
     }

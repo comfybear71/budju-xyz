@@ -62,6 +62,10 @@ from database import (
     get_all_users_trade_activity,
     get_live_leaderboard,
     link_admin_master_key,
+    record_wallet_cash_flow,
+    delete_wallet_cash_flow,
+    get_wallet_cash_flows,
+    get_community_cash_flows,
 )
 
 from perp_engine import (
@@ -445,6 +449,23 @@ class handler(BaseHTTPRequestHandler):
                 # Shows each connected wallet's own live holdings split
                 # (%cash vs %crypto), never a pool share or NAV figure.
                 self._send_json(200, get_live_leaderboard())
+
+            elif path == '/api/user/cash-flows':
+                # Public, wallet-scoped — same transparency tier as
+                # /api/user/live-position. Lifetime deposited/withdrawn
+                # ledger an admin recorded for this wallet (in USD), used to
+                # chart Net P&L against the wallet's live Swyftx value.
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_wallet_cash_flows(wallet))
+
+            elif path == '/api/community/cash-flows':
+                # Public — aggregate deposited/withdrawn across every wallet
+                # an admin has entered cash-flow data for. Only covers
+                # wallets with recorded data, not every connected wallet.
+                self._send_json(200, get_community_cash_flows())
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
@@ -872,6 +893,42 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": str(e)})
                     return
                 self._send_json(200, result)
+
+            elif path == '/api/admin/cash-flow':
+                # Admin-only: record a lifetime deposit/withdrawal total (in
+                # USD) for any wallet — BUDJU never sees a connected wallet's
+                # real Swyftx deposit history, so an admin enters it from
+                # what that wallet's owner reports from their own account.
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                admin_wallet = body.get('adminWallet')
+                wallet_address = body.get('walletAddress')
+                flow_type = body.get('type')
+                amount_usd = body.get('amountUsd')
+                if not wallet_address or not flow_type or amount_usd is None:
+                    self._send_json(400, {"error": "walletAddress, type, and amountUsd required"})
+                    return
+                result = record_wallet_cash_flow(
+                    admin_wallet, wallet_address, flow_type, amount_usd,
+                    timestamp=body.get('timestamp'), note=body.get('note'),
+                )
+                self._send_json(200 if result.get("success") else 400, result)
+
+            elif path == '/api/admin/cash-flow/delete':
+                # Admin-only: remove a mistaken cash-flow entry.
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                admin_wallet = body.get('adminWallet')
+                flow_id = body.get('flowId')
+                if not flow_id:
+                    self._send_json(400, {"error": "flowId required"})
+                    return
+                result = delete_wallet_cash_flow(admin_wallet, flow_id)
+                self._send_json(200 if result.get("success") else 400, result)
 
             elif path == '/api/admin/void-deposit':
                 # Admin-only: void an accidental/duplicate deposit (reverses shares)
