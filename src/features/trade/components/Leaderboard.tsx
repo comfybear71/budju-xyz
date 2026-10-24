@@ -1,59 +1,48 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import {
-  FaTrophy,
-  FaTimes,
-} from "react-icons/fa";
-import { HiOutlineChevronDown } from "react-icons/hi2";
-import { fetchLeaderboard, type LeaderboardEntry } from "../services/tradeApi";
-import WalletDetailPanel from "./WalletDetailPanel";
+import { FaTrophy, FaTimes, FaCrown } from "react-icons/fa";
+import { fetchLiveLeaderboard, type LiveLeaderboardEntry } from "../services/tradeApi";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  poolValue: number;
-  /** Admins can tap any wallet to drill into their deposits, NAV, Net P&L,
-   * a Solscan link, and value-over-time chart. Regular visitors just see
-   * the public rankings. */
-  isAdmin?: boolean;
 }
 
-const Leaderboard = ({ isOpen, onClose, poolValue, isAdmin }: Props) => {
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
+/**
+ * Non-custodial leaderboard (Oct 2026 pivot) — BUDJU no longer pools money,
+ * so there's no shared NAV or "% of pool" to rank by. Instead this ranks
+ * every connected wallet by its own current Swyftx account value (read
+ * live, directly from that wallet's own key), split into %cash vs %crypto.
+ * Replaces the old share/NAV-based leaderboard entirely.
+ */
+const Leaderboard = ({ isOpen, onClose }: Props) => {
+  const [entries, setEntries] = useState<LiveLeaderboardEntry[]>([]);
+  const [walletCount, setWalletCount] = useState(0);
+  const [erroredWallets, setErroredWallets] = useState(0);
+  const [combinedValue, setCombinedValue] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen) {
-      setExpanded(null);
-      return;
-    }
-    if (poolValue <= 0) {
-      setLoading(false);
-      return;
-    }
+    if (!isOpen) return;
     setLoading(true);
-    fetchLeaderboard(poolValue)
-      .then(setEntries)
+    fetchLiveLeaderboard()
+      .then((lb) => {
+        if (!lb) {
+          setEntries([]);
+          return;
+        }
+        setEntries(lb.entries);
+        setWalletCount(lb.walletCount);
+        setErroredWallets(lb.erroredWallets);
+        setCombinedValue(lb.combinedValue);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [isOpen, poolValue]);
+  }, [isOpen]);
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "";
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-    } catch {
-      return "";
-    }
-  };
-
-  // Top 3 for podium
   const podium = entries.slice(0, 3);
   const rest = entries.slice(3);
 
-  // Podium order: [2nd, 1st, 3rd]
   const podiumOrder = podium.length >= 3
     ? [podium[1], podium[0], podium[2]]
     : podium.length === 2
@@ -61,12 +50,6 @@ const Leaderboard = ({ isOpen, onClose, poolValue, isAdmin }: Props) => {
       : podium;
 
   const medalEmojis = ["🥇", "🥈", "🥉"];
-  const podiumHeights = ["h-24", "h-32", "h-20"];
-
-  const toggle = (wallet: string) => {
-    if (!isAdmin) return;
-    setExpanded((prev) => (prev === wallet ? null : wallet));
-  };
 
   return (
     <AnimatePresence>
@@ -93,6 +76,11 @@ const Leaderboard = ({ isOpen, onClose, poolValue, isAdmin }: Props) => {
           </div>
 
           <div className="px-4 py-5 max-w-2xl mx-auto">
+            <div className="text-[11px] text-slate-500 text-center mb-4 leading-relaxed">
+              Every connected wallet's own live Swyftx balance, non-custodially — ranked by current value. BUDJU
+              never holds or pools these funds.
+            </div>
+
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20">
                 <div className="w-8 h-8 rounded-full border-2 border-yellow-400 border-t-transparent animate-spin mb-3" />
@@ -101,7 +89,7 @@ const Leaderboard = ({ isOpen, onClose, poolValue, isAdmin }: Props) => {
             ) : entries.length === 0 ? (
               <div className="text-center py-20">
                 <FaTrophy className="mx-auto mb-3 text-slate-700" size={32} />
-                <p className="text-sm text-slate-500">No users yet</p>
+                <p className="text-sm text-slate-500">No connected wallets yet</p>
               </div>
             ) : (
               <>
@@ -117,117 +105,71 @@ const Leaderboard = ({ isOpen, onClose, poolValue, isAdmin }: Props) => {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.1 }}
-                        onClick={() => toggle(entry.walletAddress)}
                         className={`flex-1 max-w-[140px] rounded-xl p-3 text-center border transition-all ${
                           isFirst
                             ? "bg-gradient-to-b from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]"
                             : "bg-slate-800/40 border-slate-700/30"
-                        } ${isAdmin ? "cursor-pointer hover:border-blue-500/30 active:scale-95" : ""} ${
-                          expanded === entry.walletAddress ? "ring-1 ring-blue-500/40" : ""
                         }`}
                       >
                         <div className="text-2xl mb-1">{medalEmojis[realIndex]}</div>
-                        <div className="text-xs font-mono text-slate-400 mb-1">
+                        <div className="flex items-center justify-center gap-1 text-xs font-mono text-slate-400 mb-1">
                           {entry.walletShort}
+                          {entry.isAdmin && <FaCrown className="text-amber-400" size={9} />}
                         </div>
                         <div className="text-base font-bold text-white font-mono">
-                          ${entry.currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                          ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        <div className="text-[10px] text-slate-500 mt-1">
-                          {entry.allocation.toFixed(1)}% of pool
+                        <div className="flex justify-center gap-2 text-[10px] text-slate-500 mt-1">
+                          <span className="text-emerald-400/80">{entry.pctCash.toFixed(0)}% cash</span>
+                          <span className="text-blue-400/80">{entry.pctCrypto.toFixed(0)}% crypto</span>
                         </div>
-                        {entry.joinedDate && (
-                          <div className="text-[10px] text-slate-600 mt-0.5">
-                            Joined {formatDate(entry.joinedDate)}
-                          </div>
-                        )}
                       </motion.div>
                     );
                   })}
                 </div>
 
-                {/* Admin drill-down for a podium wallet */}
-                <AnimatePresence>
-                  {isAdmin && expanded && podium.some((e) => e.walletAddress === expanded) && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="overflow-hidden mb-4"
-                    >
-                      <div className="rounded-xl border border-blue-500/20 bg-slate-900/60 p-3">
-                        <WalletDetailPanel wallet={expanded} totalPoolValue={poolValue} />
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-
                 {/* Summary */}
                 <div className="flex justify-between items-center px-2 mb-3">
                   <span className="text-xs text-blue-400 font-semibold">
-                    {entries.length} Holders
+                    {walletCount} Wallet{walletCount === 1 ? "" : "s"}
+                    {erroredWallets > 0 && (
+                      <span className="text-amber-500/70"> · {erroredWallets} unreachable</span>
+                    )}
                   </span>
                   <span className="text-xs text-slate-400">
-                    Combined: ${entries.reduce((s, e) => s + e.currentValue, 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    Combined: ${combinedValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </span>
                 </div>
 
                 {/* Rest of leaderboard */}
                 <div className="space-y-1.5">
                   {rest.map((entry, i) => (
-                    <div key={entry.walletAddress}>
-                      <motion.div
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.3 + i * 0.05 }}
-                        onClick={() => toggle(entry.walletAddress)}
-                        className={`flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border transition-all ${
-                          isAdmin ? "cursor-pointer hover:border-blue-500/30 active:scale-[0.99]" : ""
-                        } ${expanded === entry.walletAddress ? "border-blue-500/30" : "border-slate-700/20"}`}
-                      >
-                        <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xs font-bold text-slate-400">{entry.rank}</span>
+                    <motion.div
+                      key={entry.walletAddress}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.3 + i * 0.05 }}
+                      className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-bold text-slate-400">{i + 4}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs font-mono text-slate-400">
+                          {entry.walletShort}
+                          {entry.isAdmin && <FaCrown className="text-amber-400" size={10} />}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-xs font-mono text-slate-400">{entry.walletShort}</div>
-                          {entry.joinedDate && (
-                            <div className="text-[10px] text-slate-600">
-                              Joined {formatDate(entry.joinedDate)}
-                            </div>
-                          )}
+                        <div className="flex gap-2 text-[10px] text-slate-600">
+                          <span className="text-emerald-400/70">{entry.pctCash.toFixed(0)}% cash</span>
+                          <span className="text-blue-400/70">{entry.pctCrypto.toFixed(0)}% crypto</span>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <div className="text-sm font-bold text-white font-mono">
-                            ${entry.currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                          </div>
-                          <div className="text-[10px] text-slate-500">
-                            {entry.allocation.toFixed(1)}%
-                          </div>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-sm font-bold text-white font-mono">
+                          ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </div>
-                        {isAdmin && (
-                          <HiOutlineChevronDown
-                            className={`w-3 h-3 text-slate-500 flex-shrink-0 transition-transform ${
-                              expanded === entry.walletAddress ? "rotate-180" : ""
-                            }`}
-                          />
-                        )}
-                      </motion.div>
-
-                      <AnimatePresence>
-                        {isAdmin && expanded === entry.walletAddress && (
-                          <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="mt-1.5 mb-1 ml-2 pl-2.5 border-l border-slate-700/40 py-2">
-                              <WalletDetailPanel wallet={entry.walletAddress} totalPoolValue={poolValue} />
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
+                      </div>
+                    </motion.div>
                   ))}
                 </div>
               </>

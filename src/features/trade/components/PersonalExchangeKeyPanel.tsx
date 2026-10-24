@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback } from "react";
-import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync } from "react-icons/fa";
+import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync, FaRobot, FaPowerOff } from "react-icons/fa";
 import {
   fetchBudjuGateStatus,
   fetchSwyftxKeyStatus,
   saveSwyftxKey,
   removeSwyftxKey,
   fetchPersonalHoldings,
+  fetchAutoTradeStatus,
+  setAutoTradeEnabled,
   type BudjuGateStatus,
   type SwyftxKeyStatus,
   type PersonalHoldings,
+  type AutoTradeStatus,
 } from "../services/tradeApi";
 
 interface Props {
@@ -34,15 +37,17 @@ const formatDate = (iso: string | null | undefined) => {
  * user funds. Gated behind the same 10M BUDJU requirement as everywhere
  * else in the app, re-checked server-side on save (the client check here is
  * just UX — the backend never trusts it). Each wallet brings its own
- * trade-only Swyftx API key for live holdings visibility today. The actual
- * per-user trade-execution loop (Phase 2) is not built yet — do not word any
- * UI copy here as if the bot is already trading on a connected account.
+ * trade-only Swyftx API key for live holdings visibility. Connecting a key
+ * alone never starts trading — auto-trading (Phase 2) is a separate,
+ * explicit opt-in below, and the bot only ever sells coins it bought
+ * itself for this wallet, never pre-existing personal holdings.
  */
 const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
   const [loading, setLoading] = useState(true);
   const [gate, setGate] = useState<BudjuGateStatus | null>(null);
   const [keyStatus, setKeyStatus] = useState<SwyftxKeyStatus>({ configured: false });
   const [holdings, setHoldings] = useState<PersonalHoldings | null>(null);
+  const [autoTrade, setAutoTrade] = useState<AutoTradeStatus | null>(null);
 
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [ackWarning, setAckWarning] = useState(false);
@@ -50,6 +55,9 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
   const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState<{ text: string; tone: "error" | "success" } | null>(null);
   const [showReplace, setShowReplace] = useState(false);
+  const [showEnableConfirm, setShowEnableConfirm] = useState(false);
+  const [ackTrading, setAckTrading] = useState(false);
+  const [togglingAutoTrade, setTogglingAutoTrade] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!wallet) return;
@@ -60,8 +68,10 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
     setLoading(false);
     if (k.configured && k.status === "active") {
       fetchPersonalHoldings(wallet).then(setHoldings);
+      fetchAutoTradeStatus(wallet).then(setAutoTrade);
     } else {
       setHoldings(null);
+      setAutoTrade(null);
     }
   }, [wallet]);
 
@@ -80,7 +90,7 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
       return;
     }
     setMessage({
-      text: "Swyftx key connected — you can now see your live holdings below. The auto-trading bot isn't live yet; we'll let you know before it starts placing any trades in your account.",
+      text: "Swyftx key connected — you can now see your live holdings below. Auto-trading stays off until you turn it on.",
       tone: "success",
     });
     setApiKeyInput("");
@@ -99,6 +109,35 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
       return;
     }
     setMessage({ text: "Key removed. BUDJU can no longer read or trade on this account.", tone: "success" });
+    refresh();
+  };
+
+  const handleEnableAutoTrade = async () => {
+    if (!ackTrading) return;
+    setTogglingAutoTrade(true);
+    setMessage(null);
+    const result = await setAutoTradeEnabled(wallet, true);
+    setTogglingAutoTrade(false);
+    if (!result.success) {
+      setMessage({ text: result.error || "Failed to enable auto-trading", tone: "error" });
+      return;
+    }
+    setMessage({ text: "Auto-trading enabled — the bot will start placing trades in your own account.", tone: "success" });
+    setShowEnableConfirm(false);
+    setAckTrading(false);
+    refresh();
+  };
+
+  const handleDisableAutoTrade = async () => {
+    setTogglingAutoTrade(true);
+    setMessage(null);
+    const result = await setAutoTradeEnabled(wallet, false);
+    setTogglingAutoTrade(false);
+    if (!result.success) {
+      setMessage({ text: result.error || "Failed to disable auto-trading", tone: "error" });
+      return;
+    }
+    setMessage({ text: "Auto-trading disabled. The bot will no longer place new trades in your account.", tone: "success" });
     refresh();
   };
 
@@ -126,8 +165,8 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
     <div className="space-y-3">
       <div className="text-[11px] text-slate-500 leading-relaxed">
         BUDJU never holds your money. Connect your own Swyftx API key to see your live holdings here — your funds
-        never touch BUDJU's wallet or a shared pool. The auto-trading bot isn't live for personal accounts yet; this
-        is read-only for now, and we'll announce it clearly before any trading starts in{" "}
+        never touch BUDJU's wallet or a shared pool. Auto-trading is a separate, explicit opt-in below — connecting
+        a key alone never places a trade in{" "}
         <span className="text-slate-300 font-medium">your own account</span>.
       </div>
 
@@ -186,6 +225,81 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
             >
               <FaTrash size={10} /> {removing ? "Removing..." : "Remove"}
             </button>
+          </div>
+
+          <div className="mt-3 pt-3 border-t border-emerald-500/10">
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Auto-trading</div>
+
+            {autoTrade?.autoTradeEnabled ? (
+              <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/25 p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <FaRobot className="text-emerald-400" size={12} />
+                  <span className="text-xs font-semibold text-emerald-300">Bot is live in your account</span>
+                </div>
+                {autoTrade.autoTradeEnabledAt && (
+                  <div className="text-[10px] text-slate-500 mb-2">
+                    Enabled {formatDate(autoTrade.autoTradeEnabledAt)}
+                  </div>
+                )}
+                <button
+                  onClick={handleDisableAutoTrade}
+                  disabled={togglingAutoTrade}
+                  className="w-full text-[11px] font-medium px-3 py-1.5 rounded-lg bg-red-500/10 text-red-300 hover:bg-red-500/20 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  <FaPowerOff size={10} /> {togglingAutoTrade ? "Disabling..." : "Disable auto-trading"}
+                </button>
+              </div>
+            ) : !showEnableConfirm ? (
+              <div className="rounded-lg bg-slate-900/40 border border-slate-700/40 p-3">
+                <div className="text-[11px] text-slate-500 mb-2">
+                  Off. Your key gives read-only holdings visibility until you turn this on.
+                </div>
+                <button
+                  onClick={() => setShowEnableConfirm(true)}
+                  className="w-full text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/90 text-white hover:bg-emerald-500 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <FaRobot size={10} /> Enable auto-trading
+                </button>
+              </div>
+            ) : (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-3 space-y-2.5">
+                <div className="text-[11px] text-amber-200 leading-relaxed">
+                  <div className="font-bold mb-1 flex items-center gap-1.5">
+                    <FaExclamationTriangle size={11} /> This places real trades with real money
+                  </div>
+                  The bot will buy dips and sell rallies directly in your own Swyftx account using the strategy
+                  settings below. It only ever sells what it itself bought for you — never pre-existing holdings.
+                  You can disable this at any time.
+                </div>
+                <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={ackTrading}
+                    onChange={(e) => setAckTrading(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>I understand this will place real trades in my own Swyftx account.</span>
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleEnableAutoTrade}
+                    disabled={togglingAutoTrade || !ackTrading}
+                    className="flex-1 text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-emerald-500/90 text-white hover:bg-emerald-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {togglingAutoTrade ? "Enabling..." : "Confirm & enable"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowEnableConfirm(false);
+                      setAckTrading(false);
+                    }}
+                    className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

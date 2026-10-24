@@ -55,6 +55,11 @@ from database import (
     remove_user_swyftx_key,
     get_user_personal_holdings,
     get_community_aggregate_holdings,
+    get_user_auto_trade_status,
+    set_user_auto_trade_enabled,
+    get_user_trade_activity,
+    get_all_users_trade_activity,
+    get_live_leaderboard,
 )
 
 from perp_engine import (
@@ -386,6 +391,44 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
                 self._send_json(200, get_community_aggregate_holdings())
+
+            elif path == '/api/user/auto-trade':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_user_auto_trade_status(wallet))
+
+            elif path == '/api/user/activity':
+                # Own activity only, unless the requester is an admin viewing
+                # someone else's connected wallet.
+                requester = params.get('wallet')
+                target = params.get('target') or requester
+                if not requester:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    self._send_json(200, {"activity": get_user_trade_activity(target, requester)})
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
+                    return
+
+            elif path == '/api/admin/all-user-activity':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    self._send_json(200, {"activity": get_all_users_trade_activity(wallet)})
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
+                    return
+
+            elif path == '/api/community/leaderboard':
+                # Public — mirrors the old pool leaderboard's visibility.
+                # Shows each connected wallet's own live holdings split
+                # (%cash vs %crypto), never a pool share or NAV figure.
+                self._send_json(200, get_live_leaderboard())
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
@@ -1171,6 +1214,15 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "walletAddress required"})
                     return
                 result = remove_user_swyftx_key(wallet_address)
+                self._send_json(200, result)
+
+            elif path == '/api/user/auto-trade':
+                wallet_address = body.get('walletAddress')
+                enabled = body.get('enabled')
+                if not wallet_address or enabled is None:
+                    self._send_json(400, {"error": "walletAddress and enabled required"})
+                    return
+                result = set_user_auto_trade_enabled(wallet_address, bool(enabled))
                 self._send_json(200, result)
 
             # ── Core/Satellite Position Type ───────────────────────────

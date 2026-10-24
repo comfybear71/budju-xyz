@@ -1145,8 +1145,6 @@ const Trade = () => {
       <Leaderboard
         isOpen={showLeaderboard}
         onClose={() => { setShowLeaderboard(false); setActiveNav("home"); }}
-        poolValue={totalPoolValue}
-        isAdmin={isAdmin}
       />
       <TransactionHistory
         isOpen={showTransactions}

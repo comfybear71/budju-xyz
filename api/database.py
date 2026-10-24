@@ -60,6 +60,15 @@ desk_briefs_collection = db["desk_briefs"]
 # secret, so it gets its own narrow set of accessors instead of riding along
 # on every other users_collection read.
 user_exchange_keys_collection = db["user_exchange_keys"]
+# Per-user auto-trade tier settings/targets/cooldowns — mirrors
+# trader_state_collection's shape but keyed by walletAddress instead of a
+# single "admin_state" doc, so each connected user gets an independent bot.
+user_trader_state_collection = db["user_trader_state"]
+# Per-user trade log (Phase 2 execution). This is BUDJU's own ledger of what
+# IT bought/sold for that wallet — the bot only ever trusts this, never the
+# account's raw balance, so it can never touch coins the user holds that it
+# didn't buy itself. Also backs each user's own Activity view.
+user_trades_collection = db["user_trades"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -74,6 +83,8 @@ user_preferences_collection.create_index("walletAddress", unique=True)
 desk_notes_collection.create_index([("createdAt", -1)])
 desk_briefs_collection.create_index([("createdAt", -1)])
 user_exchange_keys_collection.create_index("walletAddress", unique=True)
+user_trader_state_collection.create_index("walletAddress", unique=True)
+user_trades_collection.create_index([("walletAddress", 1), ("timestamp", -1)])
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -1752,6 +1763,9 @@ def calculate_pool_allocations() -> Dict[str, float]:
 
 from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
 from swyftx_client import SwyftxClient, SwyftxAuthError
+from asset_registry import ASSET_CG_IDS, PERMANENT_BUY_DENYLIST, DEFAULT_MONITORED_ASSETS
+from urllib.request import urlopen
+from urllib.error import URLError
 
 
 def get_budju_token_balance(wallet_address: str) -> float:
@@ -1915,4 +1929,240 @@ def get_community_aggregate_holdings() -> Dict:
         "erroredWallets": errors,
         "totals": totals,
         "perWallet": per_wallet,
+    }
+
+
+# ── Phase 2: per-user auto-trading ──────────────────────────────────────────
+# Each connected wallet gets its own independent bot — own tier settings,
+# own targets/cooldowns, own trade log — trading directly in that user's own
+# Swyftx account with their own key. Nothing here ever touches a shared pool.
+
+DEFAULT_USER_TRADER_STATE = {
+    "autoTiers": {
+        "tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5, "cooldownHours": 24},
+        "tier2": {"deviation": 2, "sellDeviation": 4, "allocation": 5, "cooldownHours": 24},
+        "tier3": {"deviation": 2, "sellDeviation": 4, "allocation": 5, "cooldownHours": 24},
+    },
+    "tierActive": {"1": True, "2": True, "3": True},
+    "tierAssignments": {coin: [1, 2, 3] for coin in DEFAULT_MONITORED_ASSETS},
+    "targets": {},
+    "cooldowns": {},
+}
+
+
+def get_user_trader_state(wallet_address: str) -> Dict:
+    """Per-wallet tier settings/targets/cooldowns. Defaults to the same
+    conservative tier shape as the (now-legacy) pooled bot — tight 1-2%
+    deviation bands, 5% allocation, 24h cooldowns — on first use."""
+    doc = user_trader_state_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        return {"walletAddress": wallet_address, **json.loads(json.dumps(DEFAULT_USER_TRADER_STATE))}
+    doc.pop("_id", None)
+    for key, default_val in DEFAULT_USER_TRADER_STATE.items():
+        if key not in doc:
+            doc[key] = default_val
+    return doc
+
+
+def save_user_trader_state(wallet_address: str, state: Dict) -> Dict:
+    state = dict(state)
+    state["walletAddress"] = wallet_address
+    state["updatedAt"] = datetime.utcnow()
+    user_trader_state_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": state},
+        upsert=True,
+    )
+    return {"success": True}
+
+
+def get_user_auto_trade_status(wallet_address: str) -> Dict:
+    """Whether this wallet's own bot is turned on. Connecting a key alone
+    never enables trading — that's a separate, explicit opt-in."""
+    doc = user_exchange_keys_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        return {"configured": False, "autoTradeEnabled": False}
+    return {
+        "configured": True,
+        "status": doc.get("status"),
+        "autoTradeEnabled": bool(doc.get("autoTradeEnabled", False)),
+        "autoTradeEnabledAt": doc.get("autoTradeEnabledAt"),
+    }
+
+
+def set_user_auto_trade_enabled(wallet_address: str, enabled: bool) -> Dict:
+    """Explicit per-user opt-in/opt-out for the trading bot. Requires an
+    already-connected, already-validated key — you can't enable trading on
+    a key that doesn't exist or has gone invalid."""
+    doc = user_exchange_keys_collection.find_one({"walletAddress": wallet_address})
+    if not doc:
+        raise ValueError("Connect a Swyftx key first")
+    if enabled and doc.get("status") != "active":
+        raise ValueError("Your key isn't active — fix or replace it before enabling auto-trading")
+
+    update = {"autoTradeEnabled": bool(enabled)}
+    if enabled:
+        update["autoTradeEnabledAt"] = datetime.utcnow()
+    user_exchange_keys_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": update},
+    )
+    return {"success": True, "autoTradeEnabled": bool(enabled)}
+
+
+def record_user_trade(wallet_address: str, coin: str, side: str, quantity: float,
+                       price: float, tier: int = None, order_id: str = None) -> Dict:
+    """BUDJU's own record of a trade it placed for this wallet. This ledger
+    — not the account's raw balance — is what the bot consults before
+    selling, so it can never sell coins the user holds that it didn't buy
+    itself. Also backs this wallet's own Activity view."""
+    doc = {
+        "walletAddress": wallet_address,
+        "coin": coin,
+        "side": side,
+        "quantity": quantity,
+        "price": price,
+        "tier": tier,
+        "orderId": order_id,
+        "timestamp": datetime.utcnow(),
+    }
+    user_trades_collection.insert_one(doc)
+    return {"success": True}
+
+
+def get_user_bot_position(wallet_address: str, coin: str) -> float:
+    """Net quantity of `coin` this wallet's bot has bought and not yet
+    sold, per BUDJU's own ledger — never the raw Swyftx balance. Used to
+    cap sells so the bot only ever touches what it itself bought."""
+    net = 0.0
+    for t in user_trades_collection.find({"walletAddress": wallet_address, "coin": coin}):
+        qty = float(t.get("quantity", 0) or 0)
+        net += qty if t.get("side") == "buy" else -qty
+    return max(0.0, net)
+
+
+def get_user_trade_activity(target_wallet: str, requester_wallet: str) -> List[Dict]:
+    """A wallet's own bot-trade activity. Only that wallet itself, or an
+    admin, may view it — everyone else gets nothing, not even a count."""
+    if requester_wallet != target_wallet and not is_admin(requester_wallet):
+        raise ValueError("Not authorized to view this wallet's activity")
+
+    out = []
+    for t in user_trades_collection.find({"walletAddress": target_wallet}).sort("timestamp", -1).limit(200):
+        out.append({
+            "coin": t.get("coin"),
+            "side": t.get("side"),
+            "quantity": t.get("quantity"),
+            "price": t.get("price"),
+            "tier": t.get("tier"),
+            "orderId": t.get("orderId"),
+            "timestamp": t["timestamp"].isoformat() if t.get("timestamp") else None,
+        })
+    return out
+
+
+def get_all_users_trade_activity(requester_wallet: str) -> List[Dict]:
+    """Admin-only: every connected wallet's bot-trade activity in one feed."""
+    if not is_admin(requester_wallet):
+        raise ValueError("Admin access required")
+    out = []
+    for t in user_trades_collection.find({}).sort("timestamp", -1).limit(500):
+        out.append({
+            "walletAddress": t.get("walletAddress"),
+            "coin": t.get("coin"),
+            "side": t.get("side"),
+            "quantity": t.get("quantity"),
+            "price": t.get("price"),
+            "tier": t.get("tier"),
+            "orderId": t.get("orderId"),
+            "timestamp": t["timestamp"].isoformat() if t.get("timestamp") else None,
+        })
+    return out
+
+
+# ── Live, non-custodial leaderboard ─────────────────────────────────────────
+# Replaces the old pool/NAV leaderboard. No shares, no NAV — just each
+# connected wallet's own current holdings, read live from their own account,
+# split into cash (USDC/AUD) vs. crypto.
+
+def _fetch_live_prices(codes: List[str]) -> Dict[str, float]:
+    cg_ids = sorted({ASSET_CG_IDS[c] for c in codes if c in ASSET_CG_IDS})
+    if not cg_ids:
+        return {}
+    url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(cg_ids)}&vs_currencies=usd"
+    try:
+        with urlopen(url, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+    except (URLError, Exception):
+        return {}
+    prices = {}
+    for code, cg_id in ASSET_CG_IDS.items():
+        entry = data.get(cg_id)
+        if entry and entry.get("usd"):
+            prices[code] = float(entry["usd"])
+    return prices
+
+
+def get_live_leaderboard() -> Dict:
+    """Rank every connected, active wallet by current total account value
+    (read live from their own Swyftx account), with a %cash vs %crypto
+    breakdown. No shares, no NAV — this entirely replaces the pool
+    leaderboard for the non-custodial era."""
+    docs = list(user_exchange_keys_collection.find({"status": "active"}))
+
+    # One shared price fetch for every wallet's holdings, not one per wallet.
+    all_coins = set()
+    wallet_holdings = {}
+    for doc in docs:
+        wallet = doc.get("walletAddress")
+        try:
+            api_key = decrypt_secret(doc["encryptedApiKey"])
+            client = SwyftxClient(api_key)
+            holdings = client.get_holdings()
+            wallet_holdings[wallet] = holdings
+            all_coins.update(holdings.keys())
+        except SwyftxAuthError:
+            wallet_holdings[wallet] = None
+        except Exception:
+            wallet_holdings[wallet] = None
+
+    prices = _fetch_live_prices(list(all_coins))
+
+    entries = []
+    errored = 0
+    for doc in docs:
+        wallet = doc.get("walletAddress")
+        holdings = wallet_holdings.get(wallet)
+        if holdings is None:
+            errored += 1
+            continue
+
+        cash_value = 0.0
+        crypto_value = 0.0
+        for code, amount in holdings.items():
+            if code in ("USDC", "USD", "AUD", "USDT"):
+                # Treat all cash-equivalents as $1 — good enough for a
+                # ranking/allocation view, not a tax statement.
+                cash_value += amount
+            else:
+                crypto_value += amount * prices.get(code, 0.0)
+
+        total_value = cash_value + crypto_value
+        entries.append({
+            "walletAddress": wallet,
+            "walletShort": wallet[:4] + "..." + wallet[-4:] if wallet and len(wallet) > 8 else wallet,
+            "totalValue": round(total_value, 2),
+            "cashValue": round(cash_value, 2),
+            "cryptoValue": round(crypto_value, 2),
+            "pctCash": round((cash_value / total_value * 100), 1) if total_value > 0 else 0,
+            "pctCrypto": round((crypto_value / total_value * 100), 1) if total_value > 0 else 0,
+            "isAdmin": wallet in ADMIN_WALLETS,
+        })
+
+    entries.sort(key=lambda e: e["totalValue"], reverse=True)
+    return {
+        "entries": entries,
+        "walletCount": len(docs),
+        "erroredWallets": errored,
+        "combinedValue": round(sum(e["totalValue"] for e in entries), 2),
     }

@@ -62,6 +62,10 @@
     {
       "path": "/api/perp-cron",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/user-trade-cron",
+      "schedule": "*/5 * * * *"
     }
   ],
   "build": {
