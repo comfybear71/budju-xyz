@@ -22,6 +22,7 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
+import PositionHistoryChart from "./components/PositionHistoryChart";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -34,6 +35,10 @@ import {
   fetchPersonalPricedHoldings,
   fetchLiveLeaderboard,
   poolAssetsFromLeaderboard,
+  fetchWalletCashFlows,
+  fetchCommunityCashFlows,
+  buildLiveCashFlowHistory,
+  buildCommunityCashFlowHistory,
   registerWallet,
   clearCache,
   AUD_TO_USD,
@@ -42,6 +47,8 @@ import {
   type TraderState,
   type LivePosition,
   type LiveLeaderboard,
+  type WalletCashFlows,
+  type CommunityCashFlows,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
@@ -83,6 +90,11 @@ const Trade = () => {
   // Non-custodial combined total across every connected wallet (replaces
   // the legacy pool total as the default "Pool" view everyone sees).
   const [liveLeaderboard, setLiveLeaderboard] = useState<LiveLeaderboard | null>(null);
+  // Growth/P&L area chart data for the Pool Total / My Position card — same
+  // chart component, just a different data source per view (this wallet's
+  // own deposit history vs. the combined timeline across every wallet).
+  const [myCashFlows, setMyCashFlows] = useState<WalletCashFlows | null>(null);
+  const [communityCashFlows, setCommunityCashFlows] = useState<CommunityCashFlows | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -270,6 +282,17 @@ const Trade = () => {
       // the default "Pool" figure everywhere on this page, matching what
       // the Leaderboard shows, instead of just the admin's own account.
       setLiveLeaderboard(await fetchLiveLeaderboard());
+
+      // Growth/P&L history for the card's area chart — this wallet's own
+      // deposit/withdrawal history (public, any connected wallet — not
+      // admin-gated) for "Mine", and the combined timeline across every
+      // wallet for "Pool".
+      if (isConnected) {
+        setMyCashFlows(await fetchWalletCashFlows(walletAddress));
+      } else {
+        setMyCashFlows(null);
+      }
+      setCommunityCashFlows(await fetchCommunityCashFlows());
 
       activityLog.log("Connected — all data loaded", "success");
       setApiStatus("connected");
@@ -552,8 +575,58 @@ const Trade = () => {
                             synth("CRYPTO", "Crypto", totalPoolValue - usdcBalance, "#8b5cf6"),
                           ].filter((a) => a.usdValue > 0);
 
+                // Top-left corner label — contextual to whichever view is
+                // showing: how many coins make up "Mine", how many people
+                // make up "Pool". Mirrors the same asset list the non-admin
+                // "Mine" subtitle already used (myHoldings), generalized so
+                // it also covers the admin's own real account.
+                const viewerAssetList = isAdmin ? assets : myHoldings;
+                const nonCashAssetCount = viewerAssetList.filter((a) => a.code !== "AUD" && a.code !== "USDC").length;
+                const cornerLabel = viewingMine
+                  ? `${nonCashAssetCount} Asset${nonCashAssetCount === 1 ? "" : "s"}`
+                  : `${liveLeaderboard?.walletCount ?? 0} User${liveLeaderboard?.walletCount === 1 ? "" : "s"}`;
+
+                // Growth/P&L area chart — same component and same slim
+                // layout for both views, just a different data source:
+                // this wallet's own deposit/withdrawal history for "Mine",
+                // the combined timeline across every wallet for "Pool".
+                const growthHistory = viewingMine
+                  ? (myCashFlows ? buildLiveCashFlowHistory(myCashFlows.flows, myLiveValue) : [])
+                  : (communityCashFlows ? buildCommunityCashFlowHistory(communityCashFlows.timeline, combinedTotalValue) : []);
+
                 return (
-                <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                <div className="relative rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
+                  {/* Top-left: contextual count (assets for Mine, users for Pool) */}
+                  <div className="absolute top-3 left-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    {cornerLabel}
+                  </div>
+
+                  {/* Top-right: slim, single-column Mine/Pool toggle — any connected wallet */}
+                  {isConnected && (
+                    <div className="absolute top-3 right-3 flex flex-col gap-1">
+                      <button
+                        onClick={() => setHoldingsView("pool")}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all leading-none ${
+                          holdingsView === "pool"
+                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                            : "text-slate-500 hover:text-slate-300 border border-transparent"
+                        }`}
+                      >
+                        Pool
+                      </button>
+                      <button
+                        onClick={() => setHoldingsView("mine")}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-semibold transition-all leading-none ${
+                          holdingsView === "mine"
+                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
+                            : "text-slate-500 hover:text-slate-300 border border-transparent"
+                        }`}
+                      >
+                        Mine
+                      </button>
+                    </div>
+                  )}
+
                   <PortfolioChart
                     assets={chartAssets}
                     totalValue={chartTotal}
@@ -574,31 +647,10 @@ const Trade = () => {
                     {viewingMine && isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
                   </p>
 
-                  {/* Mine/Pool toggle — available to any connected wallet */}
-                  {isConnected && (
-                    <div className="flex justify-center gap-2 mt-4">
-                      <button
-                        onClick={() => setHoldingsView("pool")}
-                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                          holdingsView === "pool"
-                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                            : "text-slate-500 hover:text-slate-300"
-                        }`}
-                      >
-                        Pool
-                      </button>
-                      <button
-                        onClick={() => setHoldingsView("mine")}
-                        className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                          holdingsView === "mine"
-                            ? "bg-blue-500/20 text-blue-400 border border-blue-500/30"
-                            : "text-slate-500 hover:text-slate-300"
-                        }`}
-                      >
-                        Mine
-                      </button>
-                    </div>
-                  )}
+                  {/* Growth / P&L — slim area chart, same for Mine and Pool */}
+                  <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                    <PositionHistoryChart points={growthHistory} />
+                  </div>
                 </div>
                 );
               })()}
