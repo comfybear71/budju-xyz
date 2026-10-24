@@ -1131,6 +1131,119 @@ export async function fetchCommunityAggregateHoldings(adminWallet: string): Prom
   }
 }
 
+export interface AutoTradeStatus {
+  configured: boolean;
+  status?: string;
+  autoTradeEnabled: boolean;
+  autoTradeEnabledAt?: string | null;
+}
+
+/** Whether this wallet's own bot is turned on. Connecting a key never
+ *  enables trading by itself — this is tracked separately. */
+export async function fetchAutoTradeStatus(wallet: string): Promise<AutoTradeStatus> {
+  try {
+    const res = await fetchWithRetry(`/api/user/auto-trade?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return { configured: false, autoTradeEnabled: false };
+    return (await res.json()) as AutoTradeStatus;
+  } catch {
+    return { configured: false, autoTradeEnabled: false };
+  }
+}
+
+/** Explicit opt-in/opt-out for the per-user trading bot. Requires an
+ *  already-active, already-validated Swyftx key. */
+export async function setAutoTradeEnabled(
+  walletAddress: string,
+  enabled: boolean,
+): Promise<{ success: boolean; error?: string; autoTradeEnabled?: boolean }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("toggle auto-trade");
+  try {
+    const res = await fetchWithRetry("/api/user/auto-trade", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress, enabled }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true, autoTradeEnabled: data.autoTradeEnabled };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
+export interface UserActivityEntry {
+  walletAddress?: string;
+  coin: string;
+  side: "buy" | "sell";
+  quantity: number;
+  price: number;
+  tier?: number | null;
+  orderId?: string | null;
+  timestamp: string | null;
+}
+
+/** A wallet's own bot-trade activity. Pass no `viewerWallet !== wallet` case
+ *  unless the viewer is admin — the backend enforces this regardless. */
+export async function fetchUserActivity(
+  wallet: string,
+  viewAsTarget?: string,
+): Promise<UserActivityEntry[]> {
+  try {
+    const target = viewAsTarget || wallet;
+    const res = await fetchWithRetry(
+      `/api/user/activity?wallet=${encodeURIComponent(wallet)}&target=${encodeURIComponent(target)}`,
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.activity || [];
+  } catch {
+    return [];
+  }
+}
+
+/** Admin-only: every connected wallet's bot-trade activity in one feed. */
+export async function fetchAllUsersActivity(adminWallet: string): Promise<UserActivityEntry[]> {
+  try {
+    const res = await fetchWithRetry(`/api/admin/all-user-activity?wallet=${encodeURIComponent(adminWallet)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.activity || [];
+  } catch {
+    return [];
+  }
+}
+
+export interface LiveLeaderboardEntry {
+  walletAddress: string;
+  walletShort: string;
+  totalValue: number;
+  cashValue: number;
+  cryptoValue: number;
+  pctCash: number;
+  pctCrypto: number;
+  isAdmin: boolean;
+}
+
+export interface LiveLeaderboard {
+  entries: LiveLeaderboardEntry[];
+  walletCount: number;
+  erroredWallets: number;
+  combinedValue: number;
+}
+
+/** Public, non-custodial leaderboard — every connected wallet's own live
+ *  holdings, ranked by current value, with a %cash / %crypto split. No
+ *  shares, no NAV; this entirely replaces the old pool leaderboard. */
+export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
+  try {
+    const res = await fetchWithRetry("/api/community/leaderboard");
+    if (!res.ok) return null;
+    return (await res.json()) as LiveLeaderboard;
+  } catch {
+    return null;
+  }
+}
+
 export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("void deposit");
 
