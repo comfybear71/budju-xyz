@@ -1101,6 +1101,17 @@ export async function fetchPersonalHoldings(wallet: string): Promise<PersonalHol
   }
 }
 
+/** Raw per-currency cash amounts, in each currency's OWN units — NOT
+ *  converted or blended. A wallet holding both AUD and USDC needs to see
+ *  each separately, not one number that silently folds AUD into a figure
+ *  labeled "USDC". */
+export interface CashByCurrency {
+  AUD: number;
+  USD: number;
+  USDC: number;
+  USDT: number;
+}
+
 export interface LivePosition {
   walletAddress: string;
   cashValue: number;
@@ -1108,6 +1119,7 @@ export interface LivePosition {
   totalValue: number;
   pctCash: number;
   pctCrypto: number;
+  cashByCurrency: CashByCurrency;
 }
 
 /** This wallet's real cumulative cash + crypto balance, read live from
@@ -1235,6 +1247,7 @@ export interface LiveLeaderboardEntry {
   cryptoValue: number;
   pctCash: number;
   pctCrypto: number;
+  cashByCurrency: CashByCurrency;
   isAdmin: boolean;
 }
 
@@ -1243,6 +1256,7 @@ export interface LiveLeaderboard {
   walletCount: number;
   erroredWallets: number;
   combinedValue: number;
+  cashByCurrency: CashByCurrency;
 }
 
 /** Public, non-custodial leaderboard — every connected wallet's own live

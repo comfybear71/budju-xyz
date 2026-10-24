@@ -755,10 +755,16 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* USDC Balance + Crypto/USDC Ratio Meter — cumulative USDC
-                    cash across EVERY connected wallet (not just the admin's
-                    own account), visible to all, hidden when trade views open */}
+                {/* Cash breakdown by currency + Crypto/Cash Ratio Meter —
+                    cumulative across EVERY connected wallet (not just the
+                    admin's own account), visible to all, hidden when trade
+                    views open. Each currency shown in its OWN units — the
+                    old "USDC Balance" label blended AUD/USD/USDT into one
+                    figure, which is exactly the "your usdc value is wrong"
+                    complaint: that number was never pure USDC. USDC is
+                    headlined since it's the one actually traded with. */}
                 {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (() => {
+                  const byCurrency = liveLeaderboard?.cashByCurrency ?? { AUD: 0, USD: 0, USDC: usdcBalance, USDT: 0 };
                   const combinedCash = liveLeaderboard
                     ? liveLeaderboard.entries.reduce((s, e) => s + e.cashValue, 0)
                     : usdcBalance;
@@ -767,22 +773,48 @@ const Trade = () => {
                     : assets.reduce((s, a) => s + a.usdValue, 0);
                   const totalVal = combinedCrypto + combinedCash;
                   const cryptoPct = totalVal > 0 ? Math.round((combinedCrypto / totalVal) * 100) : 0;
-                  const usdcPct = totalVal > 0 ? 100 - cryptoPct : 0;
+                  const cashPct = totalVal > 0 ? 100 - cryptoPct : 0;
+                  const fmt2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
                   return (
                     <div className="mb-3 rounded-xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm px-4 py-3">
-                      {/* USDC balance row */}
-                      <div className="flex items-center justify-between mb-2.5">
+                      <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
                           <div className="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
                             <span className="text-[10px] font-bold text-green-400">$</span>
                           </div>
                           <span className="text-[11px] font-semibold text-slate-300">
-                            USDC Balance{liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
+                            Cash Balances{liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
                           </span>
                         </div>
-                        <span className="text-sm font-bold text-green-400 font-mono">
-                          ${Math.round(combinedCash).toLocaleString()}
+                        <span className="text-[11px] font-bold text-slate-400 font-mono">
+                          ${fmt2(combinedCash)} total
                         </span>
+                      </div>
+
+                      {/* USDC headlined — what you actually trade with */}
+                      <div className="rounded-lg bg-slate-900/50 border border-green-500/20 px-3 py-2 mb-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-green-400">USDC</span>
+                          <span className="text-lg font-bold text-green-400 font-mono">
+                            ${fmt2(byCurrency.USDC)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* AUD / USD / USDT — each in its own native units */}
+                      <div className="grid grid-cols-3 gap-2 mb-2.5">
+                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
+                          <div className="text-[9px] text-slate-500 font-semibold">AUD</div>
+                          <div className="text-[11px] font-bold text-amber-400 font-mono">${fmt2(byCurrency.AUD)}</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
+                          <div className="text-[9px] text-slate-500 font-semibold">USD</div>
+                          <div className="text-[11px] font-bold text-slate-300 font-mono">${fmt2(byCurrency.USD)}</div>
+                        </div>
+                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
+                          <div className="text-[9px] text-slate-500 font-semibold">USDT</div>
+                          <div className="text-[11px] font-bold text-teal-400 font-mono">${fmt2(byCurrency.USDT)}</div>
+                        </div>
                       </div>
 
                       {/* Ratio meter */}
@@ -792,7 +824,7 @@ const Trade = () => {
                             {cryptoPct}% Crypto
                           </span>
                           <span className="text-[10px] font-semibold text-green-400">
-                            {usdcPct}% USDC
+                            {cashPct}% Cash
                           </span>
                         </div>
                         <div className="relative h-2.5 rounded-full overflow-hidden bg-slate-800/80 border border-white/[0.04]">
@@ -806,7 +838,7 @@ const Trade = () => {
                           <div
                             className="absolute inset-y-0 right-0 rounded-full transition-all duration-500"
                             style={{
-                              width: `${usdcPct}%`,
+                              width: `${cashPct}%`,
                               background: "linear-gradient(90deg, #22c55e, #4ade80)",
                             }}
                           />
@@ -831,14 +863,14 @@ const Trade = () => {
                   <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                      <span className="text-[10px] text-slate-400">USDC</span>
+                      <span className="text-[10px] text-slate-400">USDC (my account)</span>
                       <span className="text-[10px] font-bold text-green-400 font-mono">
                         ${Math.round(usdcBalance).toLocaleString()}
                       </span>
                     </div>
                     <div className="flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span className="text-[10px] text-slate-400">AUD</span>
+                      <span className="text-[10px] text-slate-400">AUD (my account)</span>
                       <span className="text-[10px] font-bold text-amber-400 font-mono">
                         ${Math.round(audBalance).toLocaleString()}
                       </span>
