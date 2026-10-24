@@ -54,6 +54,7 @@ from database import (
     get_user_swyftx_key_status,
     remove_user_swyftx_key,
     get_user_personal_holdings,
+    get_user_priced_holdings,
     get_user_live_position,
     get_community_aggregate_holdings,
     get_user_auto_trade_status,
@@ -387,6 +388,24 @@ class handler(BaseHTTPRequestHandler):
                     return
                 try:
                     self._send_json(200, get_user_personal_holdings(wallet))
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
+
+            elif path == '/api/user/priced-holdings':
+                # Per-coin breakdown of this wallet's OWN Swyftx holdings,
+                # each priced in USD — what the Trade page's "Mine" Holdings
+                # grid actually renders. Unlike /api/user/personal-holdings
+                # (raw balances only), every coin here is already priced via
+                # the same dynamic CoinGecko resolution the bot itself uses,
+                # so coins outside BUDJU's ~30-coin registry (FLR, ARB, CC...)
+                # show up correctly instead of being invisible/unpriced.
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    self._send_json(200, get_user_priced_holdings(wallet))
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
                     return

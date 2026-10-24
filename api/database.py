@@ -2031,6 +2031,44 @@ def get_user_live_position(wallet_address: str) -> Dict:
     }
 
 
+def get_user_priced_holdings(wallet_address: str) -> Dict:
+    """This wallet's own per-coin holdings, each priced in USD via their
+    own account. get_user_live_position() above only returns the
+    cash/crypto *totals* — the Trade page's "Mine" Holdings grid needs
+    each coin kept separate so it can show a wallet's actual coins (e.g.
+    FLR, ARB, CC — whatever Swyftx lists, not just BUDJU's ~30-coin
+    registry) instead of a slice of the pooled master account."""
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        holdings = client.get_holdings()
+    except SwyftxAuthError as e:
+        update = {"lastError": str(e)}
+        if not _is_transient_swyftx_error(e):
+            update["status"] = "invalid"
+        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
+        raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+    _mark_key_valid(wallet_address)
+
+    crypto_codes = [
+        c for c, amount in holdings.items()
+        if c not in ("USDC", "USD", "AUD", "USDT") and amount > 0
+    ]
+    prices = get_prices_for_coins(crypto_codes)
+
+    assets = []
+    for code in crypto_codes:
+        balance = holdings[code]
+        price = prices.get(code, 0.0)
+        assets.append({
+            "code": code,
+            "balance": balance,
+            "priceUsd": price,
+            "usdValue": round(balance * price, 2),
+        })
+    assets.sort(key=lambda a: a["usdValue"], reverse=True)
+    return {"walletAddress": wallet_address, "assets": assets}
+
+
 def get_community_aggregate_holdings() -> Dict:
     """Admin view: iterate every wallet with a key on file and fetch its
     holdings via that wallet's OWN credentials, then sum into a per-coin

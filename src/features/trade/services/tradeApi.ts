@@ -1112,6 +1112,41 @@ export async function fetchPersonalHoldings(wallet: string): Promise<PersonalHol
   }
 }
 
+/** This wallet's own holdings as a priced PortfolioAsset[] — the real data
+ *  behind the Trade page's "Mine" Holdings grid. Every coin is priced
+ *  server-side via dynamic CoinGecko resolution, so coins outside BUDJU's
+ *  ~30-coin ASSET_CONFIG registry (e.g. FLR, ARB, CC) still show up, just
+ *  with a generic gray icon instead of a branded one. */
+export async function fetchPersonalPricedHoldings(wallet: string): Promise<PortfolioAsset[]> {
+  try {
+    const res = await fetchWithRetry(`/api/user/priced-holdings?wallet=${encodeURIComponent(wallet)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const rawAssets: { code: string; balance: number; priceUsd: number; usdValue: number }[] = data.assets || [];
+    return rawAssets.map((a) => {
+      const cfg = ASSET_CONFIG[a.code] || {
+        color: "#64748b",
+        icon: a.code.charAt(0),
+        name: a.code,
+        coingeckoId: "",
+      };
+      return {
+        code: a.code,
+        name: cfg.name,
+        balance: a.balance,
+        audValue: a.usdValue / AUD_TO_USD,
+        usdValue: a.usdValue,
+        change24h: 0,
+        priceUsd: a.priceUsd,
+        color: cfg.color,
+        icon: cfg.icon,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** Raw per-currency cash amounts, in each currency's OWN units — NOT
  *  converted or blended. A wallet holding both AUD and USDC needs to see
  *  each separately, not one number that silently folds AUD into a figure
