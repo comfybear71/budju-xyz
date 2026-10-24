@@ -148,6 +148,17 @@ export const ASSET_CONFIG: Record<
   SKY: { color: "#38bdf8", icon: "S", name: "Sky", coingeckoId: "sky" },
   SYRUP: { color: "#a3e635", icon: "M", name: "Maple Finance", coingeckoId: "syrup" },
   LDO: { color: "#00a3ff", icon: "L", name: "Lido DAO", coingeckoId: "lido-dao" },
+  // Added 2026-10-25 — found held by a connected wallet but missing from
+  // this list, which meant the manual Instant/Trigger coin pickers and
+  // HoldingsList fell back to a generic gray "first letter" icon for them.
+  // CoinGecko ids verified live against api.coingecko.com before adding —
+  // never guessed, since a wrong id here would silently mis-price the coin.
+  FLR: { color: "#e63950", icon: "F", name: "Flare", coingeckoId: "flare-networks" },
+  ARB: { color: "#28a0f0", icon: "A", name: "Arbitrum", coingeckoId: "arbitrum" },
+  PYTH: { color: "#7e57fe", icon: "Py", name: "Pyth Network", coingeckoId: "pyth-network" },
+  STRK: { color: "#ec796b", icon: "St", name: "Starknet", coingeckoId: "starknet" },
+  LUMIA: { color: "#38bdf8", icon: "Lu", name: "Lumia", coingeckoId: "lumia" },
+  CC: { color: "#312e81", icon: "C", name: "Canton", coingeckoId: "canton-network" },
   USDC: { color: "#22c55e", icon: "$", name: "USD Coin", coingeckoId: "usd-coin" },
   AUD: { color: "#f59e0b", icon: "A$", name: "Australian Dollar", coingeckoId: "" },
 };
