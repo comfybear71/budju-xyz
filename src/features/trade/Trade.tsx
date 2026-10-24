@@ -1029,6 +1029,7 @@ const Trade = () => {
         isOpen={showLeaderboard}
         onClose={() => { setShowLeaderboard(false); setActiveNav("home"); }}
         isAdmin={isAdmin}
+        adminWallet={walletAddress}
       />
       <TransactionHistory
         isOpen={showTransactions}

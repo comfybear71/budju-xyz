@@ -2171,10 +2171,21 @@ def get_user_auto_trade_status(wallet_address: str) -> Dict:
     }
 
 
-def set_user_auto_trade_enabled(wallet_address: str, enabled: bool) -> Dict:
-    """Explicit per-user opt-in/opt-out for the trading bot. Requires an
+def set_user_auto_trade_enabled(wallet_address: str, enabled: bool, requester_wallet: str = None) -> Dict:
+    """Opt-in/opt-out for one wallet's trading bot. A wallet can toggle its
+    own bot; an admin can toggle ANY wallet's bot from the admin's own
+    session (e.g. the Leaderboard's per-wallet admin controls), without
+    that wallet owner having to do anything themselves. Requires an
     already-connected, already-validated key — you can't enable trading on
-    a key that doesn't exist or has gone invalid."""
+    a key that doesn't exist or has gone invalid.
+
+    `requester_wallet` defaults to `wallet_address` so existing self-service
+    callers (a wallet toggling its own bot) keep working unchanged."""
+    if requester_wallet is None:
+        requester_wallet = wallet_address
+    if requester_wallet != wallet_address and not is_admin(requester_wallet):
+        raise ValueError("Not authorized to change this wallet's auto-trade setting")
+
     doc = user_exchange_keys_collection.find_one({"walletAddress": wallet_address})
     if not doc:
         raise ValueError("Connect a Swyftx key first")

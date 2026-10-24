@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTrophy, FaTimes, FaCrown, FaChevronDown, FaArrowUp, FaArrowDown } from "react-icons/fa";
+import { FaRobot, FaPowerOff } from "react-icons/fa";
 import {
   fetchLiveLeaderboard,
   fetchWalletCashFlows,
   buildLiveCashFlowHistory,
+  fetchAutoTradeStatus,
+  setAutoTradeEnabled,
   type LiveLeaderboardEntry,
   type WalletCashFlows,
+  type AutoTradeStatus,
 } from "../services/tradeApi";
 import LeaderboardDoughnut from "./LeaderboardDoughnut";
 import PositionHistoryChart from "./PositionHistoryChart";
@@ -15,6 +19,9 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   isAdmin?: boolean;
+  /** The admin's own connected wallet — sent as `requesterWallet` so the
+   *  backend can authorize toggling ANOTHER wallet's bot on/off. */
+  adminWallet?: string;
 }
 
 /**
@@ -24,7 +31,7 @@ interface Props {
  * live, directly from that wallet's own key), split into %cash vs %crypto.
  * Replaces the old share/NAV-based leaderboard entirely.
  */
-const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
+const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Props) => {
   const [entries, setEntries] = useState<LiveLeaderboardEntry[]>([]);
   const [walletCount, setWalletCount] = useState(0);
   const [erroredWallets, setErroredWallets] = useState(0);
@@ -37,6 +44,12 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
   const [cashFlowsByWallet, setCashFlowsByWallet] = useState<Record<string, WalletCashFlows | null>>({});
   const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState<string | null>(null);
+
+  // Admin-only: lets the admin flip any connected wallet's auto-trade bot
+  // on/off from here, instead of relying on that wallet's own owner to
+  // self-toggle it from their "My Exchange Key" panel.
+  const [autoTradeByWallet, setAutoTradeByWallet] = useState<Record<string, AutoTradeStatus | null>>({});
+  const [togglingWallet, setTogglingWallet] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -66,6 +79,26 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
         .then((cf) => setCashFlowsByWallet((prev) => ({ ...prev, [wallet]: cf })))
         .finally(() => setLoadingWallet((cur) => (cur === wallet ? null : cur)));
     }
+    if (!autoTradeByWallet[wallet]) {
+      fetchAutoTradeStatus(wallet).then((status) =>
+        setAutoTradeByWallet((prev) => ({ ...prev, [wallet]: status })),
+      );
+    }
+  };
+
+  /** Admin flips this wallet's bot on/off from here — the wallet owner
+   *  never has to touch their own toggle for this to take effect. */
+  const handleToggleWalletAutoTrade = async (wallet: string, nextEnabled: boolean) => {
+    setTogglingWallet(wallet);
+    const res = await setAutoTradeEnabled(wallet, nextEnabled, adminWallet);
+    if (res.success) {
+      setAutoTradeByWallet((prev) => ({
+        ...prev,
+        [wallet]: { ...(prev[wallet] as AutoTradeStatus), autoTradeEnabled: !!res.autoTradeEnabled },
+      }));
+    }
+    setTogglingWallet(null);
+    return res;
   };
 
   const formatUsdWhole = (n: number) => `$${Math.round(n).toLocaleString()}`;
@@ -132,6 +165,44 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
               );
             })()
           )}
+
+          {/* Admin control: flip THIS wallet's bot on/off ourselves —
+              the wallet owner never has to touch their own toggle. */}
+          {(() => {
+            const autoTrade = autoTradeByWallet[entry.walletAddress];
+            if (!autoTrade) return null;
+            if (!autoTrade.configured) {
+              return (
+                <div className="mt-3 pt-3 border-t border-slate-700/30 text-[11px] text-slate-600">
+                  No Swyftx key connected for this wallet yet — bot can't be enabled.
+                </div>
+              );
+            }
+            const enabled = !!autoTrade.autoTradeEnabled;
+            const toggling = togglingWallet === entry.walletAddress;
+            return (
+              <div className="mt-3 pt-3 border-t border-slate-700/30 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-1.5">
+                  <FaRobot className={enabled ? "text-emerald-400" : "text-slate-600"} size={12} />
+                  <span className={`text-[11px] font-semibold ${enabled ? "text-emerald-300" : "text-slate-500"}`}>
+                    Bot is {enabled ? "ON" : "OFF"} for this wallet
+                  </span>
+                </div>
+                <button
+                  onClick={() => handleToggleWalletAutoTrade(entry.walletAddress, !enabled)}
+                  disabled={toggling || autoTrade.status !== "active"}
+                  className={`text-[11px] font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                    enabled
+                      ? "bg-red-500/10 text-red-300 hover:bg-red-500/20"
+                      : "bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                  }`}
+                >
+                  <FaPowerOff size={10} />
+                  {toggling ? "Working..." : enabled ? "Turn off" : "Turn on"}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       </motion.div>
     );

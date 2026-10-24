@@ -1223,17 +1223,21 @@ export async function fetchAutoTradeStatus(wallet: string): Promise<AutoTradeSta
 }
 
 /** Explicit opt-in/opt-out for the per-user trading bot. Requires an
- *  already-active, already-validated Swyftx key. */
+ *  already-active, already-validated Swyftx key. A wallet can toggle its
+ *  own bot (the default — `requesterWallet` omitted); an admin can ALSO
+ *  toggle ANY wallet's bot by passing their own wallet as `requesterWallet`,
+ *  without that wallet owner having to do anything themselves. */
 export async function setAutoTradeEnabled(
   walletAddress: string,
   enabled: boolean,
+  requesterWallet?: string,
 ): Promise<{ success: boolean; error?: string; autoTradeEnabled?: boolean }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("toggle auto-trade");
   try {
     const res = await fetchWithRetry("/api/user/auto-trade", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ walletAddress, enabled }),
+      body: JSON.stringify({ walletAddress, enabled, requesterWallet: requesterWallet || walletAddress }),
     });
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };

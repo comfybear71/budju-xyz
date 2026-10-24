@@ -1342,13 +1342,23 @@ class handler(BaseHTTPRequestHandler):
                     return
 
             elif path == '/api/user/auto-trade':
+                # A wallet can toggle its own bot. An admin can ALSO toggle
+                # any wallet's bot from their own session (e.g. the
+                # Leaderboard's per-wallet admin controls) — requesterWallet
+                # defaults to walletAddress so existing self-service callers
+                # are unaffected.
                 wallet_address = body.get('walletAddress')
                 enabled = body.get('enabled')
+                requester = body.get('requesterWallet') or wallet_address
                 if not wallet_address or enabled is None:
                     self._send_json(400, {"error": "walletAddress and enabled required"})
                     return
-                result = set_user_auto_trade_enabled(wallet_address, bool(enabled))
-                self._send_json(200, result)
+                try:
+                    result = set_user_auto_trade_enabled(wallet_address, bool(enabled), requester)
+                    self._send_json(200, result)
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
+                    return
 
             elif path == '/api/user/test-buy':
                 # One-off real-money manual BUY through the same per-user
