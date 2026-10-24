@@ -49,7 +49,13 @@ TELEGRAM_CHAT_ID = -1002398835975
 USER_TRADING_ENABLED = os.getenv("USER_TRADING_ENABLED", "true").lower() == "true"
 USER_DRY_RUN = os.getenv("USER_DRY_RUN", "false").lower() == "true"
 
-MIN_USDC_RESERVE = float(os.getenv("USER_MIN_USDC_RESERVE", "20"))
+# Per-user trading floor: below this USDC balance, that wallet's bot stops
+# buying (it can still sell/hold). Raised from $20 -> $30 per owner request
+# on 2026-10-25 — the old $100 reserve only ever applied to the single
+# pooled "overall project" account (api/auto-trade-cron.py); in the
+# non-custodial per-wallet model each user needs their own floor instead,
+# and $20 was judged too thin a cash buffer per account.
+MIN_USDC_RESERVE = float(os.getenv("USER_MIN_USDC_RESERVE", "30"))
 MIN_ORDER_USDC = 8  # Swyftx floor is $7; leave a dollar of headroom
 SELL_RATIO = 0.833  # Sell slightly less than the raw allocation band to avoid dust re-buys
 DEFAULT_COOLDOWN_HOURS = 24

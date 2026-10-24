@@ -772,13 +772,25 @@ const Trade = () => {
                     complaint: that number was never pure USDC. USDC is
                     headlined since it's the one actually traded with. */}
                 {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (() => {
-                  const byCurrency = liveLeaderboard?.cashByCurrency ?? { AUD: 0, USD: 0, USDC: usdcBalance, USDT: 0 };
-                  const combinedCash = liveLeaderboard
-                    ? liveLeaderboard.entries.reduce((s, e) => s + e.cashValue, 0)
-                    : usdcBalance;
-                  const combinedCrypto = liveLeaderboard
-                    ? liveLeaderboard.entries.reduce((s, e) => s + e.cryptoValue, 0)
-                    : assets.reduce((s, a) => s + a.usdValue, 0);
+                  // Respect the Pool/Mine toggle above — "Mine" must show
+                  // THIS wallet's own cash, not the combined pool. Previously
+                  // this card ignored holdingsView entirely and always
+                  // rendered liveLeaderboard's combined totals, so clicking
+                  // "Mine" still showed the overall pool's numbers here.
+                  const viewingMine = holdingsView === "mine" && isConnected;
+                  const byCurrency = viewingMine
+                    ? (livePosition?.cashByCurrency ?? { AUD: 0, USD: 0, USDC: usdcBalance, USDT: 0 })
+                    : (liveLeaderboard?.cashByCurrency ?? { AUD: 0, USD: 0, USDC: usdcBalance, USDT: 0 });
+                  const combinedCash = viewingMine
+                    ? (livePosition?.cashValue ?? usdcBalance)
+                    : liveLeaderboard
+                      ? liveLeaderboard.entries.reduce((s, e) => s + e.cashValue, 0)
+                      : usdcBalance;
+                  const combinedCrypto = viewingMine
+                    ? (livePosition?.cryptoValue ?? assets.reduce((s, a) => s + a.usdValue, 0))
+                    : liveLeaderboard
+                      ? liveLeaderboard.entries.reduce((s, e) => s + e.cryptoValue, 0)
+                      : assets.reduce((s, a) => s + a.usdValue, 0);
                   const totalVal = combinedCrypto + combinedCash;
                   const cryptoPct = totalVal > 0 ? Math.round((combinedCrypto / totalVal) * 100) : 0;
                   const cashPct = totalVal > 0 ? 100 - cryptoPct : 0;
@@ -790,7 +802,7 @@ const Trade = () => {
                           <span className="text-[10px] font-bold text-green-400">$</span>
                         </div>
                         <span className="text-[11px] font-semibold text-slate-300">
-                          Cash Balances{liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
+                          Cash Balances{!viewingMine && liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
                         </span>
                       </div>
 
