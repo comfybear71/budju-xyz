@@ -2318,6 +2318,39 @@ def execute_test_buy(wallet_address: str, requester_wallet: str, coin: str = "BT
     }
 
 
+def execute_test_buy_all_wallets(requester_wallet: str, coin: str = "BTC") -> Dict:
+    """Admin-only: fire execute_test_buy() for EVERY wallet that has a
+    Swyftx key on file, one at a time — proves the per-user pipeline
+    actually places and records a real trade for every connected wallet,
+    not just one at a time. One wallet's failure (invalid key, balance
+    too low, no price, order rejected...) is recorded and skipped; it
+    never stops the rest of the batch."""
+    if not is_admin(requester_wallet):
+        raise ValueError("Admin access required")
+
+    docs = list(user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}))
+    results = []
+    succeeded = 0
+    failed = 0
+
+    for doc in docs:
+        wallet = doc.get("walletAddress")
+        try:
+            result = execute_test_buy(wallet, requester_wallet, coin)
+            results.append({"walletAddress": wallet, **result})
+            succeeded += 1
+        except Exception as e:
+            results.append({"walletAddress": wallet, "success": False, "error": str(e)})
+            failed += 1
+
+    return {
+        "walletCount": len(docs),
+        "succeeded": succeeded,
+        "failed": failed,
+        "results": results,
+    }
+
+
 def get_user_trade_activity(target_wallet: str, requester_wallet: str) -> List[Dict]:
     """A wallet's own bot-trade activity. Only that wallet itself, or an
     admin, may view it — everyone else gets nothing, not even a count."""
