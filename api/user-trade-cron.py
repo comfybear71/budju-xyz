@@ -36,9 +36,10 @@ from database import (
     save_user_trader_state,
     record_user_trade,
     get_user_bot_position,
+    get_prices_for_coins,
 )
 from swyftx_client import SwyftxClient, SwyftxAuthError
-from asset_registry import ASSET_CG_IDS, PERMANENT_BUY_DENYLIST
+from asset_registry import PERMANENT_BUY_DENYLIST
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
@@ -57,23 +58,6 @@ MAX_SINGLE_TRADE_USDC = float(os.getenv("USER_MAX_SINGLE_TRADE_USDC", "250"))
 MAX_DAILY_TRADES_PER_USER = int(os.getenv("USER_MAX_DAILY_TRADES", "10"))
 
 CASH_CODES = {"USDC", "USD", "AUD", "USDT"}
-
-
-def _http_json(url, timeout=15):
-    with urlopen(url, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
-
-
-def fetch_prices():
-    ids = ",".join(sorted(set(ASSET_CG_IDS.values())))
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={ids}&vs_currencies=usd"
-    data = _http_json(url)
-    prices = {}
-    for code, cg_id in ASSET_CG_IDS.items():
-        entry = data.get(cg_id)
-        if entry and entry.get("usd"):
-            prices[code] = float(entry["usd"])
-    return prices
 
 
 def send_telegram(text):
@@ -108,33 +92,15 @@ def _is_tier_active(tier_active, tier_num):
     return bool(tier_active.get(str(tier_num)) or tier_active.get(tier_num))
 
 
-def run_one_wallet(doc, prices, now_ms, summary_log):
-    wallet = doc["walletAddress"]
+def run_one_wallet(ctx, prices, now_ms, summary_log):
+    wallet = ctx["wallet"]
     wallet_short = wallet[:4] + "..." + wallet[-4:]
-
-    try:
-        api_key = decrypt_secret(doc["encryptedApiKey"])
-    except Exception as e:
-        summary_log.append(f"{wallet_short}: decrypt failed — {e}")
-        return {"wallet": wallet, "error": "decrypt_failed"}
-
-    client = SwyftxClient(api_key)
-    try:
-        holdings = client.get_holdings()
-    except SwyftxAuthError as e:
-        user_exchange_keys_collection.update_one(
-            {"walletAddress": wallet},
-            {"$set": {"status": "invalid", "lastError": str(e)}},
-        )
-        summary_log.append(f"{wallet_short}: auth failed — {e}")
-        return {"wallet": wallet, "error": "auth_failed"}
-    except Exception as e:
-        summary_log.append(f"{wallet_short}: holdings fetch failed — {e}")
-        return {"wallet": wallet, "error": "holdings_failed"}
+    client = ctx["client"]
+    holdings = ctx["holdings"]
+    state = ctx["state"]
 
     usdc_balance = sum(v for k, v in holdings.items() if k in CASH_CODES)
 
-    state = get_user_trader_state(wallet)
     auto_tiers = state.get("autoTiers", {})
     tier_active = state.get("tierActive", {})
     tier_assignments = state.get("tierAssignments", {})
@@ -154,9 +120,13 @@ def run_one_wallet(doc, prices, now_ms, summary_log):
         except Exception:
             pass
 
+    # No registry restriction here — any coin in tierAssignments (including
+    # ones auto-discovered from this wallet's own holdings, see
+    # run_user_auto_trade()'s pre-pass) is tradeable as long as it isn't
+    # denylisted and we actually have a live price for it.
     active_pairs = []
     for coin, tiers in tier_assignments.items():
-        if coin in PERMANENT_BUY_DENYLIST or coin not in ASSET_CG_IDS:
+        if coin in PERMANENT_BUY_DENYLIST:
             continue
         tiers = tiers if isinstance(tiers, list) else [tiers]
         for t in tiers:
@@ -299,32 +269,78 @@ def run_user_auto_trade():
     if not wallets:
         return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 
+    # Pre-pass: fetch each wallet's holdings + trader state once, and
+    # auto-enroll any coin the wallet actually holds that BUDJU doesn't
+    # track yet. This is what makes "every coin a user has" tradeable —
+    # not just the ~30 originally hand-picked ones — without touching the
+    # legacy pooled bot's own registry at all.
+    wallet_contexts = []
+    all_codes = set()
+    for doc in wallets:
+        wallet = doc["walletAddress"]
+        wallet_short = wallet[:4] + "..." + wallet[-4:]
+        try:
+            api_key = decrypt_secret(doc["encryptedApiKey"])
+            client = SwyftxClient(api_key)
+            holdings = client.get_holdings()
+        except SwyftxAuthError as e:
+            user_exchange_keys_collection.update_one(
+                {"walletAddress": wallet},
+                {"$set": {"status": "invalid", "lastError": str(e)}},
+            )
+            log.append(f"{wallet_short}: auth failed — {e}")
+            continue
+        except Exception as e:
+            log.append(f"{wallet_short}: holdings fetch failed — {e}")
+            continue
+
+        state = get_user_trader_state(wallet)
+        tier_assignments = state.get("tierAssignments", {})
+        for code in holdings:
+            if code in CASH_CODES or code in PERMANENT_BUY_DENYLIST:
+                continue
+            if code not in tier_assignments:
+                tier_assignments[code] = [1, 2, 3]  # newly-seen coin — auto-enrolled at every tier
+            all_codes.add(code)
+        for code in tier_assignments:
+            if code not in PERMANENT_BUY_DENYLIST:
+                all_codes.add(code)
+        state["tierAssignments"] = tier_assignments
+
+        wallet_contexts.append({"wallet": wallet, "client": client, "holdings": holdings, "state": state})
+
+    if not wallet_contexts:
+        return {"skipped": True, "reason": "No wallet's holdings could be read this cycle", "log": log}
+
     try:
-        prices = fetch_prices()
+        prices = get_prices_for_coins(list(all_codes))
     except Exception as e:
         return {"error": f"Price fetch failed: {e}", "log": log}
 
     now_ms = int(time.time() * 1000)
     results = []
-    for doc in wallets:
+    for ctx in wallet_contexts:
         try:
-            results.append(run_one_wallet(doc, prices, now_ms, log))
+            results.append(run_one_wallet(ctx, prices, now_ms, log))
         except Exception as e:
             # Never let one wallet's unexpected failure stop the rest.
-            log.append(f"{doc.get('walletAddress', '?')[:8]}: unexpected error — {e}")
-            results.append({"wallet": doc.get("walletAddress"), "error": str(e)})
+            log.append(f"{ctx['wallet'][:8]}: unexpected error — {e}")
+            results.append({"wallet": ctx["wallet"], "error": str(e)})
 
     total_trades = sum(len(r.get("trades", [])) for r in results)
     if total_trades > 0:
-        lines = [f"🔑 <b>Personal Auto-Trade</b> — {total_trades} trade(s) across {len(wallets)} wallet(s)"]
+        lines = [f"🔑 <b>Personal Auto-Trade</b> — {total_trades} trade(s) across {len(wallet_contexts)} wallet(s)"]
         for r in results:
             for t in r.get("trades", []):
                 side_icon = "🛒" if t["side"] == "BUY" else "💸"
                 lines.append(f"{side_icon} {r['wallet'][:4]}...{r['wallet'][-4:]} {t['side']} {t['coin']} ${t['amount']:.2f}")
         send_telegram("\n".join(lines))
 
-    return {"walletsProcessed": len(wallets), "tradesExecuted": total_trades, "dryRun": USER_DRY_RUN,
-            "results": results, "log": log}
+    # walletsProcessed reflects wallets whose holdings could actually be read
+    # this cycle (wallet_contexts) — not the raw opted-in query count, which
+    # may include wallets that failed auth/holdings fetch and were skipped.
+    return {"walletsProcessed": len(wallet_contexts), "walletsOptedIn": len(wallets), "tradesExecuted": total_trades,
+            "dryRun": USER_DRY_RUN, "results": results, "log": log}
 
 
 class handler(BaseHTTPRequestHandler):
