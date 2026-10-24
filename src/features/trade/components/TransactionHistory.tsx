@@ -8,6 +8,7 @@ import {
   FaExchangeAlt,
   FaHistory,
   FaSync,
+  FaChevronDown,
 } from "react-icons/fa";
 import {
   fetchTransactions,
@@ -48,6 +49,7 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterType>("all");
+  const [expandedCoin, setExpandedCoin] = useState<string | null>(null);
 
   const loadTransactions = useCallback(async () => {
     if (!walletAddress) {
@@ -82,6 +84,44 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
         : transactions.filter((t) => t.type === filter),
     [transactions, filter],
   );
+
+  // Buys/Sells are per-user bot trades — as the wallet base grows, this
+  // list grows one row per trade per wallet forever. Grouped by coin
+  // instead: one row showing the accumulated quantity bought/sold and
+  // accumulated USD, which stays a constant-size list no matter how many
+  // wallets or trades contribute to it. Click a row to expand the
+  // underlying per-wallet trades that make it up. Deposits/withdrawals
+  // stay as individual rows above — each is already a single meaningful
+  // event per user, not something that compounds the same way.
+  const isGroupedView = filter === "buy" || filter === "sell";
+  const groupedByCoin = useMemo(() => {
+    if (!isGroupedView) return [];
+    const groups = new Map<string, { coin: string; totalQty: number; totalUsd: number; lastTs: number; trades: TradeTransaction[] }>();
+    for (const t of filtered) {
+      const coin = t.coin || "?";
+      const qty = t.amount || 0;
+      const usd = qty * (t.price || 0);
+      const ts = t.timestamp ? new Date(t.timestamp).getTime() : 0;
+      const g = groups.get(coin) || { coin, totalQty: 0, totalUsd: 0, lastTs: 0, trades: [] };
+      g.totalQty += qty;
+      g.totalUsd += usd;
+      g.lastTs = Math.max(g.lastTs, ts);
+      g.trades.push(t);
+      groups.set(coin, g);
+    }
+    for (const g of groups.values()) {
+      g.trades.sort((a, b) => {
+        const tb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        const ta = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+        return tb - ta;
+      });
+    }
+    return Array.from(groups.values()).sort((a, b) => b.lastTs - a.lastTs);
+  }, [filtered, isGroupedView]);
+
+  useEffect(() => {
+    setExpandedCoin(null);
+  }, [filter]);
 
   const formatDate = (ts: string | null) => {
     if (!ts) return "";
@@ -167,6 +207,84 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
               <div className="text-center py-20">
                 <FaHistory className="mx-auto mb-3 text-slate-700" size={28} />
                 <p className="text-sm text-slate-500">No transactions found</p>
+              </div>
+            ) : isGroupedView ? (
+              <div className="space-y-1.5">
+                {groupedByCoin.map((g) => {
+                  const cfg = filter === "buy" ? TYPE_ICONS.buy : TYPE_ICONS.sell;
+                  const isExpanded = expandedCoin === g.coin;
+                  return (
+                    <div key={g.coin}>
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-800/30 transition-colors cursor-pointer"
+                        onClick={() => setExpandedCoin(isExpanded ? null : g.coin)}
+                      >
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bg}`}>
+                          <cfg.icon className={cfg.color} size={12} />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-bold text-white capitalize">{filter}</span>
+                            <span className="text-[10px] text-slate-500 font-mono">{g.coin}</span>
+                            <FaChevronDown
+                              size={8}
+                              className={`text-slate-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                            />
+                          </div>
+                          <div className="text-[10px] text-slate-600">
+                            {g.trades.length} trade{g.trades.length === 1 ? "" : "s"} · last {formatDate(g.trades[0]?.timestamp ?? null)}
+                          </div>
+                        </div>
+
+                        <div className="text-right flex-shrink-0">
+                          <div className={`text-xs font-bold font-mono ${filter === "sell" ? "text-green-400" : "text-red-400"}`}>
+                            {filter === "sell" ? "+" : "-"}$
+                            {g.totalUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-[10px] text-slate-600 font-mono">
+                            {g.totalQty.toLocaleString(undefined, { maximumFractionDigits: 6 })} {g.coin}
+                          </div>
+                        </div>
+                      </motion.div>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="ml-4 mr-1 mb-1.5 pl-3 border-l border-slate-700/40 space-y-1">
+                              {g.trades.map((t, i) => (
+                                <div
+                                  key={`${t.timestamp}-${i}`}
+                                  className="flex items-center justify-between gap-2 text-[11px] px-2 py-1.5 rounded hover:bg-slate-800/30"
+                                >
+                                  <div>
+                                    <span className="text-slate-400 font-mono">{t.walletShort || "—"}</span>
+                                    <span className="text-slate-600 ml-2">{formatDate(t.timestamp)}</span>
+                                  </div>
+                                  <div className="text-right font-mono">
+                                    <span className="text-slate-300">
+                                      {(t.amount || 0).toLocaleString(undefined, { maximumFractionDigits: 6 })} {t.coin}
+                                    </span>
+                                    <span className="text-slate-600 ml-2">
+                                      ${((t.amount || 0) * (t.price || 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div className="space-y-1.5">
