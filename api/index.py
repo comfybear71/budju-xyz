@@ -60,6 +60,7 @@ from database import (
     get_user_trade_activity,
     get_all_users_trade_activity,
     get_live_leaderboard,
+    link_admin_master_key,
 )
 
 from perp_engine import (
@@ -1215,6 +1216,21 @@ class handler(BaseHTTPRequestHandler):
                     return
                 result = remove_user_swyftx_key(wallet_address)
                 self._send_json(200, result)
+
+            elif path == '/api/admin/link-master-key':
+                # Admin-only: reuse the server's existing SWYFTX_API_KEY
+                # (already configured for the legacy pooled bot) as this
+                # wallet's own personal key, instead of re-pasting it.
+                wallet_address = body.get('walletAddress')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                try:
+                    result = link_admin_master_key(wallet_address)
+                    self._send_json(200, result)
+                except ValueError as e:
+                    self._send_json(403, {"error": str(e)})
+                    return
 
             elif path == '/api/user/auto-trade':
                 wallet_address = body.get('walletAddress')
