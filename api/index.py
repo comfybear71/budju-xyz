@@ -11,6 +11,30 @@ import time
 # Add parent directory for imports
 sys.path.insert(0, os.path.dirname(__file__))
 
+
+def _send_telegram_message(text: str) -> None:
+    """Best-effort Telegram notification — never raises, so a notification
+    failure can't take down the request that triggered it (mirrors the
+    inline try/except already used for perp close alerts below)."""
+    try:
+        tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+        tg_chat = os.getenv("TELEGRAM_CHAT_ID", "-1002398835975")
+        if not tg_token:
+            return
+        from urllib.request import Request, urlopen
+        tg_url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
+        tg_payload = json.dumps({
+            "chat_id": tg_chat,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }).encode()
+        tg_req = Request(tg_url, data=tg_payload, headers={"Content-Type": "application/json"})
+        urlopen(tg_req, timeout=10)
+    except Exception as tg_err:
+        print(f"[telegram] notification error: {tg_err}")
+
+
 from database import (
     register_user,
     get_user_portfolio,
@@ -1375,6 +1399,13 @@ class handler(BaseHTTPRequestHandler):
                     return
                 try:
                     result = execute_test_buy(wallet_address, requester, coin)
+                    wallet_short = wallet_address[:4] + ".." + wallet_address[-4:]
+                    _send_telegram_message(
+                        f"🧪 <b>TEST BUY</b>\n"
+                        f"📍 {result['coin']} — {result['quantity']}\n"
+                        f"💵 ${result['usdcSpent']} @ ${result['price']}\n"
+                        f"👤 {wallet_short}"
+                    )
                     self._send_json(200, result)
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
@@ -1393,6 +1424,12 @@ class handler(BaseHTTPRequestHandler):
                     return
                 try:
                     result = execute_test_buy_all_wallets(requester, coin)
+                    failed_suffix = f", ❌ {result['failed']} failed" if result['failed'] else ""
+                    _send_telegram_message(
+                        f"🧪 <b>TEST BUY — ALL WALLETS</b>\n"
+                        f"📍 {coin.upper()}\n"
+                        f"✅ {result['succeeded']}/{result['walletCount']} wallets{failed_suffix}"
+                    )
                     self._send_json(200, result)
                 except ValueError as e:
                     self._send_json(403, {"error": str(e)})

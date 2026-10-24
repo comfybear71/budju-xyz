@@ -197,15 +197,26 @@ export function resetAdminAuthDenied() {
 
 // ── API helpers ────────────────────────────────────────────
 
+// `retries` MUST be 0 for anything that places a real order (test buys,
+// manual market/limit orders, ...). A placed-order request that the client
+// gives up on waiting for (timeout/network hiccup) may well have already
+// succeeded server-side — retrying it blindly places a SECOND real order.
+// This is exactly what happened with "Test BTC buy — ALL wallets": the
+// batch legitimately took >15s across several wallets, the client aborted
+// and retried, and the full batch ran a second time for real while the
+// first was still finishing, doubling every trade. Reads (prices,
+// portfolios, status checks) are safe to retry; writes that move money
+// are not, unless the endpoint itself is idempotent.
 async function fetchWithRetry(
   url: string,
   options?: RequestInit,
   retries = 2,
+  timeoutMs = 15000,
 ): Promise<Response> {
   for (let i = 0; i <= retries; i++) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timeout);
       if (!res.ok && res.status === 429 && i < retries) {
@@ -623,16 +634,21 @@ export async function placeTrade(order: {
       confirm: !!order.confirm,
     };
 
-    const res = await fetchWithRetry("/api/proxy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        endpoint: "/orders/",
+    // retries=0 — this places a REAL order. See fetchWithRetry's docstring.
+    const res = await fetchWithRetry(
+      "/api/proxy",
+      {
         method: "POST",
-        body: swyftxPayload,
-        guard,
-      }),
-    });
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: "/orders/",
+          method: "POST",
+          body: swyftxPayload,
+          guard,
+        }),
+      },
+      0,
+    );
 
     let data: any;
     try {
@@ -1261,11 +1277,16 @@ export async function placeTestBuy(
 ): Promise<{ success: boolean; error?: string; coin?: string; quantity?: number; usdcSpent?: number; price?: number }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("place a test buy");
   try {
-    const res = await fetchWithRetry("/api/user/test-buy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ walletAddress, requesterWallet, coin }),
-    });
+    // retries=0 — this places a REAL order. See fetchWithRetry's docstring.
+    const res = await fetchWithRetry(
+      "/api/user/test-buy",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress, requesterWallet, coin }),
+      },
+      0,
+    );
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
     return { success: true, coin: data.coin, quantity: data.quantity, usdcSpent: data.usdcSpent, price: data.price };
@@ -1300,11 +1321,20 @@ export async function placeTestBuyAllWallets(
 ): Promise<{ success: boolean; error?: string; data?: TestBuyAllResponse }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("place a test buy for all wallets");
   try {
-    const res = await fetchWithRetry("/api/admin/test-buy-all", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requesterWallet, coin }),
-    });
+    // retries=0 — this places REAL orders across every wallet. A longer
+    // timeoutMs since the batch loops over every wallet server-side and can
+    // legitimately take well over the default 15s. See fetchWithRetry's
+    // docstring for why this endpoint must never be retried on timeout.
+    const res = await fetchWithRetry(
+      "/api/admin/test-buy-all",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ requesterWallet, coin }),
+      },
+      0,
+      90000,
+    );
     const data = await res.json();
     if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
     return { success: true, data: data as TestBuyAllResponse };

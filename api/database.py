@@ -77,6 +77,15 @@ user_trades_collection = db["user_trades"]
 # the bot price and trade literally any coin a user holds, not just the
 # ~30 originally hand-picked ones.
 dynamic_coin_registry_collection = db["dynamic_coin_registry"]
+# Short-lived locks for admin bulk actions that place REAL orders across
+# every wallet (e.g. execute_test_buy_all_wallets). A second call while one
+# is already running is refused outright rather than running a duplicate
+# batch — this is the server-side half of the fix for the double-buy bug
+# a client-side retry caused (see fetchWithRetry's docstring in
+# tradeApi.ts). TTL-expired automatically so a crashed run can't deadlock
+# this forever.
+admin_action_locks_collection = db["admin_action_locks"]
+admin_action_locks_collection.create_index("expiresAt", expireAfterSeconds=0)
 # Lifetime deposit/withdrawal ledger for the non-custodial model (Oct 2026).
 # Deliberately separate from deposits_collection/withdrawals_collection —
 # those mint/burn shares against the legacy shared-pool NAV, which no
@@ -2324,31 +2333,61 @@ def execute_test_buy_all_wallets(requester_wallet: str, coin: str = "BTC") -> Di
     actually places and records a real trade for every connected wallet,
     not just one at a time. One wallet's failure (invalid key, balance
     too low, no price, order rejected...) is recorded and skipped; it
-    never stops the rest of the batch."""
+    never stops the rest of the batch.
+
+    Refuses outright if a run is already in progress (admin_action_locks,
+    5-minute TTL) — the server-side half of the fix for a real double-buy
+    this caused: a client-side timeout+retry re-ran this entire function
+    for real while the first run was still finishing, doubling every
+    wallet's order. See fetchWithRetry's docstring in tradeApi.ts for the
+    client-side half."""
     if not is_admin(requester_wallet):
         raise ValueError("Admin access required")
 
-    docs = list(user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}))
-    results = []
-    succeeded = 0
-    failed = 0
+    lock_id = "test_buy_all"
+    now = datetime.utcnow()
+    try:
+        admin_action_locks_collection.insert_one({
+            "_id": lock_id,
+            "startedAt": now,
+            "expiresAt": now + timedelta(minutes=5),
+        })
+    except DuplicateKeyError:
+        existing = admin_action_locks_collection.find_one({"_id": lock_id})
+        if existing and existing.get("expiresAt") and existing["expiresAt"] > now:
+            raise ValueError(
+                "A test-buy-all run is already in progress — wait for it to finish before starting another."
+            )
+        # Stale (expired) lock left behind by a crashed run — safe to reclaim.
+        admin_action_locks_collection.update_one(
+            {"_id": lock_id},
+            {"$set": {"startedAt": now, "expiresAt": now + timedelta(minutes=5)}},
+        )
 
-    for doc in docs:
-        wallet = doc.get("walletAddress")
-        try:
-            result = execute_test_buy(wallet, requester_wallet, coin)
-            results.append({"walletAddress": wallet, **result})
-            succeeded += 1
-        except Exception as e:
-            results.append({"walletAddress": wallet, "success": False, "error": str(e)})
-            failed += 1
+    try:
+        docs = list(user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}))
+        results = []
+        succeeded = 0
+        failed = 0
 
-    return {
-        "walletCount": len(docs),
-        "succeeded": succeeded,
-        "failed": failed,
-        "results": results,
-    }
+        for doc in docs:
+            wallet = doc.get("walletAddress")
+            try:
+                result = execute_test_buy(wallet, requester_wallet, coin)
+                results.append({"walletAddress": wallet, **result})
+                succeeded += 1
+            except Exception as e:
+                results.append({"walletAddress": wallet, "success": False, "error": str(e)})
+                failed += 1
+
+        return {
+            "walletCount": len(docs),
+            "succeeded": succeeded,
+            "failed": failed,
+            "results": results,
+        }
+    finally:
+        admin_action_locks_collection.delete_one({"_id": lock_id})
 
 
 def get_user_trade_activity(target_wallet: str, requester_wallet: str) -> List[Dict]:
