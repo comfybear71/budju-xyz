@@ -329,6 +329,50 @@ const Trade = () => {
     return () => clearInterval(interval);
   }, [autoTrader, wsPrices]);
 
+  // Keep a ref to the latest live prices so the balance-refresh interval
+  // below can read current prices without restarting every time they tick
+  // (wsPrices updates ~once/sec — that would reset a `prices`-dependent
+  // interval constantly).
+  const pricesRef = useRef(prices);
+  useEffect(() => {
+    pricesRef.current = prices;
+  }, [prices]);
+
+  // Re-fetch actual Swyftx BALANCES (coin quantities), not just prices,
+  // every 90s — matching what HoldingsList's RefreshClock countdown visibly
+  // promises. Before this, `assets`/`myHoldings` only ever loaded once on
+  // mount/manual refresh; the interval above only refreshes prices for an
+  // already-fetched balance snapshot. A trade placed anywhere (bot, manual,
+  // test buy, or from the Leaderboard) would leave the Holdings grid frozen
+  // on the pre-trade balance indefinitely even though Swyftx's own app (and
+  // the real account) had already updated — this is what actually fetches
+  // the current numbers so the two agree without a manual pull-to-refresh.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchPortfolio()
+        .then((portfolioData) => {
+          setAssets((prev) =>
+            portfolioData.map((a) => {
+              const existing = prev.find((p) => p.code === a.code);
+              const priceUsd = pricesRef.current[a.code] || existing?.priceUsd || a.priceUsd;
+              return {
+                ...a,
+                priceUsd,
+                change24h: existing?.change24h ?? a.change24h,
+                usdValue: a.balance > 0 ? a.balance * priceUsd : a.usdValue,
+              };
+            }),
+          );
+        })
+        .catch(() => {});
+
+      if (isConnected && !isAdmin && walletAddress) {
+        fetchPersonalPricedHoldings(walletAddress).then(setMyHoldings).catch(() => {});
+      }
+    }, 90_000);
+    return () => clearInterval(interval);
+  }, [isConnected, isAdmin, walletAddress]);
+
   // Initialize AutoTrader for admin users
   useEffect(() => {
     if (!isAdmin || !walletAddress) return;
