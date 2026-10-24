@@ -1361,9 +1361,13 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
     transactions: List[Dict] = []
 
     if is_admin_request:
+        # Not filtered to status="active" — see get_live_leaderboard()'s
+        # docstring for why. get_wallet_cash_flows() below handles each
+        # wallet's own failure safely and self-heals a wrongly-"invalid"
+        # key on its next successful fetch.
         active_wallets = {
             d.get("walletAddress")
-            for d in user_exchange_keys_collection.find({"status": "active"}, {"walletAddress": 1})
+            for d in user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}, {"walletAddress": 1})
         }
         manual_wallets = {
             d.get("walletAddress")
@@ -1924,17 +1928,40 @@ def _get_user_swyftx_client(wallet_address: str) -> SwyftxClient:
 
 
 def _is_transient_swyftx_error(err: Exception) -> bool:
-    """HTTP 429 (rate limited) and 5xx are Swyftx/network hiccups, not proof
-    the key is bad — flipping status to "invalid" on one of these silently
-    drops the wallet out of every `find({"status": "active"})` query
-    (leaderboard, aggregate holdings, ...) until someone notices and
-    manually re-links it. Confirmed live on 2026-10-24: a single 429 right
-    after linking the admin's master key marked it "invalid" and the
-    leaderboard immediately stopped even attempting that wallet. Only a
-    genuine 401/403 (or any other non-429/5xx failure) should mark a key
-    invalid — those really do mean the key was revoked or never worked."""
+    """Only a genuine 401/403 reliably proves a key itself is bad (revoked,
+    wrong scope, or never worked). Everything else — 429 (rate limited),
+    5xx, 400 (a request-shape problem on OUR side), timeouts, or any other
+    transport failure — must NOT flip status away from "active": doing so
+    silently drops the wallet out of every `find({"status": "active"})`
+    query (leaderboard, aggregate holdings, Activity, ...) until someone
+    notices and manually re-links it.
+
+    Confirmed live TWICE: on 2026-10-24, a single 429 right after linking
+    the admin's master key marked it "invalid" and the leaderboard
+    immediately stopped even attempting that wallet. On 2026-10-25, the
+    deposit/withdrawal history endpoint's sortby=date param (since removed
+    — see swyftx_client.py) got rejected with a 400 on literally every
+    call, which this function originally treated as non-transient — so
+    EVERY connected wallet's key got marked "invalid" within minutes,
+    even though not a single one was actually bad. The old allowlist
+    approach (name only 429/5xx as safe) kept getting the policy backwards
+    whenever a NEW kind of non-credential failure showed up; a denylist of
+    just 401/403 is the only version of this that can't repeat that."""
     msg = str(err)
-    return "HTTP 429" in msg or "HTTP 5" in msg
+    return "HTTP 401" not in msg and "HTTP 403" not in msg
+
+
+def _mark_key_valid(wallet_address: str) -> None:
+    """Self-heal: a successful live call proves this wallet's key works
+    right now, so always reset status -> "active" and clear lastError,
+    regardless of what status was before. This is what lets a wallet that
+    got wrongly marked "invalid" by a past bug (e.g. the 2026-10-25 sortby
+    400 misclassification) recover automatically on its very next
+    successful fetch, with no manual DB fix or admin action required."""
+    user_exchange_keys_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": {"status": "active", "lastValidatedAt": datetime.utcnow(), "lastError": None}},
+    )
 
 
 def get_user_personal_holdings(wallet_address: str) -> Dict:
@@ -1949,6 +1976,7 @@ def get_user_personal_holdings(wallet_address: str) -> Dict:
             update["status"] = "invalid"
         user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
         raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+    _mark_key_valid(wallet_address)
     return {"walletAddress": wallet_address, "holdings": holdings}
 
 
@@ -1967,6 +1995,7 @@ def get_user_live_position(wallet_address: str) -> Dict:
             update["status"] = "invalid"
         user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
         raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+    _mark_key_valid(wallet_address)
 
     crypto_codes = [c for c in holdings.keys() if c not in ("USDC", "USD", "AUD", "USDT")]
     prices = get_prices_for_coins(crypto_codes)
@@ -2003,14 +2032,17 @@ def get_user_live_position(wallet_address: str) -> Dict:
 
 
 def get_community_aggregate_holdings() -> Dict:
-    """Admin view: iterate every wallet with an active, validated key and
-    fetch its holdings via that wallet's OWN credentials, then sum into a
-    per-coin community total. This is the "cumulative total" view the non-
-    custodial model replaces the pooled NAV/leaderboard with — it's a live
-    read across everyone's own accounts, not a shared ledger BUDJU controls.
+    """Admin view: iterate every wallet with a key on file and fetch its
+    holdings via that wallet's OWN credentials, then sum into a per-coin
+    community total. This is the "cumulative total" view the non-custodial
+    model replaces the pooled NAV/leaderboard with — it's a live read
+    across everyone's own accounts, not a shared ledger BUDJU controls.
     One wallet's key failing (revoked, invalid) is logged and skipped —
-    never allowed to crash the whole aggregate."""
-    docs = list(user_exchange_keys_collection.find({"status": "active"}))
+    never allowed to crash the whole aggregate.
+
+    Does not pre-filter by status="active" for the same self-healing
+    reason as get_live_leaderboard() above — see that docstring."""
+    docs = list(user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}))
     per_wallet = []
     totals: Dict[str, float] = {}
     errors = 0
@@ -2024,10 +2056,7 @@ def get_community_aggregate_holdings() -> Dict:
             per_wallet.append({"walletAddress": wallet, "holdings": holdings})
             for coin, amount in holdings.items():
                 totals[coin] = totals.get(coin, 0.0) + amount
-            user_exchange_keys_collection.update_one(
-                {"walletAddress": wallet},
-                {"$set": {"status": "active", "lastValidatedAt": datetime.utcnow(), "lastError": None}},
-            )
+            _mark_key_valid(wallet)
         except SwyftxAuthError as e:
             errors += 1
             update = {"lastError": str(e)}
@@ -2394,11 +2423,19 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
 
 
 def get_live_leaderboard() -> Dict:
-    """Rank every connected, active wallet by current total account value
-    (read live from their own Swyftx account), with a %cash vs %crypto
-    breakdown. No shares, no NAV — this entirely replaces the pool
-    leaderboard for the non-custodial era."""
-    docs = list(user_exchange_keys_collection.find({"status": "active"}))
+    """Rank every connected wallet with a key on file by current total
+    account value (read live from their own Swyftx account), with a
+    %cash vs %crypto breakdown. No shares, no NAV — this entirely replaces
+    the pool leaderboard for the non-custodial era.
+
+    Deliberately does NOT filter by status="active" here — a wallet
+    wrongly marked "invalid" by a past bug (e.g. the 2026-10-25 sortby 400
+    misclassification, which flipped EVERY connected wallet's status at
+    once) would otherwise never get a chance to self-heal, since it would
+    never be attempted again. Each wallet's own try/except already skips
+    it safely on a real failure (see `errored` below), and a success
+    resets status -> "active" via _mark_key_valid()."""
+    docs = list(user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}))
 
     # One shared price fetch AND one shared asset-ID-to-code fetch for
     # every wallet's holdings, not one per wallet. Skipping the latter
@@ -2420,8 +2457,13 @@ def get_live_leaderboard() -> Dict:
             holdings = client.get_holdings()
             wallet_holdings[wallet] = holdings
             all_coins.update(holdings.keys())
-        except SwyftxAuthError:
+            _mark_key_valid(wallet)
+        except SwyftxAuthError as e:
             wallet_holdings[wallet] = None
+            update = {"lastError": str(e)}
+            if not _is_transient_swyftx_error(e):
+                update["status"] = "invalid"
+            user_exchange_keys_collection.update_one({"walletAddress": wallet}, {"$set": update})
         except Exception:
             wallet_holdings[wallet] = None
 
@@ -2774,6 +2816,7 @@ def get_user_live_cash_flows(wallet_address: str) -> Dict:
             update["status"] = "invalid"
         user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
         raise ValueError(f"Could not fetch your Swyftx deposit/withdrawal history: {e}")
+    _mark_key_valid(wallet_address)
 
     aud_to_usd = get_aud_to_usd_rate()
     all_records = [(r, "deposit") for r in deposits_raw] + [(r, "withdrawal") for r in withdrawals_raw]
@@ -2867,12 +2910,15 @@ def get_wallet_cash_flows(wallet_address: str) -> Dict:
 
 def get_community_cash_flows() -> Dict:
     """Aggregate lifetime deposited/withdrawn across every wallet that has
-    EITHER an active Swyftx key (live-fetched) OR a manual override
+    EITHER a Swyftx key on file (live-fetched) OR a manual override
     recorded — not assumed to cover every connected wallet, since a wallet
-    with a revoked/missing key and no manual entry has nothing to read."""
+    with a revoked/missing key and no manual entry has nothing to read.
+
+    Not filtered to status="active" — see get_live_leaderboard()'s
+    docstring for why."""
     active_wallets = {
         d.get("walletAddress")
-        for d in user_exchange_keys_collection.find({"status": "active"}, {"walletAddress": 1})
+        for d in user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}, {"walletAddress": 1})
     }
     manual_wallets = {
         d.get("walletAddress")
