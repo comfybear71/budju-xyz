@@ -346,10 +346,12 @@ class SwyftxClient:
         (fiat + crypto), paginated. Confirmed real endpoint — Swyftx's own
         API docs (https://docs.swyftx.com.au, "History > All Deposit
         History") list GET /history/deposit/?limit&page&sortby, same as the
-        open-source pyswyft client's HistoryAllDeposit. Swyftx does not
-        publish the exact record schema for this endpoint, so the caller
-        (get_user_live_cash_flows in database.py) must parse each record
-        defensively rather than assume specific field names."""
+        open-source pyswyft client's HistoryAllDeposit. In practice the live
+        API rejects sortby=date with a 400 ArgsError (confirmed 2026-10-25),
+        so _get_history_pages() omits that param entirely — see its comment.
+        Swyftx does not publish the exact record schema for this endpoint,
+        so the caller (get_user_live_cash_flows in database.py) must parse
+        each record defensively rather than assume specific field names."""
         return self._get_history_pages("/history/deposit/", "deposits", max_pages, page_size)
 
     def get_withdrawal_history(self, max_pages: int = 20, page_size: int = 100) -> List[Dict]:
@@ -360,7 +362,14 @@ class SwyftxClient:
         headers = self._headers()
         all_records: List[Dict] = []
         for page in range(1, max_pages + 1):
-            url = SWYFTX_BASE + f"{path}?limit={page_size}&page={page}&sortby=date"
+            # No sortby param — confirmed live on 2026-10-25 that Swyftx
+            # rejects "date" with a 400 ArgsError ("date is not a sortable
+            # value"), despite that being the exact example shown in the
+            # pyswyft client's docs and Swyftx's own Apiary reference. No
+            # documented value for this field actually works, and sortby
+            # is optional on every one of these endpoints, so it's simplest
+            # and safest to just not send it at all.
+            url = SWYFTX_BASE + f"{path}?limit={page_size}&page={page}"
             try:
                 data = self._http_json(url, headers=headers)
             except HTTPError as e:
