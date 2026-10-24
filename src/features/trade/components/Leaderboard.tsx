@@ -73,7 +73,12 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
   /** Admin-only drill-down: this wallet's Net P&L — deposited/withdrawn
    *  (live from their own Swyftx history, or a manual override) against
    *  their current live total value — charted the same way as "Your
-   *  Position" on the main Trade page. */
+   *  Position" on the main Trade page.
+   *
+   *  Deliberately NOT rendered inside a podium card's own narrow column
+   *  (`max-w-[140px]`) — the chart's SVG is responsive to its container,
+   *  so squeezing it into a 140px-wide card made it unreadably cramped.
+   *  Callers render this once, full-width, below the whole podium row. */
   const renderWalletDetail = (entry: LiveLeaderboardEntry) => {
     if (expandedWallet !== entry.walletAddress) return null;
     const cashFlows = cashFlowsByWallet[entry.walletAddress];
@@ -86,7 +91,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
         exit={{ opacity: 0, height: 0 }}
         className="overflow-hidden"
       >
-        <div className="mt-2 rounded-lg bg-slate-900/50 border border-slate-700/30 p-2.5">
+        <div className="mt-2 mb-6 rounded-lg bg-slate-900/50 border border-slate-700/30 p-3">
           {isLoading ? (
             <div className="flex justify-center py-4">
               <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
@@ -231,11 +236,17 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false }: Props) => {
                             <span className="text-blue-400/80">{entry.pctCrypto.toFixed(0)}% crypto</span>
                           </div>
                         </div>
-                        <AnimatePresence>{renderWalletDetail(entry)}</AnimatePresence>
                       </motion.div>
                     );
                   })}
                 </div>
+
+                {/* Expanded detail for a podium selection renders here, full-width —
+                    not inside that entry's own 140px-wide podium card above. */}
+                <AnimatePresence>
+                  {podium.find((e) => e.walletAddress === expandedWallet) &&
+                    renderWalletDetail(podium.find((e) => e.walletAddress === expandedWallet)!)}
+                </AnimatePresence>
 
                 {/* Summary */}
                 <div className="flex justify-between items-center px-2 mb-3">
