@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync, FaRobot, FaPowerOff } from "react-icons/fa";
+import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync, FaRobot, FaPowerOff, FaKey } from "react-icons/fa";
 import {
   fetchBudjuGateStatus,
   fetchSwyftxKeyStatus,
@@ -8,6 +8,7 @@ import {
   fetchPersonalHoldings,
   fetchAutoTradeStatus,
   setAutoTradeEnabled,
+  linkAdminMasterKey,
   type BudjuGateStatus,
   type SwyftxKeyStatus,
   type PersonalHoldings,
@@ -16,6 +17,7 @@ import {
 
 interface Props {
   wallet: string;
+  isAdmin?: boolean;
 }
 
 const formatDate = (iso: string | null | undefined) => {
@@ -42,7 +44,7 @@ const formatDate = (iso: string | null | undefined) => {
  * explicit opt-in below, and the bot only ever sells coins it bought
  * itself for this wallet, never pre-existing personal holdings.
  */
-const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
+const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
   const [loading, setLoading] = useState(true);
   const [gate, setGate] = useState<BudjuGateStatus | null>(null);
   const [keyStatus, setKeyStatus] = useState<SwyftxKeyStatus>({ configured: false });
@@ -58,6 +60,7 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
   const [showEnableConfirm, setShowEnableConfirm] = useState(false);
   const [ackTrading, setAckTrading] = useState(false);
   const [togglingAutoTrade, setTogglingAutoTrade] = useState(false);
+  const [linkingMasterKey, setLinkingMasterKey] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!wallet) return;
@@ -109,6 +112,25 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
       return;
     }
     setMessage({ text: "Key removed. BUDJU can no longer read or trade on this account.", tone: "success" });
+    refresh();
+  };
+
+  /** Admin-only convenience: the admin's Swyftx key is already configured
+   *  server-side (SWYFTX_API_KEY, the legacy pooled bot's key) — this links
+   *  it to the admin's own per-user entry instead of re-pasting it here. */
+  const handleLinkMasterKey = async () => {
+    setLinkingMasterKey(true);
+    setMessage(null);
+    const result = await linkAdminMasterKey(wallet);
+    setLinkingMasterKey(false);
+    if (!result.success) {
+      setMessage({ text: result.error || "Failed to link the server's master key", tone: "error" });
+      return;
+    }
+    setMessage({
+      text: `Linked the server's existing Swyftx key (${result.maskedApiKey}) — no need to paste it again.`,
+      tone: "success",
+    });
     refresh();
   };
 
@@ -324,6 +346,22 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
 
       {(!keyStatus.configured || showReplace) && (
         <div className="rounded-xl bg-slate-800/40 border border-slate-700/50 p-4 space-y-3">
+          {isAdmin && !showReplace && (
+            <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/25 p-3 space-y-2">
+              <div className="text-[11px] text-cyan-200 leading-relaxed">
+                <span className="font-semibold">Admin shortcut:</span> this wallet's Swyftx key is already
+                configured on the server (it powers the legacy pooled bot) — link it instead of pasting it again.
+              </div>
+              <button
+                onClick={handleLinkMasterKey}
+                disabled={linkingMasterKey}
+                className="w-full text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-cyan-500/90 text-white hover:bg-cyan-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+              >
+                <FaKey size={10} /> {linkingMasterKey ? "Linking..." : "Link server's master key"}
+              </button>
+            </div>
+          )}
+
           <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-3 text-[11px] text-amber-200 leading-relaxed">
             <div className="font-bold mb-1 flex items-center gap-1.5">
               <FaExclamationTriangle size={11} /> Before you connect

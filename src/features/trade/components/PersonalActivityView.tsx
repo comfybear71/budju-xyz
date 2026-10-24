@@ -31,7 +31,10 @@ const formatDate = (iso: string | null | undefined) => {
 const PersonalActivityView = ({ wallet, isAdmin = false }: Props) => {
   const [entries, setEntries] = useState<UserActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [viewAll, setViewAll] = useState(false);
+  // Admin defaults to the combined "all users" feed — that's the view
+  // that's actually useful when you're the one watching every connected
+  // wallet's bot, not just your own. Non-admins never see the toggle at all.
+  const [viewAll, setViewAll] = useState(isAdmin);
 
   const load = useCallback(async () => {
     if (!wallet) return;

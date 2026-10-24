@@ -51,7 +51,7 @@ const PersonalTradingView = ({ isOpen, onClose, wallet, isAdmin = false }: Props
                 </button>
               </div>
 
-              <PersonalExchangeKeyPanel wallet={wallet} />
+              <PersonalExchangeKeyPanel wallet={wallet} isAdmin={isAdmin} />
 
               {wallet && (
                 <div className="mt-6 pt-5 border-t border-white/[0.06]">
