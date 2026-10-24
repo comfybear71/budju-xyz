@@ -1786,7 +1786,7 @@ def calculate_pool_allocations() -> Dict[str, float]:
 
 from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
 from swyftx_client import SwyftxClient, SwyftxAuthError
-from asset_registry import ASSET_CG_IDS, PERMANENT_BUY_DENYLIST, DEFAULT_MONITORED_ASSETS
+from asset_registry import ASSET_CG_IDS
 from urllib.request import urlopen, Request
 
 
@@ -2119,27 +2119,35 @@ def get_community_aggregate_holdings() -> Dict:
 
 
 # ── Phase 2: per-user auto-trading ──────────────────────────────────────────
-# Each connected wallet gets its own independent bot — own tier settings,
-# own targets/cooldowns, own trade log — trading directly in that user's own
-# Swyftx account with their own key. Nothing here ever touches a shared pool.
+# There is only ONE bot — one brain, one set of tier settings, one coin
+# list, one on/off switch — the SAME "Auto Trade" screen the admin edits
+# (trader_state_collection, see get_trader_state()/DEFAULT_TRADER_STATE
+# above). Every connected wallet's own cron run (api/user-trade-cron.py)
+# reads that single shared rulebook and carries it out inside that wallet's
+# own Swyftx account, with that wallet's own key, sized from that wallet's
+# own USDC balance — it is NOT a second, independently-configured bot.
+#
+# Only this per-wallet document remains: each account's own computed price
+# targets, cooldown timers, and trade history. Those aren't decisions —
+# they're just where that particular account's own ratchet currently sits,
+# which naturally differs wallet to wallet based on when each one actually
+# traded (same as the pooled bot's own single-account state always has).
+# Before 2026-10-25 this document also held its own copy of autoTiers/
+# tierActive/tierAssignments, defaulting every coin in the registry to all
+# three tiers — that let coins get auto-enrolled and traded without ever
+# being added to T1/T2/T3 on the admin's screen (see api/user-trade-cron.py
+# header comment for the concrete LUMIA incident this caused). Removed.
 
 DEFAULT_USER_TRADER_STATE = {
-    "autoTiers": {
-        "tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5, "cooldownHours": 24},
-        "tier2": {"deviation": 2, "sellDeviation": 4, "allocation": 5, "cooldownHours": 24},
-        "tier3": {"deviation": 2, "sellDeviation": 4, "allocation": 5, "cooldownHours": 24},
-    },
-    "tierActive": {"1": True, "2": True, "3": True},
-    "tierAssignments": {coin: [1, 2, 3] for coin in DEFAULT_MONITORED_ASSETS},
     "targets": {},
     "cooldowns": {},
 }
 
 
 def get_user_trader_state(wallet_address: str) -> Dict:
-    """Per-wallet tier settings/targets/cooldowns. Defaults to the same
-    conservative tier shape as the (now-legacy) pooled bot — tight 1-2%
-    deviation bands, 5% allocation, 24h cooldowns — on first use."""
+    """Per-wallet computed targets/cooldowns/trade history only — tier
+    settings, coin assignments, and on/off state all come from the shared
+    get_trader_state() (the admin's "Auto Trade" screen) instead."""
     doc = user_trader_state_collection.find_one({"walletAddress": wallet_address})
     if not doc:
         return {"walletAddress": wallet_address, **json.loads(json.dumps(DEFAULT_USER_TRADER_STATE))}
