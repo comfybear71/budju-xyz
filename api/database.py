@@ -2518,44 +2518,85 @@ def get_aud_to_usd_rate() -> float:
     return _aud_to_usd_cache["rate"]
 
 
-_CASH_FLOW_FAILED_STATUS_STRINGS = {"failed", "cancelled", "canceled", "rejected", "expired", "declined"}
+# Swyftx's real "History Entry" response shape — confirmed directly from
+# its Apiary API docs' typed data-structure definition (not just an example
+# body, which the docs reuse as unhelpful copy-pasted boilerplate across
+# unrelated endpoints): {"asset": <numeric id>, "amount": <number>,
+# "updated": <unix epoch>, "actionType": "Deposit"|"Withdrawal"|...,
+# "status": <1-11 enum>}. An earlier version of this parser guessed wrong
+# field names entirely (assetId/currency/createdAt/audValue, string status)
+# and silently skipped every real record as a result — these are the
+# verified names, with the old guesses kept only as defensive fallbacks.
+_HISTORY_STATUS_COMPLETED = 2  # "Processed and completed" — the only status that means money actually moved
+_CASH_FLOW_FAILED_STATUS_STRINGS = {"failed", "cancelled", "canceled", "rejected", "expired", "declined", "pending"}
 
 
 def _history_record_is_settled(rec: Dict) -> bool:
-    """Swyftx's /history/deposit/ and /history/withdraw/ docs don't publish
-    a status enum for these endpoints (orders use numeric codes like
-    4=filled, but that's a different endpoint and may not apply here). Only
-    an explicit, recognisable string status is used to exclude a record —
-    everything else is counted, since "history" endpoints typically only
-    list transfers that already settled in the first place."""
+    """True only for a fully completed transfer. Swyftx's real schema uses
+    a NUMERIC status enum (2 = Processed and completed; 1/6/7/8/9 are
+    Created/Pending variants, 3/4/5 are Rejected/Failed, 10 is Refunded) —
+    none of those besides 2 represent money that has actually moved, so
+    counting them would overstate lifetime deposited/withdrawn."""
     status = rec.get("status")
+    if isinstance(status, bool):
+        return True
+    if isinstance(status, (int, float)):
+        return int(status) == _HISTORY_STATUS_COMPLETED
     if isinstance(status, str):
-        return status.strip().lower() not in _CASH_FLOW_FAILED_STATUS_STRINGS
+        s = status.strip().lower()
+        if s in ("completed", "processed", "processed and completed", "success", "settled"):
+            return True
+        return s not in _CASH_FLOW_FAILED_STATUS_STRINGS
     return True
 
 
+def _history_record_matches_flow_type(rec: Dict, flow_type: str) -> bool:
+    """Cross-check against the record's own `actionType`, if present — the
+    enum includes more than just Deposit/Withdrawal ("..." in Swyftx's
+    docs), so a record whose actionType clearly contradicts which endpoint
+    returned it (e.g. actionType=Withdrawal from /history/deposit/) is
+    dropped rather than silently mis-labelled."""
+    action = rec.get("actionType")
+    if not isinstance(action, str) or not action:
+        return True
+    action = action.strip().lower()
+    if flow_type == "deposit":
+        return action != "withdrawal"
+    return action != "deposit"
+
+
 def _history_record_currency(rec: Dict, asset_map: Dict[str, str]) -> str:
+    """Resolve this record's asset to a coin code. Swyftx's real schema
+    identifies the asset only by the numeric `asset` id (the same id->code
+    map get_holdings() already resolves via) — not a currency/code string.
+    Those string-keyed shapes are kept as fallbacks in case of API drift."""
+    asset_id = rec.get("asset")
+    if asset_id is not None and not isinstance(asset_id, dict):
+        code = asset_map.get(str(asset_id), "")
+        if code:
+            return code.upper()
     for key in ("currency", "assetCode", "code"):
         v = rec.get(key)
         if isinstance(v, str) and v:
             return v.upper()
-    asset = rec.get("asset")
-    if isinstance(asset, dict) and asset.get("code"):
-        return str(asset["code"]).upper()
-    asset_id = rec.get("assetId") if rec.get("assetId") is not None else rec.get("asset_id")
-    if asset_id is not None:
-        return asset_map.get(str(asset_id), "")
+    if isinstance(asset_id, dict) and asset_id.get("code"):
+        return str(asset_id["code"]).upper()
+    legacy_id = rec.get("assetId") if rec.get("assetId") is not None else rec.get("asset_id")
+    if legacy_id is not None:
+        return asset_map.get(str(legacy_id), "")
     return ""
 
 
-def _history_record_amount_usd(rec: Dict, currency: str, aud_to_usd: float) -> Optional[float]:
-    """Best-effort USD value of one deposit/withdrawal record. Tries, in
-    order: (1) a direct amount for USD-pegged stablecoins (no FX needed),
-    (2) an explicit AUD-value field (seen elsewhere in Swyftx's API as
-    audValue) converted at the live rate, (3) a raw AUD amount when the
-    record's own currency is AUD. Returns None — never a guessed number —
-    if none of those are present, e.g. a direct crypto-to-crypto deposit
-    with no AUD reference value."""
+def _history_record_amount_usd(
+    rec: Dict, currency: str, aud_to_usd: float, crypto_prices: Dict[str, float]
+) -> Optional[float]:
+    """USD value of one deposit/withdrawal record. Swyftx's real `amount`
+    field is in the asset's OWN units (no ready-made USD/AUD value) —
+    priced here as: USDC/USD/USDT 1:1, AUD at the live FX rate, any other
+    coin (a direct crypto deposit/withdrawal) at its current live price —
+    the same simplification already used for the leaderboard's cash/crypto
+    split (not historically accurate, but the best available without a
+    historical price feed). Returns None only if no amount can be read at all."""
     raw_amount = None
     for key in ("amount", "quantity"):
         if key in rec:
@@ -2564,10 +2605,18 @@ def _history_record_amount_usd(rec: Dict, currency: str, aud_to_usd: float) -> O
                 break
             except (TypeError, ValueError):
                 continue
+    if raw_amount is None:
+        return None
 
-    if currency in ("USDC", "USD", "USDT") and raw_amount is not None:
+    if currency in ("USDC", "USD", "USDT"):
         return round(raw_amount, 2)
+    if currency == "AUD":
+        return round(raw_amount * aud_to_usd, 2)
+    if currency and crypto_prices.get(currency):
+        return round(raw_amount * crypto_prices[currency], 2)
 
+    # Legacy fallback — an alternate response shape that ships a ready-made
+    # AUD reference value instead of a resolvable currency code.
     for key in ("audValue", "aud_value", "amountAud", "value"):
         if key in rec:
             try:
@@ -2577,19 +2626,26 @@ def _history_record_amount_usd(rec: Dict, currency: str, aud_to_usd: float) -> O
             except (TypeError, ValueError):
                 continue
 
-    if currency == "AUD" and raw_amount is not None:
-        return round(raw_amount * aud_to_usd, 2)
-
     return None
 
 
 def _history_record_timestamp(rec: Dict) -> Optional[str]:
-    for key in ("createdAt", "created_at", "timestamp", "date", "created"):
+    """Swyftx's real schema calls this field `updated` — a Unix epoch
+    number (seconds or milliseconds; magnitude-detected), not an ISO
+    string. Other key names/shapes are kept as defensive fallbacks."""
+    for key in ("updated", "time", "createdAt", "created_at", "timestamp", "created"):
         v = rec.get(key)
-        if v:
-            return str(v)
-    date_part = rec.get("Date")
-    time_part = rec.get("Time")
+        if v is None or v == "":
+            continue
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            epoch = float(v) / 1000.0 if v > 10_000_000_000 else float(v)
+            try:
+                return datetime.utcfromtimestamp(epoch).isoformat()
+            except (OverflowError, OSError, ValueError):
+                continue
+        return str(v)
+    date_part = rec.get("Date") or rec.get("date")
+    time_part = rec.get("Time") or rec.get("time")
     if date_part and time_part:
         return f"{date_part}T{time_part}"
     return None
@@ -2626,14 +2682,24 @@ def get_user_live_cash_flows(wallet_address: str) -> Dict:
         raise ValueError(f"Could not fetch your Swyftx deposit/withdrawal history: {e}")
 
     aud_to_usd = get_aud_to_usd_rate()
+    all_records = [(r, "deposit") for r in deposits_raw] + [(r, "withdrawal") for r in withdrawals_raw]
+
+    # One shared price fetch for every non-cash currency seen across both
+    # lists, not one CoinGecko call per record.
+    currencies = {_history_record_currency(rec, asset_map) for rec, _ in all_records}
+    crypto_codes = [c for c in currencies if c and c not in ("USDC", "USD", "USDT", "AUD")]
+    crypto_prices = get_prices_for_coins(crypto_codes) if crypto_codes else {}
+
     flows: List[Dict] = []
     skipped = 0
 
-    for rec, flow_type in [(r, "deposit") for r in deposits_raw] + [(r, "withdrawal") for r in withdrawals_raw]:
+    for rec, flow_type in all_records:
         if not _history_record_is_settled(rec):
+            continue  # Pending/failed/rejected/refunded — not a parse failure, correctly excluded
+        if not _history_record_matches_flow_type(rec, flow_type):
             continue
         currency = _history_record_currency(rec, asset_map)
-        amount_usd = _history_record_amount_usd(rec, currency, aud_to_usd)
+        amount_usd = _history_record_amount_usd(rec, currency, aud_to_usd, crypto_prices)
         ts = _history_record_timestamp(rec)
         if amount_usd is None or amount_usd <= 0 or not ts:
             skipped += 1
