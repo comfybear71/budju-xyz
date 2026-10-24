@@ -1138,29 +1138,46 @@ export async function fetchPersonalPricedHoldings(wallet: string): Promise<Portf
     const res = await fetchWithRetry(`/api/user/priced-holdings?wallet=${encodeURIComponent(wallet)}`);
     if (!res.ok) return [];
     const data = await res.json();
-    const rawAssets: { code: string; balance: number; priceUsd: number; usdValue: number }[] = data.assets || [];
-    return rawAssets.map((a) => {
-      const cfg = ASSET_CONFIG[a.code] || {
-        color: "#64748b",
-        icon: a.code.charAt(0),
-        name: a.code,
-        coingeckoId: "",
-      };
-      return {
-        code: a.code,
-        name: cfg.name,
-        balance: a.balance,
-        audValue: a.usdValue / AUD_TO_USD,
-        usdValue: a.usdValue,
-        change24h: 0,
-        priceUsd: a.priceUsd,
-        color: cfg.color,
-        icon: cfg.icon,
-      };
-    });
+    const rawAssets: RawPricedAsset[] = data.assets || [];
+    return mapRawPricedAssets(rawAssets);
   } catch {
     return [];
   }
+}
+
+interface RawPricedAsset {
+  code: string;
+  balance: number;
+  priceUsd: number;
+  usdValue: number;
+}
+
+/** Shared by fetchPersonalPricedHoldings (one wallet's own coins) and the
+ *  Pool Holdings grid (every connected wallet's coins, summed) — both are
+ *  server-priced raw {code, balance, priceUsd, usdValue}[] that need the
+ *  same ASSET_CONFIG color/icon/name lookup before HoldingsList can render
+ *  them, falling back to a generic gray icon for anything outside BUDJU's
+ *  ~30-coin registry (e.g. FLR, ARB, CC, LEVER, STRK, LUMIA). */
+function mapRawPricedAssets(rawAssets: RawPricedAsset[]): PortfolioAsset[] {
+  return rawAssets.map((a) => {
+    const cfg = ASSET_CONFIG[a.code] || {
+      color: "#64748b",
+      icon: a.code.charAt(0),
+      name: a.code,
+      coingeckoId: "",
+    };
+    return {
+      code: a.code,
+      name: cfg.name,
+      balance: a.balance,
+      audValue: a.usdValue / AUD_TO_USD,
+      usdValue: a.usdValue,
+      change24h: 0,
+      priceUsd: a.priceUsd,
+      color: cfg.color,
+      icon: cfg.icon,
+    };
+  });
 }
 
 /** Raw per-currency cash amounts, in each currency's OWN units — NOT
@@ -1355,6 +1372,14 @@ export interface LiveLeaderboard {
   erroredWallets: number;
   combinedValue: number;
   cashByCurrency: CashByCurrency;
+  /** Every connected wallet's crypto holdings summed per-coin (admin
+   *  included), each already priced in USD server-side — raw shape, see
+   *  poolAssetsFromLeaderboard() below for the PortfolioAsset[] version
+   *  the Holdings grid actually renders. This is the coin-by-coin
+   *  breakdown of the exact same total `combinedValue`'s crypto share
+   *  represents — it's never a smaller or different figure, just sliced
+   *  by coin instead of by wallet. */
+  coinTotals: RawPricedAsset[];
 }
 
 /** Public, non-custodial leaderboard — every connected wallet's own live
@@ -1368,6 +1393,18 @@ export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
   } catch {
     return null;
   }
+}
+
+/** The Trade page's "Pool" Holdings grid data — the true combined coin
+ *  list across EVERY connected wallet (BTC, ARB, LEVER, STRK, LUMIA,
+ *  whatever anyone holds), not just the admin's own account. Previously
+ *  the Pool view of that grid silently fell back to the admin's own
+ *  `assets`, which is why coins only held in OTHER wallets never appeared
+ *  there even though the "Pool Total" doughnut above it was already
+ *  counting their dollar value correctly the whole time. */
+export function poolAssetsFromLeaderboard(leaderboard: LiveLeaderboard | null): PortfolioAsset[] {
+  if (!leaderboard) return [];
+  return mapRawPricedAssets(leaderboard.coinTotals);
 }
 
 // ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ──

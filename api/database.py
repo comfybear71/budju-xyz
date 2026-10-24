@@ -2623,6 +2623,14 @@ def get_live_leaderboard() -> Dict:
     entries = []
     errored = 0
     combined_cash_by_currency = {"AUD": 0.0, "USD": 0.0, "USDC": 0.0, "USDT": 0.0}
+    # Per-coin quantity summed across EVERY connected wallet (admin included)
+    # — e.g. {"BTC": 0.06023299, ...}. This is what actually backs the
+    # "Pool Total" doughnut's dollar figure; coin_totals breaks that same
+    # figure down coin-by-coin instead of wallet-by-wallet, so the Holdings
+    # grid can show the true combined coin list (ARB, LEVER, STRK, LUMIA,
+    # etc. from wallets other than the admin's own) when viewing "Pool",
+    # not just whatever the admin's own account happens to hold.
+    coin_totals: Dict[str, float] = {}
     for doc in docs:
         wallet = doc.get("walletAddress")
         holdings = wallet_holdings.get(wallet)
@@ -2645,6 +2653,7 @@ def get_live_leaderboard() -> Dict:
                 cash_by_currency[code] += amount
             else:
                 crypto_value += amount * prices.get(code, 0.0)
+                coin_totals[code] = coin_totals.get(code, 0.0) + amount
 
         for k in combined_cash_by_currency:
             combined_cash_by_currency[k] += cash_by_currency[k]
@@ -2663,12 +2672,25 @@ def get_live_leaderboard() -> Dict:
         })
 
     entries.sort(key=lambda e: e["totalValue"], reverse=True)
+
+    coin_total_list = [
+        {
+            "code": code,
+            "balance": balance,
+            "priceUsd": prices.get(code, 0.0),
+            "usdValue": round(balance * prices.get(code, 0.0), 2),
+        }
+        for code, balance in coin_totals.items()
+    ]
+    coin_total_list.sort(key=lambda c: c["usdValue"], reverse=True)
+
     return {
         "entries": entries,
         "walletCount": len(docs),
         "erroredWallets": errored,
         "combinedValue": round(sum(e["totalValue"] for e in entries), 2),
         "cashByCurrency": {k: round(v, 2) for k, v in combined_cash_by_currency.items()},
+        "coinTotals": coin_total_list,
     }
 
 
