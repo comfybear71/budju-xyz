@@ -1259,11 +1259,14 @@ export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
 }
 
 // ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ──
-// BUDJU never custodies a connected wallet's funds, so it never automatically
-// sees that wallet's real Swyftx deposit/withdrawal history. An admin records
-// it here (in USD) from what the wallet owner reports from their own account,
-// so Net P&L = live value + withdrawn - deposited can be shown and charted —
-// the same shape "Your Position" used to show against pooled shares×NAV.
+// Auto-fetched live from each wallet's OWN Swyftx deposit/withdrawal history
+// (GET /history/deposit/ and /history/withdraw/, called server-side with
+// that wallet's own stored key) — no admin data entry required. An admin
+// can still record a manual override per wallet (e.g. to correct a bad
+// parse, or add pre-Swyftx history); a wallet with any manual entries uses
+// those instead of the live fetch. `source` says which one is active.
+// Net P&L = live value + withdrawn - deposited, same shape "Your Position"
+// used to show against pooled shares×NAV.
 
 export interface WalletCashFlow {
   id: string;
@@ -1278,10 +1281,19 @@ export interface WalletCashFlows {
   flows: WalletCashFlow[];
   totalDepositedUsd: number;
   totalWithdrawnUsd: number;
+  /** "live" = fetched straight from this wallet's own Swyftx history.
+   *  "manual" = an admin-entered override is active for this wallet. */
+  source?: "live" | "manual";
+  /** Only set on a live fetch — records Swyftx returned that this wallet's
+   *  parser couldn't confidently price (skipped, not guessed at). */
+  parseWarnings?: number;
+  /** Only set when a live fetch failed (e.g. no key on file) AND there's no
+   *  manual override to fall back to meaningfully. */
+  error?: string;
 }
 
-/** Public, wallet-scoped — a wallet's recorded lifetime deposits/withdrawals
- *  plus running totals. Empty if an admin hasn't entered anything for it yet. */
+/** Public, wallet-scoped — this wallet's lifetime deposits/withdrawals
+ *  (live from Swyftx, or an admin's manual override) plus running totals. */
 export async function fetchWalletCashFlows(wallet: string): Promise<WalletCashFlows | null> {
   try {
     const res = await fetchWithRetry(`/api/user/cash-flows?wallet=${encodeURIComponent(wallet)}`);
@@ -1294,7 +1306,7 @@ export async function fetchWalletCashFlows(wallet: string): Promise<WalletCashFl
 
 export interface CommunityCashFlows {
   walletsWithData: number;
-  perWallet: Record<string, { depositedUsd: number; withdrawnUsd: number }>;
+  perWallet: Record<string, { depositedUsd: number; withdrawnUsd: number; source?: "live" | "manual" }>;
   totalDepositedUsd: number;
   totalWithdrawnUsd: number;
   timeline: {
@@ -1306,8 +1318,8 @@ export interface CommunityCashFlows {
   }[];
 }
 
-/** Public — aggregate deposited/withdrawn across every wallet an admin has
- *  entered cash-flow data for (not necessarily every connected wallet). */
+/** Public — aggregate deposited/withdrawn across every wallet that has
+ *  either a working Swyftx key (live) or a manual override recorded. */
 export async function fetchCommunityCashFlows(): Promise<CommunityCashFlows | null> {
   try {
     const res = await fetchWithRetry("/api/community/cash-flows");
@@ -1315,6 +1327,26 @@ export async function fetchCommunityCashFlows(): Promise<CommunityCashFlows | nu
     return (await res.json()) as CommunityCashFlows;
   } catch {
     return null;
+  }
+}
+
+/** Admin-only: a few RAW, unparsed deposit/withdrawal records straight from
+ *  Swyftx for one wallet — ground truth to confirm the live-fetch parsing
+ *  against a real account once deployed (Swyftx's own docs don't publish
+ *  the field-level schema for these two endpoints). */
+export async function fetchWalletCashFlowDebug(
+  adminWallet: string,
+  wallet: string,
+): Promise<{ success: boolean; sampleDeposits?: unknown[]; sampleWithdrawals?: unknown[]; error?: string }> {
+  try {
+    const res = await fetchWithRetry(
+      `/api/admin/cash-flow-debug?adminWallet=${encodeURIComponent(adminWallet)}&wallet=${encodeURIComponent(wallet)}`,
+    );
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return data;
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
   }
 }
 

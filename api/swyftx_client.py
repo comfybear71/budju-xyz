@@ -70,6 +70,21 @@ def _get_token_cache_collection():
     return _token_cache_collection
 
 
+def _extract_history_records(data, list_key: str) -> List[Dict]:
+    """Swyftx's history endpoints may return a bare list, {"deposits": [...]}
+    / {"withdrawals": [...]}, or some other wrapper key — the docs only show
+    the key name, not a full example. Accept any shape that yields a list."""
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        if isinstance(data.get(list_key), list):
+            return data[list_key]
+        for v in data.values():
+            if isinstance(v, list):
+                return v
+    return []
+
+
 def _http_json(url: str, method: str = "GET", body: Optional[dict] = None,
                 headers: Optional[dict] = None, timeout: int = 20) -> dict:
     hdrs = dict(headers) if headers else {}
@@ -204,6 +219,37 @@ class SwyftxClient:
             if code and balance > 0:
                 holdings[code] = holdings.get(code, 0.0) + balance
         return holdings
+
+    def get_deposit_history(self, max_pages: int = 20, page_size: int = 200) -> List[Dict]:
+        """Every deposit this wallet's own Swyftx account has ever recorded
+        (fiat + crypto), paginated. Confirmed real endpoint — Swyftx's own
+        API docs (https://docs.swyftx.com.au, "History > All Deposit
+        History") list GET /history/deposit/?limit&page&sortby, same as the
+        open-source pyswyft client's HistoryAllDeposit. Swyftx does not
+        publish the exact record schema for this endpoint, so the caller
+        (get_user_live_cash_flows in database.py) must parse each record
+        defensively rather than assume specific field names."""
+        return self._get_history_pages("/history/deposit/", "deposits", max_pages, page_size)
+
+    def get_withdrawal_history(self, max_pages: int = 20, page_size: int = 200) -> List[Dict]:
+        """Same as get_deposit_history() but for GET /history/withdraw/."""
+        return self._get_history_pages("/history/withdraw/", "withdrawals", max_pages, page_size)
+
+    def _get_history_pages(self, path: str, list_key: str, max_pages: int, page_size: int) -> List[Dict]:
+        headers = self._headers()
+        all_records: List[Dict] = []
+        for page in range(1, max_pages + 1):
+            data = self._http_json(
+                SWYFTX_BASE + f"{path}?limit={page_size}&page={page}&sortby=date",
+                headers=headers,
+            )
+            records = _extract_history_records(data, list_key)
+            if not records:
+                break
+            all_records.extend(records)
+            if len(records) < page_size:
+                break  # Short page — this was the last one
+        return all_records
 
     def get_code_to_id_map(self) -> Dict[str, str]:
         """code -> Swyftx numeric asset ID (inverse of get_asset_map), needed
