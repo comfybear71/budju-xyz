@@ -32,6 +32,7 @@ import {
   fetchTraderState,
   fetchEnrichedPendingOrders,
   fetchLivePosition,
+  fetchPersonalPricedHoldings,
   fetchLiveLeaderboard,
   registerWallet,
   clearCache,
@@ -75,6 +76,10 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [livePosition, setLivePosition] = useState<LivePosition | null>(null);
+  // This wallet's own per-coin holdings (non-admin "Mine" view) — real
+  // coins from THEIR OWN Swyftx key (e.g. FLR, ARB, CC), not a slice of
+  // the pooled master account scaled by a legacy allocation %.
+  const [myHoldings, setMyHoldings] = useState<PortfolioAsset[]>([]);
   // Non-custodial combined total across every connected wallet (replaces
   // the legacy pool total as the default "Pool" view everyone sees).
   const [liveLeaderboard, setLiveLeaderboard] = useState<LiveLeaderboard | null>(null);
@@ -251,6 +256,15 @@ const Trade = () => {
         setLivePosition(await fetchLivePosition(walletAddress));
       } else {
         setLivePosition(null);
+      }
+
+      // This wallet's own real per-coin holdings for the "Mine" Holdings
+      // grid (non-admin only — admin's "Mine" is already the real master
+      // account via `assets` above, nothing extra to fetch).
+      if (isConnected && !isAdmin) {
+        setMyHoldings(await fetchPersonalPricedHoldings(walletAddress));
+      } else {
+        setMyHoldings([]);
       }
 
       // Combined total across every connected wallet (public) — this is now
@@ -929,12 +943,15 @@ const Trade = () => {
               {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && (
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
-                  assets={assets}
+                  assets={
+                    isConnected && holdingsView === "mine" && !isAdmin
+                      ? myHoldings
+                      : assets
+                  }
                   prices={prices}
                   onSelectAsset={handleSelectAsset}
                   selectedAsset={selectedAsset}
                   isAdmin={isAdmin}
-                  userAllocation={userPosition?.allocation || 0}
                   viewMode={isConnected ? holdingsView : "pool"}
                   onToggleView={isConnected ? setHoldingsView : undefined}
                 />

@@ -16,7 +16,6 @@ interface HoldingsListProps {
   onSelectAsset: (code: string) => void;
   selectedAsset: string;
   isAdmin: boolean;
-  userAllocation: number;
   viewMode: "mine" | "pool";
   onToggleView?: (mode: "mine" | "pool") => void;
 }
@@ -314,7 +313,6 @@ const HoldingsList = ({
   onSelectAsset,
   selectedAsset,
   isAdmin,
-  userAllocation,
   viewMode,
 }: HoldingsListProps) => {
   const [sortKey, setSortKey] = useState<SortKey>("value");
@@ -457,18 +455,22 @@ const HoldingsList = ({
   };
 
   const formatUsd = (n: number) => {
-    const display = viewMode === "mine" && !isAdmin ? n * (userAllocation / 100) : n;
-    if (display >= 1000) return `$${display.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-    if (display >= 1) return `$${display.toFixed(2)}`;
-    return `$${display.toFixed(4)}`;
+    if (n >= 1000) return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    if (n >= 1) return `$${n.toFixed(2)}`;
+    return `$${n.toFixed(4)}`;
   };
 
   if (assets.length === 0) {
+    const isMyEmptyView = viewMode === "mine" && !isAdmin;
     return (
       <div className="text-center py-8">
-        <p className="text-sm text-slate-500">No holdings data available</p>
+        <p className="text-sm text-slate-500">
+          {isMyEmptyView ? "No coins in your account yet" : "No holdings data available"}
+        </p>
         <p className="text-xs text-slate-600 mt-1">
-          Check your PIN and try refreshing
+          {isMyEmptyView
+            ? "Connect your Swyftx key above and fund your account to see your coins here"
+            : "Try refreshing"}
         </p>
       </div>
     );
@@ -679,11 +681,7 @@ const HoldingsList = ({
 
                       <div className="flex items-center justify-between mt-1">
                         <span className="text-[11px] text-slate-500 font-mono">
-                          {formatBalance(
-                            viewMode === "mine" && !isAdmin
-                              ? asset.balance * (userAllocation / 100)
-                              : asset.balance,
-                          )}
+                          {formatBalance(asset.balance)}
                         </span>
                         <SpinNumber
                           value={prices[asset.code] || asset.priceUsd}
