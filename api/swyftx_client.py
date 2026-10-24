@@ -112,6 +112,21 @@ def _get_asset_map_cache_collection():
     return _asset_map_cache_collection
 
 
+# Swyftx lists hundreds of assets — a result below this is a transient
+# degraded response (e.g. rate-limited and returning an empty/truncated
+# list with a 200 status), not a real shrinking catalog. Confirmed live on
+# 2026-10-25: right after this caching fix first deployed, a transient
+# empty/degraded /markets/assets/ response got cached as a valid empty
+# map — because an empty LIST still passes get_asset_map()'s isinstance
+# check — and every wallet's crypto showed as $0 for the rest of that
+# cache window (10 minutes), the exact bug this caching was meant to fix,
+# just made stickier by caching the bad result instead of only the good
+# one. This floor is checked BOTH before accepting a cached value (so an
+# already-poisoned cache self-heals on the next call) and before storing a
+# freshly fetched one (so a bad fetch is never cached in the first place).
+MIN_PLAUSIBLE_ASSET_COUNT = 50
+
+
 def get_cached_asset_map(fetch_fn) -> Dict[str, str]:
     """Process-local cache first, then the shared Mongo cache, then
     fetch_fn() (a real /markets/assets/ call) as a last resort — mirrors
@@ -119,20 +134,26 @@ def get_cached_asset_map(fetch_fn) -> Dict[str, str]:
     instance and every wallet, since this data isn't account-specific."""
     now = time.time() * 1000
     cached = _ASSET_MAP_CACHE.get("global")
-    if cached and now < cached[1]:
+    if cached and now < cached[1] and len(cached[0]) >= MIN_PLAUSIBLE_ASSET_COUNT:
         return cached[0]
 
     coll = _get_asset_map_cache_collection()
     if coll is not None:
         try:
             doc = coll.find_one({"_id": "global"})
-            if doc and doc.get("assetMap") and doc.get("expiresAt", 0) > now:
+            if (doc and doc.get("assetMap") and doc.get("expiresAt", 0) > now
+                    and len(doc["assetMap"]) >= MIN_PLAUSIBLE_ASSET_COUNT):
                 _ASSET_MAP_CACHE["global"] = (doc["assetMap"], doc["expiresAt"])
                 return doc["assetMap"]
         except Exception:
             pass  # Mongo unavailable — fall through to a fresh fetch
 
     asset_map = fetch_fn()
+    if len(asset_map) < MIN_PLAUSIBLE_ASSET_COUNT:
+        raise SwyftxAuthError(
+            f"Swyftx asset list fetch returned implausibly few assets ({len(asset_map)}) "
+            "— likely rate-limited or degraded; not caching this result"
+        )
     expiry = now + ASSET_MAP_TTL_MS
     _ASSET_MAP_CACHE["global"] = (asset_map, expiry)
     if coll is not None:

@@ -10,8 +10,12 @@ interface Props {
 }
 
 // Fixed palette (not per-wallet identity — just enough distinct hues to tell
-// slices apart). Cycled if there are ever more wallets than colors.
-const PALETTE = [
+// slices apart). Cycled if there are ever more wallets than colors. Exported
+// so the Home page's "Pool Total" doughnut (PortfolioChart, driven from
+// Trade.tsx) can use the exact same per-wallet colors — they're meant to be
+// the same chart (both show every connected wallet's share of the same
+// combined total), just rendered in two different places.
+export const LEADERBOARD_PALETTE = [
   "#FFD700", // budju-yellow
   "#87CEFA", // budju-blue
   "#FF69B4", // budju-pink
@@ -37,7 +41,7 @@ const LeaderboardDoughnut = ({ entries, combinedValue }: Props) => {
     return {
       labels: filtered.map((e) => e.walletShort),
       values: filtered.map((e) => e.totalValue),
-      colors: filtered.map((_, i) => PALETTE[i % PALETTE.length]),
+      colors: filtered.map((_, i) => LEADERBOARD_PALETTE[i % LEADERBOARD_PALETTE.length]),
     };
   }, [entries]);
 
