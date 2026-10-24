@@ -2212,6 +2212,60 @@ COINGECKO_BASE_URL = (
     "https://pro-api.coingecko.com/api/v3" if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3"
 )
 
+# Last-known-good price cache (process-local + shared Mongo), per coin code.
+# get_prices_for_coins() used to return {} on ANY CoinGecko failure — one
+# flaky free-tier rate limit meant every wallet's crypto priced at $0 for
+# that single request: "100% cash, 0% crypto" for every connected wallet
+# simultaneously on the Leaderboard AND the Pool Total doughnut AND "My
+# Position", self-healing on the next successful request. Confirmed live
+# on 2026-10-25 — the leaderboard flipped between a correct ~$25K combined
+# value and an all-wallets-100%-cash ~$8.7K value from one page load to the
+# next, with no code change in between. A transient price-fetch failure is
+# never truer than reusing the last real price we saw a few minutes ago, so
+# failures now fall back to this cache instead of zeroing every holding.
+_PRICE_CACHE_TTL_S = 120  # how long a price is served without re-fetching
+_price_cache: Dict[str, Tuple[float, float]] = {}  # code -> (price, fetchedAtEpochS)
+coingecko_price_cache_collection = db["coingecko_price_cache"]
+
+
+def _get_cached_prices(codes: List[str]) -> Dict[str, float]:
+    """Best-effort last-known price for each code, however stale — used
+    only as a fallback when a live fetch fails, never as the primary path."""
+    now = time.time()
+    result: Dict[str, float] = {}
+    missing = []
+    for code in codes:
+        cached = _price_cache.get(code)
+        if cached:
+            result[code] = cached[0]
+        else:
+            missing.append(code)
+    if missing:
+        try:
+            for doc in coingecko_price_cache_collection.find({"_id": {"$in": missing}}):
+                price = doc.get("price")
+                if price:
+                    result[doc["_id"]] = float(price)
+                    _price_cache[doc["_id"]] = (float(price), now)
+        except Exception:
+            pass
+    return result
+
+
+def _store_fresh_prices(prices: Dict[str, float]) -> None:
+    now = time.time()
+    for code, price in prices.items():
+        _price_cache[code] = (price, now)
+    try:
+        for code, price in prices.items():
+            coingecko_price_cache_collection.update_one(
+                {"_id": code},
+                {"$set": {"price": price, "updatedAt": datetime.utcnow()}},
+                upsert=True,
+            )
+    except Exception:
+        pass  # Shared cache write failing never blocks the caller
+
 
 def _coingecko_get(path_and_query: str, timeout: int = 15):
     """GET a CoinGecko endpoint, authenticated with the paid Pro API key
@@ -2289,9 +2343,23 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
     one combined CoinGecko price fetch for everything — this is what makes
     "any coin a user holds" both tradeable and correctly valued, instead
     of silently pricing at $0 the moment a wallet holds something outside
-    the original ~30-coin list."""
+    the original ~30-coin list.
+
+    Within _PRICE_CACHE_TTL_S of the last successful fetch, every requested
+    code is served from cache with no CoinGecko call at all. On a live
+    fetch failure (or for any code CoinGecko didn't return this time), falls
+    back to the last known price however stale, rather than returning {}
+    and letting every caller price that coin at $0."""
+    requested = sorted(set(c.upper() for c in codes))
+    if not requested:
+        return {}
+
+    now = time.time()
+    if all(code in _price_cache and now - _price_cache[code][1] < _PRICE_CACHE_TTL_S for code in requested):
+        return {code: _price_cache[code][0] for code in requested}
+
     code_to_cgid: Dict[str, str] = {}
-    for code in set(c.upper() for c in codes):
+    for code in requested:
         cg_id = resolve_coingecko_id(code)
         if cg_id:
             code_to_cgid[code] = cg_id
@@ -2303,13 +2371,19 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
     try:
         data = _coingecko_get(f"/simple/price?ids={ids_param}&vs_currencies=usd")
     except Exception:
-        return {}
+        return _get_cached_prices(list(code_to_cgid.keys()))
 
     prices: Dict[str, float] = {}
     for code, cg_id in code_to_cgid.items():
         entry = data.get(cg_id)
         if entry and entry.get("usd"):
             prices[code] = float(entry["usd"])
+
+    _store_fresh_prices(prices)
+
+    missing = [c for c in code_to_cgid if c not in prices]
+    if missing:
+        prices.update(_get_cached_prices(missing))
     return prices
 
 

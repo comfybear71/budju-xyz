@@ -3,11 +3,8 @@ import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import {
   FaSync,
-  FaArrowUp,
-  FaArrowDown,
 } from "react-icons/fa";
 import { HiOutlineTrophy, HiOutlineHome, HiOutlineDocumentText } from "react-icons/hi2";
-import { HiOutlineWallet } from "react-icons/hi2";
 import { APP_NAME } from "@constants/config";
 import { useWallet } from "@hooks/useWallet";
 import PortfolioChart from "./components/PortfolioChart";
@@ -25,7 +22,6 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
-import PositionHistoryChart from "./components/PositionHistoryChart";
 import CashFlowAdminView from "./components/CashFlowAdminView";
 import {
   fetchPortfolio,
@@ -37,9 +33,6 @@ import {
   fetchEnrichedPendingOrders,
   fetchLivePosition,
   fetchLiveLeaderboard,
-  fetchWalletCashFlows,
-  fetchCommunityCashFlows,
-  buildLiveCashFlowHistory,
   registerWallet,
   clearCache,
   AUD_TO_USD,
@@ -48,8 +41,6 @@ import {
   type TraderState,
   type LivePosition,
   type LiveLeaderboard,
-  type WalletCashFlows,
-  type CommunityCashFlows,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
@@ -87,11 +78,6 @@ const Trade = () => {
   // Non-custodial combined total across every connected wallet (replaces
   // the legacy pool total as the default "Pool" view everyone sees).
   const [liveLeaderboard, setLiveLeaderboard] = useState<LiveLeaderboard | null>(null);
-  // This wallet's own recorded lifetime deposited/withdrawn (admin-entered,
-  // from what the wallet owner reports from their own Swyftx account).
-  const [cashFlows, setCashFlows] = useState<WalletCashFlows | null>(null);
-  // Same, aggregated across every wallet an admin has entered data for.
-  const [communityCashFlows, setCommunityCashFlows] = useState<CommunityCashFlows | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -272,16 +258,6 @@ const Trade = () => {
       // the Leaderboard shows, instead of just the admin's own account.
       setLiveLeaderboard(await fetchLiveLeaderboard());
 
-      // Lifetime deposited/withdrawn an admin has recorded for this wallet
-      // (if any) + the community-wide aggregate, so Net P&L can be shown
-      // and charted against the real live value above.
-      if (isConnected) {
-        setCashFlows(await fetchWalletCashFlows(walletAddress));
-      } else {
-        setCashFlows(null);
-      }
-      setCommunityCashFlows(await fetchCommunityCashFlows());
-
       activityLog.log("Connected — all data loaded", "success");
       setApiStatus("connected");
     } catch (err) {
@@ -399,15 +375,6 @@ const Trade = () => {
     }
     setActiveNav(nav);
   };
-
-  const formatUsd = (n: number) =>
-    n >= 1000
-      ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-      : `$${n.toFixed(2)}`;
-
-  // Whole-dollar USDC formatting — no decimal places, for the live
-  // cash/crypto position card (unlike formatUsd, which keeps cents below $1000).
-  const formatUsdWhole = (n: number) => `$${Math.round(n).toLocaleString()}`;
 
   return (
     <main className="min-h-screen">
@@ -610,6 +577,8 @@ const Trade = () => {
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); } },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
+                        { key: "cashflows", label: "Cash Flows", icon: "\uD83D\uDCB8", active: showCashFlowAdmin, color: "teal",
+                          onClick: () => setShowCashFlowAdmin(true) },
                       ] as const)
                         // BUDJU Gate — only show "My Key" to a wallet holding 10M+ BUDJU
                         .filter((btn) => btn.key !== "mykey" || hasBudjuGateAccess)
@@ -802,7 +771,9 @@ const Trade = () => {
                           <span className="text-[10px] font-bold text-green-400">$</span>
                         </div>
                         <span className="text-[11px] font-semibold text-slate-300">
-                          Cash Balances{!viewingMine && liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
+                          {viewingMine
+                            ? "My Cash Balances"
+                            : `Cash Balances${liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}`}
                         </span>
                       </div>
 
@@ -893,177 +864,6 @@ const Trade = () => {
                   </div>
                 )}
 
-                {/* Community Overview — admin only, hidden when any trade
-                    view is open. Replaces the old pool-stats grid, which
-                    showed a stale legacy "16 users" count that had nothing
-                    to do with the 4 real non-custodial wallets connected
-                    today. Deposited/withdrawn is auto-fetched live from
-                    each wallet's own Swyftx history via its own stored key
-                    (no admin entry needed) — "Manage totals" below is only
-                    for correcting a wallet via a manual override. */}
-                {!((showAutoAdmin || showTriggerView || showTradePanel || showHighRisk) && isAdmin) && isAdmin && liveLeaderboard && (
-                  <>
-                    {(() => {
-                      const communityDeposited = communityCashFlows?.totalDepositedUsd ?? 0;
-                      const communityWithdrawn = communityCashFlows?.totalWithdrawnUsd ?? 0;
-                      const communityPnl = liveLeaderboard.combinedValue + communityWithdrawn - communityDeposited;
-                      const communityPnlPct = communityDeposited > 0 ? (communityPnl / communityDeposited) * 100 : 0;
-                      const communityHistory =
-                        communityCashFlows && communityCashFlows.timeline.length > 0
-                          ? buildLiveCashFlowHistory(
-                              communityCashFlows.timeline.map((t, i) => ({
-                                id: String(i), type: t.type, amountUsd: t.amountUsd, timestamp: t.timestamp,
-                              })),
-                              liveLeaderboard.combinedValue,
-                            )
-                          : [];
-                      return (
-                        <>
-                          <div className="grid grid-cols-3 gap-2 mb-2">
-                            {([
-                              { label: "WALLETS", value: liveLeaderboard.walletCount, color: "text-blue-400" },
-                              { label: "DEPOSITED", value: formatUsd(communityDeposited), color: "text-green-400" },
-                              { label: "COMBINED VALUE", value: formatUsd(liveLeaderboard.combinedValue), color: "text-cyan-400" },
-                              { label: "WITHDRAWN", value: formatUsd(communityWithdrawn), color: "text-amber-400" },
-                              { label: "COMMUNITY P&L", value: `${communityPnlPct >= 0 ? "+" : ""}${communityPnlPct.toFixed(1)}%`, color: communityPnlPct >= 0 ? "text-green-400" : "text-red-400" },
-                            ] as { label: string; value: string | number; color: string }[]).map((stat) => (
-                              <div
-                                key={stat.label}
-                                className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-2.5 text-center"
-                              >
-                                <div className="text-[10px] text-slate-500 font-semibold tracking-wider mb-1">{stat.label}</div>
-                                <div className={`text-sm font-bold font-mono ${stat.color}`}>{stat.value}</div>
-                              </div>
-                            ))}
-                          </div>
-
-                          {communityDeposited === 0 && communityWithdrawn === 0 ? (
-                            <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500 mb-2">
-                              No deposit/withdrawal history available yet for any wallet — this fetches live from each
-                              wallet's own Swyftx account via its stored key, so check a key is linked and valid, or{" "}
-                              <button onClick={() => setShowCashFlowAdmin(true)} className="text-blue-400 hover:text-blue-300 font-semibold">
-                                add a manual override
-                              </button>.
-                            </div>
-                          ) : (
-                            <div className="rounded-lg bg-slate-800/40 p-2.5 mb-2">
-                              <PositionHistoryChart points={communityHistory} label="Community Deposits vs Value" />
-                            </div>
-                          )}
-
-                          <div className="flex justify-between items-center px-1 pt-1 border-t border-slate-700/20">
-                            <span className="text-[10px] text-slate-600 font-mono">
-                              {liveLeaderboard.walletCount} connected · {liveLeaderboard.erroredWallets} unreachable
-                            </span>
-                            <button
-                              onClick={() => setShowCashFlowAdmin(true)}
-                              className="text-[10px] text-blue-400/80 hover:text-blue-300 font-mono"
-                            >
-                              Manage overrides
-                            </button>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </>
-                )}
-
-                {/* Your Position — visible for ANY connected wallet. Shows
-                    the REAL cumulative cash + crypto balance read live from
-                    this wallet's own linked Swyftx key (non-custodial model)
-                    — not a pooled-shares allocation, no NAV, no deposited%. */}
-                {!((showAutoAdmin || showTriggerView || showTradePanel || showHighRisk) && isAdmin) && isConnected && (
-                  <>
-                    <div className="flex items-center gap-2 mt-3 mb-2 pt-2 border-t border-slate-700/20">
-                      <HiOutlineWallet className="w-3 h-3 text-blue-400" />
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">
-                        {isAdmin ? "Your Personal Position" : "Your Position"}
-                      </span>
-                    </div>
-
-                    {livePosition ? (
-                      <>
-                        <div className="grid grid-cols-3 gap-3 mb-2">
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Total</div>
-                            <div className="text-base font-bold text-white font-mono">{formatUsdWhole(livePosition.totalValue)}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Cash (USDC)</div>
-                            <div className="text-sm font-bold text-cyan-300 font-mono">{formatUsdWhole(livePosition.cashValue)}</div>
-                          </div>
-                          <div>
-                            <div className="text-[10px] text-slate-500 uppercase tracking-wider">Crypto</div>
-                            <div className="text-sm font-bold text-purple-300 font-mono">{formatUsdWhole(livePosition.cryptoValue)}</div>
-                          </div>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-slate-700/40 overflow-hidden flex mb-1">
-                          <div className="h-full bg-cyan-400" style={{ width: `${livePosition.pctCash}%` }} />
-                          <div className="h-full bg-purple-400" style={{ width: `${livePosition.pctCrypto}%` }} />
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 mb-2">
-                          <span>{livePosition.pctCash}% cash</span>
-                          <span>{livePosition.pctCrypto}% crypto</span>
-                        </div>
-
-                        {/* Net P&L + deposit/withdrawal chart — reconstructed
-                            from whatever lifetime totals an admin recorded
-                            for this wallet (see CashFlowAdminView), against
-                            this wallet's live Swyftx value above. */}
-                        {cashFlows && (cashFlows.totalDepositedUsd > 0 || cashFlows.totalWithdrawnUsd > 0) ? (
-                          (() => {
-                            const netPnl = livePosition.totalValue + cashFlows.totalWithdrawnUsd - cashFlows.totalDepositedUsd;
-                            const netPnlPct = cashFlows.totalDepositedUsd > 0 ? (netPnl / cashFlows.totalDepositedUsd) * 100 : 0;
-                            const history = buildLiveCashFlowHistory(cashFlows.flows, livePosition.totalValue);
-                            return (
-                              <>
-                                <div className="grid grid-cols-3 gap-3 mb-2 pt-2 border-t border-slate-700/20">
-                                  <div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">Deposited</div>
-                                    <div className="text-sm font-bold text-slate-300 font-mono">{formatUsdWhole(cashFlows.totalDepositedUsd)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">Withdrawn</div>
-                                    <div className="text-sm font-bold text-amber-400/80 font-mono">{formatUsdWhole(cashFlows.totalWithdrawnUsd)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">Net P&L</div>
-                                    <div className={`text-sm font-bold font-mono flex items-center gap-1 ${netPnl >= 0 ? "text-green-400" : "text-red-400"}`}>
-                                      {netPnl >= 0 ? <FaArrowUp size={9} /> : <FaArrowDown size={9} />}
-                                      {formatUsdWhole(Math.abs(netPnl))}
-                                      <span className="text-slate-500 font-normal">({netPnlPct >= 0 ? "+" : ""}{netPnlPct.toFixed(1)}%)</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="rounded-lg bg-slate-800/40 p-2.5">
-                                  <PositionHistoryChart points={history} />
-                                </div>
-                              </>
-                            );
-                          })()
-                        ) : (
-                          <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500 flex items-center justify-between gap-2">
-                            <span>
-                              {cashFlows?.error
-                                ? "No deposit/withdrawal history available for this wallet."
-                                : "No deposit/withdrawal history found on Swyftx for this wallet yet."}
-                            </span>
-                            {isAdmin && (
-                              <button onClick={() => setShowCashFlowAdmin(true)} className="text-blue-400 hover:text-blue-300 font-semibold flex-shrink-0">
-                                Add override
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500">
-                        Connect your own Swyftx key above ("My {isAdmin ? "Key" : "Exchange Key"}") to see your
-                        live cash + crypto balance here.
-                      </div>
-                    )}
-                  </>
-                )}
               </div>
               )}
 

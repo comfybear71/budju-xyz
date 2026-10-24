@@ -341,7 +341,7 @@ class SwyftxClient:
                 holdings[code] = holdings.get(code, 0.0) + balance
         return holdings
 
-    def get_deposit_history(self, max_pages: int = 20, page_size: int = 200) -> List[Dict]:
+    def get_deposit_history(self, max_pages: int = 20, page_size: int = 100) -> List[Dict]:
         """Every deposit this wallet's own Swyftx account has ever recorded
         (fiat + crypto), paginated. Confirmed real endpoint — Swyftx's own
         API docs (https://docs.swyftx.com.au, "History > All Deposit
@@ -352,7 +352,7 @@ class SwyftxClient:
         defensively rather than assume specific field names."""
         return self._get_history_pages("/history/deposit/", "deposits", max_pages, page_size)
 
-    def get_withdrawal_history(self, max_pages: int = 20, page_size: int = 200) -> List[Dict]:
+    def get_withdrawal_history(self, max_pages: int = 20, page_size: int = 100) -> List[Dict]:
         """Same as get_deposit_history() but for GET /history/withdraw/."""
         return self._get_history_pages("/history/withdraw/", "withdrawals", max_pages, page_size)
 
@@ -360,10 +360,23 @@ class SwyftxClient:
         headers = self._headers()
         all_records: List[Dict] = []
         for page in range(1, max_pages + 1):
-            data = self._http_json(
-                SWYFTX_BASE + f"{path}?limit={page_size}&page={page}&sortby=date",
-                headers=headers,
-            )
+            url = SWYFTX_BASE + f"{path}?limit={page_size}&page={page}&sortby=date"
+            try:
+                data = self._http_json(url, headers=headers)
+            except HTTPError as e:
+                # Confirmed live on 2026-10-25: this endpoint consistently
+                # returns 400 for every connected wallet, every call — but
+                # the bare "HTTP Error 400: Bad Request" from str(e) never
+                # includes Swyftx's own error body, which is the only way
+                # to actually diagnose a 400 (vs. guessing at the request
+                # shape). Read and surface it so the real reason shows up
+                # in CashFlowAdminView's debug viewer / Activity's error
+                # message instead of this generic text.
+                try:
+                    body = e.read().decode()[:300] if e.fp else ""
+                except Exception:
+                    body = ""
+                raise SwyftxAuthError(f"Swyftx history fetch failed: HTTP {e.code} {body}")
             records = _extract_history_records(data, list_key)
             if not records:
                 break
