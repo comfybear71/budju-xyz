@@ -1,18 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
-import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync, FaRobot, FaPowerOff, FaKey, FaFlask } from "react-icons/fa";
+import { FaLock, FaCheckCircle, FaExclamationTriangle, FaTrash, FaSync, FaRobot, FaPowerOff, FaKey } from "react-icons/fa";
 import {
   fetchBudjuGateStatus,
   fetchSwyftxKeyStatus,
   saveSwyftxKey,
   removeSwyftxKey,
-  fetchPersonalHoldings,
   fetchAutoTradeStatus,
   setAutoTradeEnabled,
   linkAdminMasterKey,
-  placeTestBuy,
   type BudjuGateStatus,
   type SwyftxKeyStatus,
-  type PersonalHoldings,
   type AutoTradeStatus,
 } from "../services/tradeApi";
 
@@ -49,7 +46,6 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
   const [loading, setLoading] = useState(true);
   const [gate, setGate] = useState<BudjuGateStatus | null>(null);
   const [keyStatus, setKeyStatus] = useState<SwyftxKeyStatus>({ configured: false });
-  const [holdings, setHoldings] = useState<PersonalHoldings | null>(null);
   const [autoTrade, setAutoTrade] = useState<AutoTradeStatus | null>(null);
 
   const [apiKeyInput, setApiKeyInput] = useState("");
@@ -62,9 +58,6 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
   const [ackTrading, setAckTrading] = useState(false);
   const [togglingAutoTrade, setTogglingAutoTrade] = useState(false);
   const [linkingMasterKey, setLinkingMasterKey] = useState(false);
-  const [showTestBuyConfirm, setShowTestBuyConfirm] = useState(false);
-  const [ackTestBuy, setAckTestBuy] = useState(false);
-  const [testBuying, setTestBuying] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!wallet) return;
@@ -74,10 +67,8 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
     setKeyStatus(k);
     setLoading(false);
     if (k.configured && k.status === "active") {
-      fetchPersonalHoldings(wallet).then(setHoldings);
       fetchAutoTradeStatus(wallet).then(setAutoTrade);
     } else {
-      setHoldings(null);
       setAutoTrade(null);
     }
   }, [wallet]);
@@ -97,7 +88,7 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
       return;
     }
     setMessage({
-      text: "Swyftx key connected — you can now see your live holdings below. Auto-trading stays off until you turn it on.",
+      text: "Swyftx key connected — see your live holdings on the Trade page. Auto-trading stays off until you turn it on.",
       tone: "success",
     });
     setApiKeyInput("");
@@ -167,29 +158,6 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
     refresh();
   };
 
-  /** One-off real-money BTC buy (max $10 or 4% of live balance, refuses
-   *  below the $30 reserve floor) through the exact same place-order ->
-   *  record-ledger pipeline the auto-trader cron uses — proves that path
-   *  works on this specific account without waiting for a real dip. */
-  const handleTestBuy = async () => {
-    if (!ackTestBuy) return;
-    setTestBuying(true);
-    setMessage(null);
-    const result = await placeTestBuy(wallet, wallet, "BTC");
-    setTestBuying(false);
-    if (!result.success) {
-      setMessage({ text: result.error || "Test buy failed", tone: "error" });
-      return;
-    }
-    setMessage({
-      text: `Test buy placed: bought ${result.quantity} BTC for $${result.usdcSpent?.toFixed(2)} @ $${result.price?.toLocaleString()}. Check Activity.`,
-      tone: "success",
-    });
-    setShowTestBuyConfirm(false);
-    setAckTestBuy(false);
-    refresh();
-  };
-
   if (loading) {
     return <div className="py-6 text-center text-xs text-slate-500">Checking BUDJU holdings...</div>;
   }
@@ -213,9 +181,9 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
   return (
     <div className="space-y-3">
       <div className="text-[11px] text-slate-500 leading-relaxed">
-        BUDJU never holds your money. Connect your own Swyftx API key to see your live holdings here — your funds
-        never touch BUDJU's wallet or a shared pool. Auto-trading is a separate, explicit opt-in below — connecting
-        a key alone never places a trade in{" "}
+        BUDJU never holds your money. Connect your own Swyftx API key to see your live holdings on the Trade page —
+        your funds never touch BUDJU's wallet or a shared pool. Auto-trading is a separate, explicit opt-in below —
+        connecting a key alone never places a trade in{" "}
         <span className="text-slate-300 font-medium">your own account</span>.
       </div>
 
@@ -241,24 +209,6 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
             <div>Key: {keyStatus.maskedApiKey}</div>
             {keyStatus.lastValidatedAt && <div>Last validated: {formatDate(keyStatus.lastValidatedAt)}</div>}
           </div>
-
-          {holdings && (
-            <div className="mt-3 pt-3 border-t border-emerald-500/10">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Your holdings</div>
-              {Object.keys(holdings.holdings).length === 0 ? (
-                <div className="text-[11px] text-slate-600">No balances yet</div>
-              ) : (
-                <div className="grid grid-cols-2 gap-1">
-                  {Object.entries(holdings.holdings).map(([coin, amount]) => (
-                    <div key={coin} className="flex justify-between text-[11px] font-mono">
-                      <span className="text-slate-400">{coin}</span>
-                      <span className="text-slate-300">{amount.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
 
           <div className="flex gap-2 mt-3">
             <button
@@ -351,62 +301,6 @@ const PersonalExchangeKeyPanel = ({ wallet, isAdmin = false }: Props) => {
             )}
           </div>
 
-          <div className="mt-3 pt-3 border-t border-emerald-500/10">
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5">Test buy</div>
-
-            {!showTestBuyConfirm ? (
-              <div className="rounded-lg bg-slate-900/40 border border-slate-700/40 p-3">
-                <div className="text-[11px] text-slate-500 mb-2">
-                  Fire one real BTC buy right now (max $10, or 4% of your live balance — whichever's bigger) to
-                  confirm it shows up correctly in Activity. Works independently of auto-trading above.
-                </div>
-                <button
-                  onClick={() => setShowTestBuyConfirm(true)}
-                  className="w-full text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-blue-500/80 text-white hover:bg-blue-500 transition-colors flex items-center justify-center gap-1.5"
-                >
-                  <FaFlask size={10} /> Run test buy
-                </button>
-              </div>
-            ) : (
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-3 space-y-2.5">
-                <div className="text-[11px] text-amber-200 leading-relaxed">
-                  <div className="font-bold mb-1 flex items-center gap-1.5">
-                    <FaExclamationTriangle size={11} /> This places one real BTC order right now
-                  </div>
-                  Buys whichever is bigger — $10, or 4% of your balance — of BTC in your own account, same as a
-                  real auto-trade buy. Refuses outright if your balance isn't above $30, or if this buy would
-                  drop it below $30.
-                </div>
-                <label className="flex items-start gap-2 text-[11px] text-slate-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={ackTestBuy}
-                    onChange={(e) => setAckTestBuy(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span>I understand this will buy real BTC in my own Swyftx account right now.</span>
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleTestBuy}
-                    disabled={testBuying || !ackTestBuy}
-                    className="flex-1 text-[11px] font-semibold px-3 py-1.5 rounded-lg bg-blue-500/90 text-white hover:bg-blue-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {testBuying ? "Buying..." : "Confirm & buy BTC"}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowTestBuyConfirm(false);
-                      setAckTestBuy(false);
-                    }}
-                    className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 

@@ -22,7 +22,6 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
-import CashFlowAdminView from "./components/CashFlowAdminView";
 import {
   fetchPortfolio,
   fetchPrices,
@@ -107,7 +106,6 @@ const Trade = () => {
   const [showHighRisk, setShowHighRisk] = useState(false);
   const [showStats, setShowStats] = useState(false);
   const [showPerformance, setShowPerformance] = useState(false);
-  const [showCashFlowAdmin, setShowCashFlowAdmin] = useState(false);
   const [activeNav, setActiveNav] = useState<"leaders" | "home" | "activity">(
     "home",
   );
@@ -636,8 +634,6 @@ const Trade = () => {
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); } },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
-                        { key: "cashflows", label: "Cash Flows", icon: "\uD83D\uDCB8", active: showCashFlowAdmin, color: "teal",
-                          onClick: () => setShowCashFlowAdmin(true) },
                       ] as const)
                         // BUDJU Gate — only show "My Key" to a wallet holding 10M+ BUDJU
                         .filter((btn) => btn.key !== "mykey" || hasBudjuGateAccess)
@@ -1118,18 +1114,6 @@ const Trade = () => {
         onClose={() => setShowPerformance(false)}
         adminWallet={walletAddress}
         totalPoolValue={totalPoolValue}
-        onChanged={() => { clearCache(); loadData(); }}
-      />
-      <CashFlowAdminView
-        isOpen={showCashFlowAdmin}
-        onClose={() => setShowCashFlowAdmin(false)}
-        adminWallet={walletAddress}
-        wallets={
-          liveLeaderboard?.entries.map((e) => ({
-            walletAddress: e.walletAddress,
-            walletShort: e.walletShort,
-          })) ?? (walletAddress ? [{ walletAddress, walletShort: walletAddress }] : [])
-        }
         onChanged={() => { clearCache(); loadData(); }}
       />
     </main>

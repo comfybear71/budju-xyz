@@ -1,7 +1,6 @@
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaUserShield } from "react-icons/fa";
 import PersonalExchangeKeyPanel from "./PersonalExchangeKeyPanel";
-import CommunityHoldingsSummary from "./CommunityHoldingsSummary";
 import PersonalActivityView from "./PersonalActivityView";
 
 interface Props {
@@ -56,12 +55,6 @@ const PersonalTradingView = ({ isOpen, onClose, wallet, isAdmin = false }: Props
               {wallet && (
                 <div className="mt-6 pt-5 border-t border-white/[0.06]">
                   <PersonalActivityView wallet={wallet} isAdmin={isAdmin} />
-                </div>
-              )}
-
-              {isAdmin && (
-                <div className="mt-6 pt-5 border-t border-white/[0.06]">
-                  <CommunityHoldingsSummary adminWallet={wallet} />
                 </div>
               )}
             </div>

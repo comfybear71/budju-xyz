@@ -2712,64 +2712,12 @@ def get_live_leaderboard() -> Dict:
 # of several plausible field-name variants (matching the camelCase already
 # observed elsewhere in Swyftx's API: audValue, availableBalance, assetId)
 # and SKIPS (never guesses) any record it can't confidently price. Use
-# get_wallet_cash_flow_debug() to see a wallet's raw, unparsed records and
-# confirm/correct the field names against a real account.
-#
-# The manually-entered ledger (record_wallet_cash_flow / this collection)
-# is kept as an admin override: if a wallet has ANY manual entries, those
-# are used instead of the live fetch (e.g. to correct a bad parse, or to
-# add pre-Swyftx-history deposits) — see get_wallet_cash_flows() below.
-
-def record_wallet_cash_flow(admin_wallet: str, wallet_address: str, flow_type: str,
-                             amount_usd: float, timestamp: Optional[str] = None,
-                             note: Optional[str] = None) -> Dict:
-    if not is_admin(admin_wallet):
-        return {"success": False, "error": "Admin access required"}
-    if not wallet_address:
-        return {"success": False, "error": "walletAddress required"}
-    if flow_type not in ("deposit", "withdrawal"):
-        return {"success": False, "error": "type must be 'deposit' or 'withdrawal'"}
-    try:
-        amount_usd = float(amount_usd)
-    except (TypeError, ValueError):
-        return {"success": False, "error": "amountUsd must be a number"}
-    if amount_usd <= 0:
-        return {"success": False, "error": "amountUsd must be positive"}
-
-    ts = datetime.utcnow()
-    if timestamp:
-        try:
-            ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
-            return {"success": False, "error": f"Invalid timestamp: {timestamp}"}
-
-    doc = {
-        "walletAddress": wallet_address,
-        "type": flow_type,
-        "amountUsd": round(amount_usd, 2),
-        "timestamp": ts,
-        "note": note or None,
-        "recordedBy": admin_wallet,
-        "createdAt": datetime.utcnow(),
-    }
-    result = wallet_cash_flows_collection.insert_one(doc)
-    return {"success": True, "id": str(result.inserted_id), "amountUsd": doc["amountUsd"]}
-
-
-def delete_wallet_cash_flow(admin_wallet: str, flow_id: str) -> Dict:
-    if not is_admin(admin_wallet):
-        return {"success": False, "error": "Admin access required"}
-    from bson import ObjectId
-    from bson.errors import InvalidId
-    try:
-        oid = ObjectId(flow_id)
-    except (InvalidId, TypeError):
-        return {"success": False, "error": "Invalid flow id"}
-    result = wallet_cash_flows_collection.delete_one({"_id": oid})
-    if result.deleted_count == 0:
-        return {"success": False, "error": "Not found"}
-    return {"success": True}
-
+# The admin UI for manually entering/deleting wallet_cash_flows_collection
+# entries was removed (Oct 2026) — live Swyftx history is accurate enough
+# day-to-day that the override was never needed. get_wallet_cash_flows()
+# below still checks this collection first and prefers any entry already
+# in it, purely so a pre-existing manual override (if one was ever made)
+# keeps working — nothing can write a new one anymore.
 
 def _get_manual_wallet_cash_flows(wallet_address: str) -> Dict:
     """One wallet's admin-entered lifetime deposits/withdrawals (oldest
@@ -3034,28 +2982,6 @@ def get_user_live_cash_flows(wallet_address: str) -> Dict:
     }
     _live_cash_flow_cache[wallet_address] = (result, now + _LIVE_CASH_FLOW_TTL)
     return result
-
-
-def get_wallet_cash_flow_debug(admin_wallet: str, wallet_address: str) -> Dict:
-    """Admin-only: a few RAW, unparsed deposit/withdrawal records straight
-    from Swyftx for one wallet. Swyftx's own API docs don't publish the
-    field-level schema for these endpoints, so this is the ground truth to
-    check the parsing in get_user_live_cash_flows() against a real
-    account — if it ever looks wrong, this is where to look first."""
-    if not is_admin(admin_wallet):
-        return {"success": False, "error": "Admin access required"}
-    try:
-        client = _get_user_swyftx_client(wallet_address)
-        sample_deposits = client.get_deposit_history(max_pages=1, page_size=5)
-        sample_withdrawals = client.get_withdrawal_history(max_pages=1, page_size=5)
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-    return {
-        "success": True,
-        "walletAddress": wallet_address,
-        "sampleDeposits": sample_deposits,
-        "sampleWithdrawals": sample_withdrawals,
-    }
 
 
 def get_wallet_cash_flows(wallet_address: str) -> Dict:
