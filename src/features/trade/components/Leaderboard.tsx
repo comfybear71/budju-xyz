@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTrophy, FaTimes, FaCrown } from "react-icons/fa";
 import { fetchLiveLeaderboard, type LiveLeaderboardEntry } from "../services/tradeApi";
+import LeaderboardDoughnut from "./LeaderboardDoughnut";
 
 interface Props {
   isOpen: boolean;
@@ -93,6 +94,11 @@ const Leaderboard = ({ isOpen, onClose }: Props) => {
               </div>
             ) : (
               <>
+                {/* Cumulative total across every connected wallet */}
+                <div className="mb-6">
+                  <LeaderboardDoughnut entries={entries} combinedValue={combinedValue} />
+                </div>
+
                 {/* Podium */}
                 <div className="flex items-end justify-center gap-3 mb-6 pt-4">
                   {podiumOrder.map((entry, i) => {
