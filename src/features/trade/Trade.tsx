@@ -11,6 +11,7 @@ import { HiOutlineWallet } from "react-icons/hi2";
 import { APP_NAME } from "@constants/config";
 import { useWallet } from "@hooks/useWallet";
 import PortfolioChart from "./components/PortfolioChart";
+import { LEADERBOARD_PALETTE } from "./components/LeaderboardDoughnut";
 import HoldingsList from "./components/HoldingsList";
 import TradePanel from "./components/TradePanel";
 import TriggerTradeView from "./components/TriggerTradeView";
@@ -500,25 +501,32 @@ const Trade = () => {
                 // Per-coin tap-to-trade wedges only make sense for the
                 // admin's OWN real tradeable account — the combined pool
                 // total is many independent people's money, nothing to tap.
+                // "Pool" is one slice per connected wallet — the exact same
+                // breakdown and color palette as the Leaderboard's "Combined
+                // Total" doughnut, since they show the same total figure and
+                // are meant to be the same chart, just in two places. Falls
+                // back to a cash/crypto split only on the rare render before
+                // the leaderboard has loaded at all.
+                const synth = (code: string, name: string, usdValue: number, color: string): PortfolioAsset => ({
+                  code, name, balance: usdValue, audValue: usdValue / AUD_TO_USD, usdValue,
+                  change24h: 0, priceUsd: 1, color, icon: "",
+                });
                 const chartAssets: PortfolioAsset[] =
                   viewingMine && isAdmin
                     ? assets
-                    : (() => {
-                        const cash = viewingMine
-                          ? livePosition?.cashValue ?? 0
-                          : (liveLeaderboard?.entries.reduce((s, e) => s + e.cashValue, 0) ?? usdcBalance);
-                        const crypto = viewingMine
-                          ? livePosition?.cryptoValue ?? 0
-                          : (liveLeaderboard?.entries.reduce((s, e) => s + e.cryptoValue, 0) ?? totalPoolValue - usdcBalance);
-                        const synth = (code: string, name: string, usdValue: number, color: string): PortfolioAsset => ({
-                          code, name, balance: usdValue, audValue: usdValue / AUD_TO_USD, usdValue,
-                          change24h: 0, priceUsd: 1, color, icon: "",
-                        });
-                        return [
-                          synth("USDC", "Cash", cash, "#22c55e"),
-                          synth("CRYPTO", "Crypto", crypto, "#8b5cf6"),
-                        ].filter((a) => a.usdValue > 0);
-                      })();
+                    : viewingMine
+                      ? [
+                          synth("USDC", "Cash", livePosition?.cashValue ?? 0, "#22c55e"),
+                          synth("CRYPTO", "Crypto", livePosition?.cryptoValue ?? 0, "#8b5cf6"),
+                        ].filter((a) => a.usdValue > 0)
+                      : liveLeaderboard
+                        ? liveLeaderboard.entries
+                            .filter((e) => e.totalValue > 0)
+                            .map((e, i) => synth(e.walletShort, e.walletShort, e.totalValue, LEADERBOARD_PALETTE[i % LEADERBOARD_PALETTE.length]))
+                        : [
+                            synth("USDC", "Cash", usdcBalance, "#22c55e"),
+                            synth("CRYPTO", "Crypto", totalPoolValue - usdcBalance, "#8b5cf6"),
+                          ].filter((a) => a.usdValue > 0);
 
                 return (
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
@@ -777,17 +785,12 @@ const Trade = () => {
                   const fmt2 = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
                   return (
                     <div className="mb-3 rounded-xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm px-4 py-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
-                            <span className="text-[10px] font-bold text-green-400">$</span>
-                          </div>
-                          <span className="text-[11px] font-semibold text-slate-300">
-                            Cash Balances{liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
-                          </span>
+                      <div className="flex items-center gap-2 mb-2.5">
+                        <div className="w-6 h-6 rounded-full bg-green-500/15 flex items-center justify-center">
+                          <span className="text-[10px] font-bold text-green-400">$</span>
                         </div>
-                        <span className="text-[11px] font-bold text-slate-400 font-mono">
-                          ${fmt2(combinedCash)} total
+                        <span className="text-[11px] font-semibold text-slate-300">
+                          Cash Balances{liveLeaderboard ? ` (${liveLeaderboard.walletCount} wallets)` : ""}
                         </span>
                       </div>
 
