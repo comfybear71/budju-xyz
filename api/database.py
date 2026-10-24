@@ -9,6 +9,7 @@
 
 import os
 import json
+import time
 import urllib.request
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
@@ -2378,12 +2379,30 @@ def get_live_leaderboard() -> Dict:
 
 
 # ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ───
-# BUDJU never custodies a connected wallet's money, so it never sees that
-# wallet's real Swyftx deposit/withdrawal history automatically. An admin
-# records it in USD (from what the wallet owner reports from their own
-# Swyftx account), so the app can show real Net P&L = live value + withdrawn
-# - deposited, and chart it the same way the old share-based "Your Position"
-# chart worked — just against a live Swyftx balance instead of shares×NAV.
+# First cut of this (Oct 2026) assumed BUDJU had no way to see a connected
+# wallet's real Swyftx deposit/withdrawal history and required an admin to
+# type lifetime totals in by hand. That assumption was wrong: Swyftx's own
+# API (https://docs.swyftx.com.au) publishes GET /history/deposit/ and
+# GET /history/withdraw/ — confirmed against Swyftx's live Apiary docs and
+# the open-source pyswyft client, which both document these exact paths —
+# and the non-custodial model already stores every connected wallet's OWN
+# encrypted Swyftx key (user_exchange_keys_collection), so BUDJU can call
+# these endpoints with THAT wallet's own credentials, for every wallet, not
+# just the admin's. get_user_live_cash_flows() below does that live fetch.
+#
+# What Swyftx does NOT publish is the exact JSON record schema for these
+# two endpoints (their docs show only a wrapper key, e.g. {"deposits": []},
+# no field-level example) — so the parser below is intentionally tolerant
+# of several plausible field-name variants (matching the camelCase already
+# observed elsewhere in Swyftx's API: audValue, availableBalance, assetId)
+# and SKIPS (never guesses) any record it can't confidently price. Use
+# get_wallet_cash_flow_debug() to see a wallet's raw, unparsed records and
+# confirm/correct the field names against a real account.
+#
+# The manually-entered ledger (record_wallet_cash_flow / this collection)
+# is kept as an admin override: if a wallet has ANY manual entries, those
+# are used instead of the live fetch (e.g. to correct a bad parse, or to
+# add pre-Swyftx-history deposits) — see get_wallet_cash_flows() below.
 
 def record_wallet_cash_flow(admin_wallet: str, wallet_address: str, flow_type: str,
                              amount_usd: float, timestamp: Optional[str] = None,
@@ -2436,9 +2455,10 @@ def delete_wallet_cash_flow(admin_wallet: str, flow_id: str) -> Dict:
     return {"success": True}
 
 
-def get_wallet_cash_flows(wallet_address: str) -> Dict:
-    """One wallet's recorded lifetime deposits/withdrawals (oldest first),
-    plus the running totals a Net P&L figure needs."""
+def _get_manual_wallet_cash_flows(wallet_address: str) -> Dict:
+    """One wallet's admin-entered lifetime deposits/withdrawals (oldest
+    first), plus running totals. This is the override ledger — empty for
+    any wallet nobody has manually corrected/supplemented."""
     docs = list(
         wallet_cash_flows_collection.find({"walletAddress": wallet_address}).sort("timestamp", 1)
     )
@@ -2466,43 +2486,271 @@ def get_wallet_cash_flows(wallet_address: str) -> Dict:
     }
 
 
+# Live AUD→USD rate, derived from CoinGecko the same way the frontend does
+# (BTC/ETH USD vs AUD cross-rate) — cached briefly since it barely moves
+# minute to minute and every cash-flow fetch needs it.
+_aud_to_usd_cache = {"rate": 0.65, "expiry": 0.0}
+
+
+def get_aud_to_usd_rate() -> float:
+    now = time.time()
+    if now < _aud_to_usd_cache["expiry"]:
+        return _aud_to_usd_cache["rate"]
+    try:
+        data = _coingecko_get("/simple/price?ids=bitcoin,ethereum&vs_currencies=usd,aud")
+        ref = (data.get("bitcoin") or {}) if isinstance(data, dict) else {}
+        if not ref.get("usd") or not ref.get("aud"):
+            ref = (data.get("ethereum") or {}) if isinstance(data, dict) else {}
+        if ref.get("usd") and ref.get("aud"):
+            rate = float(ref["usd"]) / float(ref["aud"])
+            _aud_to_usd_cache["rate"] = rate
+            _aud_to_usd_cache["expiry"] = now + 300
+    except Exception:
+        pass  # Keep the last known (or default) rate — never block a cash-flow fetch on this
+    return _aud_to_usd_cache["rate"]
+
+
+_CASH_FLOW_FAILED_STATUS_STRINGS = {"failed", "cancelled", "canceled", "rejected", "expired", "declined"}
+
+
+def _history_record_is_settled(rec: Dict) -> bool:
+    """Swyftx's /history/deposit/ and /history/withdraw/ docs don't publish
+    a status enum for these endpoints (orders use numeric codes like
+    4=filled, but that's a different endpoint and may not apply here). Only
+    an explicit, recognisable string status is used to exclude a record —
+    everything else is counted, since "history" endpoints typically only
+    list transfers that already settled in the first place."""
+    status = rec.get("status")
+    if isinstance(status, str):
+        return status.strip().lower() not in _CASH_FLOW_FAILED_STATUS_STRINGS
+    return True
+
+
+def _history_record_currency(rec: Dict, asset_map: Dict[str, str]) -> str:
+    for key in ("currency", "assetCode", "code"):
+        v = rec.get(key)
+        if isinstance(v, str) and v:
+            return v.upper()
+    asset = rec.get("asset")
+    if isinstance(asset, dict) and asset.get("code"):
+        return str(asset["code"]).upper()
+    asset_id = rec.get("assetId") if rec.get("assetId") is not None else rec.get("asset_id")
+    if asset_id is not None:
+        return asset_map.get(str(asset_id), "")
+    return ""
+
+
+def _history_record_amount_usd(rec: Dict, currency: str, aud_to_usd: float) -> Optional[float]:
+    """Best-effort USD value of one deposit/withdrawal record. Tries, in
+    order: (1) a direct amount for USD-pegged stablecoins (no FX needed),
+    (2) an explicit AUD-value field (seen elsewhere in Swyftx's API as
+    audValue) converted at the live rate, (3) a raw AUD amount when the
+    record's own currency is AUD. Returns None — never a guessed number —
+    if none of those are present, e.g. a direct crypto-to-crypto deposit
+    with no AUD reference value."""
+    raw_amount = None
+    for key in ("amount", "quantity"):
+        if key in rec:
+            try:
+                raw_amount = abs(float(rec[key]))
+                break
+            except (TypeError, ValueError):
+                continue
+
+    if currency in ("USDC", "USD", "USDT") and raw_amount is not None:
+        return round(raw_amount, 2)
+
+    for key in ("audValue", "aud_value", "amountAud", "value"):
+        if key in rec:
+            try:
+                aud = abs(float(rec[key]))
+                if aud > 0:
+                    return round(aud * aud_to_usd, 2)
+            except (TypeError, ValueError):
+                continue
+
+    if currency == "AUD" and raw_amount is not None:
+        return round(raw_amount * aud_to_usd, 2)
+
+    return None
+
+
+def _history_record_timestamp(rec: Dict) -> Optional[str]:
+    for key in ("createdAt", "created_at", "timestamp", "date", "created"):
+        v = rec.get(key)
+        if v:
+            return str(v)
+    date_part = rec.get("Date")
+    time_part = rec.get("Time")
+    if date_part and time_part:
+        return f"{date_part}T{time_part}"
+    return None
+
+
+_live_cash_flow_cache: Dict[str, Tuple[Dict, float]] = {}
+_LIVE_CASH_FLOW_TTL = 120  # seconds — a wallet's history doesn't change fast enough to need fresher reads
+
+
+def get_user_live_cash_flows(wallet_address: str) -> Dict:
+    """Live lifetime deposited/withdrawn for one wallet, fetched straight
+    from THEIR OWN Swyftx deposit/withdrawal history via their own key — no
+    admin data entry required. See the module docstring above this section
+    for the real endpoints used and the parsing caveats."""
+    now = time.time()
+    cached = _live_cash_flow_cache.get(wallet_address)
+    if cached and now < cached[1]:
+        return cached[0]
+
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        asset_map = client.get_asset_map()
+    except Exception:
+        asset_map = {}
+
+    try:
+        deposits_raw = client.get_deposit_history()
+        withdrawals_raw = client.get_withdrawal_history()
+    except SwyftxAuthError as e:
+        update = {"lastError": str(e)}
+        if not _is_transient_swyftx_error(e):
+            update["status"] = "invalid"
+        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
+        raise ValueError(f"Could not fetch your Swyftx deposit/withdrawal history: {e}")
+
+    aud_to_usd = get_aud_to_usd_rate()
+    flows: List[Dict] = []
+    skipped = 0
+
+    for rec, flow_type in [(r, "deposit") for r in deposits_raw] + [(r, "withdrawal") for r in withdrawals_raw]:
+        if not _history_record_is_settled(rec):
+            continue
+        currency = _history_record_currency(rec, asset_map)
+        amount_usd = _history_record_amount_usd(rec, currency, aud_to_usd)
+        ts = _history_record_timestamp(rec)
+        if amount_usd is None or amount_usd <= 0 or not ts:
+            skipped += 1
+            continue
+        flows.append({
+            "id": str(rec.get("uuid") or rec.get("id") or f"{flow_type}-{len(flows)}"),
+            "type": flow_type,
+            "amountUsd": amount_usd,
+            "timestamp": ts,
+            "note": currency or None,
+        })
+
+    flows.sort(key=lambda f: f["timestamp"])
+    total_deposited = round(sum(f["amountUsd"] for f in flows if f["type"] == "deposit"), 2)
+    total_withdrawn = round(sum(f["amountUsd"] for f in flows if f["type"] == "withdrawal"), 2)
+
+    result = {
+        "walletAddress": wallet_address,
+        "flows": flows,
+        "totalDepositedUsd": total_deposited,
+        "totalWithdrawnUsd": total_withdrawn,
+        "parseWarnings": skipped,
+    }
+    _live_cash_flow_cache[wallet_address] = (result, now + _LIVE_CASH_FLOW_TTL)
+    return result
+
+
+def get_wallet_cash_flow_debug(admin_wallet: str, wallet_address: str) -> Dict:
+    """Admin-only: a few RAW, unparsed deposit/withdrawal records straight
+    from Swyftx for one wallet. Swyftx's own API docs don't publish the
+    field-level schema for these endpoints, so this is the ground truth to
+    check the parsing in get_user_live_cash_flows() against a real
+    account — if it ever looks wrong, this is where to look first."""
+    if not is_admin(admin_wallet):
+        return {"success": False, "error": "Admin access required"}
+    try:
+        client = _get_user_swyftx_client(wallet_address)
+        sample_deposits = client.get_deposit_history(max_pages=1, page_size=5)
+        sample_withdrawals = client.get_withdrawal_history(max_pages=1, page_size=5)
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    return {
+        "success": True,
+        "walletAddress": wallet_address,
+        "sampleDeposits": sample_deposits,
+        "sampleWithdrawals": sample_withdrawals,
+    }
+
+
+def get_wallet_cash_flows(wallet_address: str) -> Dict:
+    """One wallet's lifetime deposited/withdrawn + flows. Prefers an
+    admin-entered manual override (if any exist for this wallet — e.g. to
+    correct a bad live parse, or record pre-Swyftx history); otherwise
+    fetches live from the wallet's own Swyftx account. If neither is
+    available (no key on file, or the live fetch fails), returns the empty
+    manual result with an `error` describing why live wasn't available."""
+    manual = _get_manual_wallet_cash_flows(wallet_address)
+    if manual["flows"]:
+        manual["source"] = "manual"
+        return manual
+
+    try:
+        live = get_user_live_cash_flows(wallet_address)
+        live["source"] = "live"
+        return live
+    except Exception as e:
+        manual["source"] = "manual"
+        manual["error"] = str(e)
+        return manual
+
+
 def get_community_cash_flows() -> Dict:
     """Aggregate lifetime deposited/withdrawn across every wallet that has
-    at least one recorded cash flow — only wallets an admin has actually
-    entered data for contribute to this total; it is not assumed to cover
-    every connected wallet."""
-    docs = list(wallet_cash_flows_collection.find({}).sort("timestamp", 1))
-    per_wallet: Dict[str, Dict[str, float]] = {}
+    EITHER an active Swyftx key (live-fetched) OR a manual override
+    recorded — not assumed to cover every connected wallet, since a wallet
+    with a revoked/missing key and no manual entry has nothing to read."""
+    active_wallets = {
+        d.get("walletAddress")
+        for d in user_exchange_keys_collection.find({"status": "active"}, {"walletAddress": 1})
+    }
+    manual_wallets = {
+        d.get("walletAddress")
+        for d in wallet_cash_flows_collection.find({}, {"walletAddress": 1})
+    }
+
+    per_wallet: Dict[str, Dict] = {}
+    all_flows: List[Dict] = []
     total_deposited = 0.0
     total_withdrawn = 0.0
+
+    for wallet in (active_wallets | manual_wallets):
+        if not wallet:
+            continue
+        result = get_wallet_cash_flows(wallet)
+        if not result.get("flows"):
+            continue
+        per_wallet[wallet] = {
+            "depositedUsd": result["totalDepositedUsd"],
+            "withdrawnUsd": result["totalWithdrawnUsd"],
+            "source": result.get("source", "manual"),
+        }
+        total_deposited += result["totalDepositedUsd"]
+        total_withdrawn += result["totalWithdrawnUsd"]
+        all_flows.extend(result["flows"])
+
+    all_flows.sort(key=lambda f: f.get("timestamp") or "")
     timeline: List[Dict] = []
     cum_deposited = 0.0
     cum_withdrawn = 0.0
-
-    for d in docs:
-        wallet = d.get("walletAddress")
-        amount = float(d.get("amountUsd", 0) or 0)
-        flow_type = d.get("type")
-        entry = per_wallet.setdefault(wallet, {"depositedUsd": 0.0, "withdrawnUsd": 0.0})
-        if flow_type == "deposit":
-            entry["depositedUsd"] += amount
-            total_deposited += amount
-            cum_deposited += amount
+    for f in all_flows:
+        if f["type"] == "deposit":
+            cum_deposited += f["amountUsd"]
         else:
-            entry["withdrawnUsd"] += amount
-            total_withdrawn += amount
-            cum_withdrawn += amount
+            cum_withdrawn += f["amountUsd"]
         timeline.append({
-            "timestamp": d["timestamp"].isoformat() if d.get("timestamp") else None,
-            "type": flow_type,
-            "amountUsd": round(amount, 2),
+            "timestamp": f["timestamp"],
+            "type": f["type"],
+            "amountUsd": round(f["amountUsd"], 2),
             "cumulativeDepositedUsd": round(cum_deposited, 2),
             "cumulativeWithdrawnUsd": round(cum_withdrawn, 2),
         })
 
     return {
         "walletsWithData": len(per_wallet),
-        "perWallet": {w: {k: round(v, 2) for k, v in vals.items()} for w, vals in per_wallet.items()},
+        "perWallet": per_wallet,
         "totalDepositedUsd": round(total_deposited, 2),
         "totalWithdrawnUsd": round(total_withdrawn, 2),
         "timeline": timeline,

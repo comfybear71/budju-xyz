@@ -66,6 +66,7 @@ from database import (
     delete_wallet_cash_flow,
     get_wallet_cash_flows,
     get_community_cash_flows,
+    get_wallet_cash_flow_debug,
 )
 
 from perp_engine import (
@@ -463,9 +464,25 @@ class handler(BaseHTTPRequestHandler):
 
             elif path == '/api/community/cash-flows':
                 # Public — aggregate deposited/withdrawn across every wallet
-                # an admin has entered cash-flow data for. Only covers
-                # wallets with recorded data, not every connected wallet.
+                # with either a live Swyftx key or a manual override. Only
+                # covers wallets that actually have readable data.
                 self._send_json(200, get_community_cash_flows())
+
+            elif path == '/api/admin/cash-flow-debug':
+                # Admin-only: raw, unparsed Swyftx deposit/withdrawal
+                # records for one wallet — ground truth to confirm/correct
+                # the field-name parsing in get_user_live_cash_flows()
+                # against a real account (Swyftx doesn't publish this
+                # schema in its own docs).
+                admin_wallet = params.get('adminWallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_wallet_cash_flow_debug(admin_wallet, wallet))
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
