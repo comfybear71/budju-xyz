@@ -86,7 +86,6 @@ from database import (
     get_user_trade_activity,
     get_all_users_trade_activity,
     execute_test_buy,
-    execute_test_buy_all_wallets,
     get_live_leaderboard,
     link_admin_master_key,
     record_wallet_cash_flow,
@@ -1409,30 +1408,6 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(200, result)
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
-                    return
-
-            elif path == '/api/admin/test-buy-all':
-                # Admin-only: run a test BUY for EVERY wallet with a Swyftx
-                # key on file in one go — proves the per-user pipeline
-                # works for the whole connected user base, not just one
-                # wallet at a time. See execute_test_buy_all_wallets()'s
-                # docstring for per-wallet failure handling.
-                requester = body.get('requesterWallet')
-                coin = body.get('coin', 'BTC')
-                if not requester:
-                    self._send_json(400, {"error": "requesterWallet required"})
-                    return
-                try:
-                    result = execute_test_buy_all_wallets(requester, coin)
-                    failed_suffix = f", ❌ {result['failed']} failed" if result['failed'] else ""
-                    _send_telegram_message(
-                        f"🧪 <b>TEST BUY — ALL WALLETS</b>\n"
-                        f"📍 {coin.upper()}\n"
-                        f"✅ {result['succeeded']}/{result['walletCount']} wallets{failed_suffix}"
-                    )
-                    self._send_json(200, result)
-                except ValueError as e:
-                    self._send_json(403, {"error": str(e)})
                     return
 
             # ── Core/Satellite Position Type ───────────────────────────
