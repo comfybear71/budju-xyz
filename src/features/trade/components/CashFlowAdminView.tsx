@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTimes, FaSpinner, FaCheckCircle, FaTimesCircle, FaTrash } from "react-icons/fa";
+import { FaTimes, FaSpinner, FaCheckCircle, FaTimesCircle, FaTrash, FaCode } from "react-icons/fa";
 import {
   fetchWalletCashFlows,
   recordWalletCashFlow,
   deleteWalletCashFlow,
+  fetchWalletCashFlowDebug,
   type WalletCashFlows,
 } from "../services/tradeApi";
 
@@ -37,6 +38,9 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
   const [existing, setExisting] = useState<WalletCashFlows | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  const [debugData, setDebugData] = useState<{ sampleDeposits?: unknown[]; sampleWithdrawals?: unknown[]; error?: string } | null>(null);
+  const [loadingDebug, setLoadingDebug] = useState(false);
 
   // Default to the first known wallet once the list loads / view opens.
   useEffect(() => {
@@ -57,7 +61,17 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
 
   useEffect(() => {
     if (isOpen && selectedWallet) loadExisting(selectedWallet);
+    setShowDebug(false);
+    setDebugData(null);
   }, [isOpen, selectedWallet, loadExisting]);
+
+  const handleLoadDebug = async () => {
+    if (!selectedWallet) return;
+    setShowDebug(true);
+    setLoadingDebug(true);
+    setDebugData(await fetchWalletCashFlowDebug(adminWallet, selectedWallet));
+    setLoadingDebug(false);
+  };
 
   const amountUsd = parseFloat(amount) || 0;
 
@@ -129,7 +143,7 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
                   </div>
                   <div>
                     <span className="text-base md:text-lg font-bold text-slate-200">Cash Flow Totals</span>
-                    <div className="text-[10px] text-slate-500">Record lifetime deposited/withdrawn per wallet</div>
+                    <div className="text-[10px] text-slate-500">Live from Swyftx by default — add a manual override if needed</div>
                   </div>
                 </div>
                 <button onClick={onClose} className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: "rgba(255,255,255,0.06)" }}>
@@ -162,6 +176,39 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
                   />
                 )}
               </div>
+
+              {/* Current source status for the selected wallet */}
+              {selectedWallet && !loadingExisting && existing && (
+                <div
+                  className={`mb-4 rounded-xl p-3 text-[11px] ${
+                    existing.error
+                      ? "bg-red-500/10 border border-red-500/20 text-red-300"
+                      : existing.source === "manual"
+                        ? "bg-amber-500/10 border border-amber-500/20 text-amber-300"
+                        : "bg-green-500/10 border border-green-500/20 text-green-300"
+                  }`}
+                >
+                  {existing.error ? (
+                    <>No Swyftx data available for this wallet: {existing.error}</>
+                  ) : existing.source === "manual" ? (
+                    <>Showing a <strong>manual override</strong> — live Swyftx history is ignored for this wallet while manual entries exist.</>
+                  ) : (
+                    <>
+                      Showing <strong>live Swyftx history</strong> ({existing.flows.length} record{existing.flows.length === 1 ? "" : "s"}
+                      {typeof existing.parseWarnings === "number" && existing.parseWarnings > 0
+                        ? `, ${existing.parseWarnings} skipped — see raw data below`
+                        : ""}
+                      ).
+                    </>
+                  )}
+                  <button
+                    onClick={handleLoadDebug}
+                    className="ml-2 inline-flex items-center gap-1 text-slate-400 hover:text-slate-200 font-semibold"
+                  >
+                    <FaCode size={9} /> View raw Swyftx data
+                  </button>
+                </div>
+              )}
 
               {/* Type toggle */}
               <div className="flex gap-2 mb-3">
@@ -197,8 +244,9 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
                   />
                 </div>
                 <div className="text-[10px] text-slate-600 mt-1">
-                  Enter the wallet's lifetime total in USD (convert AUD yourself before entering) —
-                  this is typically recorded once as a running total, not line-by-line.
+                  Enter in USD (convert AUD yourself before entering). Adding any manual
+                  entry here switches this wallet entirely to manual mode — live Swyftx
+                  history stops being used until every manual entry for it is deleted.
                 </div>
               </div>
 
@@ -227,7 +275,7 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
                 {isSubmitting ? (
                   <FaSpinner className="animate-spin mx-auto" size={16} />
                 ) : (
-                  `Record ${flowType}`
+                  `Record manual ${flowType} override`
                 )}
               </button>
 
@@ -255,7 +303,7 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
               {/* Existing entries for this wallet */}
               <div className="mt-6">
                 <div className="text-[10px] uppercase tracking-wider text-slate-600 font-bold mb-2">
-                  {selectedWallet ? `Recorded for ${walletLabel(selectedWallet)}` : "Recorded entries"}
+                  {selectedWallet ? `${existing?.source === "manual" ? "Manual entries" : "Live flows"} for ${walletLabel(selectedWallet)}` : "Entries"}
                 </div>
                 {loadingExisting ? (
                   <div className="flex justify-center py-6">
@@ -292,27 +340,56 @@ const CashFlowAdminView = ({ isOpen, onClose, adminWallet, wallets, onChanged }:
                                 {fmtDateTime(f.timestamp)}{f.note ? ` · ${f.note}` : ""}
                               </div>
                             </div>
-                            <button
-                              onClick={() => handleDelete(f.id, f.amountUsd, f.type)}
-                              disabled={deletingId === f.id}
-                              className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                            >
-                              {deletingId === f.id ? (
-                                <FaSpinner className="animate-spin" size={11} />
-                              ) : (
-                                <FaTrash size={11} />
-                              )}
-                            </button>
+                            {existing?.source === "manual" && (
+                              <button
+                                onClick={() => handleDelete(f.id, f.amountUsd, f.type)}
+                                disabled={deletingId === f.id}
+                                className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                              >
+                                {deletingId === f.id ? (
+                                  <FaSpinner className="animate-spin" size={11} />
+                                ) : (
+                                  <FaTrash size={11} />
+                                )}
+                              </button>
+                            )}
                           </div>
                         ))}
                     </div>
                   </>
                 ) : (
                   <div className="rounded-xl border border-slate-700/30 bg-slate-800/40 p-3 text-[11px] text-slate-500 text-center">
-                    No entries recorded yet for this wallet.
+                    {existing?.error
+                      ? "No Swyftx key on file and no manual entries for this wallet."
+                      : "No deposit/withdrawal history found — either genuinely empty, or the live parser skipped every record (check raw data above)."}
                   </div>
                 )}
               </div>
+
+              {/* Raw Swyftx data — ground truth for confirming the live
+                  parser's field-name guesses against a real account. */}
+              {showDebug && (
+                <div className="mt-4 rounded-xl border border-slate-700/30 bg-slate-900/60 p-3">
+                  <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-2 flex items-center gap-1.5">
+                    <FaCode size={10} /> Raw Swyftx response (first 5 of each)
+                  </div>
+                  {loadingDebug ? (
+                    <div className="flex justify-center py-4">
+                      <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+                    </div>
+                  ) : debugData?.error ? (
+                    <div className="text-[11px] text-red-400">{debugData.error}</div>
+                  ) : (
+                    <pre className="text-[9px] text-slate-400 overflow-x-auto whitespace-pre-wrap break-all max-h-64 overflow-y-auto">
+                      {JSON.stringify(
+                        { sampleDeposits: debugData?.sampleDeposits, sampleWithdrawals: debugData?.sampleWithdrawals },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
         </motion.div>
