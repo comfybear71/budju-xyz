@@ -2154,11 +2154,18 @@ def set_user_auto_trade_enabled(wallet_address: str, enabled: bool) -> Dict:
 
 
 def record_user_trade(wallet_address: str, coin: str, side: str, quantity: float,
-                       price: float, tier: int = None, order_id: str = None) -> Dict:
+                       price: float, tier: int = None, order_id: str = None,
+                       source: str = "auto") -> Dict:
     """BUDJU's own record of a trade it placed for this wallet. This ledger
     — not the account's raw balance — is what the bot consults before
     selling, so it can never sell coins the user holds that it didn't buy
-    itself. Also backs this wallet's own Activity view."""
+    itself. Also backs this wallet's own Activity view.
+
+    `source` distinguishes a real recurring auto-trade ("auto", the
+    default — what user-trade-cron.py always passes) from a one-off
+    manual "test" buy (see execute_test_buy below), so Activity can label
+    the latter distinctly without it looking like the bot fired on its
+    own schedule."""
     doc = {
         "walletAddress": wallet_address,
         "coin": coin,
@@ -2167,6 +2174,7 @@ def record_user_trade(wallet_address: str, coin: str, side: str, quantity: float
         "price": price,
         "tier": tier,
         "orderId": order_id,
+        "source": source,
         "timestamp": datetime.utcnow(),
     }
     user_trades_collection.insert_one(doc)
@@ -2182,6 +2190,83 @@ def get_user_bot_position(wallet_address: str, coin: str) -> float:
         qty = float(t.get("quantity", 0) or 0)
         net += qty if t.get("side") == "buy" else -qty
     return max(0.0, net)
+
+
+# Mirrors user-trade-cron.py's own MIN_USDC_RESERVE / MIN_ORDER_USDC constants —
+# duplicated here (not imported) because database.py must stay import-clean of
+# the cron module; keep both in sync if either changes.
+TEST_BUY_MIN_BALANCE_USDC = float(os.getenv("USER_MIN_USDC_RESERVE", "30"))
+TEST_BUY_FLAT_USDC = 10.0
+TEST_BUY_PCT_OF_BALANCE = 4.0
+
+
+def execute_test_buy(wallet_address: str, requester_wallet: str, coin: str = "BTC") -> Dict:
+    """One-off, real-money manual BUY — lets a wallet owner (or admin) fire
+    a single test trade through the EXACT same per-user, non-custodial
+    pipeline user-trade-cron.py uses for a real auto-trade buy
+    (place_market_order -> record_user_trade), without waiting for a real
+    price dip to trigger it naturally. This is how to prove the whole
+    buy -> ledger -> Activity pipeline actually works end-to-end on a live
+    account before trusting the recurring cron to do it unattended.
+
+    Sized at max($10, 4% of this wallet's own live USDC balance) — refuses
+    outright (no partial/shrunk trade) if the balance isn't already above
+    the $30 reserve floor, or if the full computed amount would drop it
+    below that floor, exactly mirroring the real auto-trader's own guard."""
+    if requester_wallet != wallet_address and not is_admin(requester_wallet):
+        raise ValueError("Not authorized to trade on this wallet")
+
+    coin = coin.upper()
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        holdings = client.get_holdings()
+    except SwyftxAuthError as e:
+        update = {"lastError": str(e)}
+        if not _is_transient_swyftx_error(e):
+            update["status"] = "invalid"
+        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
+        raise ValueError(f"Could not fetch your Swyftx balance: {e}")
+    _mark_key_valid(wallet_address)
+
+    usdc_balance = sum(v for k, v in holdings.items() if k in ("USDC", "USD", "USDT"))
+    if usdc_balance <= TEST_BUY_MIN_BALANCE_USDC:
+        raise ValueError(
+            f"Your USDC balance (${usdc_balance:.2f}) must be above "
+            f"${TEST_BUY_MIN_BALANCE_USDC:.0f} to run a test buy"
+        )
+
+    trade_amount = max(TEST_BUY_FLAT_USDC, usdc_balance * (TEST_BUY_PCT_OF_BALANCE / 100))
+    if usdc_balance - trade_amount < TEST_BUY_MIN_BALANCE_USDC:
+        raise ValueError(
+            f"A ${trade_amount:.2f} buy would drop your balance below the "
+            f"${TEST_BUY_MIN_BALANCE_USDC:.0f} reserve floor — not placed"
+        )
+
+    price = get_prices_for_coins([coin]).get(coin, 0)
+    if price <= 0:
+        raise ValueError(f"No live price available for {coin}")
+
+    try:
+        code_to_id = client.get_code_to_id_map()
+    except Exception as e:
+        raise ValueError(f"Could not fetch the asset list: {e}")
+
+    ok, order_id, err = client.place_market_order(coin, "buy", trade_amount, code_to_id)
+    if not ok:
+        raise ValueError(err or "Order failed")
+
+    quantity = round(trade_amount / price, 8)
+    record_user_trade(wallet_address, coin, "buy", quantity, price, tier=None,
+                       order_id=order_id, source="test")
+
+    return {
+        "success": True,
+        "coin": coin,
+        "quantity": quantity,
+        "usdcSpent": round(trade_amount, 2),
+        "price": price,
+        "orderId": order_id,
+    }
 
 
 def get_user_trade_activity(target_wallet: str, requester_wallet: str) -> List[Dict]:

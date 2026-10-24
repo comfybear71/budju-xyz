@@ -60,6 +60,7 @@ from database import (
     set_user_auto_trade_enabled,
     get_user_trade_activity,
     get_all_users_trade_activity,
+    execute_test_buy,
     get_live_leaderboard,
     link_admin_master_key,
     record_wallet_cash_flow,
@@ -1329,6 +1330,25 @@ class handler(BaseHTTPRequestHandler):
                     return
                 result = set_user_auto_trade_enabled(wallet_address, bool(enabled))
                 self._send_json(200, result)
+
+            elif path == '/api/user/test-buy':
+                # One-off real-money manual BUY through the same per-user
+                # pipeline the auto-trade cron uses — lets an owner (or
+                # admin) prove a buy actually places + records correctly
+                # without waiting for a real price dip. See
+                # execute_test_buy()'s docstring for sizing/safety rules.
+                wallet_address = body.get('walletAddress')
+                requester = body.get('requesterWallet') or wallet_address
+                coin = body.get('coin', 'BTC')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                try:
+                    result = execute_test_buy(wallet_address, requester, coin)
+                    self._send_json(200, result)
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                    return
 
             # ── Core/Satellite Position Type ───────────────────────────
             elif path == '/api/perp/position-type':
