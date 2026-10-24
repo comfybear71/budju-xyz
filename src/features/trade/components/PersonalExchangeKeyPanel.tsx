@@ -34,7 +34,9 @@ const formatDate = (iso: string | null | undefined) => {
  * user funds. Gated behind the same 10M BUDJU requirement as everywhere
  * else in the app, re-checked server-side on save (the client check here is
  * just UX — the backend never trusts it). Each wallet brings its own
- * trade-only Swyftx API key; the bot trades directly in that account.
+ * trade-only Swyftx API key for live holdings visibility today. The actual
+ * per-user trade-execution loop (Phase 2) is not built yet — do not word any
+ * UI copy here as if the bot is already trading on a connected account.
  */
 const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
   const [loading, setLoading] = useState(true);
@@ -77,7 +79,10 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
       setMessage({ text: result.error || "Failed to save key", tone: "error" });
       return;
     }
-    setMessage({ text: "Swyftx key connected — the bot will start trading in your own account.", tone: "success" });
+    setMessage({
+      text: "Swyftx key connected — you can now see your live holdings below. The auto-trading bot isn't live yet; we'll let you know before it starts placing any trades in your account.",
+      tone: "success",
+    });
     setApiKeyInput("");
     setAckWarning(false);
     setShowReplace(false);
@@ -93,7 +98,7 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
       setMessage({ text: result.error || "Failed to remove key", tone: "error" });
       return;
     }
-    setMessage({ text: "Key removed. The bot will no longer trade on your account.", tone: "success" });
+    setMessage({ text: "Key removed. BUDJU can no longer read or trade on this account.", tone: "success" });
     refresh();
   };
 
@@ -120,9 +125,10 @@ const PersonalExchangeKeyPanel = ({ wallet }: Props) => {
   return (
     <div className="space-y-3">
       <div className="text-[11px] text-slate-500 leading-relaxed">
-        BUDJU never holds your money. Connect your own Swyftx API key and the bot trades directly in{" "}
-        <span className="text-slate-300 font-medium">your own account</span> — your funds never touch BUDJU's
-        wallet or a shared pool.
+        BUDJU never holds your money. Connect your own Swyftx API key to see your live holdings here — your funds
+        never touch BUDJU's wallet or a shared pool. The auto-trading bot isn't live for personal accounts yet; this
+        is read-only for now, and we'll announce it clearly before any trading starts in{" "}
+        <span className="text-slate-300 font-medium">your own account</span>.
       </div>
 
       {message && (
