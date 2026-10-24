@@ -27,7 +27,6 @@ import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PositionHistoryChart from "./components/PositionHistoryChart";
 import CommunityDepositsView from "./components/CommunityDepositsView";
-import PoolNavChart from "./components/PoolNavChart";
 import PersonalTradingView from "./components/PersonalTradingView";
 import {
   fetchPortfolio,
@@ -42,8 +41,6 @@ import {
   fetchDeposits,
   fetchTransactions,
   buildPositionHistory,
-  fetchNavHistory,
-  appendLiveNav,
   registerWallet,
   recalibratePool,
   clearCache,
@@ -54,20 +51,28 @@ import {
   type LeaderboardEntry,
   type TraderState,
   type PositionHistoryPoint,
-  type NavHistoryPoint,
 } from "./services/tradeApi";
 import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
 import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
 
+const BUDJU_GATE_REQUIRED = 10_000_000;
+
 const Trade = () => {
   const navigate = useNavigate();
-  const { connection } = useWallet();
+  const { connection, balances } = useWallet();
   const walletAddress = connection.wallet?.address || "";
   const isConnected = connection.connected && !!walletAddress;
   const [userRole, setUserRole] = useState<"admin" | "user" | null>(null);
   const isAdmin = isConnected && userRole === "admin";
+
+  // BUDJU Gate — "My Exchange Key" (non-custodial Swyftx key + auto-trading)
+  // is only ever shown to a wallet that actually holds 10M BUDJU. This is a
+  // UI-only check (same as everywhere else this gate appears) — the backend
+  // re-verifies it server-side before a key can ever be saved.
+  const budjuBalance = balances.tokens.find((t) => t.symbol === "BUDJU")?.amount ?? 0;
+  const hasBudjuGateAccess = isConnected && budjuBalance >= BUDJU_GATE_REQUIRED;
 
   // Data state
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
@@ -77,7 +82,6 @@ const Trade = () => {
   const [poolStats, setPoolStats] = useState<AdminStats | null>(null);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [positionHistory, setPositionHistory] = useState<PositionHistoryPoint[]>([]);
-  const [navHistory, setNavHistory] = useState<NavHistoryPoint[]>([]);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [pendingOrderCount, setPendingOrderCount] = useState(0);
@@ -218,12 +222,6 @@ const Trade = () => {
       if (poolVal > 0) {
         const stats = await fetchAdminStats(poolVal);
         setPoolStats(stats);
-
-        // NAV-over-time — public, visible to every visitor regardless of
-        // connection/admin status. Reconstructed from every deposit/withdrawal's
-        // own recorded NAV, plus today's live NAV appended on the client.
-        const navPoints = await fetchNavHistory();
-        setNavHistory(stats ? appendLiveNav(navPoints, stats.nav) : navPoints);
       }
 
       // Fetch trader state for insight cards (bot status, tier config)
@@ -488,26 +486,6 @@ const Trade = () => {
                     onSelectAsset={isAdmin ? handleSelectAsset : undefined}
                   />
 
-                  {/* NAV — visible to EVERYONE (connected, not connected, admin
-                      or not). Deposits buy shares at this price: lower NAV
-                      means more shares per dollar, and existing shares are
-                      worth more as NAV rises. */}
-                  {poolStats && (
-                    <div className="flex items-center justify-center gap-1.5 mt-3">
-                      <span className="text-[10px] text-slate-500 uppercase tracking-wider">
-                        Share Price (NAV)
-                      </span>
-                      <span className="text-xs font-bold font-mono text-purple-400">
-                        ${poolStats.nav.toFixed(4)}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* NAV-over-time — public, visible to every visitor. Throw more
-                      money in when NAV is low (more shares per dollar); existing
-                      shares are worth more as NAV rises. */}
-                  {navHistory.length >= 2 && <PoolNavChart points={navHistory} />}
-
                   {/* Admin: tap coin to trade / User: connect to join */}
                   <p className="text-center text-xs text-slate-500 mt-1">
                     {isAdmin ? "Tap coin to trade" : !isConnected ? "Connect wallet to join" : ""}
@@ -576,7 +554,10 @@ const Trade = () => {
                           onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); setShowDeposit(false); setShowWithdrawal(false); } },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
-                      ] as const).map((btn) => {
+                      ] as const)
+                        // BUDJU Gate — only show "My Key" to a wallet holding 10M+ BUDJU
+                        .filter((btn) => btn.key !== "mykey" || hasBudjuGateAccess)
+                        .map((btn) => {
                         const colorMap: Record<string, { active: string; inactive: string }> = {
                           blue:    { active: "bg-blue-500/25 text-blue-200 border-blue-400/60 shadow-[0_0_8px_rgba(59,130,246,0.25)]", inactive: "bg-blue-500/8 text-blue-300/70 border-blue-500/25 hover:bg-blue-500/15 hover:text-blue-200 hover:border-blue-400/50" },
                           amber:   { active: "bg-amber-500/25 text-amber-200 border-amber-400/60 shadow-[0_0_8px_rgba(245,158,11,0.25)]", inactive: "bg-amber-500/8 text-amber-300/70 border-amber-500/25 hover:bg-amber-500/15 hover:text-amber-200 hover:border-amber-400/50" },
@@ -701,23 +682,28 @@ const Trade = () => {
                         <div className="text-[10px] font-bold text-teal-400">Per-coin</div>
                       </div>
                     </button>
-                    {/* My Exchange Key — non-custodial: connect your own Swyftx key */}
-                    <button
-                      onClick={() => setShowPersonalTrading(true)}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
-                      style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(16,185,129,0.15)" }}>
-                        <span className="text-sm">🔑</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
-                          My Exchange Key{" "}
-                          <span className="text-[8px] bg-emerald-500/15 text-emerald-300 px-1 py-0.5 rounded font-mono border border-emerald-500/20 align-middle">NEW</span>
+                    {/* My Exchange Key — non-custodial: connect your own Swyftx
+                        key. BUDJU Gate: only shown to a wallet holding 10M+
+                        BUDJU — otherwise there's simply no access, same as
+                        every other BUDJU-gated feature in the app. */}
+                    {hasBudjuGateAccess && (
+                      <button
+                        onClick={() => setShowPersonalTrading(true)}
+                        className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                        style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(16,185,129,0.15)" }}>
+                          <span className="text-sm">🔑</span>
                         </div>
-                        <div className="text-[10px] font-bold text-emerald-400">Trade your own account</div>
-                      </div>
-                    </button>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                            My Exchange Key{" "}
+                            <span className="text-[8px] bg-emerald-500/15 text-emerald-300 px-1 py-0.5 rounded font-mono border border-emerald-500/20 align-middle">NEW</span>
+                          </div>
+                          <div className="text-[10px] font-bold text-emerald-400">Trade your own account</div>
+                        </div>
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -825,7 +811,6 @@ const Trade = () => {
                             setShowDepositBreakdown(true);
                           } : undefined },
                         { label: "USER VALUE", value: formatUsd(poolStats.totalUserValue), icon: HiOutlineChartBar, color: "text-cyan-400" },
-                        { label: "NAV", value: `$${poolStats.nav.toFixed(4)}`, icon: HiOutlineWallet, color: "text-purple-400" },
                         { label: "TRADES", value: poolStats.tradeCount, icon: HiOutlineArrowsRightLeft, color: "text-emerald-400" },
                         { label: "USER P&L", value: `${poolStats.pnlPercent >= 0 ? "+" : ""}${poolStats.pnlPercent.toFixed(1)}%`, icon: HiOutlineChartBar, color: poolStats.pnlPercent >= 0 ? "text-green-400" : "text-red-400" },
                       ] as { label: string; value: string | number; icon: any; color: string; onClick?: () => void }[]).map((stat) => (

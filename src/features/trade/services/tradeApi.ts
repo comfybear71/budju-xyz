@@ -976,36 +976,6 @@ export function buildPositionHistory(
   return points;
 }
 
-/** One point in the pool-wide NAV history (see fetchNavHistory/buildNavHistory). */
-export interface NavHistoryPoint {
-  timestamp: string;
-  nav: number;
-  type: "deposit" | "withdrawal" | "now";
-}
-
-/** Fetch the pool's NAV-over-time timeline (public — every deposit/withdrawal
- *  ever recorded carries its own NAV, reconstructed here pool-wide). No wallet
- *  identity or dollar amounts are included; visible to every visitor. */
-export async function fetchNavHistory(): Promise<NavHistoryPoint[]> {
-  return cached("nav_history", 60_000, async () => {
-    try {
-      const res = await fetchWithRetry("/api/pool/nav-history");
-      if (!res.ok) return [];
-      const data = await res.json();
-      return (data.points || []) as NavHistoryPoint[];
-    } catch {
-      return [];
-    }
-  });
-}
-
-/** Append a live "now" point to a fetched NAV history so the chart always
- *  ends at today's real NAV, not the last recorded transaction. */
-export function appendLiveNav(points: NavHistoryPoint[], liveNav: number): NavHistoryPoint[] {
-  if (!liveNav || liveNav <= 0) return points;
-  return [...points, { timestamp: new Date().toISOString(), nav: liveNav, type: "now" }];
-}
-
 /** Admin: void an accidental/duplicate deposit by txHash (reverses its shares) */
 // ── Non-custodial trading (per-user Swyftx keys) ────────────────────────
 // Oct 2026 architecture pivot — BUDJU never holds or pools user funds.
