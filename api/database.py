@@ -1332,102 +1332,96 @@ def get_pool_nav_timeline() -> List[Dict]:
     return points
 
 
+def _short_wallet(addr: Optional[str]) -> str:
+    return addr[:4] + "..." + addr[-4:] if addr and len(addr) > 8 else (addr or "")
+
+
 def get_all_transactions(wallet_address: str = None, is_admin_request: bool = False) -> List[Dict]:
-    transactions = []
+    """The Activity feed — every deposit/withdrawal (live from each
+    wallet's own Swyftx account, or an admin-entered manual override) plus
+    every bot buy/sell, for the non-custodial per-wallet era.
+
+    This used to read deposits_collection/withdrawals_collection/
+    trades_collection — the pooled era's collections. Those are now
+    effectively frozen: the admin UI that ever wrote to
+    deposits_collection/withdrawals_collection was removed once the app
+    went non-custodial, and trades_collection has been empty since the
+    pool itself was retired (every pooled-era trade happened directly on
+    the shared Swyftx account, never recorded here). A wallet with a live
+    non-custodial key and real trade history correctly saw almost nothing
+    in Activity as a result — confirmed live on 2026-10-25: the admin's
+    own $13,260.17 withdrawal from mid-pooled-era was the ONLY row, while
+    every deposit/withdrawal since (live-fetched or manually recorded via
+    CashFlowAdminView) and every bot trade (in user_trades_collection) was
+    invisible here. Fixed to read the SAME sources already powering the
+    Leaderboard's wallet drill-down, the Community Overview, and the
+    per-user activity endpoints: get_wallet_cash_flows() /
+    get_community-wide wallet iteration for deposits/withdrawals, and
+    user_trades_collection for buy/sell."""
+    transactions: List[Dict] = []
 
     if is_admin_request:
-        # Exclude voided deposits — a voided record is a correction for money
-        # that never arrived (or was double-recorded), not a real deposit.
-        # Showing it in the Activity feed looks exactly like a legitimate
-        # deposit with no indication it was reversed.
-        for dep in deposits_collection.find({"status": {"$ne": "voided"}}).sort("timestamp", -1):
-            user_wallet = dep.get("userId", "")
-            transactions.append({
-                "type": "deposit",
-                "wallet": user_wallet,
-                "walletShort": user_wallet[:4] + "..." + user_wallet[-4:] if len(user_wallet) > 8 else user_wallet,
-                "amount": dep.get("amount", 0),
-                "currency": dep.get("currency", "USDC"),
-                "txHash": dep.get("txHash", ""),
-                "timestamp": dep["timestamp"].isoformat() if dep.get("timestamp") else None,
-                "shares": dep.get("shares", 0),
-                "nav": dep.get("nav", 0),
-                "isAdmin": user_wallet in ADMIN_WALLETS
-            })
+        active_wallets = {
+            d.get("walletAddress")
+            for d in user_exchange_keys_collection.find({"status": "active"}, {"walletAddress": 1})
+        }
+        manual_wallets = {
+            d.get("walletAddress")
+            for d in wallet_cash_flows_collection.find({}, {"walletAddress": 1})
+        }
+        for wallet in (active_wallets | manual_wallets):
+            if not wallet:
+                continue
+            result = get_wallet_cash_flows(wallet)
+            for f in result.get("flows", []):
+                transactions.append({
+                    "type": f["type"],
+                    "amount": f["amountUsd"],
+                    "currency": "USD",
+                    "wallet": wallet,
+                    "walletShort": _short_wallet(wallet),
+                    "timestamp": f.get("timestamp"),
+                    "isAdmin": wallet in ADMIN_WALLETS,
+                })
 
-        for trade in trades_collection.find({}).sort("timestamp", -1):
+        for t in user_trades_collection.find({}).sort("timestamp", -1).limit(500):
+            wallet = t.get("walletAddress")
             transactions.append({
-                "type": "buy" if trade.get("type") == "buy" else "sell",
-                "coin": trade.get("coin", ""),
-                "amount": trade.get("amount", 0),
-                "price": trade.get("price", 0),
-                "timestamp": trade["timestamp"].isoformat() if trade.get("timestamp") else None,
-                "wallet": "pool",
-                "walletShort": "Pool Trade",
-                "swyftxId": trade.get("swyftxId", "")
+                "type": "buy" if t.get("side") == "buy" else "sell",
+                "coin": t.get("coin", ""),
+                "amount": t.get("quantity", 0),
+                "price": t.get("price", 0),
+                "timestamp": t["timestamp"].isoformat() if t.get("timestamp") else None,
+                "wallet": wallet,
+                "walletShort": _short_wallet(wallet),
+                "swyftxId": t.get("orderId", ""),
+                "isAdmin": wallet in ADMIN_WALLETS,
             })
-
-        for wd in withdrawals_collection.find({}).sort("timestamp", -1):
-            user_wallet = wd.get("userId", "")
-            transactions.append({
-                "type": "withdrawal",
-                "wallet": user_wallet,
-                "walletShort": user_wallet[:4] + "..." + user_wallet[-4:] if len(user_wallet) > 8 else user_wallet,
-                "amount": wd.get("amount", 0),
-                "currency": wd.get("currency", "USDC"),
-                "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None,
-                "isAdmin": user_wallet in ADMIN_WALLETS
-            })
-
-        transactions.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
 
     else:
         if not wallet_address:
             return []
 
-        for dep in deposits_collection.find({"userId": wallet_address, "status": {"$ne": "voided"}}).sort("timestamp", -1):
+        result = get_wallet_cash_flows(wallet_address)
+        for f in result.get("flows", []):
             transactions.append({
-                "type": "deposit",
-                "amount": dep.get("amount", 0),
-                "currency": dep.get("currency", "USDC"),
-                "txHash": dep.get("txHash", ""),
-                "timestamp": dep["timestamp"].isoformat() if dep.get("timestamp") else None,
-                "shares": dep.get("shares", 0),
-                "nav": dep.get("nav", 0)
+                "type": f["type"],
+                "amount": f["amountUsd"],
+                "currency": "USD",
+                "timestamp": f.get("timestamp"),
             })
 
-        for wd in withdrawals_collection.find({"userId": wallet_address}).sort("timestamp", -1):
+        for t in user_trades_collection.find({"walletAddress": wallet_address}).sort("timestamp", -1).limit(200):
             transactions.append({
-                "type": "withdrawal",
-                "amount": wd.get("amount", 0),
-                "currency": wd.get("currency", "USDC"),
-                "timestamp": wd["timestamp"].isoformat() if wd.get("timestamp") else None,
-                # Mirrors the deposit branch above — needed to reconstruct a
-                # wallet's share/value history over time (see PositionHistoryChart).
-                "shares": wd.get("shares", 0),
-                "nav": wd.get("nav", 0)
+                "type": "buy" if t.get("side") == "buy" else "sell",
+                "coin": t.get("coin", ""),
+                "amount": t.get("quantity", 0),
+                "price": t.get("price", 0),
+                "timestamp": t["timestamp"].isoformat() if t.get("timestamp") else None,
+                "swyftxId": t.get("orderId", ""),
             })
 
-        # Filter trades to only those where this wallet has an allocation
-        for trade in trades_collection.find({
-            f"userAllocations.{wallet_address}": {"$exists": True}
-        }).sort("timestamp", -1):
-            user_alloc_pct = trade.get("userAllocations", {}).get(wallet_address, 0)
-            total_amount = trade.get("amount", 0)
-            user_amount = total_amount * (user_alloc_pct / 100.0) if user_alloc_pct else total_amount
-            transactions.append({
-                "type": "buy" if trade.get("type") == "buy" else "sell",
-                "coin": trade.get("coin", ""),
-                "amount": round(user_amount, 2),
-                "price": trade.get("price", 0),
-                "timestamp": trade["timestamp"].isoformat() if trade.get("timestamp") else None,
-                "wallet": wallet_address,
-                "walletShort": wallet_address[:4] + "..." + wallet_address[-4:] if len(wallet_address) > 8 else wallet_address,
-                "swyftxId": trade.get("swyftxId", "")
-            })
-
-        transactions.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
-
+    transactions.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
     return transactions
 
 
