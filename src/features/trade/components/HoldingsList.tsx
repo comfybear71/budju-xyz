@@ -631,15 +631,23 @@ const HoldingsList = ({
                   : dir === "down" ? ("red" as const)
                   : null;
 
+              // Tap-to-trade only makes sense against the admin's OWN real
+              // tradeable account ("Mine") — "Pool" shows the combined coin
+              // list across every connected wallet, which includes coins
+              // (ARB, LEVER, STRK, LUMIA, etc.) the admin's own account may
+              // not hold or have a live price for. Opening a real trade
+              // panel for those would show a misleading $0 price/balance.
+              const canTap = isAdmin && viewMode === "mine";
+
               return (
                 <motion.div
                   key={asset.code}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.2, delay: index * 0.03 }}
-                  onClick={isAdmin ? () => onSelectAsset(asset.code) : undefined}
+                  onClick={canTap ? () => onSelectAsset(asset.code) : undefined}
                   className={`relative rounded-xl p-3.5 transition-all duration-300 border ${borderColor} ${glowShadow} ${
-                    isAdmin
+                    canTap
                       ? isSelected
                         ? "bg-blue-500/[0.08] cursor-pointer"
                         : "bg-slate-800/30 hover:bg-slate-800/50 hover:border-slate-700/30 cursor-pointer"

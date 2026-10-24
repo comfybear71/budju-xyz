@@ -34,6 +34,7 @@ import {
   fetchLivePosition,
   fetchPersonalPricedHoldings,
   fetchLiveLeaderboard,
+  poolAssetsFromLeaderboard,
   registerWallet,
   clearCache,
   AUD_TO_USD,
@@ -988,9 +989,16 @@ const Trade = () => {
               <div className="rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                 <HoldingsList
                   assets={
-                    isConnected && holdingsView === "mine" && !isAdmin
-                      ? myHoldings
-                      : assets
+                    // "Mine" always means THIS wallet's own coins (admin or
+                    // not). "Pool" means the true combined coin list across
+                    // EVERY connected wallet — admin's own `assets` used to
+                    // be shown here for Pool too, which is why coins only
+                    // held in OTHER wallets (ARB, LEVER, STRK, LUMIA, etc.)
+                    // never appeared even though the "Pool Total" doughnut
+                    // above was already counting their dollar value.
+                    isConnected && holdingsView === "mine"
+                      ? (isAdmin ? assets : myHoldings)
+                      : poolAssetsFromLeaderboard(liveLeaderboard)
                   }
                   prices={prices}
                   onSelectAsset={handleSelectAsset}
