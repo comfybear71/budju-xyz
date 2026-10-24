@@ -1527,6 +1527,39 @@ export function buildLiveCashFlowHistory(
   return points;
 }
 
+/** Same idea as buildLiveCashFlowHistory() above, but for the combined
+ *  "Pool" view — built from fetchCommunityCashFlows()'s already-aggregated
+ *  timeline (summed across every connected wallet) instead of one wallet's
+ *  own flows. The API already carries running cumulative totals per event,
+ *  so this just maps straight through and appends the live combined total
+ *  as the final "now" point, same as the per-wallet version. */
+export function buildCommunityCashFlowHistory(
+  timeline: CommunityCashFlows["timeline"],
+  liveCombinedValue: number,
+): PositionHistoryPoint[] {
+  const points: PositionHistoryPoint[] = timeline.map((e) => ({
+    timestamp: e.timestamp,
+    type: e.type,
+    amount: e.amountUsd,
+    cumulativeShares: 0,
+    cumulativeDeposited: e.cumulativeDepositedUsd,
+    cumulativeWithdrawn: e.cumulativeWithdrawnUsd,
+    value: Math.max(0, e.cumulativeDepositedUsd - e.cumulativeWithdrawnUsd),
+  }));
+
+  const last = timeline[timeline.length - 1];
+  points.push({
+    timestamp: new Date().toISOString(),
+    type: "now",
+    cumulativeShares: 0,
+    cumulativeDeposited: last?.cumulativeDepositedUsd ?? 0,
+    cumulativeWithdrawn: last?.cumulativeWithdrawnUsd ?? 0,
+    value: liveCombinedValue,
+  });
+
+  return points;
+}
+
 export async function voidDeposit(adminWallet: string, txHash: string): Promise<{ success: boolean; error?: string }> {
   if (LOCAL_READ_ONLY) return blockLocalWrite("void deposit");
 
