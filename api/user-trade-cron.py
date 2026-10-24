@@ -1,11 +1,21 @@
 # ==========================================
 # Per-user auto-trade cron (Phase 2 — non-custodial)
 # ==========================================
-# Runs the SAME tier-based dip-buy/rally-sell strategy as the legacy pooled
-# auto-trade-cron.py, but independently for every wallet that has connected
-# its own Swyftx key AND explicitly opted in to auto-trading. Each user's
-# bot only ever trades in that user's own account, with that user's own
-# key, sized from that user's own USDC balance.
+# There is only ONE bot — one brain, one set of tier settings, one coin
+# list, one on/off switch — the same "Auto Trade" screen the admin already
+# edits (stored in trader_state_collection, read via get_trader_state()).
+# This cron makes no decisions of its own: it reads that single shared
+# rulebook and carries it out inside every other connected wallet's own
+# Swyftx account, with that wallet's own key, sized from that wallet's own
+# USDC balance. Running one API call per wallet is a technical necessity
+# (BUDJU can't move another account's money with its own key) — it is NOT
+# a second, independently-configured bot. Before 2026-10-25 this file read
+# its OWN separate, hardcoded tier settings and silently auto-discovered
+# coins from each wallet's existing holdings — that is what let an
+# un-curated coin (e.g. LUMIA) get bought automatically without ever being
+# added to T1/T2/T3 on the admin's screen. Fixed by removing that per-wallet
+# config entirely; only targets/cooldowns/trade history stay per-wallet now
+# (each account's own trade timing, not a decision).
 #
 # Critical safety rule (see PersonalExchangeKeyPanel.tsx comment + CLAUDE.md
 # non-custodial design discussion): a user's account may hold coins BUDJU
@@ -32,6 +42,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from database import (
     user_exchange_keys_collection,
     decrypt_secret,
+    get_trader_state,
     get_user_trader_state,
     save_user_trader_state,
     record_user_trade,
@@ -39,7 +50,7 @@ from database import (
     get_prices_for_coins,
 )
 from swyftx_client import SwyftxClient, SwyftxAuthError
-from asset_registry import PERMANENT_BUY_DENYLIST
+from trade_guards import is_permanently_buy_denied
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
@@ -83,6 +94,10 @@ def send_telegram(text):
 
 
 def _tier_settings(auto_tiers, tier_num):
+    """Reads from the SHARED autoTiers (the admin's "Auto Trade" screen) —
+    same settings shape/defaults the legacy pooled cron uses, so every
+    wallet's bot runs on literally the same deviation/allocation/cooldown
+    numbers, not its own independent copy."""
     key = f"tier{tier_num}"
     s = auto_tiers.get(key, {}) if isinstance(auto_tiers, dict) else {}
     default_dev = 1.0 if tier_num == 1 else 2.0
@@ -98,7 +113,19 @@ def _is_tier_active(tier_active, tier_num):
     return bool(tier_active.get(str(tier_num)) or tier_active.get(tier_num))
 
 
-def run_one_wallet(ctx, prices, now_ms, summary_log):
+def _tier_num(value):
+    """Convert tier value ('tier1', '1', 1, etc.) to int. Mirrors
+    auto-trade-cron.py's helper of the same name for old-format migration."""
+    if value is None:
+        return 0
+    s = str(value).replace("tier", "")
+    try:
+        return int(s)
+    except (TypeError, ValueError):
+        return 0
+
+
+def run_one_wallet(ctx, active_pairs, auto_tiers, prices, now_ms, summary_log):
     wallet = ctx["wallet"]
     wallet_short = wallet[:4] + "..." + wallet[-4:]
     client = ctx["client"]
@@ -107,9 +134,12 @@ def run_one_wallet(ctx, prices, now_ms, summary_log):
 
     usdc_balance = sum(v for k, v in holdings.items() if k in CASH_CODES)
 
-    auto_tiers = state.get("autoTiers", {})
-    tier_active = state.get("tierActive", {})
-    tier_assignments = state.get("tierAssignments", {})
+    # Only targets/cooldowns/trade history are per-wallet — this account's
+    # own trade timing, derived from the SHARED rules above, not a separate
+    # decision. The rules themselves (which coins, which tiers, what %
+    # bands, on/off) come from active_pairs/auto_tiers — computed once in
+    # run_user_auto_trade() from the admin's shared "Auto Trade" screen,
+    # identical for every wallet.
     targets = state.get("targets", {})
     cooldowns = state.get("cooldowns", {})
     trade_log = state.get("tradeLog", [])
@@ -125,23 +155,6 @@ def run_one_wallet(ctx, prices, now_ms, summary_log):
                 return {"wallet": wallet, "skipped": "settlement_guard"}
         except Exception:
             pass
-
-    # No registry restriction here — any coin in tierAssignments (including
-    # ones auto-discovered from this wallet's own holdings, see
-    # run_user_auto_trade()'s pre-pass) is tradeable as long as it isn't
-    # denylisted and we actually have a live price for it.
-    active_pairs = []
-    for coin, tiers in tier_assignments.items():
-        if coin in PERMANENT_BUY_DENYLIST:
-            continue
-        tiers = tiers if isinstance(tiers, list) else [tiers]
-        for t in tiers:
-            try:
-                t = int(t)
-            except (TypeError, ValueError):
-                continue
-            if _is_tier_active(tier_active, t):
-                active_pairs.append((coin, t))
 
     code_to_id = None
     trades_this_wallet = []
@@ -252,7 +265,6 @@ def run_one_wallet(ctx, prices, now_ms, summary_log):
                 summary_log.append(f"{wallet_short}: SELL {code} failed — {err}")
 
     save_user_trader_state(wallet, {
-        "autoTiers": auto_tiers, "tierActive": tier_active, "tierAssignments": tier_assignments,
         "targets": targets, "cooldowns": cooldowns, "tradeLog": trade_log,
     })
 
@@ -271,17 +283,54 @@ def run_user_auto_trade():
     if not USER_TRADING_ENABLED:
         return {"skipped": True, "reason": "USER_TRADING_ENABLED is false", "log": log}
 
+    # 1. Read the ONE shared rulebook — same document the admin's "Auto
+    # Trade" screen edits. No per-wallet copy, no per-wallet discovery.
+    shared_state = get_trader_state()
+    auto_active = shared_state.get("autoActive", {})
+    if not isinstance(auto_active, dict) or not auto_active.get("isActive"):
+        return {"skipped": True, "reason": "Auto-trading not active (master switch off)", "log": log}
+
+    tier_active = auto_active.get("tierActive", {})
+    if not any(_is_tier_active(tier_active, t) for t in (1, 2, 3)):
+        return {"skipped": True, "reason": "No tiers active", "log": log}
+
+    auto_tiers = shared_state.get("autoTiers", {})
+    tier_assignments = shared_state.get("autoTierAssignments", {})
+
+    # Build the shared coin-tier pairs exactly like the legacy pooled cron
+    # does — including migrating the old single-tier-number format — so
+    # both crons agree on what "the bot" is currently trading.
+    active_pairs = []
+    for coin, tiers in tier_assignments.items():
+        if is_permanently_buy_denied(coin):
+            continue
+        if isinstance(tiers, list):
+            for t in tiers:
+                try:
+                    t = int(t)
+                except (TypeError, ValueError):
+                    continue
+                if _is_tier_active(tier_active, t):
+                    active_pairs.append((coin, t))
+        else:
+            tn = _tier_num(tiers)
+            if 1 <= tn <= 3:
+                for t in (1, 2, 3):
+                    if _is_tier_active(tier_active, t):
+                        active_pairs.append((coin, t))
+
+    if not active_pairs:
+        return {"skipped": True, "reason": "No coins assigned to an active tier", "log": log}
+
+    all_codes = sorted(set(c for c, _ in active_pairs))
+
     wallets = list(user_exchange_keys_collection.find({"status": "active", "autoTradeEnabled": True}))
     if not wallets:
         return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 
-    # Pre-pass: fetch each wallet's holdings + trader state once, and
-    # auto-enroll any coin the wallet actually holds that BUDJU doesn't
-    # track yet. This is what makes "every coin a user has" tradeable —
-    # not just the ~30 originally hand-picked ones — without touching the
-    # legacy pooled bot's own registry at all.
+    # 2. Fetch each wallet's holdings + its own targets/cooldowns/trade
+    # history (no coin discovery here anymore — the coin list is shared).
     wallet_contexts = []
-    all_codes = set()
     for doc in wallets:
         wallet = doc["walletAddress"]
         wallet_short = wallet[:4] + "..." + wallet[-4:]
@@ -301,25 +350,13 @@ def run_user_auto_trade():
             continue
 
         state = get_user_trader_state(wallet)
-        tier_assignments = state.get("tierAssignments", {})
-        for code in holdings:
-            if code in CASH_CODES or code in PERMANENT_BUY_DENYLIST:
-                continue
-            if code not in tier_assignments:
-                tier_assignments[code] = [1, 2, 3]  # newly-seen coin — auto-enrolled at every tier
-            all_codes.add(code)
-        for code in tier_assignments:
-            if code not in PERMANENT_BUY_DENYLIST:
-                all_codes.add(code)
-        state["tierAssignments"] = tier_assignments
-
         wallet_contexts.append({"wallet": wallet, "client": client, "holdings": holdings, "state": state})
 
     if not wallet_contexts:
         return {"skipped": True, "reason": "No wallet's holdings could be read this cycle", "log": log}
 
     try:
-        prices = get_prices_for_coins(list(all_codes))
+        prices = get_prices_for_coins(all_codes)
     except Exception as e:
         return {"error": f"Price fetch failed: {e}", "log": log}
 
@@ -327,7 +364,7 @@ def run_user_auto_trade():
     results = []
     for ctx in wallet_contexts:
         try:
-            results.append(run_one_wallet(ctx, prices, now_ms, log))
+            results.append(run_one_wallet(ctx, active_pairs, auto_tiers, prices, now_ms, log))
         except Exception as e:
             # Never let one wallet's unexpected failure stop the rest.
             log.append(f"{ctx['wallet'][:8]}: unexpected error — {e}")
