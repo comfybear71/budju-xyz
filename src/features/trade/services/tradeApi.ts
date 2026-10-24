@@ -1092,6 +1092,28 @@ export async function removeSwyftxKey(walletAddress: string): Promise<{ success:
   }
 }
 
+/** Admin-only: link the admin wallet's per-user Swyftx entry to the
+ *  server's existing SWYFTX_API_KEY (the key that already powers the
+ *  legacy pooled bot) instead of re-pasting it through this UI. The key
+ *  itself never travels over this call in either direction. */
+export async function linkAdminMasterKey(
+  walletAddress: string,
+): Promise<{ success: boolean; error?: string; maskedApiKey?: string }> {
+  if (LOCAL_READ_ONLY) return blockLocalWrite("link admin master key");
+  try {
+    const res = await fetchWithRetry("/api/admin/link-master-key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress }),
+    });
+    const data = await res.json();
+    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
+    return { success: true, maskedApiKey: data.maskedApiKey };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Network error" };
+  }
+}
+
 export interface PersonalHoldings {
   walletAddress: string;
   holdings: Record<string, number>;
