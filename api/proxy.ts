@@ -6,9 +6,13 @@
 // Only allows specific, allowlisted Swyftx endpoints.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import crypto from "crypto";
+import { MongoClient } from "mongodb";
 
 const BASE_URL = "https://api.swyftx.com.au";
 const SITE_URL = "https://www.budju.xyz";
+const MONGODB_URI = process.env.MONGODB_URI || "";
+const DB_NAME = process.env.DB_NAME || "flub";
 
 // Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
 // x-cg-pro-api-key header — falls back to the free public API if unset.
@@ -44,14 +48,53 @@ async function checkOrderGuard(guard: any): Promise<any> {
 }
 
 // ── Server-side Swyftx token cache ──────────────────────────
-// Reused across warm Vercel function instances. On cold start,
-// a fresh token is obtained automatically.
+// Reused across warm Vercel function instances (fast path). On a cold
+// start / cache miss, checks a tiny shared MongoDB collection before
+// hitting Swyftx — the SAME collection api/swyftx_client.py's
+// get_cached_token() reads/writes. Without this, this proxy, the Python
+// auto-trade-cron.py cron, and index.py's SwyftxClient instances each
+// independently refresh a token for what can be the EXACT SAME physical
+// SWYFTX_API_KEY (the admin's non-custodial key entry can be "linked" to
+// this very key — see link_admin_master_key in database.py), and Swyftx's
+// /auth/refresh/ rate limit 429s once too many of those collide — confirmed
+// live 2026-10-24. Any Mongo failure here just falls back to a fresh
+// Swyftx auth call; it never blocks a real request.
 let _cachedToken: string | null = null;
 let _tokenExpiry = 0;
 const TOKEN_TTL_MS = 50 * 60 * 1000; // 50 minutes
 
+let _mongoClient: MongoClient | null = null;
+async function getTokenCacheCollection() {
+  if (!MONGODB_URI) return null;
+  try {
+    if (!_mongoClient) {
+      _mongoClient = new MongoClient(MONGODB_URI);
+      await _mongoClient.connect();
+    }
+    return _mongoClient.db(DB_NAME).collection("swyftx_token_cache");
+  } catch {
+    return null;
+  }
+}
+
 async function getServerToken(apiKey: string): Promise<string> {
-  if (_cachedToken && Date.now() < _tokenExpiry) return _cachedToken;
+  const now = Date.now();
+  if (_cachedToken && now < _tokenExpiry) return _cachedToken;
+
+  const keyHash = crypto.createHash("sha256").update(apiKey).digest("hex");
+  const coll = await getTokenCacheCollection();
+  if (coll) {
+    try {
+      const doc = await coll.findOne({ _id: keyHash as any });
+      if (doc && doc.token && doc.expiresAt > now) {
+        _cachedToken = doc.token;
+        _tokenExpiry = doc.expiresAt;
+        return _cachedToken as string;
+      }
+    } catch {
+      // Shared cache unavailable — fall through to a fresh auth call
+    }
+  }
 
   const authRes = await fetch(BASE_URL + "/auth/refresh/", {
     method: "POST",
@@ -68,7 +111,18 @@ async function getServerToken(apiKey: string): Promise<string> {
   }
 
   _cachedToken = data.accessToken;
-  _tokenExpiry = Date.now() + TOKEN_TTL_MS;
+  _tokenExpiry = now + TOKEN_TTL_MS;
+  if (coll) {
+    try {
+      await coll.updateOne(
+        { _id: keyHash as any },
+        { $set: { token: _cachedToken, expiresAt: _tokenExpiry } },
+        { upsert: true },
+      );
+    } catch {
+      // Shared cache write failing never blocks the caller
+    }
+  }
   return _cachedToken;
 }
 

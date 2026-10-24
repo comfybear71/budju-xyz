@@ -40,6 +40,7 @@ from trade_guards import (
     is_rebuy_blocked,
     sell_below_min,
 )
+from swyftx_client import get_cached_token
 
 # ── Config ────────────────────────────────────────────────────
 
@@ -121,25 +122,18 @@ def _http_json(url, method="GET", body=None, headers=None, retries=0, backoff=2)
     raise last_error
 
 # ── Swyftx Token Management ──────────────────────────────────
-
-_swyftx_token = None
-_swyftx_token_expiry = 0
+# Delegates to swyftx_client.get_cached_token(), a cache shared (via a tiny
+# Mongo-backed collection) with every other process touching this same
+# SWYFTX_API_KEY — including the admin's own non-custodial key entry, which
+# can be "linked" to this exact master key (see link_admin_master_key in
+# database.py). Before this, this cron kept its own isolated token cache,
+# so it and index.py's SwyftxClient instances each refreshed independently
+# against Swyftx's tightly rate-limited /auth/refresh/ endpoint for the
+# SAME physical key — confirmed live 2026-10-24 to 429 the admin's wallet
+# out of the leaderboard within seconds of linking it.
 
 def _get_swyftx_token():
-    global _swyftx_token, _swyftx_token_expiry
-    now = time.time() * 1000
-    if _swyftx_token and now < _swyftx_token_expiry:
-        return _swyftx_token
-    data = _http_json(
-        SWYFTX_BASE + "/auth/refresh/",
-        method="POST",
-        body={"apiKey": SWYFTX_API_KEY},
-    )
-    if not data.get("accessToken"):
-        raise Exception("Swyftx auth failed")
-    _swyftx_token = data["accessToken"]
-    _swyftx_token_expiry = now + 50 * 60 * 1000
-    return _swyftx_token
+    return get_cached_token(SWYFTX_API_KEY)
 
 def _swyftx_headers():
     return {
