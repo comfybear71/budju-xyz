@@ -69,6 +69,13 @@ user_trader_state_collection = db["user_trader_state"]
 # account's raw balance, so it can never touch coins the user holds that it
 # didn't buy itself. Also backs each user's own Activity view.
 user_trades_collection = db["user_trades"]
+# code -> CoinGecko id, resolved once for any coin a connected wallet holds
+# that isn't in the static ASSET_CG_IDS registry, then cached here forever
+# (including a cached "not found" as cgId: None) so BUDJU never re-runs the
+# full CoinGecko coin-list lookup for the same coin twice. This is what lets
+# the bot price and trade literally any coin a user holds, not just the
+# ~30 originally hand-picked ones.
+dynamic_coin_registry_collection = db["dynamic_coin_registry"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -85,6 +92,7 @@ desk_briefs_collection.create_index([("createdAt", -1)])
 user_exchange_keys_collection.create_index("walletAddress", unique=True)
 user_trader_state_collection.create_index("walletAddress", unique=True)
 user_trades_collection.create_index([("walletAddress", 1), ("timestamp", -1)])
+dynamic_coin_registry_collection.create_index("code", unique=True)
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -1765,7 +1773,6 @@ from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from asset_registry import ASSET_CG_IDS, PERMANENT_BUY_DENYLIST, DEFAULT_MONITORED_ASSETS
 from urllib.request import urlopen
-from urllib.error import URLError
 
 
 def get_budju_token_balance(wallet_address: str) -> float:
@@ -1859,6 +1866,43 @@ def get_user_swyftx_key_status(wallet_address: str) -> Dict:
 def remove_user_swyftx_key(wallet_address: str) -> Dict:
     result = user_exchange_keys_collection.delete_one({"walletAddress": wallet_address})
     return {"success": True, "removed": result.deleted_count > 0}
+
+
+def link_admin_master_key(wallet_address: str) -> Dict:
+    """Admin-only convenience: the admin's Swyftx key is already configured
+    server-side as SWYFTX_API_KEY (it's what powers the legacy pooled bot)
+    — this reuses that exact key for the admin's own entry in the per-user
+    system instead of asking them to paste it again into the UI. Only ever
+    links to a wallet that's already an admin; never usable for anyone
+    else's wallet, and never returns or logs the key itself."""
+    if not is_admin(wallet_address):
+        raise ValueError("Admin access required")
+
+    master_key = os.getenv("SWYFTX_API_KEY", "")
+    if not master_key:
+        raise ValueError("SWYFTX_API_KEY is not configured on the server")
+
+    client = SwyftxClient(master_key)
+    ok, auth_error = client.test_connection()
+    if not ok:
+        raise ValueError(f"The server's master Swyftx key failed to authenticate: {auth_error}")
+
+    now = datetime.utcnow()
+    user_exchange_keys_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": {
+            "walletAddress": wallet_address,
+            "exchange": "swyftx",
+            "encryptedApiKey": encrypt_secret(master_key),
+            "maskedApiKey": mask_secret(master_key),
+            "status": "active",
+            "lastValidatedAt": now,
+            "lastError": None,
+            "updatedAt": now,
+        }, "$setOnInsert": {"addedAt": now}},
+        upsert=True,
+    )
+    return {"success": True, "status": "active", "maskedApiKey": mask_secret(master_key)}
 
 
 def _get_user_swyftx_client(wallet_address: str) -> SwyftxClient:
@@ -2080,27 +2124,115 @@ def get_all_users_trade_activity(requester_wallet: str) -> List[Dict]:
     return out
 
 
-# ── Live, non-custodial leaderboard ─────────────────────────────────────────
-# Replaces the old pool/NAV leaderboard. No shares, no NAV — just each
-# connected wallet's own current holdings, read live from their own account,
-# split into cash (USDC/AUD) vs. crypto.
+# ── Pricing any coin, not just the ~30 in ASSET_CG_IDS ──────────────────────
+# A user's Swyftx account can hold anything Swyftx lists (hundreds of
+# coins) — not just BUDJU's hand-picked registry. These two functions let
+# the bot (and the leaderboard) price and trade whatever a wallet actually
+# holds. Resolution is cached forever in `dynamic_coin_registry` so the
+# expensive full CoinGecko coin-list lookup only ever runs once per coin,
+# across every wallet, for the lifetime of the app.
 
-def _fetch_live_prices(codes: List[str]) -> Dict[str, float]:
-    cg_ids = sorted({ASSET_CG_IDS[c] for c in codes if c in ASSET_CG_IDS})
-    if not cg_ids:
-        return {}
-    url = f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(cg_ids)}&vs_currencies=usd"
+_coingecko_coin_list_cache: Optional[List[Dict]] = None
+
+
+def _get_coingecko_coin_list() -> List[Dict]:
+    """Full CoinGecko coin list (id, symbol, name) — ~15k entries. Cached
+    in-process only (this is the one-time cost of resolving a brand-new
+    coin; after that, resolve_coingecko_id() never needs this again for
+    that coin)."""
+    global _coingecko_coin_list_cache
+    if _coingecko_coin_list_cache is not None:
+        return _coingecko_coin_list_cache
     try:
-        with urlopen(url, timeout=15) as resp:
+        with urlopen("https://api.coingecko.com/api/v3/coins/list", timeout=20) as resp:
             data = json.loads(resp.read().decode())
-    except (URLError, Exception):
+        _coingecko_coin_list_cache = data if isinstance(data, list) else []
+    except Exception:
+        _coingecko_coin_list_cache = []
+    return _coingecko_coin_list_cache
+
+
+def resolve_coingecko_id(code: str) -> Optional[str]:
+    """Map a Swyftx asset code (e.g. "SUI") to a CoinGecko coin id, so any
+    coin a connected wallet holds can be priced — not just the static
+    ASSET_CG_IDS registry. Resolved once, then cached forever in
+    `dynamic_coin_registry` (including a cached "not found", so a coin
+    CoinGecko genuinely doesn't list is never retried on every cron tick).
+    Several coins can share a ticker symbol; when that happens this picks
+    whichever candidate has the highest market cap, since that's
+    overwhelmingly the coin a licensed AU exchange like Swyftx actually
+    lists — never a scam token sharing the same ticker."""
+    code = code.upper()
+    if code in ASSET_CG_IDS:
+        return ASSET_CG_IDS[code]
+
+    cached = dynamic_coin_registry_collection.find_one({"code": code})
+    if cached is not None:
+        return cached.get("cgId")
+
+    cg_id = None
+    try:
+        candidates = [c for c in _get_coingecko_coin_list() if str(c.get("symbol", "")).upper() == code]
+        if len(candidates) == 1:
+            cg_id = candidates[0].get("id")
+        elif len(candidates) > 1:
+            ids = ",".join(c["id"] for c in candidates if c.get("id"))
+            with urlopen(
+                "https://api.coingecko.com/api/v3/coins/markets"
+                f"?vs_currency=usd&ids={ids}&order=market_cap_desc&per_page=1",
+                timeout=15,
+            ) as resp:
+                ranked = json.loads(resp.read().decode())
+            if isinstance(ranked, list) and ranked:
+                cg_id = ranked[0].get("id")
+    except Exception:
+        cg_id = None
+
+    dynamic_coin_registry_collection.update_one(
+        {"code": code},
+        {"$set": {"cgId": cg_id, "resolvedAt": datetime.utcnow()}},
+        upsert=True,
+    )
+    return cg_id
+
+
+def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
+    """Live USD prices for an arbitrary set of coin codes. Resolves any
+    code outside ASSET_CG_IDS via resolve_coingecko_id() first, then does
+    one combined CoinGecko price fetch for everything — this is what makes
+    "any coin a user holds" both tradeable and correctly valued, instead
+    of silently pricing at $0 the moment a wallet holds something outside
+    the original ~30-coin list."""
+    code_to_cgid: Dict[str, str] = {}
+    for code in set(c.upper() for c in codes):
+        cg_id = resolve_coingecko_id(code)
+        if cg_id:
+            code_to_cgid[code] = cg_id
+
+    if not code_to_cgid:
         return {}
-    prices = {}
-    for code, cg_id in ASSET_CG_IDS.items():
+
+    ids_param = ",".join(sorted(set(code_to_cgid.values())))
+    try:
+        with urlopen(
+            f"https://api.coingecko.com/api/v3/simple/price?ids={ids_param}&vs_currencies=usd", timeout=15
+        ) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception:
+        return {}
+
+    prices: Dict[str, float] = {}
+    for code, cg_id in code_to_cgid.items():
         entry = data.get(cg_id)
         if entry and entry.get("usd"):
             prices[code] = float(entry["usd"])
     return prices
+
+
+# ── Live, non-custodial leaderboard ─────────────────────────────────────────
+# Replaces the old pool/NAV leaderboard. No shares, no NAV — just each
+# connected wallet's own current holdings, read live from their own account,
+# split into cash (USDC/AUD) vs. crypto.
 
 
 def get_live_leaderboard() -> Dict:
@@ -2126,7 +2258,7 @@ def get_live_leaderboard() -> Dict:
         except Exception:
             wallet_holdings[wallet] = None
 
-    prices = _fetch_live_prices(list(all_coins))
+    prices = get_prices_for_coins(list(all_coins))
 
     entries = []
     errored = 0
