@@ -3295,7 +3295,25 @@ def get_copytrade_wallet(address: str) -> Optional[Dict]:
     return copytrade_wallets_collection.find_one({"address": address})
 
 
+def get_trackable_copytrade_wallet_addresses() -> List[str]:
+    """Every wallet the Helius webhook should be watching — "pending"
+    (freshly seeded, not yet scored) AND "active" (already proven),
+    everything except "excluded". This is deliberately NOT status="active"
+    only: a brand-new wallet needs its swaps actually flowing in via the
+    webhook before it can ever accumulate the 10 closed trades
+    copytrade_filters.MIN_TRADES_TO_SCORE requires to be promoted out of
+    "pending" — tracking active-only wallets would mean no wallet could
+    ever earn its first trade, a permanent bootstrap deadlock."""
+    return [
+        d["address"] for d in
+        copytrade_wallets_collection.find({"status": {"$ne": "excluded"}}, {"address": 1})
+    ]
+
+
 def get_active_copytrade_wallet_addresses() -> List[str]:
+    """Wallets that have PASSED the filter and appear on the public
+    leaderboard. NOT the right set for Helius webhook tracking — see
+    get_trackable_copytrade_wallet_addresses() for that."""
     return [
         d["address"] for d in
         copytrade_wallets_collection.find({"status": "active"}, {"address": 1})

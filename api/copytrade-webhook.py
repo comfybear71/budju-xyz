@@ -23,7 +23,7 @@ from urllib.request import Request, urlopen
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database import (
-    get_active_copytrade_wallet_addresses,
+    get_trackable_copytrade_wallet_addresses,
     get_copytrade_wallet,
     record_copytrade_event,
     open_copytrade_position,
@@ -58,7 +58,9 @@ def _short(addr: str) -> str:
 
 def handle_delivery(payload) -> dict:
     txs = payload if isinstance(payload, list) else [payload]
-    tracked = set(get_active_copytrade_wallet_addresses())
+    # "pending" wallets must be included here too — see
+    # get_trackable_copytrade_wallet_addresses()'s docstring.
+    tracked = set(get_trackable_copytrade_wallet_addresses())
     opened, closed, ignored = 0, 0, 0
 
     for tx in txs:
