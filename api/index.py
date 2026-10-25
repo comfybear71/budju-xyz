@@ -91,6 +91,9 @@ from database import (
     get_wallet_cash_flows,
     get_community_cash_flows,
     get_coin_price_history,
+    get_copytrade_leaderboard,
+    get_copytrade_signals,
+    get_copytrade_overview,
 )
 
 from perp_engine import (
@@ -524,6 +527,30 @@ class handler(BaseHTTPRequestHandler):
                 # with either a live Swyftx key or a manual override. Only
                 # covers wallets that actually have readable data.
                 self._send_json(200, get_community_cash_flows())
+
+            # ── Signals / Copy Trading (Phase 1 — public, read-only) ──
+            # Paper trading sandbox off an auto-sourced wallet list. No
+            # login required to view — same visibility tier as the Pool
+            # leaderboard and coin charts, so a prospective user can see
+            # the whole system before ever connecting a wallet.
+            elif path == '/api/copytrade/leaderboard':
+                limit = params.get('limit', '50')
+                try:
+                    limit_int = max(1, min(int(limit), 200))
+                except (TypeError, ValueError):
+                    limit_int = 50
+                self._send_json(200, get_copytrade_leaderboard(limit_int))
+
+            elif path == '/api/copytrade/signals':
+                limit = params.get('limit', '60')
+                try:
+                    limit_int = max(1, min(int(limit), 200))
+                except (TypeError, ValueError):
+                    limit_int = 60
+                self._send_json(200, get_copytrade_signals(limit_int))
+
+            elif path == '/api/copytrade/overview':
+                self._send_json(200, get_copytrade_overview())
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')

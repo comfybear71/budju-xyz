@@ -92,6 +92,23 @@ NEGATIVE_CACHE_HOURS = 6
 # then: liveValue + totalWithdrawn - totalDeposited — same shape as the old
 # share-based P&L, just against a live Swyftx balance instead of shares×NAV.
 wallet_cash_flows_collection = db["wallet_cash_flows"]
+# ── Signals / Copy Trading (Phase 1 — paper trading only, no real funds) ──
+# Tracked Solana wallets (seeded from a public Dune dashboard + auto-filtered
+# for wash-trading/bot behaviour), the raw swap events ingested for them via
+# a Helius webhook, and the paper positions BUDJU simulates off those swaps.
+# Entirely separate from every Swyftx/spot/perp collection above — this
+# never touches real funds or a user's own exchange key.
+copytrade_wallets_collection = db["copytrade_wallets"]
+# Raw per-swap events, kept only for a bounded window (see TTL index below)
+# so this can't repeat the "wrote every-minute candles until the free Mongo
+# tier filled up" mistake perp_price_history already made once. Long-term
+# per-wallet performance lives in copytrade_wallets' running stats instead,
+# which is tiny and never pruned.
+copytrade_events_collection = db["copytrade_events"]
+copytrade_positions_collection = db["copytrade_positions"]
+# Small singleton-style state docs (_id is a fixed string per concern) —
+# e.g. the Helius webhook ID/address-list hash, last Dune refresh time.
+copytrade_state_collection = db["copytrade_state"]
 
 # Create indexes (create_index is idempotent — safe to run on every cold start)
 users_collection.create_index("walletAddress", unique=True)
@@ -110,6 +127,19 @@ user_trader_state_collection.create_index("walletAddress", unique=True)
 user_trades_collection.create_index([("walletAddress", 1), ("timestamp", -1)])
 dynamic_coin_registry_collection.create_index("code", unique=True)
 wallet_cash_flows_collection.create_index([("walletAddress", 1), ("timestamp", 1)])
+copytrade_wallets_collection.create_index("address", unique=True)
+copytrade_wallets_collection.create_index([("status", 1), ("stats.totalPnlUsd", -1)])
+copytrade_events_collection.create_index("signature", unique=True)
+copytrade_events_collection.create_index([("walletAddress", 1), ("blockTime", -1)])
+# TTL index — raw swap events auto-expire 90 days after ingestion. This is
+# the deliberate fix for the MongoDB-fills-up lesson: unlike perp candles,
+# nothing here needs to survive past the retention window, because every
+# number that matters long-term (wins/losses/P&L per wallet) is already
+# rolled up onto copytrade_wallets_collection at close time.
+copytrade_events_collection.create_index("createdAt", expireAfterSeconds=90 * 24 * 60 * 60)
+copytrade_positions_collection.create_index([("walletAddress", 1), ("status", 1)])
+copytrade_positions_collection.create_index([("status", 1), ("entryAt", -1)])
+copytrade_positions_collection.create_index([("walletAddress", 1), ("tokenMint", 1), ("status", 1)])
 
 
 def verify_wallet_signature(wallet_address: str, message: str, signature: List[int]) -> bool:
@@ -3170,4 +3200,285 @@ def get_community_cash_flows() -> Dict:
         "totalDepositedUsd": round(total_deposited, 2),
         "totalWithdrawnUsd": round(total_withdrawn, 2),
         "timeline": timeline,
+    }
+
+
+# ── Signals / Copy Trading (Phase 1) ────────────────────────────────────────
+# Public, read-only leaderboard of auto-sourced Solana wallets + a paper
+# trading sandbox that mirrors their buys/sells with simulated USDC, no real
+# funds. See api/copytrade_dune.py (seed list), api/copytrade_filters.py
+# (wash-trade/bot filtering), api/copytrade_helius.py (webhook + swap
+# parsing) and api/copytrade_engine.py (entry/exit decisions) for the logic
+# that calls into these accessors. Everything here follows the same
+# "every DB access goes through database.py" rule as the rest of the file.
+
+COPYTRADE_STATE_ID = "copytrade"
+
+
+def get_copytrade_state() -> Dict:
+    doc = copytrade_state_collection.find_one({"_id": COPYTRADE_STATE_ID}) or {}
+    return {
+        "walletsRefreshedAt": doc.get("walletsRefreshedAt"),
+        "heliusWebhookId": doc.get("heliusWebhookId"),
+        "heliusAddressesHash": doc.get("heliusAddressesHash"),
+    }
+
+
+def save_copytrade_state(updates: Dict) -> None:
+    copytrade_state_collection.update_one(
+        {"_id": COPYTRADE_STATE_ID},
+        {"$set": {**updates, "updatedAt": datetime.utcnow()}},
+        upsert=True,
+    )
+
+
+def upsert_copytrade_wallets(candidates: List[Dict]) -> Dict:
+    """Insert newly-seen tracked wallets, touch lastSeenAt on known ones.
+    `candidates`: [{"address", "label"?, "source", "sourceQueryId"?}].
+    Never overwrites an existing wallet's status/stats/filterFlags — those
+    are only ever changed by the filter pipeline or by closing a paper
+    position, not by re-seeding from Dune."""
+    inserted = 0
+    touched = 0
+    for c in candidates:
+        address = (c.get("address") or "").strip()
+        if not address:
+            continue
+        now = datetime.utcnow()
+        existing = copytrade_wallets_collection.find_one({"address": address})
+        if existing:
+            copytrade_wallets_collection.update_one(
+                {"address": address}, {"$set": {"lastSeenAt": now}}
+            )
+            touched += 1
+            continue
+        copytrade_wallets_collection.insert_one({
+            "address": address,
+            "label": c.get("label") or f"{address[:4]}...{address[-4:]}",
+            "source": c.get("source", "manual"),
+            "sourceQueryId": c.get("sourceQueryId"),
+            "firstSeenAt": now,
+            "lastSeenAt": now,
+            # Pending review by the filter pipeline — not shown on the
+            # public leaderboard until it's run at least once.
+            "status": "pending",
+            "filterFlags": {},
+            "stats": {
+                "trades": 0, "wins": 0, "losses": 0,
+                "totalPnlUsd": 0.0, "winRate": 0.0, "avgHoldMinutes": 0.0,
+            },
+        })
+        inserted += 1
+    return {"inserted": inserted, "touched": touched}
+
+
+def get_copytrade_wallets_for_filtering(limit: int = 500) -> List[Dict]:
+    """Wallets in 'pending' status (newly seeded, not yet scored) plus any
+    'active'/'excluded' wallet whose stats have moved enough trades since
+    last scored to be worth re-checking. Phase 1 keeps this simple: anything
+    not already excluded gets re-scored every filter pass."""
+    return list(
+        copytrade_wallets_collection.find({"status": {"$ne": "excluded"}}).limit(limit)
+    )
+
+
+def apply_copytrade_filter_result(address: str, flags: Dict, status: str, reason: Optional[str] = None) -> None:
+    update = {"filterFlags": flags, "status": status, "filteredAt": datetime.utcnow()}
+    if reason:
+        update["excludeReason"] = reason
+    else:
+        update["excludeReason"] = None
+    copytrade_wallets_collection.update_one({"address": address}, {"$set": update})
+
+
+def get_copytrade_wallet(address: str) -> Optional[Dict]:
+    return copytrade_wallets_collection.find_one({"address": address})
+
+
+def get_active_copytrade_wallet_addresses() -> List[str]:
+    return [
+        d["address"] for d in
+        copytrade_wallets_collection.find({"status": "active"}, {"address": 1})
+    ]
+
+
+def record_copytrade_event(event: Dict) -> bool:
+    """Insert a raw swap event. Returns False (no-op) if this signature was
+    already ingested — Helius can and does retry webhook deliveries."""
+    try:
+        copytrade_events_collection.insert_one({**event, "createdAt": datetime.utcnow()})
+        return True
+    except DuplicateKeyError:
+        return False
+
+
+def get_open_copytrade_position(wallet_address: str, token_mint: str) -> Optional[Dict]:
+    return copytrade_positions_collection.find_one({
+        "walletAddress": wallet_address, "tokenMint": token_mint, "status": "open",
+    })
+
+
+def open_copytrade_position(doc: Dict) -> Optional[Dict]:
+    """Opens a new paper position, unless this wallet already has one open
+    on this token (avoids piling up duplicate paper buys off repeated
+    signals for the same position)."""
+    if get_open_copytrade_position(doc["walletAddress"], doc["tokenMint"]):
+        return None
+    now = datetime.utcnow()
+    full = {
+        **doc,
+        "status": "open",
+        "entryAt": now,
+        "currentPriceUsd": doc.get("entryPriceUsd"),
+        "lastPricedAt": now,
+    }
+    res = copytrade_positions_collection.insert_one(full)
+    full["_id"] = res.inserted_id
+    return full
+
+
+def get_open_copytrade_positions(token_mints: Optional[List[str]] = None) -> List[Dict]:
+    query: Dict = {"status": "open"}
+    if token_mints is not None:
+        query["tokenMint"] = {"$in": token_mints}
+    return list(copytrade_positions_collection.find(query))
+
+
+def update_copytrade_position_price(position_id, price_usd: float) -> None:
+    copytrade_positions_collection.update_one(
+        {"_id": position_id},
+        {"$set": {"currentPriceUsd": price_usd, "lastPricedAt": datetime.utcnow()}},
+    )
+
+
+def close_copytrade_position(position: Dict, exit_price_usd: float, reason: str) -> Dict:
+    """Closes a paper position and rolls its P&L into the wallet's running
+    leaderboard stats (so the public leaderboard is a cheap read, never a
+    live aggregation over every trade ever made)."""
+    entry_price = position.get("entryPriceUsd") or 0
+    entry_usd = position.get("entryAmountUsd") or 0
+    pnl_pct = ((exit_price_usd - entry_price) / entry_price * 100) if entry_price else 0.0
+    pnl_usd = entry_usd * (pnl_pct / 100)
+    now = datetime.utcnow()
+    hold_minutes = max(0.0, (now - position["entryAt"]).total_seconds() / 60) if position.get("entryAt") else 0.0
+
+    copytrade_positions_collection.update_one(
+        {"_id": position["_id"]},
+        {"$set": {
+            "status": "closed",
+            "exitPriceUsd": exit_price_usd,
+            "exitAt": now,
+            "exitReason": reason,
+            "pnlUsd": round(pnl_usd, 4),
+            "pnlPct": round(pnl_pct, 2),
+            "holdMinutes": round(hold_minutes, 1),
+        }},
+    )
+
+    wallet = copytrade_wallets_collection.find_one({"address": position["walletAddress"]})
+    stats = (wallet or {}).get("stats") or {}
+    trades = stats.get("trades", 0) + 1
+    wins = stats.get("wins", 0) + (1 if pnl_usd > 0 else 0)
+    losses = stats.get("losses", 0) + (1 if pnl_usd <= 0 else 0)
+    total_pnl = round(stats.get("totalPnlUsd", 0.0) + pnl_usd, 4)
+    prev_avg_hold = stats.get("avgHoldMinutes", 0.0)
+    avg_hold = ((prev_avg_hold * (trades - 1)) + hold_minutes) / trades if trades else 0.0
+    copytrade_wallets_collection.update_one(
+        {"address": position["walletAddress"]},
+        {"$set": {
+            "stats": {
+                "trades": trades, "wins": wins, "losses": losses,
+                "totalPnlUsd": total_pnl,
+                "winRate": round((wins / trades) * 100, 1) if trades else 0.0,
+                "avgHoldMinutes": round(avg_hold, 1),
+            },
+        }},
+    )
+    return {"pnlUsd": round(pnl_usd, 4), "pnlPct": round(pnl_pct, 2)}
+
+
+def get_copytrade_leaderboard(limit: int = 50) -> Dict:
+    """Public — ranked tracked wallets with at least one closed paper trade,
+    best totalPnlUsd first. Wallets still 'pending' filter review or
+    'excluded' (wash-trade/bot) never appear here."""
+    docs = list(
+        copytrade_wallets_collection.find({"status": "active"})
+        .sort("stats.totalPnlUsd", -1)
+        .limit(limit)
+    )
+    entries = [{
+        "address": d["address"],
+        "label": d.get("label"),
+        "trades": d.get("stats", {}).get("trades", 0),
+        "winRate": d.get("stats", {}).get("winRate", 0.0),
+        "totalPnlUsd": d.get("stats", {}).get("totalPnlUsd", 0.0),
+        "avgHoldMinutes": d.get("stats", {}).get("avgHoldMinutes", 0.0),
+        "lastSeenAt": d.get("lastSeenAt").isoformat() if d.get("lastSeenAt") else None,
+    } for d in docs]
+    total_tracked = copytrade_wallets_collection.count_documents({})
+    total_active = copytrade_wallets_collection.count_documents({"status": "active"})
+    total_excluded = copytrade_wallets_collection.count_documents({"status": "excluded"})
+    return {
+        "entries": entries,
+        "walletCount": total_active,
+        "trackedCount": total_tracked,
+        "excludedCount": total_excluded,
+    }
+
+
+def _public_position(d: Dict) -> Dict:
+    return {
+        "id": str(d["_id"]),
+        "walletAddress": d["walletAddress"],
+        "walletLabel": d.get("walletLabel"),
+        "tokenSymbol": d.get("tokenSymbol") or "?",
+        "tokenMint": d.get("tokenMint"),
+        "status": d.get("status"),
+        "entryPriceUsd": d.get("entryPriceUsd"),
+        "entryAmountUsd": d.get("entryAmountUsd"),
+        "entryAt": d.get("entryAt").isoformat() if d.get("entryAt") else None,
+        "currentPriceUsd": d.get("currentPriceUsd"),
+        "exitPriceUsd": d.get("exitPriceUsd"),
+        "exitAt": d.get("exitAt").isoformat() if d.get("exitAt") else None,
+        "exitReason": d.get("exitReason"),
+        "pnlUsd": d.get("pnlUsd") if d.get("status") == "closed" else (
+            ((d.get("currentPriceUsd") or 0) - (d.get("entryPriceUsd") or 0))
+            / (d.get("entryPriceUsd") or 1) * (d.get("entryAmountUsd") or 0)
+            if d.get("entryPriceUsd") else 0.0
+        ),
+        "pnlPct": d.get("pnlPct") if d.get("status") == "closed" else (
+            (((d.get("currentPriceUsd") or 0) - (d.get("entryPriceUsd") or 0))
+             / (d.get("entryPriceUsd") or 1) * 100)
+            if d.get("entryPriceUsd") else 0.0
+        ),
+    }
+
+
+def get_copytrade_signals(limit: int = 60) -> Dict:
+    """Public — most recent paper trades (open or closed), newest first.
+    This is the "signals feed" — what the tracked wallets have been doing,
+    translated into BUDJU's own simulated buys/sells."""
+    docs = list(
+        copytrade_positions_collection.find({}).sort("entryAt", -1).limit(limit)
+    )
+    return {"signals": [_public_position(d) for d in docs]}
+
+
+def get_copytrade_overview() -> Dict:
+    open_count = copytrade_positions_collection.count_documents({"status": "open"})
+    closed_count = copytrade_positions_collection.count_documents({"status": "closed"})
+    active_wallets = copytrade_wallets_collection.count_documents({"status": "active"})
+    pipeline = [
+        {"$match": {"status": "closed"}},
+        {"$group": {"_id": None, "totalPnlUsd": {"$sum": "$pnlUsd"}, "wins": {"$sum": {"$cond": [{"$gt": ["$pnlUsd", 0]}, 1, 0]}}}},
+    ]
+    agg = list(copytrade_positions_collection.aggregate(pipeline))
+    total_pnl = agg[0]["totalPnlUsd"] if agg else 0.0
+    wins = agg[0]["wins"] if agg else 0
+    return {
+        "activeWallets": active_wallets,
+        "openPositions": open_count,
+        "closedPositions": closed_count,
+        "totalPaperPnlUsd": round(total_pnl, 2),
+        "overallWinRate": round((wins / closed_count) * 100, 1) if closed_count else 0.0,
     }
