@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
-import { FaChartBar } from "react-icons/fa";
+import { FaChartBar, FaExternalLinkAlt } from "react-icons/fa";
+import { DEXSCREENER_LINK } from "@constants/addresses";
 import { useTheme } from "@/context/ThemeContext";
 
 const DexScreener = () => {
@@ -66,28 +67,55 @@ const DexScreener = () => {
                 BUDJU/SOL — DexScreener
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
-              </span>
-              <span
-                className={`text-[10px] font-mono ${
-                  isDarkMode ? "text-cyan-400/70" : "text-cyan-600/70"
-                }`}
+            <div className="flex items-center gap-3">
+              {/* DexScreener's embedded widget relies on a cross-site
+                  Cloudflare cookie (SameSite=None) to pass its bot check.
+                  Mobile Safari — and every browser on iOS, since they all
+                  run on WebKit — blocks third-party cookies by default, so
+                  the chart can come up blank on phones even though the
+                  iframe itself loads fine (verified via curl: both desktop
+                  and mobile user agents get HTTP 200, no X-Frame-Options,
+                  so it's not something our CSP/headers are blocking). This
+                  is DexScreener's own widget behaviour, not fixable from our
+                  side — so always offer a direct link that opens their real
+                  page (no iframe, no third-party-cookie restriction) as a
+                  guaranteed-working fallback. */}
+              <a
+                href={DEXSCREENER_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`flex items-center gap-1 text-[10px] font-mono ${
+                  isDarkMode
+                    ? "text-cyan-400/70 hover:text-cyan-300"
+                    : "text-cyan-600/70 hover:text-cyan-700"
+                } transition-colors`}
               >
-                LIVE
-              </span>
+                Open on DexScreener <FaExternalLinkAlt className="w-2 h-2" />
+              </a>
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-cyan-500"></span>
+                </span>
+                <span
+                  className={`text-[10px] font-mono ${
+                    isDarkMode ? "text-cyan-400/70" : "text-cyan-600/70"
+                  }`}
+                >
+                  LIVE
+                </span>
+              </div>
             </div>
           </div>
 
           {/* Chart iframe */}
           <div className="relative w-full" style={{ minHeight: "600px", paddingBottom: "100%" }}>
             <iframe
-              src="https://dexscreener.com/solana/6pmhvxg7a3wcekbpgjgmvivbg1nufsz9na7caqsjxmez?embed=1&loadChartSettings=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=0&chartType=usd&interval=15"
+              src={`${DEXSCREENER_LINK}?embed=1&loadChartSettings=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=0&chartType=usd&interval=15`}
               className="absolute top-0 left-0 w-full h-full"
               title="BUDJU DexScreener Chart"
               frameBorder="0"
+              loading="eager"
             />
           </div>
         </motion.div>
@@ -97,7 +125,19 @@ const DexScreener = () => {
             isDarkMode ? "text-gray-600" : "text-gray-400"
           }`}
         >
-          Powered by DexScreener — Real-time DEX trading data and charts
+          Powered by DexScreener — Real-time DEX trading data and charts.
+          Chart not loading on mobile?{" "}
+          <a
+            href={DEXSCREENER_LINK}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`underline ${
+              isDarkMode ? "text-gray-500 hover:text-gray-400" : "text-gray-500 hover:text-gray-600"
+            }`}
+          >
+            Open it directly
+          </a>
+          .
         </p>
       </div>
     </section>
