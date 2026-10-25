@@ -58,7 +58,12 @@ TELEGRAM_CHAT_ID = -1002398835975
 
 # Trading constants (mirrors autoTrader.ts)
 DEFAULT_COOLDOWN_HOURS = 24
-MIN_USDC_RESERVE = 100
+# Lowered from $100 -> $30 on 2026-10-25 — see autoTrader.ts's matching
+# constant for why: this cron and the browser bot both trade the admin's
+# own linked Swyftx account, which the non-custodial model now treats as
+# just another per-wallet account (same floor as user-trade-cron.py's
+# USER_MIN_USDC_RESERVE), not a shared pool needing a bigger buffer.
+MIN_USDC_RESERVE = 30
 MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
 SELL_RATIO = 0.833
 HEARTBEAT_STALE_MS = 5 * 60 * 1000  # 5 minutes
@@ -406,7 +411,7 @@ def run_auto_trade_check():
     # cron wasn't active, and start its OWN concurrent buy loop against the
     # same real USDC balance — both loops individually decrement their own
     # balance correctly, but neither sees the other's spend, so the combined
-    # total blew straight through the $100 reserve floor on 2026-10-22.
+    # total blew straight through the reserve floor on 2026-10-22.
     _save_heartbeat(auto_active, now_ms)
 
     tier_assets = state.get("autoTiers", state.get("autoTierAssets", {}))
