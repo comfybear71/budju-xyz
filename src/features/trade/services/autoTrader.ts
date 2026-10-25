@@ -134,6 +134,14 @@ const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
 const CHECK_INTERVAL_MS = 180_000; // 3 minutes
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
+// A buy blocked by the $100 reserve floor leaves the coin's trigger still
+// crossed (price is still below target), so the very next WebSocket price
+// tick re-triggers updatePrices()'s 2s debounced immediate check — forever,
+// every ~2-7s, re-fetching CoinGecko + Swyftx each time, with no chance of
+// a different outcome until the USDC balance actually changes. This short
+// backoff (not a real post-trade cooldown) breaks that loop. Confirmed live
+// 2026-10-25: checks #156-158 firing seconds apart instead of every 3 min.
+const RESERVE_BLOCKED_RETRY_MS = 10 * 60 * 1000; // 10 minutes
 
 // ── AutoTrader Class ─────────────────────────────────────────
 
@@ -866,6 +874,7 @@ export class AutoTrader {
             `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} but price $${currentPrice.toFixed(2)} < avg cost $${avgCost.toFixed(2)} — SELL BLOCKED`,
             "info",
           );
+          this._setRetryBackoff(coin, tier, `below avg cost ($${avgCost.toFixed(2)})`);
         } else {
           this._setDiagnostic(ck, "Executing SELL...", "info");
           this._log(
@@ -916,6 +925,7 @@ export class AutoTrader {
     if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
       this._setDiagnostic(ck, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
       this._log(`Skipping ${code} (T${tier}) buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve`, "error");
+      this._setRetryBackoff(code, tier, `USDC too low ($${usdcBalance.toFixed(2)})`);
       return null;
     }
 
@@ -982,6 +992,7 @@ export class AutoTrader {
     if (quantity <= 0) {
       this._setDiagnostic(ck, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
       this._log(`Skipping ${code} (T${tier}) sell — insufficient balance`, "error");
+      this._setRetryBackoff(code, tier, "no balance on Swyftx");
       return null;
     }
 
@@ -1000,6 +1011,7 @@ export class AutoTrader {
         if (sellValue < MIN_ORDER_USDC) {
           this._setDiagnostic(ck, `SELL blocked: total holding ($${sellValue.toFixed(2)}) below $${MIN_ORDER_USDC} minimum`, "error");
           this._log(`Skipping ${code} (T${tier}) sell — total holding $${sellValue.toFixed(2)} below $${MIN_ORDER_USDC} minimum`, "error");
+          this._setRetryBackoff(code, tier, `holding ($${sellValue.toFixed(2)}) below minimum`);
           return null;
         }
       }
@@ -1257,6 +1269,19 @@ export class AutoTrader {
     this.cooldowns[ck] = expiresAt;
     this._saveCooldowns();
     this._log(`${coin} (T${tier}) on cooldown for ${hours}h`, "info");
+  }
+
+  /** Short backoff for a buy/sell that was blocked (not executed) — e.g. the
+   *  reserve floor. Unlike _setCooldown this isn't "trade just happened,
+   *  wait the full tier cooldown" — it's "nothing changed, stop retrying
+   *  every couple of seconds until there's a real chance of a different
+   *  outcome." Keeps the brief-but-real diagnostic visible in the UI via
+   *  _setDiagnostic (called by the caller) while this is active. */
+  private _setRetryBackoff(coin: string, tier: number, reason: string) {
+    const ck = compoundKey(coin, tier);
+    this.cooldowns[ck] = Date.now() + RESERVE_BLOCKED_RETRY_MS;
+    this._saveCooldowns();
+    this._log(`${coin} (T${tier}) backing off ${RESERVE_BLOCKED_RETRY_MS / 60_000}m — ${reason}`, "info");
   }
 
   /** Check cooldown using compound key "BTC:1" or plain coin code "BTC" (checks all tiers) */
