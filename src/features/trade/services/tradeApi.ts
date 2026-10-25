@@ -1150,6 +1150,7 @@ interface RawPricedAsset {
   balance: number;
   priceUsd: number;
   usdValue: number;
+  change24h?: number;
 }
 
 /** Shared by fetchPersonalPricedHoldings (one wallet's own coins) and the
@@ -1172,7 +1173,7 @@ function mapRawPricedAssets(rawAssets: RawPricedAsset[]): PortfolioAsset[] {
       balance: a.balance,
       audValue: a.usdValue / AUD_TO_USD,
       usdValue: a.usdValue,
-      change24h: 0,
+      change24h: a.change24h ?? 0,
       priceUsd: a.priceUsd,
       color: cfg.color,
       icon: cfg.icon,

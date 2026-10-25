@@ -2059,6 +2059,7 @@ def get_user_priced_holdings(wallet_address: str) -> Dict:
         if c not in ("USDC", "USD", "AUD", "USDT") and amount > 0
     ]
     prices = get_prices_for_coins(crypto_codes)
+    changes = get_price_changes_for_coins(crypto_codes)
 
     assets = []
     for code in crypto_codes:
@@ -2069,6 +2070,7 @@ def get_user_priced_holdings(wallet_address: str) -> Dict:
             "balance": balance,
             "priceUsd": price,
             "usdValue": round(balance * price, 2),
+            "change24h": round(changes.get(code, 0.0), 2),
         })
     assets.sort(key=lambda a: a["usdValue"], reverse=True)
     return {"walletAddress": wallet_address, "assets": assets}
@@ -2403,6 +2405,14 @@ _PRICE_CACHE_TTL_S = 120  # how long a price is served without re-fetching
 _price_cache: Dict[str, Tuple[float, float]] = {}  # code -> (price, fetchedAtEpochS)
 coingecko_price_cache_collection = db["coingecko_price_cache"]
 
+# 24h % change, populated as a side effect of the SAME CoinGecko call
+# get_prices_for_coins() already makes (include_24hr_change=true costs
+# nothing extra on CoinGecko's /simple/price endpoint — one request,
+# two fields back). Kept in its own cache, separate from _price_cache,
+# so a display-only read of change% can never alter the price dict
+# shape every trading call site depends on.
+_change_cache: Dict[str, Tuple[float, float]] = {}  # code -> (pct24h, fetchedAtEpochS)
+
 
 def _get_cached_prices(codes: List[str]) -> Dict[str, float]:
     """Best-effort last-known price for each code, however stale — used
@@ -2556,22 +2566,60 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
 
     ids_param = ",".join(sorted(set(code_to_cgid.values())))
     try:
-        data = _coingecko_get(f"/simple/price?ids={ids_param}&vs_currencies=usd")
+        # include_24hr_change=true is free on this endpoint — same one
+        # request, CoinGecko just adds a second field per coin. Captured
+        # into _change_cache below so get_price_changes_for_coins() never
+        # needs a CoinGecko call of its own.
+        data = _coingecko_get(f"/simple/price?ids={ids_param}&vs_currencies=usd&include_24hr_change=true")
     except Exception:
         return _get_cached_prices(list(code_to_cgid.keys()))
 
     prices: Dict[str, float] = {}
+    changes: Dict[str, float] = {}
     for code, cg_id in code_to_cgid.items():
         entry = data.get(cg_id)
         if entry and entry.get("usd"):
             prices[code] = float(entry["usd"])
+            pct = entry.get("usd_24h_change")
+            if pct is not None:
+                changes[code] = float(pct)
 
     _store_fresh_prices(prices)
+    _store_fresh_changes(changes)
 
     missing = [c for c in code_to_cgid if c not in prices]
     if missing:
         prices.update(_get_cached_prices(missing))
     return prices
+
+
+def _store_fresh_changes(changes: Dict[str, float]) -> None:
+    now = time.time()
+    for code, pct in changes.items():
+        _change_cache[code] = (pct, now)
+
+
+def get_price_changes_for_coins(codes: List[str]) -> Dict[str, float]:
+    """24h % change for each code, piggybacking entirely on
+    get_prices_for_coins()'s own CoinGecko call — this function never
+    issues a request of its own. Call get_prices_for_coins() for the same
+    codes first (every caller already does, to price the same holdings) so
+    this is a pure cache read. A code with no cached change (never priced,
+    or CoinGecko omitted usd_24h_change for it) returns 0.0 rather than
+    being left out, so the frontend never needs a null-check."""
+    requested = sorted(set(c.upper() for c in codes))
+    now = time.time()
+    result: Dict[str, float] = {}
+    for code in requested:
+        cached = _change_cache.get(code)
+        # A generous multiple of the price TTL — a slightly stale % change
+        # is harmless (it's a display figure, not a trading input), so this
+        # favors showing last-known movement over flashing back to 0.0%.
+        if cached and now - cached[1] < _PRICE_CACHE_TTL_S * 5:
+            result[code] = cached[0]
+        else:
+            result[code] = 0.0
+    return result
 
 
 # ── Live, non-custodial leaderboard ─────────────────────────────────────────
@@ -2681,12 +2729,14 @@ def get_live_leaderboard() -> Dict:
 
     entries.sort(key=lambda e: e["totalValue"], reverse=True)
 
+    coin_changes = get_price_changes_for_coins(list(coin_totals.keys()))
     coin_total_list = [
         {
             "code": code,
             "balance": balance,
             "priceUsd": prices.get(code, 0.0),
             "usdValue": round(balance * prices.get(code, 0.0), 2),
+            "change24h": round(coin_changes.get(code, 0.0), 2),
         }
         for code, balance in coin_totals.items()
     ]
