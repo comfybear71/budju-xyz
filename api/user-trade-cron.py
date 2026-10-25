@@ -48,6 +48,7 @@ from database import (
     record_user_trade,
     get_user_bot_position,
     get_prices_for_coins,
+    ADMIN_WALLETS,
 )
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from trade_guards import is_permanently_buy_denied
@@ -324,7 +325,22 @@ def run_user_auto_trade():
 
     all_codes = sorted(set(c for c, _ in active_pairs))
 
-    wallets = list(user_exchange_keys_collection.find({"status": "active", "autoTradeEnabled": True}))
+    # Excludes ADMIN_WALLETS — the admin's own Swyftx account is already
+    # traded by the dedicated legacy pooled bot (api/auto-trade-cron.py's
+    # cron + the browser AutoTrader, which coordinate via a heartbeat so
+    # only one of THEM trades at a time). That pooled bot has no awareness
+    # of this per-user cron at all, so if the admin's wallet ever links its
+    # key here too (via link_admin_master_key — see PersonalExchangeKeyPanel
+    # "link master key" button), without this exclusion BOTH this cron and
+    # the pooled bot would independently see the same crossed target and
+    # could both fire a buy/sell on the exact same physical account in the
+    # same 5-minute window — doubling trade size and racing on the same
+    # shared targets/cooldowns document. One account, one trader.
+    wallets = list(user_exchange_keys_collection.find({
+        "status": "active",
+        "autoTradeEnabled": True,
+        "walletAddress": {"$nin": ADMIN_WALLETS},
+    }))
     if not wallets:
         return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 

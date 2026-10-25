@@ -14,7 +14,7 @@
 //   - After BUY: buy target moves down, sell target stays
 //   - After SELL: sell target moves up, buy target stays
 //   - 24h cooldown per coin after each trade
-//   - Always keeps $100 USDC minimum reserve
+//   - Always keeps $30 USDC minimum reserve (per wallet, matches user-trade-cron.py)
 //   - Sells 83.3% of allocation (accumulation bias)
 
 import {
@@ -129,12 +129,19 @@ export const TIER_CONFIG: Record<number, TierConfig> = {
 
 const ALL_TIERS = [1, 2, 3];
 const DEFAULT_COOLDOWN_HOURS = 24;
-const MIN_USDC_RESERVE = 100;
+// Lowered from $100 -> $30 on 2026-10-25 to match user-trade-cron.py's
+// per-wallet floor (USER_MIN_USDC_RESERVE) — this browser bot and
+// auto-trade-cron.py both trade the admin's own linked Swyftx account
+// (see link_admin_master_key in database.py), which the non-custodial
+// model now treats as just another per-wallet account, not a shared pool
+// needing a bigger buffer. Keeping three different reserve floors for the
+// same physical account was confusing and inconsistent.
+const MIN_USDC_RESERVE = 30;
 const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
 const CHECK_INTERVAL_MS = 180_000; // 3 minutes
 const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
-// A buy blocked by the $100 reserve floor leaves the coin's trigger still
+// A buy blocked by the reserve floor leaves the coin's trigger still
 // crossed (price is still below target), so the very next WebSocket price
 // tick re-triggers updatePrices()'s 2s debounced immediate check — forever,
 // every ~2-7s, re-fetching CoinGecko + Swyftx each time, with no chance of
@@ -795,7 +802,7 @@ export class AutoTrader {
     }
 
     // Always refresh data before checking prices — stale USDC balance
-    // was causing buys to be skipped ("would break $100 reserve")
+    // was causing buys to be skipped ("would break $30 reserve")
     this._log("Refreshing prices...", "info");
     await this._refreshData();
 

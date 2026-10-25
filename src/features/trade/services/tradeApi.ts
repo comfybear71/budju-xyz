@@ -1150,6 +1150,7 @@ interface RawPricedAsset {
   balance: number;
   priceUsd: number;
   usdValue: number;
+  change24h?: number;
 }
 
 /** Shared by fetchPersonalPricedHoldings (one wallet's own coins) and the
@@ -1172,7 +1173,7 @@ function mapRawPricedAssets(rawAssets: RawPricedAsset[]): PortfolioAsset[] {
       balance: a.balance,
       audValue: a.usdValue / AUD_TO_USD,
       usdValue: a.usdValue,
-      change24h: 0,
+      change24h: a.change24h ?? 0,
       priceUsd: a.priceUsd,
       color: cfg.color,
       icon: cfg.icon,
@@ -1405,6 +1406,38 @@ export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
 export function poolAssetsFromLeaderboard(leaderboard: LiveLeaderboard | null): PortfolioAsset[] {
   if (!leaderboard) return [];
   return mapRawPricedAssets(leaderboard.coinTotals);
+}
+
+export interface CoinPricePoint {
+  /** epoch ms, straight from CoinGecko's market_chart response */
+  timestamp: number;
+  priceUsd: number;
+}
+
+export interface CoinPriceHistory {
+  code: string;
+  points: CoinPricePoint[];
+}
+
+/** One coin's USD price over the last `days` days — powers the expandable
+ *  chart under each Holdings card. Works for any coin, not just BUDJU's
+ *  ~30-coin registry, since the server resolves the CoinGecko id the same
+ *  way get_prices_for_coins() does. Empty `points` (never thrown) means
+ *  "not enough data", not an error — callers should show a friendly
+ *  empty state rather than treating it as a failure. */
+export async function fetchCoinPriceHistory(code: string, days: number = 7): Promise<CoinPriceHistory> {
+  try {
+    const res = await fetchWithRetry(`/api/coin-price-history?code=${encodeURIComponent(code)}&days=${days}`);
+    if (!res.ok) return { code, points: [] };
+    const data = await res.json();
+    const raw: [number, number][] = Array.isArray(data.points) ? data.points : [];
+    return {
+      code: data.code || code,
+      points: raw.map(([ts, price]) => ({ timestamp: ts, priceUsd: price })),
+    };
+  } catch {
+    return { code, points: [] };
+  }
 }
 
 // ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ──

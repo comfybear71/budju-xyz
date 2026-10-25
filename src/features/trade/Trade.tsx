@@ -1054,6 +1054,7 @@ const Trade = () => {
                   isAdmin={isAdmin}
                   viewMode={isConnected ? holdingsView : "pool"}
                   onToggleView={isConnected ? setHoldingsView : undefined}
+                  adminWallet={walletAddress}
                 />
               </div>
               )}

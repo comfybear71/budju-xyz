@@ -90,6 +90,7 @@ from database import (
     link_admin_master_key,
     get_wallet_cash_flows,
     get_community_cash_flows,
+    get_coin_price_history,
 )
 
 from perp_engine import (
@@ -491,6 +492,21 @@ class handler(BaseHTTPRequestHandler):
                 # Shows each connected wallet's own live holdings split
                 # (%cash vs %crypto), never a pool share or NAV figure.
                 self._send_json(200, get_live_leaderboard())
+
+            elif path == '/api/coin-price-history':
+                # Public — just a price chart, same CoinGecko data anyone
+                # can see on CoinGecko itself. Powers the Holdings grid's
+                # expandable coin card.
+                code = params.get('code')
+                if not code:
+                    self._send_json(400, {"error": "code parameter required"})
+                    return
+                days = params.get('days', '7')
+                try:
+                    days_int = int(days)
+                except (TypeError, ValueError):
+                    days_int = 7
+                self._send_json(200, get_coin_price_history(code, days_int))
 
             elif path == '/api/user/cash-flows':
                 # Public, wallet-scoped — same transparency tier as

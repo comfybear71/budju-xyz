@@ -4,9 +4,11 @@ import {
   FaSortAmountDown,
   FaArrowUp,
   FaArrowDown,
+  FaChevronDown,
 } from "react-icons/fa";
-import { ASSET_CONFIG } from "../services/tradeApi";
-import type { PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, fetchCommunityAggregateHoldings } from "../services/tradeApi";
+import type { PortfolioAsset, CommunityAggregateHoldings } from "../services/tradeApi";
+import CoinExpandPanel from "./CoinExpandPanel";
 
 type SortKey = "value" | "change" | "name" | "balance";
 
@@ -18,6 +20,9 @@ interface HoldingsListProps {
   isAdmin: boolean;
   viewMode: "mine" | "pool";
   onToggleView?: (mode: "mine" | "pool") => void;
+  /** Needed only to lazily fetch the admin-only per-wallet holder
+   *  breakdown when a card is expanded — never used for anything else. */
+  adminWallet?: string;
 }
 
 // ── Tier categorization ─────────────────────────────────
@@ -314,12 +319,36 @@ const HoldingsList = ({
   selectedAsset,
   isAdmin,
   viewMode,
+  adminWallet,
 }: HoldingsListProps) => {
   const [sortKey, setSortKey] = useState<SortKey>("value");
   const [sortAsc, setSortAsc] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activeTierIndex, setActiveTierIndex] = useState(0);
   const dragX = useMotionValue(0);
+
+  // Which card's dropdown (price chart + holders) is open — only one at a
+  // time, and collapsed whenever the tier tab changes.
+  const [expandedCode, setExpandedCode] = useState<string | null>(null);
+
+  // Admin-only per-wallet breakdown, lifted up here so every card's
+  // dropdown shares ONE fetch (iterating every connected wallet's own
+  // Swyftx account is expensive) instead of each expand re-fetching it.
+  const [aggregateHoldings, setAggregateHoldings] = useState<CommunityAggregateHoldings | null>(null);
+  const [aggregateLoading, setAggregateLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAdmin || !adminWallet || !expandedCode || aggregateHoldings || aggregateLoading) return;
+    setAggregateLoading(true);
+    fetchCommunityAggregateHoldings(adminWallet).then((data) => {
+      setAggregateHoldings(data);
+      setAggregateLoading(false);
+    });
+  }, [isAdmin, adminWallet, expandedCode, aggregateHoldings, aggregateLoading]);
+
+  const toggleExpanded = useCallback((code: string) => {
+    setExpandedCode((prev) => (prev === code ? null : code));
+  }, []);
 
   // Track previous prices to determine up/down direction
   const prevPricesRef = useRef<Record<string, number>>({});
@@ -412,6 +441,7 @@ const HoldingsList = ({
   const goToTier = useCallback(
     (index: number) => {
       setActiveTierIndex(Math.max(0, Math.min(index, tiers.length - 1)));
+      setExpandedCode(null);
     },
     [tiers.length],
   );
@@ -734,6 +764,37 @@ const HoldingsList = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Expand toggle — price chart + (admin) holder breakdown.
+                      Deliberately a separate button, not the card's own
+                      onClick, so expanding never fires onSelectAsset. */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleExpanded(asset.code);
+                    }}
+                    className="w-full flex items-center justify-center gap-1 mt-2 pt-1.5 text-slate-600 hover:text-slate-400 transition-colors"
+                  >
+                    <FaChevronDown
+                      size={9}
+                      className={`transition-transform duration-200 ${expandedCode === asset.code ? "rotate-180" : ""}`}
+                    />
+                    <span className="text-[9px] font-bold uppercase tracking-[0.1em]">
+                      {expandedCode === asset.code ? "Hide details" : isAdmin ? "Chart & holders" : "Price chart"}
+                    </span>
+                  </button>
+
+                  <AnimatePresence>
+                    {expandedCode === asset.code && (
+                      <CoinExpandPanel
+                        code={asset.code}
+                        priceUsd={prices[asset.code] || asset.priceUsd}
+                        isAdmin={isAdmin}
+                        aggregateHoldings={aggregateHoldings}
+                        aggregateLoading={aggregateLoading}
+                      />
+                    )}
+                  </AnimatePresence>
                 </motion.div>
               );
             })}
