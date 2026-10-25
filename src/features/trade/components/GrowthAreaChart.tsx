@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { PositionHistoryPoint } from "../services/tradeApi";
 
 interface Props {
@@ -9,6 +9,31 @@ const formatUsd = (n: number) =>
   n >= 1000
     ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
     : `$${n.toFixed(2)}`;
+
+// No 24h option — unlike the coin price chart, these points are one-per-
+// deposit/withdrawal-event (not a continuous feed), so a 24h window would
+// almost always just show the single "now" point with nothing to chart.
+const PERIODS = [
+  { label: "7d", days: 7 },
+  { label: "30d", days: 30 },
+  { label: "60d", days: 60 },
+  { label: "90d", days: 90 },
+] as const;
+
+/** Slice the full event history down to the selected window. Strictly
+ *  filtering by timestamp would often lose the most recent event BEFORE
+ *  the cutoff, making the line falsely start at $0 instead of whatever the
+ *  position was actually worth at the start of the window — so the latest
+ *  point before the cutoff is kept and re-timestamped to the cutoff as the
+ *  window's opening baseline. */
+const sliceToPeriod = (points: PositionHistoryPoint[], days: number): PositionHistoryPoint[] => {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const before = points.filter((p) => new Date(p.timestamp).getTime() < cutoff);
+  const inWindow = points.filter((p) => new Date(p.timestamp).getTime() >= cutoff);
+  if (before.length === 0) return inWindow;
+  const baseline = { ...before[before.length - 1], timestamp: new Date(cutoff).toISOString() };
+  return [baseline, ...inWindow];
+};
 
 /**
  * Deliberately minimal — just one smooth filled area + line of value over
@@ -29,8 +54,15 @@ const formatUsd = (n: number) =>
  * would show on its own stat cards.
  */
 const GrowthAreaChart = ({ points }: Props) => {
+  const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1); // default 90d — widest window, matches the old always-show-everything behaviour for history shorter than 90 days
+
+  const windowedPoints = useMemo(
+    () => sliceToPeriod(points, PERIODS[periodIdx].days),
+    [points, periodIdx],
+  );
+
   const chart = useMemo(() => {
-    if (points.length < 2) return null;
+    if (windowedPoints.length < 2) return null;
 
     const width = 400;
     const height = 90;
@@ -38,11 +70,11 @@ const GrowthAreaChart = ({ points }: Props) => {
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
 
-    const t0 = new Date(points[0].timestamp).getTime();
-    const t1 = new Date(points[points.length - 1].timestamp).getTime();
+    const t0 = new Date(windowedPoints[0].timestamp).getTime();
+    const t1 = new Date(windowedPoints[windowedPoints.length - 1].timestamp).getTime();
     const tRange = Math.max(t1 - t0, 1);
 
-    const values = points.map((p) => p.value);
+    const values = windowedPoints.map((p) => p.value);
     const minV = Math.min(...values, 0) * 0.97;
     const maxV = Math.max(...values) * 1.05 || 1;
     const vRange = maxV - minV || 1;
@@ -50,21 +82,50 @@ const GrowthAreaChart = ({ points }: Props) => {
     const xFor = (ts: string) => padding.left + ((new Date(ts).getTime() - t0) / tRange) * chartW;
     const yFor = (v: number) => padding.top + chartH - ((v - minV) / vRange) * chartH;
 
-    const coords = points.map((p) => ({ x: xFor(p.timestamp), y: yFor(p.value) }));
+    const coords = windowedPoints.map((p) => ({ x: xFor(p.timestamp), y: yFor(p.value) }));
     const linePath = `M ${coords.map((c) => `${c.x},${c.y}`).join(" L ")}`;
     const areaPath = `${linePath} L ${coords[coords.length - 1].x},${padding.top + chartH} L ${coords[0].x},${padding.top + chartH} Z`;
 
-    const last = points[points.length - 1];
+    const last = windowedPoints[windowedPoints.length - 1];
     const pnl = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
     const isUp = pnl >= 0;
 
     return { linePath, areaPath, isUp, pnl, maxV, minV };
-  }, [points]);
+  }, [windowedPoints]);
 
-  if (!chart) {
+  const periodTabs = (
+    <div className="flex items-center justify-end gap-1 mb-1.5">
+      {PERIODS.map((p, i) => (
+        <button
+          key={p.label}
+          onClick={() => setPeriodIdx(i)}
+          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${
+            i === periodIdx
+              ? "bg-blue-500/15 text-blue-400"
+              : "text-slate-600 hover:text-slate-400"
+          }`}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (points.length < 2) {
     return (
       <div className="text-center py-4 text-slate-500 text-[11px]">
         Not enough deposit history yet to chart.
+      </div>
+    );
+  }
+
+  if (!chart) {
+    return (
+      <div>
+        {periodTabs}
+        <div className="text-center py-4 text-slate-500 text-[11px]">
+          No deposit history in this window yet.
+        </div>
       </div>
     );
   }
@@ -74,6 +135,7 @@ const GrowthAreaChart = ({ points }: Props) => {
 
   return (
     <div>
+      {periodTabs}
       <svg viewBox="0 0 400 90" className="w-full" preserveAspectRatio="none">
         <defs>
           <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
