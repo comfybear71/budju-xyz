@@ -61,6 +61,7 @@ export interface SignalPosition {
 }
 
 export interface SignalsOverview {
+  trackedWallets: number;
   activeWallets: number;
   openPositions: number;
   closedPositions: number;

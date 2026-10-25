@@ -84,7 +84,12 @@ const Signals = () => {
       {/* Overview strip */}
       {overview && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-5">
-          <StatCard label="Tracked Wallets" value={String(overview.activeWallets)} color="#a855f7" />
+          <StatCard
+            label="Wallets Watched"
+            value={String(overview.trackedWallets)}
+            color="#a855f7"
+            sub={`${overview.activeWallets} proven`}
+          />
           <StatCard label="Open Paper Trades" value={String(overview.openPositions)} color="#3b82f6" />
           <StatCard
             label="Total Paper P&L"
@@ -197,10 +202,11 @@ const Signals = () => {
   );
 };
 
-const StatCard = ({ label, value, color }: { label: string; value: string; color: string }) => (
+const StatCard = ({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) => (
   <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
     <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">{label}</div>
     <div className="text-base font-bold font-mono" style={{ color }}>{value}</div>
+    {sub && <div className="text-[9px] text-slate-500 mt-0.5">{sub}</div>}
   </div>
 );
 

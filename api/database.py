@@ -3486,6 +3486,13 @@ def get_copytrade_overview() -> Dict:
     open_count = copytrade_positions_collection.count_documents({"status": "open"})
     closed_count = copytrade_positions_collection.count_documents({"status": "closed"})
     active_wallets = copytrade_wallets_collection.count_documents({"status": "active"})
+    # Every wallet seeded so far, regardless of status — this is what a
+    # "Tracked Wallets" stat should show. Only counting status="active"
+    # here made the overview card read "0" right after the very first
+    # Dune seed (every wallet starts "pending" until it earns 10 closed
+    # trades), even though 100+ wallets were, in fact, already being
+    # watched by the Helius webhook.
+    tracked_wallets = copytrade_wallets_collection.count_documents({})
     pipeline = [
         {"$match": {"status": "closed"}},
         {"$group": {"_id": None, "totalPnlUsd": {"$sum": "$pnlUsd"}, "wins": {"$sum": {"$cond": [{"$gt": ["$pnlUsd", 0]}, 1, 0]}}}},
@@ -3494,6 +3501,7 @@ def get_copytrade_overview() -> Dict:
     total_pnl = agg[0]["totalPnlUsd"] if agg else 0.0
     wins = agg[0]["wins"] if agg else 0
     return {
+        "trackedWallets": tracked_wallets,
         "activeWallets": active_wallets,
         "openPositions": open_count,
         "closedPositions": closed_count,
