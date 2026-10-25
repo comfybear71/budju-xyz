@@ -131,8 +131,12 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const tiers = getTiers();
   const grouped = getGrouped();
   const monitoringCount = getMonitoringData().length;
-  const state = autoTrader?.getState?.() || null;
-  const rawLog = state?.autoTradeLog || [];
+  // `AutoTrader` has no `getState()` method — this used to call it anyway
+  // (optional chaining silently returned undefined), so the Trade Log panel
+  // always rendered "No auto-trades yet" no matter how many real trades had
+  // executed. `getSnapshot()` (already used for everything else on this
+  // screen, see `snapshot` above) carries the same `tradeLog` data for real.
+  const rawLog = snapshot.tradeLog || [];
   const tradeLog = rawLog.map((entry: any) => ({
     time: entry.timestamp || entry.time || "",
     coin: entry.coin || "",
