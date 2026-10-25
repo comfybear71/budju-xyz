@@ -1408,6 +1408,38 @@ export function poolAssetsFromLeaderboard(leaderboard: LiveLeaderboard | null): 
   return mapRawPricedAssets(leaderboard.coinTotals);
 }
 
+export interface CoinPricePoint {
+  /** epoch ms, straight from CoinGecko's market_chart response */
+  timestamp: number;
+  priceUsd: number;
+}
+
+export interface CoinPriceHistory {
+  code: string;
+  points: CoinPricePoint[];
+}
+
+/** One coin's USD price over the last `days` days — powers the expandable
+ *  chart under each Holdings card. Works for any coin, not just BUDJU's
+ *  ~30-coin registry, since the server resolves the CoinGecko id the same
+ *  way get_prices_for_coins() does. Empty `points` (never thrown) means
+ *  "not enough data", not an error — callers should show a friendly
+ *  empty state rather than treating it as a failure. */
+export async function fetchCoinPriceHistory(code: string, days: number = 7): Promise<CoinPriceHistory> {
+  try {
+    const res = await fetchWithRetry(`/api/coin-price-history?code=${encodeURIComponent(code)}&days=${days}`);
+    if (!res.ok) return { code, points: [] };
+    const data = await res.json();
+    const raw: [number, number][] = Array.isArray(data.points) ? data.points : [];
+    return {
+      code: data.code || code,
+      points: raw.map(([ts, price]) => ({ timestamp: ts, priceUsd: price })),
+    };
+  } catch {
+    return { code, points: [] };
+  }
+}
+
 // ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ──
 // Auto-fetched live from each wallet's OWN Swyftx deposit/withdrawal history
 // (GET /history/deposit/ and /history/withdraw/, called server-side with

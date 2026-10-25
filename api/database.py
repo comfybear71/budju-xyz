@@ -2622,6 +2622,52 @@ def get_price_changes_for_coins(codes: List[str]) -> Dict[str, float]:
     return result
 
 
+# Price-history chart cache, per (code, days) — the Holdings grid's new
+# "expand a coin card" feature fetches this on demand (user interaction),
+# so it's not covered by get_prices_for_coins()'s cache at all. Cached
+# longer than live price (15 min) since a history chart doesn't need to
+# be any fresher than that, and CoinGecko's free tier rate limit is easily
+# exhausted if every card expand on every page load hit it fresh.
+_PRICE_HISTORY_CACHE_TTL_S = 900
+_price_history_cache: Dict[Tuple[str, int], Tuple[List[List[float]], float]] = {}
+
+
+def get_coin_price_history(code: str, days: int = 7) -> Dict:
+    """[[timestampMs, priceUsd], ...] for one coin over the last `days`
+    days, via CoinGecko's /coins/{id}/market_chart — works for ANY coin
+    resolve_coingecko_id() can find, not just the ~30-coin registry, same
+    as get_prices_for_coins(). Returns {"code", "points": [...]}; points
+    is [] (never an error) if the coin can't be resolved or CoinGecko's
+    call fails, so the frontend can show a simple "not enough data"
+    message instead of needing its own error-shape handling."""
+    code = code.upper()
+    days = max(1, min(int(days), 90))
+    cache_key = (code, days)
+
+    now = time.time()
+    cached = _price_history_cache.get(cache_key)
+    if cached and now - cached[1] < _PRICE_HISTORY_CACHE_TTL_S:
+        return {"code": code, "points": cached[0]}
+
+    cg_id = resolve_coingecko_id(code)
+    if not cg_id:
+        return {"code": code, "points": []}
+
+    try:
+        data = _coingecko_get(f"/coins/{cg_id}/market_chart?vs_currency=usd&days={days}")
+        points = data.get("prices") if isinstance(data, dict) else None
+        if not isinstance(points, list):
+            points = []
+    except Exception:
+        # Serve the last good chart rather than nothing, however stale
+        if cached:
+            return {"code": code, "points": cached[0]}
+        return {"code": code, "points": []}
+
+    _price_history_cache[cache_key] = (points, now)
+    return {"code": code, "points": points}
+
+
 # ── Live, non-custodial leaderboard ─────────────────────────────────────────
 # Replaces the old pool/NAV leaderboard. No shares, no NAV — just each
 # connected wallet's own current holdings, read live from their own account,
