@@ -136,15 +136,30 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   // always rendered "No auto-trades yet" no matter how many real trades had
   // executed. `getSnapshot()` (already used for everything else on this
   // screen, see `snapshot` above) carries the same `tradeLog` data for real.
+  //
+  // snapshot.tradeLog is already TradeLogEntry[] — {time, coin, side,
+  // quantity, price, amount} (see autoTrader.ts) — NOT the raw Mongo
+  // {coin, side, qty, price, timestamp} shape. The remap below used to read
+  // `entry.qty`/`entry.timestamp`, which don't exist on the already-
+  // normalized entries, so quantity (and the amount derived from it) was
+  // always 0 despite price/time still happening to work via their fallback
+  // field names. Confirmed live 2026-10-25: every row in the Trade Log
+  // panel showed "0.0000 @ $X.XX / $0.00" no matter how many real trades
+  // had executed. Reading both field name variants fixes it regardless of
+  // which shape a given entry (old Mongo doc vs. normalized snapshot) is in.
   const rawLog = snapshot.tradeLog || [];
-  const tradeLog = rawLog.map((entry: any) => ({
-    time: entry.timestamp || entry.time || "",
-    coin: entry.coin || "",
-    side: (entry.side?.toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
-    quantity: Number(entry.qty) || 0,
-    price: Number(entry.price) || 0,
-    amount: (Number(entry.qty) || 0) * (Number(entry.price) || 0),
-  }));
+  const tradeLog = rawLog.map((entry: any) => {
+    const quantity = Number(entry.quantity ?? entry.qty) || 0;
+    const price = Number(entry.price) || 0;
+    return {
+      time: entry.time || entry.timestamp || "",
+      coin: entry.coin || "",
+      side: (entry.side?.toUpperCase?.() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
+      quantity,
+      price,
+      amount: entry.amount != null ? Number(entry.amount) || 0 : quantity * price,
+    };
+  });
   const buyCount = tradeLog.filter((e) => e.side !== "SELL").length;
   const sellCount = tradeLog.filter((e) => e.side === "SELL").length;
   const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
