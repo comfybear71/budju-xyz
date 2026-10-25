@@ -980,10 +980,17 @@ export class AutoTrader {
       } else {
         this._setDiagnostic(ck, `BUY failed: ${result.error}`, "error");
         this._log(`${code} (T${tier}) buy failed: ${result.error}`, "error");
+        // A real Swyftx API failure (e.g. "Too many requests") leaves the
+        // target still crossed, same as the pre-check blocks below — without
+        // a backoff the very next price tick retries instantly, hammering
+        // Swyftx's rate limit again every ~2-7s. Confirmed live 2026-10-25
+        // with LUNC/ENA stuck repeating "Too many requests" back-to-back.
+        this._setRetryBackoff(code, tier, `buy failed (${result.error})`);
       }
     } catch (error: any) {
       this._setDiagnostic(ck, `BUY error: ${error.message}`, "error");
       this._log(`${code} (T${tier}) buy error: ${error.message}`, "error");
+      this._setRetryBackoff(code, tier, `buy error (${error.message})`);
     }
     return null;
   }
@@ -1063,10 +1070,14 @@ export class AutoTrader {
       } else {
         this._setDiagnostic(ck, `SELL failed: ${result.error}`, "error");
         this._log(`${code} (T${tier}) sell failed: ${result.error}`, "error");
+        // Same reasoning as the matching BUY branch — a real API failure
+        // must back off too, not just the pre-check blocks above.
+        this._setRetryBackoff(code, tier, `sell failed (${result.error})`);
       }
     } catch (error: any) {
       this._setDiagnostic(ck, `SELL error: ${error.message}`, "error");
       this._log(`${code} (T${tier}) sell error: ${error.message}`, "error");
+      this._setRetryBackoff(code, tier, `sell error (${error.message})`);
     }
     return null;
   }
