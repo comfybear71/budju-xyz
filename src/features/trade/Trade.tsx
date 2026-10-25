@@ -966,27 +966,13 @@ const Trade = () => {
                   );
                 })()}
 
-                {/* Cash Balances — admin's own account only (not the legacy
-                    pool subtraction, which depended on stale data from a
-                    different, legacy set of investors) */}
-                {!(showAutoAdmin && isAdmin) && !showTriggerView && !showTradePanel && !showHighRisk && isAdmin && (
-                  <div className="flex items-center justify-center gap-3 mb-3 py-1.5 rounded-xl bg-slate-800/30">
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                      <span className="text-[10px] text-slate-400">USDC (my account)</span>
-                      <span className="text-[10px] font-bold text-green-400 font-mono">
-                        ${Math.round(usdcBalance).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span className="text-[10px] text-slate-400">AUD (my account)</span>
-                      <span className="text-[10px] font-bold text-amber-400 font-mono">
-                        ${Math.round(audBalance).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                )}
+                {/* The old "USDC (my account)" / "AUD (my account)" row that
+                    used to live here was removed (Oct 2026) — it just
+                    repeated the admin's own balances a second time
+                    underneath the "Cash Balances (N wallets)" card above,
+                    which already breaks out USDC/AUD/USD/USDT (combined
+                    across every wallet) plus the crypto/cash ratio meter.
+                    Duplicate numbers, no new information. */}
 
               </div>
               )}
