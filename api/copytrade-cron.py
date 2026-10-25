@@ -27,7 +27,7 @@ from database import (
     close_copytrade_position,
     get_copytrade_wallets_for_filtering,
     apply_copytrade_filter_result,
-    get_active_copytrade_wallet_addresses,
+    get_trackable_copytrade_wallet_addresses,
     upsert_copytrade_wallets,
 )
 from copytrade_dune import fetch_dune_candidate_wallets
@@ -89,11 +89,14 @@ def _refresh_wallets_if_due() -> dict:
             apply_copytrade_filter_result(wallet_doc["address"], result["flags"], result["status"], result["reason"])
             scored += 1
 
-    active_addresses = get_active_copytrade_wallet_addresses()
-    new_hash = addresses_hash(active_addresses) if active_addresses else None
-    webhook_result = {"skipped": "no active wallets or unchanged"}
-    if active_addresses and new_hash != state.get("heliusAddressesHash"):
-        webhook_result = sync_helius_webhook(active_addresses, state.get("heliusWebhookId"))
+    # Track "pending" wallets too, not just "active" ones — a wallet needs
+    # its swaps flowing in via this very webhook before it can ever earn
+    # enough closed trades to be scored active in the first place.
+    trackable_addresses = get_trackable_copytrade_wallet_addresses()
+    new_hash = addresses_hash(trackable_addresses) if trackable_addresses else None
+    webhook_result = {"skipped": "no trackable wallets or unchanged"}
+    if trackable_addresses and new_hash != state.get("heliusAddressesHash"):
+        webhook_result = sync_helius_webhook(trackable_addresses, state.get("heliusWebhookId"))
         if webhook_result.get("ok"):
             save_copytrade_state({
                 "heliusWebhookId": webhook_result["webhookId"],
@@ -113,7 +116,7 @@ def _refresh_wallets_if_due() -> dict:
         "candidatesFound": len(candidates),
         "seedResult": seed_result,
         "walletsScored": scored,
-        "activeWallets": len(active_addresses),
+        "trackableWallets": len(trackable_addresses),
         "webhookResult": webhook_result,
     }
 
