@@ -369,6 +369,17 @@ const Trade = () => {
   // on the pre-trade balance indefinitely even though Swyftx's own app (and
   // the real account) had already updated — this is what actually fetches
   // the current numbers so the two agree without a manual pull-to-refresh.
+  //
+  // liveLeaderboard/communityCashFlows were missing from this interval
+  // entirely — they only ever loaded once (on mount or a manual refreshKey
+  // bump), even though they back the Pool Total doughnut, its growth chart,
+  // and the "Pool" Holdings grid (every OTHER wallet's balances/prices, not
+  // just this device's own). The RefreshClock under Holdings visibly
+  // promises a 90s cycle for whichever grid is showing; Pool just silently
+  // never refreshed on its own, unlike Mine. Confirmed live 2026-10-25: the
+  // Pool Total card and Pool Holdings grid stayed frozen on page-load
+  // numbers no matter how long the tab was left open. Added here so both
+  // views genuinely refresh every 90s, same cycle, same promise.
   useEffect(() => {
     const interval = setInterval(() => {
       fetchPortfolio()
@@ -390,6 +401,12 @@ const Trade = () => {
 
       if (isConnected && !isAdmin && walletAddress) {
         fetchPersonalPricedHoldings(walletAddress).then(setMyHoldings).catch(() => {});
+      }
+
+      fetchLiveLeaderboard().then(setLiveLeaderboard).catch(() => {});
+      fetchCommunityCashFlows().then(setCommunityCashFlows).catch(() => {});
+      if (isConnected && walletAddress) {
+        fetchWalletCashFlows(walletAddress).then(setMyCashFlows).catch(() => {});
       }
     }, 90_000);
     return () => clearInterval(interval);
