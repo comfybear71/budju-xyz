@@ -33,8 +33,7 @@ const formatUsd = (n: number) =>
 const formatBalance = (n: number) => {
   if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   if (n >= 1) return n.toFixed(2);
-  if (n >= 0.001) return n.toFixed(4);
-  return n.toFixed(8);
+  return n.toFixed(4);
 };
 
 /** Inline SVG area chart — same minimal pattern as GrowthAreaChart, just
