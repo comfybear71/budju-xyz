@@ -10,6 +10,7 @@ import {
   setAutoTradeEnabled,
   fetchCommunityAggregateHoldings,
   ASSET_CONFIG,
+  AUD_TO_USD,
   type LiveLeaderboardEntry,
   type WalletCashFlows,
   type AutoTradeStatus,
@@ -112,15 +113,28 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
     }
   };
 
-  /** This wallet's own coin balances, priced via the leaderboard's live
-   *  `coinTotals`, sorted highest-value first. Pure zero-balance coins are
-   *  dropped — a connected wallet that has merely ever touched a coin
-   *  shouldn't clutter this with 50 rows of $0.00. */
+  /** `coinPrices` (derived from the leaderboard's `coinTotals`) only ever
+   *  has CRYPTO prices — cash currencies are deliberately excluded from
+   *  `coinTotals` server-side (see get_live_leaderboard()'s docstring),
+   *  so AUD/USDC/USD/USDT balances looked up there always missed and
+   *  silently priced at $0. USDC/USD/USDT are 1:1 with USD; AUD uses the
+   *  same live CoinGecko-derived rate the rest of this page already uses
+   *  for cash conversions. */
+  const priceForCode = (code: string): number => {
+    if (code === "USDC" || code === "USD" || code === "USDT") return 1;
+    if (code === "AUD") return AUD_TO_USD;
+    return coinPrices[code] || 0;
+  };
+
+  /** This wallet's own coin + cash balances, correctly priced, sorted
+   *  highest-value first. Pure zero-balance entries are dropped — a
+   *  connected wallet that has merely ever touched a coin shouldn't
+   *  clutter this with 50 rows of $0.00. */
   const getWalletHoldings = (wallet: string) => {
     const perWallet = aggregateHoldings?.perWallet.find((p) => p.walletAddress === wallet);
     if (!perWallet) return [];
     return Object.entries(perWallet.holdings)
-      .map(([code, balance]) => ({ code, balance, usdValue: balance * (coinPrices[code] || 0) }))
+      .map(([code, balance]) => ({ code, balance, usdValue: balance * priceForCode(code) }))
       .filter((h) => h.balance > 0)
       .sort((a, b) => b.usdValue - a.usdValue);
   };
@@ -252,7 +266,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                         if (holdings.length === 0) {
                           return (
                             <div className="text-[11px] text-slate-600 text-center py-2">
-                              No crypto holdings — 100% cash.
+                              No holdings — empty wallet.
                             </div>
                           );
                         }
