@@ -6,9 +6,11 @@ import {
   fetchSignalsLeaderboard,
   fetchSignalsFeed,
   fetchSignalsOverview,
+  fetchSignalsProgress,
   type SignalsLeaderboard,
   type SignalPosition,
   type SignalsOverview,
+  type SignalsProgress,
 } from "@features/signals/services/signalsApi";
 
 const REFRESH_MS = 60_000;
@@ -29,17 +31,20 @@ const Signals = () => {
   const [leaderboard, setLeaderboard] = useState<SignalsLeaderboard | null>(null);
   const [feed, setFeed] = useState<SignalPosition[]>([]);
   const [overview, setOverview] = useState<SignalsOverview | null>(null);
+  const [progress, setProgress] = useState<SignalsProgress | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [lb, sig, ov] = await Promise.all([
+    const [lb, sig, ov, prog] = await Promise.all([
       fetchSignalsLeaderboard(),
       fetchSignalsFeed(),
       fetchSignalsOverview(),
+      fetchSignalsProgress(),
     ]);
     setLeaderboard(lb);
     setFeed(sig);
     setOverview(ov);
+    setProgress(prog);
     setLoading(false);
   }, []);
 
@@ -143,6 +148,60 @@ const Signals = () => {
                 </motion.div>
               ))}
             </div>
+          )}
+
+          {/* Wallets in Training — "pending" wallets with at least one paper
+              trade logged, below the 10-trade minimum to appear on the real
+              leaderboard above. Only rendered once something's actually
+              happened — if nothing has traded yet there's nothing to show
+              that the "No ranked wallets yet" message above doesn't already
+              cover. */}
+          {progress && progress.entries.length > 0 && (
+            <>
+              <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-2">
+                🏗️ Wallets in Training
+                <span className="text-slate-600 font-normal ml-1.5 normal-case tracking-normal">
+                  ({progress.inProgressCount} logging trades toward the {progress.minTradesToScore}-trade minimum)
+                </span>
+              </div>
+              <div className="rounded-2xl overflow-hidden mb-5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                {progress.entries.map((e, i) => {
+                  const pct = Math.min(100, (e.trades / progress.minTradesToScore) * 100);
+                  return (
+                    <motion.div
+                      key={e.address}
+                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.02 }}
+                      className="px-4 py-3"
+                      style={{ borderTop: i > 0 ? "1px solid rgba(255,255,255,0.05)" : undefined }}
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <a
+                          href={`https://solscan.io/account/${e.address}`}
+                          target="_blank" rel="noreferrer"
+                          className="text-sm font-bold text-slate-200 hover:text-purple-300 flex items-center gap-1 truncate min-w-0"
+                        >
+                          {e.label || shortAddr(e.address)} <FaExternalLinkAlt size={9} className="opacity-50 flex-shrink-0" />
+                        </a>
+                        <span className="text-sm font-bold font-mono flex-shrink-0 ml-2" style={{ color: e.totalPnlUsd >= 0 ? "#22c55e" : "#ef4444" }}>
+                          {fmtUsd(e.totalPnlUsd)}
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-800/60 overflow-hidden mb-1.5">
+                        <motion.div
+                          initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 0.4 }}
+                          className="h-full rounded-full"
+                          style={{ background: "linear-gradient(90deg, #a855f7, #ec4899)" }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-slate-500">
+                        <span>{e.trades}/{progress.minTradesToScore} paper trades · {e.wins}W-{e.losses}L</span>
+                        <span className="text-purple-400/80">{e.tradesNeeded} more to graduate</span>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           {/* Recent signals feed */}
