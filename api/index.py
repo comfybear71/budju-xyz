@@ -585,6 +585,23 @@ class handler(BaseHTTPRequestHandler):
                 debug_info["heliusWebhooksLive"] = copytrade_helius.list_helius_webhooks()
                 self._send_json(200, debug_info)
 
+            elif path == '/api/admin/user-trade-debug':
+                # Admin-only — answers "why isn't wallet X trading right
+                # now" for the per-user non-custodial auto-trade cron
+                # (user-trade-cron.py), without server log access. Walks
+                # the exact same gates that cron applies for one wallet,
+                # read-only — never places an order.
+                admin_wallet = params.get('admin_wallet')
+                target_wallet = params.get('wallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                if not target_wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                from user_trade_debug import diagnose_user_auto_trade
+                self._send_json(200, diagnose_user_auto_trade(target_wallet))
+
             elif path == '/api/debug':
                 wallet = params.get('wallet')
                 if not wallet or not is_admin(wallet):
