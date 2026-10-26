@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { FaTrophy, FaTimes, FaCrown, FaChevronDown, FaArrowUp, FaArrowDown } from "react-icons/fa";
+import { FaTrophy, FaTimes, FaCrown, FaChevronDown, FaArrowUp, FaArrowDown, FaCoins } from "react-icons/fa";
 import { FaRobot, FaPowerOff } from "react-icons/fa";
 import {
   fetchLiveLeaderboard,
@@ -8,9 +8,12 @@ import {
   buildLiveCashFlowHistory,
   fetchAutoTradeStatus,
   setAutoTradeEnabled,
+  fetchCommunityAggregateHoldings,
+  ASSET_CONFIG,
   type LiveLeaderboardEntry,
   type WalletCashFlows,
   type AutoTradeStatus,
+  type CommunityAggregateHoldings,
 } from "../services/tradeApi";
 import LeaderboardDoughnut from "./LeaderboardDoughnut";
 import PositionHistoryChart from "./PositionHistoryChart";
@@ -45,6 +48,19 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
   const [expandedWallet, setExpandedWallet] = useState<string | null>(null);
   const [loadingWallet, setLoadingWallet] = useState<string | null>(null);
 
+  // Admin-only: per-wallet coin breakdown ("what is this wallet actually
+  // holding?"), shown as a collapsed dropdown under the Net P&L chart.
+  // Reuses the SAME aggregate-holdings fetch the Holdings cards' "Chart &
+  // holders" panel already uses — one call covers every wallet, so
+  // expanding a second (or third) wallet here never re-fetches it.
+  // `coinPrices` comes along for free from the leaderboard's own
+  // `coinTotals` (each already has a live priceUsd), so no second price
+  // lookup is needed to turn a wallet's raw coin balances into USD.
+  const [coinPrices, setCoinPrices] = useState<Record<string, number>>({});
+  const [aggregateHoldings, setAggregateHoldings] = useState<CommunityAggregateHoldings | null>(null);
+  const [loadingHoldings, setLoadingHoldings] = useState(false);
+  const [openHoldingsWallet, setOpenHoldingsWallet] = useState<string | null>(null);
+
   // Admin-only: lets the admin flip any connected wallet's auto-trade bot
   // on/off from here, instead of relying on that wallet's own owner to
   // self-toggle it from their "My Exchange Key" panel.
@@ -55,6 +71,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
     if (!isOpen) return;
     setLoading(true);
     setExpandedWallet(null);
+    setOpenHoldingsWallet(null);
     fetchLiveLeaderboard()
       .then((lb) => {
         if (!lb) {
@@ -65,6 +82,9 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
         setWalletCount(lb.walletCount);
         setErroredWallets(lb.erroredWallets);
         setCombinedValue(lb.combinedValue);
+        const priceMap: Record<string, number> = {};
+        for (const c of lb.coinTotals) priceMap[c.code] = c.priceUsd;
+        setCoinPrices(priceMap);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -84,6 +104,32 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
         setAutoTradeByWallet((prev) => ({ ...prev, [wallet]: status })),
       );
     }
+    if (!aggregateHoldings && !loadingHoldings && adminWallet) {
+      setLoadingHoldings(true);
+      fetchCommunityAggregateHoldings(adminWallet)
+        .then(setAggregateHoldings)
+        .finally(() => setLoadingHoldings(false));
+    }
+  };
+
+  /** This wallet's own coin balances, priced via the leaderboard's live
+   *  `coinTotals`, sorted highest-value first. Pure zero-balance coins are
+   *  dropped — a connected wallet that has merely ever touched a coin
+   *  shouldn't clutter this with 50 rows of $0.00. */
+  const getWalletHoldings = (wallet: string) => {
+    const perWallet = aggregateHoldings?.perWallet.find((p) => p.walletAddress === wallet);
+    if (!perWallet) return [];
+    return Object.entries(perWallet.holdings)
+      .map(([code, balance]) => ({ code, balance, usdValue: balance * (coinPrices[code] || 0) }))
+      .filter((h) => h.balance > 0)
+      .sort((a, b) => b.usdValue - a.usdValue);
+  };
+
+  const formatBalance = (n: number) => {
+    if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    if (n >= 1) return n.toFixed(2);
+    if (n >= 0.001) return n.toFixed(4);
+    return n.toFixed(8);
   };
 
   /** Admin flips this wallet's bot on/off from here — the wallet owner
@@ -165,6 +211,88 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
               );
             })()
           )}
+
+          {/* Admin-only: what THIS wallet is actually holding, coin by
+              coin — collapsed by default so the Net P&L chart stays the
+              focus; expand on demand. */}
+          <div className="mt-3 pt-3 border-t border-slate-700/30">
+            <button
+              onClick={() =>
+                setOpenHoldingsWallet((cur) => (cur === entry.walletAddress ? null : entry.walletAddress))
+              }
+              className="w-full flex items-center justify-between"
+            >
+              <span className="text-[11px] font-semibold text-slate-400 flex items-center gap-1.5">
+                <FaCoins className="text-amber-400/70" size={11} />
+                Coin Holdings
+              </span>
+              <FaChevronDown
+                size={9}
+                className={`text-slate-600 transition-transform ${
+                  openHoldingsWallet === entry.walletAddress ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+            <AnimatePresence>
+              {openHoldingsWallet === entry.walletAddress && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="pt-2 space-y-1.5">
+                    {loadingHoldings && !aggregateHoldings ? (
+                      <div className="flex justify-center py-3">
+                        <div className="w-4 h-4 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+                      </div>
+                    ) : (
+                      (() => {
+                        const holdings = getWalletHoldings(entry.walletAddress);
+                        if (holdings.length === 0) {
+                          return (
+                            <div className="text-[11px] text-slate-600 text-center py-2">
+                              No crypto holdings — 100% cash.
+                            </div>
+                          );
+                        }
+                        return holdings.map((h) => {
+                          const cfg = ASSET_CONFIG[h.code];
+                          return (
+                            <div
+                              key={h.code}
+                              className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-900/40"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className="w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold flex-shrink-0"
+                                  style={{
+                                    backgroundColor: `${cfg?.color || "#64748b"}15`,
+                                    color: cfg?.color || "#64748b",
+                                  }}
+                                >
+                                  {cfg?.icon || h.code.charAt(0)}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="text-[11px] font-bold text-slate-300">{h.code}</div>
+                                  <div className="text-[10px] text-slate-600 font-mono">
+                                    {formatBalance(h.balance)}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-[11px] font-bold text-slate-300 font-mono flex-shrink-0">
+                                {formatUsdWhole(h.usdValue)}
+                              </div>
+                            </div>
+                          );
+                        });
+                      })()
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Admin control: flip THIS wallet's bot on/off ourselves —
               the wallet owner never has to touch their own toggle. */}
