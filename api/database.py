@@ -3459,6 +3459,43 @@ def close_copytrade_position(position: Dict, exit_price_usd: float, reason: str)
     return {"pnlUsd": round(pnl_usd, 4), "pnlPct": round(pnl_pct, 2)}
 
 
+def get_copytrade_debug() -> Dict:
+    """Admin-only diagnostic: raw copytrade_state, wallet status counts,
+    and a few pending wallets' own trade counts/last-seen timestamps --
+    everything needed to tell FROM THE DATABASE SIDE where the Signals
+    pipeline might be stuck (seeding never ran? webhook never synced?
+    wallets seeded but zero swaps ever recorded?) without needing server
+    log access. Combined with copytrade_helius.list_helius_webhooks()
+    (the view from Helius's own side) in the API layer above this."""
+    state = copytrade_state_collection.find_one({"_id": COPYTRADE_STATE_ID}) or {}
+    status_counts = {
+        s: copytrade_wallets_collection.count_documents({"status": s})
+        for s in ("pending", "active", "excluded")
+    }
+    sample_pending = list(
+        copytrade_wallets_collection.find({"status": "pending"}, {"address": 1, "stats": 1, "lastSeenAt": 1})
+        .sort("lastSeenAt", -1)
+        .limit(5)
+    )
+    return {
+        "walletsRefreshedAt": state.get("walletsRefreshedAt").isoformat() if state.get("walletsRefreshedAt") else None,
+        "heliusWebhookId": state.get("heliusWebhookId"),
+        "heliusAddressesHash": state.get("heliusAddressesHash"),
+        "walletStatusCounts": status_counts,
+        "totalEvents": copytrade_events_collection.count_documents({}),
+        "totalPositions": copytrade_positions_collection.count_documents({}),
+        "openPositions": copytrade_positions_collection.count_documents({"status": "open"}),
+        "samplePendingWallets": [
+            {
+                "address": d["address"],
+                "trades": d.get("stats", {}).get("trades", 0),
+                "lastSeenAt": d.get("lastSeenAt").isoformat() if d.get("lastSeenAt") else None,
+            }
+            for d in sample_pending
+        ],
+    }
+
+
 def get_copytrade_progress(limit: int = 30) -> Dict:
     """Public — wallets still in "pending" status (seeded, not yet proven
     OR excluded) that have logged at least one paper trade so far, sorted
