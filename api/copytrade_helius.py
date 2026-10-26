@@ -80,6 +80,42 @@ def sync_helius_webhook(addresses: List[str], existing_webhook_id: Optional[str]
         return {"ok": False, "error": str(e)}
 
 
+def list_helius_webhooks() -> Dict:
+    """Diagnostic only — GET every webhook currently registered on this
+    Helius API key, so we can tell from the OUTSIDE whether sync_helius_
+    webhook() has ever actually succeeded (and what it's really pointing
+    at / tracking), without needing server log access. Never called from
+    the cron/webhook hot path, only from the admin debug endpoint."""
+    if not HELIUS_API_KEY:
+        return {"ok": False, "error": "HELIUS_API_KEY not set"}
+    try:
+        url = f"{HELIUS_WEBHOOKS_BASE}?api-key={HELIUS_API_KEY}"
+        with urlopen(Request(url), timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        webhooks = data if isinstance(data, list) else []
+        return {
+            "ok": True,
+            "webhooks": [
+                {
+                    "webhookID": w.get("webhookID"),
+                    "webhookURL": w.get("webhookURL"),
+                    "transactionTypes": w.get("transactionTypes"),
+                    "webhookType": w.get("webhookType"),
+                    "accountAddressCount": len(w.get("accountAddresses") or []),
+                    "hasAuthHeader": bool(w.get("authHeader")),
+                }
+                for w in webhooks
+            ],
+        }
+    except HTTPError as e:
+        detail = e.read().decode(errors="ignore") if hasattr(e, "read") else str(e)
+        return {"ok": False, "error": f"HTTP {e.code}: {detail[:300]}"}
+    except (URLError, TimeoutError) as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _is_tracked(account: Optional[str], tracked: Set[str]) -> bool:
     return bool(account) and account in tracked
 

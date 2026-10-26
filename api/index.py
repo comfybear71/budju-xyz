@@ -95,6 +95,7 @@ from database import (
     get_copytrade_signals,
     get_copytrade_overview,
     get_copytrade_progress,
+    get_copytrade_debug,
 )
 
 from perp_engine import (
@@ -560,6 +561,29 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     limit_int = 30
                 self._send_json(200, get_copytrade_progress(limit_int))
+
+            elif path == '/api/admin/copytrade-debug':
+                # Admin-only — shows BOTH sides of the Signals pipeline at
+                # once: what the database thinks happened (wallet counts,
+                # last refresh, event/position totals) and what Helius
+                # itself has registered (live API call, not a cached
+                # value) — the fastest way to tell whether the webhook
+                # was ever actually created/pointed correctly without
+                # needing server log access.
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import copytrade_helius
+                debug_info = get_copytrade_debug()
+                debug_info["env"] = {
+                    "hasHeliusKey": bool(os.getenv("HELIUS_API_KEY")),
+                    "hasDuneKey": bool(os.getenv("DUNE_API_KEY")),
+                    "hasWebhookSecret": bool(os.getenv("COPYTRADE_WEBHOOK_SECRET")),
+                    "webhookUrl": copytrade_helius.COPYTRADE_WEBHOOK_URL,
+                }
+                debug_info["heliusWebhooksLive"] = copytrade_helius.list_helius_webhooks()
+                self._send_json(200, debug_info)
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')
