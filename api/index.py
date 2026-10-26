@@ -94,6 +94,7 @@ from database import (
     get_copytrade_leaderboard,
     get_copytrade_signals,
     get_copytrade_overview,
+    get_copytrade_progress,
 )
 
 from perp_engine import (
@@ -551,6 +552,14 @@ class handler(BaseHTTPRequestHandler):
 
             elif path == '/api/copytrade/overview':
                 self._send_json(200, get_copytrade_overview())
+
+            elif path == '/api/copytrade/progress':
+                limit = params.get('limit', '30')
+                try:
+                    limit_int = max(1, min(int(limit), 100))
+                except (TypeError, ValueError):
+                    limit_int = 30
+                self._send_json(200, get_copytrade_progress(limit_int))
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')

@@ -99,3 +99,36 @@ export async function fetchSignalsOverview(): Promise<SignalsOverview | null> {
     return null;
   }
 }
+
+export interface SignalsProgressEntry {
+  address: string;
+  label?: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnlUsd: number;
+  tradesNeeded: number;
+  lastSeenAt: string | null;
+}
+
+export interface SignalsProgress {
+  entries: SignalsProgressEntry[];
+  inProgressCount: number;
+  minTradesToScore: number;
+}
+
+/** Wallets still "pending" (not yet proven onto the real leaderboard, nor
+ *  excluded as a wash-trader/bot) that have made at least one paper trade
+ *  so far — sorted closest-to-graduating first. Lets the page show the
+ *  tracked list visibly growing instead of a flat "no ranked wallets
+ *  yet" while every wallet is still under the 10-trade minimum. */
+export async function fetchSignalsProgress(limit = 30): Promise<SignalsProgress | null> {
+  try {
+    const res = await fetchWithRetry(`/api/copytrade/progress?limit=${limit}`);
+    if (!res.ok) return null;
+    return (await res.json()) as SignalsProgress;
+  } catch {
+    return null;
+  }
+}

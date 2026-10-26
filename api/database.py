@@ -3254,6 +3254,8 @@ def get_community_cash_flows() -> Dict:
 # that calls into these accessors. Everything here follows the same
 # "every DB access goes through database.py" rule as the rest of the file.
 
+import copytrade_filters
+
 COPYTRADE_STATE_ID = "copytrade"
 
 
@@ -3455,6 +3457,44 @@ def close_copytrade_position(position: Dict, exit_price_usd: float, reason: str)
         }},
     )
     return {"pnlUsd": round(pnl_usd, 4), "pnlPct": round(pnl_pct, 2)}
+
+
+def get_copytrade_progress(limit: int = 30) -> Dict:
+    """Public — wallets still in "pending" status (seeded, not yet proven
+    OR excluded) that have logged at least one paper trade so far, sorted
+    by trades-made descending so whichever wallets are closest to crossing
+    copytrade_filters.MIN_TRADES_TO_SCORE and graduating onto the real
+    leaderboard show first. Lets the public page show the tracked list
+    visibly "growing" (trade counts ticking up, running win/loss, running
+    P&L) during the long stretch before any wallet has 10 closed trades,
+    instead of a flat "no ranked wallets yet" with zero visible progress."""
+    docs = list(
+        copytrade_wallets_collection.find({
+            "status": "pending",
+            "stats.trades": {"$gt": 0},
+        })
+        .sort("stats.trades", -1)
+        .limit(limit)
+    )
+    entries = [{
+        "address": d["address"],
+        "label": d.get("label"),
+        "trades": d.get("stats", {}).get("trades", 0),
+        "wins": d.get("stats", {}).get("wins", 0),
+        "losses": d.get("stats", {}).get("losses", 0),
+        "winRate": d.get("stats", {}).get("winRate", 0.0),
+        "totalPnlUsd": d.get("stats", {}).get("totalPnlUsd", 0.0),
+        "tradesNeeded": max(0, copytrade_filters.MIN_TRADES_TO_SCORE - d.get("stats", {}).get("trades", 0)),
+        "lastSeenAt": d.get("lastSeenAt").isoformat() if d.get("lastSeenAt") else None,
+    } for d in docs]
+    in_progress_count = copytrade_wallets_collection.count_documents({
+        "status": "pending", "stats.trades": {"$gt": 0},
+    })
+    return {
+        "entries": entries,
+        "inProgressCount": in_progress_count,
+        "minTradesToScore": copytrade_filters.MIN_TRADES_TO_SCORE,
+    }
 
 
 def get_copytrade_leaderboard(limit: int = 50) -> Dict:
