@@ -1818,6 +1818,53 @@ from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from asset_registry import ASSET_CG_IDS
 from urllib.request import urlopen, Request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# Every connected wallet's own Swyftx account used to be read in a plain
+# `for doc in docs:` loop in get_live_leaderboard(), get_community_
+# aggregate_holdings(), and get_community_cash_flows() — each wallet's
+# fetch (token refresh + balance call, or two separate deposit/withdrawal
+# history calls) is a blocking network round trip to Swyftx, so N wallets
+# meant N round trips back-to-back. Confirmed live on 2026-10-26: the
+# Trade page's "Loading trading data..." screen and the Leaderboard both
+# felt sluggish with just 4 connected wallets, because THREE separate
+# endpoints each ran their own full sequential loop over those same 4
+# wallets on every page load. These are I/O-bound (waiting on Swyftx's
+# servers, not CPU), so Python threads parallelize them for real despite
+# the GIL — pymongo's MongoClient and the module-level token/asset-map
+# caches above are safe to hit from multiple threads at once.
+_WALLET_FETCH_MAX_WORKERS = 8
+
+
+def _fetch_wallets_in_parallel(items: list, worker) -> list:
+    """Runs `worker(item)` for every item in `items` concurrently, returning
+    `[(item, result, error), ...]` in the SAME order as `items` (result is
+    None on error, error is None on success) — callers can loop over this
+    exactly like the sequential `for item in items: try: ... except ...`
+    blocks it replaces. A single item's exception is captured per-item, not
+    raised, so one wallet's Swyftx error can never abort every other
+    wallet's fetch."""
+    if not items:
+        return []
+    results: list = [None] * len(items)
+    with ThreadPoolExecutor(max_workers=min(_WALLET_FETCH_MAX_WORKERS, len(items))) as pool:
+        future_to_index = {pool.submit(worker, item): i for i, item in enumerate(items)}
+        for future in as_completed(future_to_index):
+            i = future_to_index[future]
+            try:
+                results[i] = (items[i], future.result(), None)
+            except Exception as e:
+                results[i] = (items[i], None, e)
+    return results
+
+
+def _fetch_one_wallet_holdings(doc: Dict) -> Dict:
+    """Shared worker for get_live_leaderboard() and
+    get_community_aggregate_holdings() — both just want {code: amount}
+    for one wallet's own Swyftx account."""
+    api_key = decrypt_secret(doc["encryptedApiKey"])
+    client = SwyftxClient(api_key)
+    return client.get_holdings()
 
 
 def get_budju_token_balance(wallet_address: str) -> float:
@@ -2122,23 +2169,20 @@ def get_community_aggregate_holdings() -> Dict:
     totals: Dict[str, float] = {}
     errors = 0
 
-    for doc in docs:
+    for doc, holdings, err in _fetch_wallets_in_parallel(docs, _fetch_one_wallet_holdings):
         wallet = doc.get("walletAddress")
-        try:
-            api_key = decrypt_secret(doc["encryptedApiKey"])
-            client = SwyftxClient(api_key)
-            holdings = client.get_holdings()
+        if err is None:
             per_wallet.append({"walletAddress": wallet, "holdings": holdings})
             for coin, amount in holdings.items():
                 totals[coin] = totals.get(coin, 0.0) + amount
             _mark_key_valid(wallet)
-        except SwyftxAuthError as e:
+        elif isinstance(err, SwyftxAuthError):
             errors += 1
-            update = {"lastError": str(e)}
-            if not _is_transient_swyftx_error(e):
+            update = {"lastError": str(err)}
+            if not _is_transient_swyftx_error(err):
                 update["status"] = "invalid"
             user_exchange_keys_collection.update_one({"walletAddress": wallet}, {"$set": update})
-        except Exception:
+        else:
             errors += 1
 
     return {
@@ -2731,22 +2775,19 @@ def get_live_leaderboard() -> Dict:
     # many wallets are iterated.
     all_coins = set()
     wallet_holdings = {}
-    for doc in docs:
+    for doc, holdings, err in _fetch_wallets_in_parallel(docs, _fetch_one_wallet_holdings):
         wallet = doc.get("walletAddress")
-        try:
-            api_key = decrypt_secret(doc["encryptedApiKey"])
-            client = SwyftxClient(api_key)
-            holdings = client.get_holdings()
+        if err is None:
             wallet_holdings[wallet] = holdings
             all_coins.update(holdings.keys())
             _mark_key_valid(wallet)
-        except SwyftxAuthError as e:
+        elif isinstance(err, SwyftxAuthError):
             wallet_holdings[wallet] = None
-            update = {"lastError": str(e)}
-            if not _is_transient_swyftx_error(e):
+            update = {"lastError": str(err)}
+            if not _is_transient_swyftx_error(err):
                 update["status"] = "invalid"
             user_exchange_keys_collection.update_one({"walletAddress": wallet}, {"$set": update})
-        except Exception:
+        else:
             wallet_holdings[wallet] = None
 
     prices = get_prices_for_coins(list(all_coins))
@@ -3162,11 +3203,12 @@ def get_community_cash_flows() -> Dict:
     total_deposited = 0.0
     total_withdrawn = 0.0
 
-    for wallet in (active_wallets | manual_wallets):
-        if not wallet:
-            continue
-        result = get_wallet_cash_flows(wallet)
-        if not result.get("flows"):
+    wallets = [w for w in (active_wallets | manual_wallets) if w]
+    for wallet, result, err in _fetch_wallets_in_parallel(wallets, get_wallet_cash_flows):
+        # get_wallet_cash_flows() already catches its own Swyftx errors and
+        # falls back to the manual/empty result — `err` here would only
+        # ever fire on a genuinely unexpected bug, not a normal API failure.
+        if err is not None or not result or not result.get("flows"):
             continue
         per_wallet[wallet] = {
             "depositedUsd": result["totalDepositedUsd"],

@@ -239,60 +239,79 @@ const Trade = () => {
       // Calculate pool value for MongoDB queries (crypto + cash)
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
 
+      // Second wave: trader state, pending orders, this wallet's own
+      // position/holdings/cash-flows, and the two community-wide reads
+      // (leaderboard + cash flows). These used to be awaited ONE AT A TIME
+      // in sequence — several of them (fetchLiveLeaderboard,
+      // fetchCommunityCashFlows) each read every connected wallet's own
+      // Swyftx account server-side, so stacking them serially on top of
+      // each other made the page noticeably slow to load even with only a
+      // handful of connected wallets. None of these actually depend on
+      // each other (only on priceData/poolVal from the FIRST wave above),
+      // so firing them together lets them overlap instead of queueing.
+      const [
+        traderStateResult,
+        pendingOrdersResult,
+        userPositionResult,
+        livePositionResult,
+        myHoldingsResult,
+        leaderboardResult,
+        myCashFlowsResult,
+        communityCashFlowsResult,
+      ] = await Promise.allSettled([
+        fetchTraderState(),
+        fetchEnrichedPendingOrders(priceData),
+        isConnected && poolVal > 0 ? fetchUserPosition(walletAddress, poolVal) : Promise.resolve(null),
+        isConnected ? fetchLivePosition(walletAddress) : Promise.resolve(null),
+        isConnected && !isAdmin ? fetchPersonalPricedHoldings(walletAddress) : Promise.resolve([]),
+        fetchLiveLeaderboard(),
+        isConnected ? fetchWalletCashFlows(walletAddress) : Promise.resolve(null),
+        fetchCommunityCashFlows(),
+      ]);
+
       // Fetch trader state for insight cards (bot status, tier config)
-      const ts = await fetchTraderState();
-      setTraderState(ts);
+      setTraderState(traderStateResult.status === "fulfilled" ? traderStateResult.value : null);
 
       // Fetch live pending order count from Swyftx (not stale MongoDB data)
-      try {
-        const liveOrders = await fetchEnrichedPendingOrders(priceData);
-        setPendingOrderCount(liveOrders.length);
-      } catch {
-        setPendingOrderCount(0);
-      }
+      setPendingOrderCount(pendingOrdersResult.status === "fulfilled" ? pendingOrdersResult.value.length : 0);
 
       // Fetch this wallet's pooled-shares allocation — still needed for the
       // legacy "Mine/Pool" holdings toggle and the admin's deposit/withdrawal
       // tools, which track the shared legacy Swyftx account separately from
       // each wallet's own non-custodial key below.
-      if (isConnected && poolVal > 0) {
-        const pos = await fetchUserPosition(walletAddress, poolVal);
-        setUserPosition(pos);
+      if (isConnected && poolVal > 0 && userPositionResult.status === "fulfilled") {
+        setUserPosition(userPositionResult.value);
       }
 
       // Fetch this wallet's REAL cumulative cash + crypto balance, read live
       // from their own linked Swyftx key — this is what "Your Position"
       // displays now, not a pooled-shares allocation. Null if no active key.
-      if (isConnected) {
-        setLivePosition(await fetchLivePosition(walletAddress));
-      } else {
-        setLivePosition(null);
-      }
+      setLivePosition(
+        isConnected && livePositionResult.status === "fulfilled" ? livePositionResult.value : null,
+      );
 
       // This wallet's own real per-coin holdings for the "Mine" Holdings
       // grid (non-admin only — admin's "Mine" is already the real master
       // account via `assets` above, nothing extra to fetch).
-      if (isConnected && !isAdmin) {
-        setMyHoldings(await fetchPersonalPricedHoldings(walletAddress));
-      } else {
-        setMyHoldings([]);
-      }
+      setMyHoldings(
+        isConnected && !isAdmin && myHoldingsResult.status === "fulfilled" ? myHoldingsResult.value : [],
+      );
 
       // Combined total across every connected wallet (public) — this is now
       // the default "Pool" figure everywhere on this page, matching what
       // the Leaderboard shows, instead of just the admin's own account.
-      setLiveLeaderboard(await fetchLiveLeaderboard());
+      setLiveLeaderboard(leaderboardResult.status === "fulfilled" ? leaderboardResult.value : null);
 
       // Growth/P&L history for the card's area chart — this wallet's own
       // deposit/withdrawal history (public, any connected wallet — not
       // admin-gated) for "Mine", and the combined timeline across every
       // wallet for "Pool".
-      if (isConnected) {
-        setMyCashFlows(await fetchWalletCashFlows(walletAddress));
-      } else {
-        setMyCashFlows(null);
-      }
-      setCommunityCashFlows(await fetchCommunityCashFlows());
+      setMyCashFlows(
+        isConnected && myCashFlowsResult.status === "fulfilled" ? myCashFlowsResult.value : null,
+      );
+      setCommunityCashFlows(
+        communityCashFlowsResult.status === "fulfilled" ? communityCashFlowsResult.value : null,
+      );
 
       activityLog.log("Connected — all data loaded", "success");
       setApiStatus("connected");
