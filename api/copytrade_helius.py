@@ -19,7 +19,20 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
-HELIUS_WEBHOOKS_BASE = "https://api.helius.xyz/v0/webhooks"
+# Helius migrated the webhooks REST host from api.helius.xyz to
+# api-mainnet.helius-rpc.com in helius-sdk v3.0.0 (2026-05-30) — see that
+# release's changelog ("Webhooks + enhanced-transactions REST host
+# migrated to api-mainnet.helius-rpc.com. Any infrastructure pinning to
+# the old api.helius.xyz host ... needs updating") and the SDK's own
+# createWebhook.cjs, which hardcodes the new host. Confirmed live
+# 2026-10-26: api.helius.xyz still responds (200 OK, a real webhookID
+# back) but is a stale legacy shim that no longer actually wires the
+# webhook into live event delivery or reliably persists
+# accountAddresses — a webhook created there listed back with
+# accountAddresses: [] despite the create call having sent 132 real
+# addresses, which is exactly why zero signals/events arrived for 7+
+# hours across 132 tracked wallets.
+HELIUS_WEBHOOKS_BASE = "https://api-mainnet.helius-rpc.com/v0/webhooks"
 # Where Helius should POST delivered events — production domain by default,
 # overridable (e.g. for a preview deployment) via env.
 COPYTRADE_WEBHOOK_URL = os.getenv("COPYTRADE_WEBHOOK_URL", "https://budju.xyz/api/copytrade-webhook")
@@ -70,6 +83,15 @@ def sync_helius_webhook(addresses: List[str], existing_webhook_id: Optional[str]
         return {"ok": True, "webhookId": webhook_id}
     except HTTPError as e:
         detail = e.read().decode(errors="ignore") if hasattr(e, "read") else str(e)
+        if existing_webhook_id and e.code == 404:
+            # The stored ID doesn't exist on this host — e.g. it was
+            # created back when HELIUS_WEBHOOKS_BASE pointed at the
+            # since-migrated api.helius.xyz host (see that constant's
+            # comment), or it was deleted from the Helius dashboard.
+            # Fall back to creating a fresh one instead of retrying this
+            # exact PUT forever on every hourly refresh.
+            print(f"[copytrade_helius] webhook {existing_webhook_id} not found (404) on current host — creating a new one")
+            return sync_helius_webhook(addresses, None)
         print(f"[copytrade_helius] webhook sync HTTP error: {e.code} {detail}")
         return {"ok": False, "error": f"HTTP {e.code}: {detail[:200]}"}
     except (URLError, TimeoutError) as e:
@@ -93,20 +115,28 @@ def list_helius_webhooks() -> Dict:
         with urlopen(Request(url), timeout=15) as resp:
             data = json.loads(resp.read().decode())
         webhooks = data if isinstance(data, list) else []
-        return {
-            "ok": True,
-            "webhooks": [
-                {
-                    "webhookID": w.get("webhookID"),
-                    "webhookURL": w.get("webhookURL"),
-                    "transactionTypes": w.get("transactionTypes"),
-                    "webhookType": w.get("webhookType"),
-                    "accountAddressCount": len(w.get("accountAddresses") or []),
-                    "hasAuthHeader": bool(w.get("authHeader")),
-                }
-                for w in webhooks
-            ],
-        }
+        result = []
+        for w in webhooks:
+            entry = {
+                "webhookID": w.get("webhookID"),
+                "webhookURL": w.get("webhookURL"),
+                "transactionTypes": w.get("transactionTypes"),
+                "webhookType": w.get("webhookType"),
+                "accountAddressCount": len(w.get("accountAddresses") or []),
+                "hasAuthHeader": bool(w.get("authHeader")),
+                # Diagnostic-only: every top-level key Helius actually returned
+                # for this webhook, so a wrong field-name assumption above
+                # (e.g. "accountAddresses" vs some other casing/shape) shows
+                # up directly instead of silently looking like "0 addresses".
+                "rawKeys": sorted(w.keys()),
+            }
+            if entry["webhookURL"] == COPYTRADE_WEBHOOK_URL:
+                # Our own webhook only — these are already-public on-chain
+                # wallet addresses (same ones visible on our own Signals
+                # leaderboard), not secrets, safe to return in full here.
+                entry["accountAddressesSample"] = (w.get("accountAddresses") or [])[:5]
+            result.append(entry)
+        return {"ok": True, "webhooks": result}
     except HTTPError as e:
         detail = e.read().decode(errors="ignore") if hasattr(e, "read") else str(e)
         return {"ok": False, "error": f"HTTP {e.code}: {detail[:300]}"}

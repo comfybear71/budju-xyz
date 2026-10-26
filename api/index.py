@@ -96,6 +96,9 @@ from database import (
     get_copytrade_overview,
     get_copytrade_progress,
     get_copytrade_debug,
+    reset_copytrade_helius_state,
+    get_trackable_copytrade_wallet_addresses,
+    save_copytrade_state,
 )
 
 from perp_engine import (
@@ -601,6 +604,39 @@ class handler(BaseHTTPRequestHandler):
                     return
                 from user_trade_debug import diagnose_user_auto_trade
                 self._send_json(200, diagnose_user_auto_trade(target_wallet))
+
+            elif path == '/api/admin/copytrade-resync':
+                # Admin-only, manual — force a fresh Helius webhook
+                # create/update RIGHT NOW instead of waiting for the next
+                # hourly-gated cron tick. Needed one-off after fixing
+                # HELIUS_WEBHOOKS_BASE (api.helius.xyz -> api-mainnet.
+                # helius-rpc.com, 2026-10-26): the stored copytrade_state
+                # already "succeeded" against the old broken host, so the
+                # cron's own "unchanged since last sync" check would
+                # otherwise never re-trigger a sync on its own. Safe to
+                # call again any time — always does a real sync against
+                # the CURRENT trackable wallet set.
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import copytrade_helius
+                from datetime import datetime
+                reset_copytrade_helius_state()
+                addresses = get_trackable_copytrade_wallet_addresses()
+                if not addresses:
+                    self._send_json(200, {"ok": False, "error": "no trackable wallets"})
+                    return
+                result = copytrade_helius.sync_helius_webhook(addresses, None)
+                if result.get("ok"):
+                    save_copytrade_state({
+                        "heliusWebhookId": result["webhookId"],
+                        "heliusAddressesHash": copytrade_helius.addresses_hash(addresses),
+                        "walletsRefreshedAt": datetime.utcnow(),
+                    })
+                result["addressCount"] = len(addresses)
+                result["heliusWebhooksLiveAfter"] = copytrade_helius.list_helius_webhooks()
+                self._send_json(200, result)
 
             elif path == '/api/debug':
                 wallet = params.get('wallet')

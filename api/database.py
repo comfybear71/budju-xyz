@@ -3459,6 +3459,24 @@ def close_copytrade_position(position: Dict, exit_price_usd: float, reason: str)
     return {"pnlUsd": round(pnl_usd, 4), "pnlPct": round(pnl_pct, 2)}
 
 
+def reset_copytrade_helius_state() -> None:
+    """Force the next webhook sync to run from scratch, ignoring whatever
+    the current copytrade_state says — clears the wallet-refresh gate
+    timestamp (so the hourly "already refreshed recently" check doesn't
+    skip it) and the stored webhook id/address hash (so the "unchanged,
+    skip" check doesn't treat a previously-"successful" sync as still
+    valid). Needed after fixing a bug in sync_helius_webhook/its target
+    host, where the stored state reflects a sync that returned "ok" while
+    actually talking to a broken host — that stale state would otherwise
+    make every future cron tick skip re-syncing forever, since nothing
+    about the tracked-wallet list itself ever changed."""
+    copytrade_state_collection.update_one(
+        {"_id": COPYTRADE_STATE_ID},
+        {"$set": {"heliusWebhookId": None, "heliusAddressesHash": None, "walletsRefreshedAt": None}},
+        upsert=True,
+    )
+
+
 def get_copytrade_debug() -> Dict:
     """Admin-only diagnostic: raw copytrade_state, wallet status counts,
     and a few pending wallets' own trade counts/last-seen timestamps --
