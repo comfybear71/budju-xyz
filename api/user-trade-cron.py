@@ -72,6 +72,26 @@ MIN_ORDER_USDC = 8  # Swyftx floor is $7; leave a dollar of headroom
 SELL_RATIO = 0.833  # Sell slightly less than the raw allocation band to avoid dust re-buys
 DEFAULT_COOLDOWN_HOURS = 24
 
+# Stale-target refresh window (2026-10-27 fix — see below). A wallet's
+# buy/sell $ targets are only refreshed on a trade (ratchet) or when a
+# coin-tier pair is first evaluated. A wallet that trades a coin often
+# stays "fresh" near the live price forever; a wallet that rarely/never
+# trades a coin keeps the ORIGINAL reference price from whenever it first
+# connected, frozen forever. Confirmed live: a wallet with 1 lifetime
+# trade had buy-target distances of 3.4%-15% scattered across coins that
+# all share the SAME tier deviation setting — proof the targets were set
+# at different historical prices, not computed fresh off today's price.
+# Meanwhile a frequently-trading wallet's targets stay within a point of
+# the configured deviation because every trade resets them. Fix: treat
+# any target older than this window as missing and regenerate it off the
+# CURRENT price, exactly like a first-time evaluation — same as what a
+# trade's ratchet already does, just time-triggered instead of
+# trade-triggered. Keeps every wallet's signal responsive to the live
+# market without needing cross-wallet shared state (which would race
+# against api/auto-trade-cron.py writing the same document on the same
+# 5-minute cron schedule).
+TARGET_STALE_MS = float(os.getenv("USER_TARGET_STALE_HOURS", "48")) * 3_600_000
+
 MAX_SINGLE_TRADE_USDC = float(os.getenv("USER_MAX_SINGLE_TRADE_USDC", "250"))
 MAX_DAILY_TRADES_PER_USER = int(os.getenv("USER_MAX_DAILY_TRADES", "10"))
 
@@ -176,10 +196,13 @@ def run_one_wallet(ctx, active_pairs, auto_tiers, prices, now_ms, summary_log):
             continue
 
         tgt = targets.get(ck)
-        if not isinstance(tgt, dict):
+        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
+        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
+        if not isinstance(tgt, dict) or is_stale:
             tgt = {
                 "buy": current_price * (1 - settings["deviation"] / 100),
                 "sell": current_price * (1 + settings["sellDeviation"] / 100),
+                "setAt": now_ms,
             }
             targets[ck] = tgt
 
@@ -215,7 +238,7 @@ def run_one_wallet(ctx, active_pairs, auto_tiers, prices, now_ms, summary_log):
                 old_sell = targets.get(ck, {}).get("sell", sell_target)
                 new_buy = current_price * (1 - settings["deviation"] / 100)
                 new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell)}
+                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
                 cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
                 trade_log.insert(0, {"coin": code, "side": "buy", "qty": quantity, "price": current_price,
                                       "timestamp": datetime.utcnow().isoformat() + "Z"})
@@ -254,7 +277,7 @@ def run_one_wallet(ctx, active_pairs, auto_tiers, prices, now_ms, summary_log):
                 record_user_trade(wallet, code, "sell", quantity, current_price, tier_num, order_id)
                 new_buy = current_price * (1 - settings["deviation"] / 100)
                 new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": new_sell}
+                targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
                 cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
                 trade_log.insert(0, {"coin": code, "side": "sell", "qty": quantity, "price": current_price,
                                       "timestamp": datetime.utcnow().isoformat() + "Z"})
