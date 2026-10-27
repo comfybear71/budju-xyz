@@ -76,6 +76,13 @@ MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "500"))   # Max
 MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))                 # Max trades per 24h
 MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "2000"))       # Max total USDC sold per 24h
 
+# Stale-target refresh window — see matching constant + comment in
+# user-trade-cron.py. Same risk applies here for any coin that goes a long
+# stretch without crossing its target: the reference price freezes at
+# whenever it was last set, drifting further from reality the longer the
+# market trends away from it.
+TARGET_STALE_MS = float(os.getenv("TARGET_STALE_HOURS", "48")) * 3_600_000
+
 # Debt-payoff-sale guards (July 2026). See trade_guards.py.
 MAX_AUD_DEPLOYABLE = float(os.getenv("MAX_AUD_DEPLOYABLE", "500"))          # Cap on deployable capital for buys
 SWYFTX_MIN_SELL_USDC = float(os.getenv("SWYFTX_MIN_SELL_USDC", "30"))       # Real Swyftx min order — skip sub-min sells
@@ -540,14 +547,17 @@ def run_auto_trade_check():
         settings = _tier_settings(tier_assets, tier_num)
         current_price = prices.get(code, 0)
 
-        # Regenerate target if missing (check compound key first, fall back to old plain key)
+        # Regenerate target if missing OR stale (check compound key first, fall back to old plain key)
         tgt = targets.get(ck) or targets.get(code)
-        if (not isinstance(tgt, dict) or not tgt) and current_price > 0:
+        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
+        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
+        if (not isinstance(tgt, dict) or not tgt or is_stale) and current_price > 0:
             buy_dev = settings["deviation"]
             sell_dev = settings["sellDeviation"]
             tgt = {
                 "buy": current_price * (1 - buy_dev / 100),
                 "sell": current_price * (1 + sell_dev / 100),
+                "setAt": now_ms,
             }
             targets[ck] = tgt
             log.append(f"{code} (T{tier_num}): regenerated targets — buy ${tgt['buy']:.4f} (-{buy_dev}%), sell ${tgt['sell']:.4f} (+{sell_dev}%)")
@@ -637,7 +647,7 @@ def run_auto_trade_check():
                 old_sell = tgt_ref.get("sell", sell_target)
                 new_buy = current_price * (1 - settings["deviation"] / 100)
                 new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell)}
+                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
                 # Clean up old non-compound key if it exists
                 targets.pop(code, None) if code in targets and ck != code else None
                 log.append(f"{code} (T{tier_num}): targets after BUY — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell stays ${targets[ck]['sell']:.2f}")
@@ -772,7 +782,7 @@ def run_auto_trade_check():
                 # After SELL: reset both bands from current price (fresh start after profit)
                 new_buy = current_price * (1 - settings["deviation"] / 100)
                 new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": new_sell}
+                targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
                 # Clean up old non-compound key if it exists
                 targets.pop(code, None) if code in targets and ck != code else None
                 log.append(f"{code} (T{tier_num}): targets after SELL — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell ${targets[ck]['sell']:.2f} (+{settings['sellDeviation']}%)")

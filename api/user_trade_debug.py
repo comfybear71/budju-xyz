@@ -32,6 +32,7 @@ CASH_CODES = {"USDC", "USD", "AUD", "USDT"}
 # wrong answer.
 MIN_USDC_RESERVE = float(os.getenv("USER_MIN_USDC_RESERVE", "30"))
 MIN_ORDER_USDC = 8
+TARGET_STALE_MS = float(os.getenv("USER_TARGET_STALE_HOURS", "48")) * 3_600_000
 
 
 def _tier_settings(auto_tiers: Dict, tier_num: int) -> Dict:
@@ -186,10 +187,11 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
         cooldown_expiry = cooldowns.get(ck, 0)
         on_cooldown = isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms
 
-        tgt = targets.get(ck)
-        if not isinstance(tgt, dict) and current_price > 0:
-            # Not-yet-generated — this wallet's first-ever look at this pair
-            # would regenerate it from TODAY's price, same as the real cron.
+        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
+        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
+        if (not isinstance(tgt, dict) or is_stale) and current_price > 0:
+            # Not-yet-generated OR stale (2026-10-27 fix) — the real cron
+            # would regenerate this from TODAY's price on its next run too.
             tgt = {
                 "buy": current_price * (1 - settings["deviation"] / 100),
                 "sell": current_price * (1 + settings["sellDeviation"] / 100),
@@ -203,6 +205,8 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
             "sellTarget": round(tgt["sell"], 6) if isinstance(tgt, dict) else None,
             "onCooldown": on_cooldown,
             "cooldownRemainingHours": round((cooldown_expiry - now_ms) / 3_600_000, 2) if on_cooldown else 0,
+            "targetAgeHours": round((now_ms - set_at) / 3_600_000, 1) if isinstance(set_at, (int, float)) else None,
+            "targetWasStale": is_stale,
             "signal": "hold",
         }
 
