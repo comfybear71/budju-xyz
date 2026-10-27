@@ -187,6 +187,7 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
         cooldown_expiry = cooldowns.get(ck, 0)
         on_cooldown = isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms
 
+        tgt = targets.get(ck)
         set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
         is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
         if (not isinstance(tgt, dict) or is_stale) and current_price > 0:
