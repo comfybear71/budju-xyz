@@ -146,6 +146,37 @@ def list_helius_webhooks() -> Dict:
         return {"ok": False, "error": str(e)}
 
 
+def get_helius_webhook(webhook_id: str) -> Dict:
+    """Diagnostic only — GET one specific webhook by ID. The LIST endpoint
+    (GET /v0/webhooks with no ID) was confirmed live on 2026-10-27 to omit
+    the accountAddresses field from its response shape entirely (not an
+    empty array -- the key is simply absent), so list_helius_webhooks()'s
+    accountAddressCount can't be trusted as ground truth. Fetching one
+    webhook by ID returns its full object including accountAddresses."""
+    if not HELIUS_API_KEY:
+        return {"ok": False, "error": "HELIUS_API_KEY not set"}
+    try:
+        url = f"{HELIUS_WEBHOOKS_BASE}/{webhook_id}?api-key={HELIUS_API_KEY}"
+        with urlopen(Request(url), timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        addresses = data.get("accountAddresses") or []
+        return {
+            "ok": True,
+            "webhookID": data.get("webhookID"),
+            "webhookURL": data.get("webhookURL"),
+            "accountAddressCount": len(addresses),
+            "accountAddressesSample": addresses[:5],
+            "rawKeys": sorted(data.keys()),
+        }
+    except HTTPError as e:
+        detail = e.read().decode(errors="ignore") if hasattr(e, "read") else str(e)
+        return {"ok": False, "error": f"HTTP {e.code}: {detail[:300]}"}
+    except (URLError, TimeoutError) as e:
+        return {"ok": False, "error": str(e)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def _is_tracked(account: Optional[str], tracked: Set[str]) -> bool:
     return bool(account) and account in tracked
 
