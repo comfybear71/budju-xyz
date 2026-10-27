@@ -586,6 +586,12 @@ class handler(BaseHTTPRequestHandler):
                     "webhookUrl": copytrade_helius.COPYTRADE_WEBHOOK_URL,
                 }
                 debug_info["heliusWebhooksLive"] = copytrade_helius.list_helius_webhooks()
+                # The LIST endpoint omits accountAddresses entirely (see
+                # get_helius_webhook's docstring) — fetch our own webhook
+                # by ID too, the only reliable source for that field.
+                webhook_id = debug_info.get("heliusWebhookId")
+                if webhook_id:
+                    debug_info["ownWebhookDetail"] = copytrade_helius.get_helius_webhook(webhook_id)
                 self._send_json(200, debug_info)
 
             elif path == '/api/admin/user-trade-debug':
@@ -635,7 +641,11 @@ class handler(BaseHTTPRequestHandler):
                         "walletsRefreshedAt": datetime.utcnow(),
                     })
                 result["addressCount"] = len(addresses)
-                result["heliusWebhooksLiveAfter"] = copytrade_helius.list_helius_webhooks()
+                if result.get("ok"):
+                    # The LIST endpoint omits accountAddresses entirely —
+                    # confirm via the single-webhook GET instead, which is
+                    # the only reliable ground truth for this field.
+                    result["webhookDetail"] = copytrade_helius.get_helius_webhook(result["webhookId"])
                 self._send_json(200, result)
 
             elif path == '/api/debug':
