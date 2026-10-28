@@ -94,7 +94,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         const target = snapshot.targets[ck];
         const inCooldown = autoTrader._isOnCooldown(ck);
         const recentTrade = autoTrader.getRecentTrade(coin);
-        const diag = snapshot.coinDiagnostics[ck];
         const cronDiag = snapshot.cronDiagnostics[ck] || snapshot.cronDiagnostics[coin];
         items.push({
           coin,
@@ -108,8 +107,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           inCooldown,
           hasTarget: !!target,
           recentTrade,
-          diagnostic: diag?.reason || cronDiag || null,
-          diagLevel: diag?.level || (cronDiag ? "warn" : null),
+          diagnostic: cronDiag || null,
+          diagLevel: cronDiag ? "warn" : null,
           avgCost: autoTrader.getAvgCost(coin),
         });
       }
@@ -299,12 +298,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
             >
               {botActive ? "ACTIVE" : "INACTIVE"}
             </span>
-            {botActive && snapshot.isOwner && (
-              <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-blue-500/15 text-blue-400">
-                OWNER
-              </span>
-            )}
-            {botActive && !snapshot.isOwner && (
+            {botActive && (
               <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-lg bg-yellow-500/15 text-yellow-400">
                 CRON-MANAGED
               </span>

@@ -1,21 +1,33 @@
 // ==========================================
-// AutoTrader - Multi-Coin Tier-Based Trading Engine
+// AutoTrader - Browser-side settings controller for the tier-based bot
 // ==========================================
-// Port of FLUB's autotrader.js to TypeScript for BUDJU.
 //
-// Monitors holdings with tier-based deviation settings:
-//   Tier 1 (Blue Chips): BTC, ETH, SOL, BNB, XRP (default)
-//   Tier 2 (Alts): User-assigned
-//   Tier 3 (Speculative): User-assigned
+// IMPORTANT (2026-10-29 consolidation): this class used to be a second,
+// independent trading engine — it fetched live prices/balances in the
+// browser and placed REAL Swyftx orders itself (with a device-heartbeat
+// scheme to avoid colliding with the server cron trading the same admin
+// account). That duplicated api/auto-trade-cron.py's execution logic and
+// was the root cause of two different Telegram message formats and
+// occasional same-account double-trades.
 //
-// Logic:
-//   - Sets buy/sell targets when a tier starts
+// There is now exactly ONE trading engine: the server-side cron that loops
+// over every connected wallet (admin included) every 5 minutes, computes
+// targets, checks safety guards, and places orders. This class no longer
+// executes anything — it only manages the shared tier settings (deviation/
+// allocation/cooldown/coin assignments) that the cron reads, and displays
+// read-only state (targets, cooldowns, trade log) loaded from the server.
+//
+// Tier-based settings:
+//   Tier 1 (Dip): shallow deviation, frequent
+//   Tier 2 (Dive): medium deviation
+//   Tier 3 (Crash): deep deviation, rare
+//
+// Logic (enforced server-side, mirrored here only for display estimates):
 //   - Buy target = price * (1 - deviation%), Sell target = price * (1 + deviation%)
 //   - After BUY: buy target moves down, sell target stays
 //   - After SELL: sell target moves up, buy target stays
-//   - 24h cooldown per coin after each trade
-//   - Always keeps $30 USDC minimum reserve (per wallet, matches user-trade-cron.py)
-//   - Sells 83.3% of allocation (accumulation bias)
+//   - Cooldown per coin-tier after each trade
+//   - Always keeps a per-wallet USDC minimum reserve
 
 import {
   fetchPortfolio,
@@ -24,13 +36,10 @@ import {
   fetchTraderState,
   fetchCoinStats,
   saveTraderState,
-  placeTrade,
   clearCacheKeys,
-  getAdminAuth,
   ASSET_CONFIG,
   PERMANENT_BUY_DENYLIST,
   type PortfolioAsset,
-  type TraderState,
 } from "./tradeApi";
 import { CODE_TO_BINANCE } from "@lib/services/binanceWs";
 
@@ -70,22 +79,7 @@ export interface RecentTrade {
   side: "BUY" | "SELL";
   price: number;
   amount: number;
-  time: number; // Date.now() when trade executed
-}
-
-/** One executed trade, collected per-cycle and batched into a single Telegram digest. */
-interface TradeAlertEntry {
-  coin: string;
-  side: "BUY" | "SELL";
-  qty: number;
-  price: number;
-  amount: number;
-}
-
-export interface CoinDiagnostic {
-  reason: string;
-  level: "info" | "warn" | "error";
-  timestamp: number;
+  time: number; // Date.now() when the trade was first seen in the trade log
 }
 
 export interface AutoTraderSnapshot {
@@ -97,9 +91,6 @@ export interface AutoTraderSnapshot {
   tierAssignments: Record<string, number[]>;
   tradeLog: TradeLogEntry[];
   recentTrades: Record<string, RecentTrade>;
-  isOwner: boolean;
-  deviceId: string;
-  coinDiagnostics: Record<string, CoinDiagnostic>;
   cronDiagnostics: Record<string, string>;
 }
 
@@ -128,32 +119,19 @@ export const TIER_CONFIG: Record<number, TierConfig> = {
 };
 
 const ALL_TIERS = [1, 2, 3];
-const DEFAULT_COOLDOWN_HOURS = 24;
-// Lowered from $100 -> $30 on 2026-10-25 to match user-trade-cron.py's
-// per-wallet floor (USER_MIN_USDC_RESERVE) — this browser bot and
-// auto-trade-cron.py both trade the admin's own linked Swyftx account
-// (see link_admin_master_key in database.py), which the non-custodial
-// model now treats as just another per-wallet account, not a shared pool
-// needing a bigger buffer. Keeping three different reserve floors for the
-// same physical account was confusing and inconsistent.
+// Matches the server cron's per-wallet USDC reserve floor — kept here only
+// so the "estimated buy amount" display shows the same number the cron
+// would actually use.
 const MIN_USDC_RESERVE = 30;
 const MIN_ORDER_USDC = 8; // Floor for any trade (Swyftx minimum is $7)
 const SELL_RATIO = 0.833; // Sell 83% of buy amount (accumulate)
-const CHECK_INTERVAL_MS = 180_000; // 3 minutes
-const HEARTBEAT_STALE_MS = 5 * 60 * 1000; // 5 minutes
-// A buy blocked by the reserve floor leaves the coin's trigger still
-// crossed (price is still below target), so the very next WebSocket price
-// tick re-triggers updatePrices()'s 2s debounced immediate check — forever,
-// every ~2-7s, re-fetching CoinGecko + Swyftx each time, with no chance of
-// a different outcome until the USDC balance actually changes. This short
-// backoff (not a real post-trade cooldown) breaks that loop. Confirmed live
-// 2026-10-25: checks #156-158 firing seconds apart instead of every 3 min.
-const RESERVE_BLOCKED_RETRY_MS = 10 * 60 * 1000; // 10 minutes
 
 // ── AutoTrader Class ─────────────────────────────────────────
 
 export class AutoTrader {
-  // State
+  // State (loaded from / persisted to the shared server document that the
+  // cron reads — this class never decides whether to trade, only what
+  // settings the cron should use)
   tierActive: Record<number, boolean> = { 1: false, 2: false, 3: false };
   targets: Record<string, CoinTargets> = {};
   cooldowns: Record<string, number> = {};
@@ -164,20 +142,8 @@ export class AutoTrader {
   };
   tierAssignments: Record<string, number[]> = {};
   tradeLog: TradeLogEntry[] = [];
-  coinDiagnostics: Record<string, CoinDiagnostic> = {};
   cronDiagnostics: Record<string, string> = {};
   recentTrades: Record<string, RecentTrade> = {};
-
-  // Device ownership — generate fresh ID each session (tab identification only)
-  private _deviceId = Math.random().toString(36).substring(2, 10);
-  private _isOwner = false;
-  private _checkCount = 0;
-
-  // Retry timer to reclaim ownership when previous heartbeat becomes stale
-  private _ownershipRetryTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Monitoring interval
-  private _monitorInterval: ReturnType<typeof setInterval> | null = null;
 
   // Callbacks for UI updates
   private _onStateChange: (() => void) | null = null;
@@ -186,40 +152,24 @@ export class AutoTrader {
   // Admin wallet for server saves
   private _adminWallet: string = "";
 
-  // Cached data for the execution loop
+  // Cached data for display-only estimates (buy/sell amount previews,
+  // avg-cost badges) — never used to decide or place a trade
   private _cachedAssets: PortfolioAsset[] = [];
   private _cachedPrices: Record<string, number> = {};
   private _cachedUsdcBalance: number = 0;
   /** Avg cost (cost basis) per coin from /api/coin-stats. Missing/0 = allow sells. */
   private _cachedAvgCost: Record<string, number> = {};
 
-  // Warmup: skip first price check after resume so fresh prices load first
-  private _warmup = false;
-
-  // Debounce timer for tier settings save (slider drags fire onChange rapidly)
-  private _saveTierSettingsTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Pending save retry — if DB save fails, retry on next opportunity
-  private _pendingTierSave = false;
-
-  // Guard against concurrent _checkPrices execution
-  private _priceCheckRunning = false;
-
-  // Debounce timer for trigger-crossing immediate checks
-  private _triggerCheckTimer: ReturnType<typeof setTimeout> | null = null;
+  // Detects newly-appeared trade log entries across polls so the UI can
+  // still show a brief "just traded" badge even though the trade itself
+  // was executed by the server cron, not this tab.
+  private _hasLoadedTradeLogOnce = false;
+  private _lastSeenTradeTime = 0;
 
   // ── Computed ─────────────────────────────────────────────
 
   get isActive(): boolean {
     return this.tierActive[1] || this.tierActive[2] || this.tierActive[3];
-  }
-
-  get isOwner(): boolean {
-    return this._isOwner;
-  }
-
-  get deviceId(): string {
-    return this._deviceId;
   }
 
   // ── Init / Config ───────────────────────────────────────
@@ -303,8 +253,9 @@ export class AutoTrader {
       }
     }
 
-    // Load trade log
-    this.tradeLog = (state.autoTradeLog || []).map((e: any) => ({
+    // Load trade log (now solely populated by the server cron — this tab
+    // never appends to it directly anymore)
+    const newTradeLog: TradeLogEntry[] = (state.autoTradeLog || []).map((e: any) => ({
       time: e.timestamp || e.time || "",
       coin: e.coin || "",
       side: ((e.side || "").toUpperCase() === "SELL" ? "SELL" : "BUY") as "BUY" | "SELL",
@@ -312,8 +263,9 @@ export class AutoTrader {
       price: Number(e.price) || 0,
       amount: (Number(e.qty ?? e.quantity) || 0) * (Number(e.price) || 0),
     }));
+    this._applyTradeLog(newTradeLog);
 
-    // Load cron diagnostics (saved by server-side cron for UI display)
+    // Load cron diagnostics (saved by the server cron for UI display)
     const cronLog = state.autoCronLog || {};
     this.cronDiagnostics = {};
     if (cronLog.decisions && Array.isArray(cronLog.decisions)) {
@@ -326,11 +278,11 @@ export class AutoTrader {
       }
     }
 
-    // Load bot active state and resume monitoring automatically
+    // Load bot active state + last-known targets (best-effort display only —
+    // the cron is the sole source of truth for whether/when a trade fires)
     if (state.autoBotActive || state._rawAutoActive) {
       const autoActive = state._rawAutoActive || {};
 
-      // Restore tier active state
       const savedTierActive = autoActive.tierActive || {};
       for (let t = 1; t <= 3; t++) {
         const key = String(t);
@@ -343,51 +295,13 @@ export class AutoTrader {
       for (const [key, val] of Object.entries(savedTargets)) {
         if (typeof val === "object" && val !== null && (val as any).buy && (val as any).sell) {
           if (key.includes(":")) {
-            // Already compound key format
             this.targets[key] = val as CoinTargets;
           } else {
-            // Old format "BTC" → migrate to compound key using first active tier
             const tiers = this.tierAssignments[key];
             const tier = tiers?.length ? tiers[0] : 1;
             this.targets[compoundKey(key, tier)] = val as CoinTargets;
           }
         }
-      }
-
-      // NOTE: Do NOT delete targets for cooldown coins here.
-      // _checkPrices already skips cooldown coins, and deleting targets
-      // causes them to be permanently lost from the DB when _saveActiveState
-      // writes back. After cooldown expires, the coin would have no target
-      // and never trade again.
-
-      // Device ownership check
-      const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
-      const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
-
-      if (otherDevice && freshHeartbeat) {
-        this._isOwner = false;
-        this._log("Auto-trading active on another device — viewing only", "info");
-
-        // Schedule a retry to reclaim ownership once the old heartbeat becomes stale
-        const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
-        const retryDelay = Math.max(staleness + 5000, 10_000); // at least 10s
-        this._scheduleOwnershipRetry(retryDelay);
-      } else if (this.isActive) {
-        // Take ownership and resume monitoring
-        this._isOwner = true;
-
-        // Only warmup if monitoring isn't already running — otherwise a
-        // page refresh or navigation back to /trade would reset warmup
-        // and delay the next trade check by another 3 minutes.
-        if (!this._monitorInterval) {
-          this._warmup = true;
-          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins (warming up)`, "success");
-        } else {
-          this._log(`Auto-trading resumed: monitoring ${Object.keys(this.targets).length} coins`, "success");
-        }
-
-        this._saveActiveState();
-        this._ensureMonitoring();
       }
     }
 
@@ -395,6 +309,27 @@ export class AutoTrader {
     this._ensureDefaultAssignments();
 
     this._notifyChange();
+  }
+
+  /** Diff the freshly-loaded trade log against the previous one and raise a
+   *  brief "just traded" badge for any coin with a genuinely new entry.
+   *  Skips the very first load so historical trades aren't all flagged as
+   *  "recent" the moment the page opens. */
+  private _applyTradeLog(newTradeLog: TradeLogEntry[]) {
+    if (this._hasLoadedTradeLogOnce) {
+      for (const entry of newTradeLog) {
+        const entryTime = entry.time ? new Date(entry.time).getTime() : 0;
+        if (entryTime > this._lastSeenTradeTime) {
+          this._recordRecentTrade(entry.coin, entry.side, entry.price, entry.amount, entryTime);
+        }
+      }
+    }
+    this.tradeLog = newTradeLog;
+    this._hasLoadedTradeLogOnce = true;
+    for (const entry of newTradeLog) {
+      const entryTime = entry.time ? new Date(entry.time).getTime() : 0;
+      if (entryTime > this._lastSeenTradeTime) this._lastSeenTradeTime = entryTime;
+    }
   }
 
   // ── Tier Helpers ────────────────────────────────────────
@@ -461,7 +396,8 @@ export class AutoTrader {
     this.tierAssignments[code] = tiers;
     this._saveTierAssignments();
 
-    // If tier is active, add compound key target
+    // Optimistic display target only — the cron computes and persists the
+    // real target on its own next run regardless of what's shown here.
     const ck = compoundKey(code, tierNum);
     if (this.tierActive[tierNum] && !this._isOnCooldown(ck)) {
       const price = this._cachedPrices[code];
@@ -474,7 +410,6 @@ export class AutoTrader {
       }
     }
 
-    this._saveActiveState();
     this._log(`${code} added to Tier ${tierNum} (${TIER_CONFIG[tierNum].name})`, "info");
     this._notifyChange();
   }
@@ -502,13 +437,12 @@ export class AutoTrader {
       this._log(`${code} removed from all tiers`, "info");
     }
     this._saveTierAssignments();
-    this._saveActiveState();
     this._notifyChange();
   }
 
   // ── Tier Settings Update ────────────────────────────────
 
-  /** Update tier settings in memory. Call saveTierSettingsNow() to persist to DB. */
+  /** Update tier settings in memory. Call saveTierSettingsForTier() to persist to DB. */
   updateTierSettings(tierNum: number, settings: Partial<TierSettings>) {
     const key = `tier${tierNum}`;
     const current = this.tierSettings[key];
@@ -518,7 +452,8 @@ export class AutoTrader {
     const oldSellDev = current.sellDeviation;
     Object.assign(current, settings);
 
-    // If either deviation changed and tier is active, recalculate all targets for this tier
+    // If either deviation changed and tier is active, recalculate display
+    // targets for this tier (optimistic only — see assignCoin comment)
     const buyDevChanged = settings.deviation !== undefined && settings.deviation !== oldBuyDev;
     const sellDevChanged = settings.sellDeviation !== undefined && settings.sellDeviation !== oldSellDev;
     if ((buyDevChanged || sellDevChanged) && this.tierActive[tierNum]) {
@@ -537,18 +472,6 @@ export class AutoTrader {
     }
 
     this._notifyChange();
-  }
-
-  /** Explicitly save all tier settings to DB. Returns true on success. */
-  async saveTierSettingsNow(): Promise<boolean> {
-    // Cancel any pending debounced save
-    if (this._saveTierSettingsTimer) {
-      clearTimeout(this._saveTierSettingsTimer);
-      this._saveTierSettingsTimer = null;
-    }
-    await this._saveTierSettings();
-    await this._saveActiveState();
-    return !this._pendingTierSave;
   }
 
   /** Save only a single tier's settings (deviation + allocation) to DB. Returns true on success. */
@@ -582,26 +505,17 @@ export class AutoTrader {
     }
   }
 
-  // ── Start / Stop ────────────────────────────────────────
+  // ── Start / Stop (settings toggle only — the cron decides if/when to
+  // actually trade on its own next run) ──────────────────
 
   async startTier(tierNum: number): Promise<{ success: boolean; error?: string }> {
     // Always save current tier settings to DB before starting
     // (catches case where user adjusted sliders but forgot to click Save)
-    await this._saveTierSettings();
+    await this.saveTierSettingsForTier(tierNum);
 
-    // Refresh data first
+    // Refresh cached prices so the optimistic display targets below are fresh
     await this._refreshData();
 
-    // Check USDC balance (fetched separately since fetchPortfolio filters it out)
-    const usdcBalance = this._cachedUsdcBalance;
-
-    if (usdcBalance < MIN_USDC_RESERVE + 10) {
-      const msg = `Need $${MIN_USDC_RESERVE + 10}+ USDC (keeping $${MIN_USDC_RESERVE} reserve)`;
-      this._log(msg, "error");
-      return { success: false, error: msg };
-    }
-
-    // Get coins assigned to this tier
     const tierCoins = this.getCoinsForTier(tierNum);
     if (tierCoins.length === 0) {
       const msg = `No coins assigned to Tier ${tierNum}`;
@@ -609,8 +523,8 @@ export class AutoTrader {
       return { success: false, error: msg };
     }
 
-    // Set compound key targets for non-cooldown coins
-    let added = 0;
+    // Set optimistic display targets for non-cooldown coins — purely for
+    // the monitoring panel; the cron computes the real ones independently.
     const ts = this.getTierSettings(tierNum);
     for (const code of tierCoins) {
       const ck = compoundKey(code, tierNum);
@@ -621,41 +535,20 @@ export class AutoTrader {
             buy: price * (1 - ts.deviation / 100),
             sell: price * (1 + ts.sellDeviation / 100),
           };
-          added++;
         }
       }
     }
 
-    if (added === 0) {
-      const msg = `All Tier ${tierNum} coins on cooldown or no price data`;
-      this._log(msg, "error");
-      return { success: false, error: msg };
-    }
-
     this.tierActive[tierNum] = true;
-    this._isOwner = true;
-    this._checkCount = 0;
 
     const cfg = TIER_CONFIG[tierNum];
-    this._log(`Tier ${tierNum} (${cfg.name}) started: monitoring ${added} coin(s)`, "success");
+    this._log(`Tier ${tierNum} (${cfg.name}) started: monitoring ${tierCoins.length} coin(s)`, "success");
 
-    for (const code of tierCoins) {
-      const ck = compoundKey(code, tierNum);
-      const tgt = this.targets[ck];
-      if (tgt) {
-        this._log(
-          `  ${code} (T${tierNum}): buy < $${tgt.buy.toFixed(2)} (-${ts.deviation}%), sell > $${tgt.sell.toFixed(2)} (+${ts.sellDeviation}%), ${ts.allocation}% alloc`,
-          "info",
-        );
-      }
-    }
-
-    // Save all state so non-admin users can see monitoring data
+    // Save all state so every wallet's dashboard — and the cron — see the
+    // updated tier-active flag immediately.
     this._saveActiveState();
-    this._saveTierSettings();
     this._saveTierAssignments();
     this._saveCooldowns();
-    this._ensureMonitoring();
     this._notifyChange();
     return { success: true };
   }
@@ -663,18 +556,12 @@ export class AutoTrader {
   stopTier(tierNum: number) {
     this.tierActive[tierNum] = false;
 
-    // Remove compound key targets for this tier's coins
+    // Remove display targets for this tier's coins
     for (const code of this.getCoinsForTier(tierNum)) {
       delete this.targets[compoundKey(code, tierNum)];
     }
 
     this._log(`Tier ${tierNum} (${TIER_CONFIG[tierNum].name}) stopped`, "info");
-
-    // Stop monitoring if no tiers active
-    if (!this.isActive) {
-      this._isOwner = false;
-      this._stopMonitoring();
-    }
 
     this._saveActiveState();
     this._notifyChange();
@@ -705,7 +592,7 @@ export class AutoTrader {
       return;
     }
 
-    // Add coins that weren't in targets
+    // Optimistic display targets for coins that didn't already have one
     for (const code of tierCoins) {
       const ck = compoundKey(code, tierNum);
       if (!this.targets[ck]) {
@@ -716,473 +603,22 @@ export class AutoTrader {
             buy: price * (1 - ts2.deviation / 100),
             sell: price * (1 + ts2.sellDeviation / 100),
           };
-          this._log(
-            `  Added ${code} (T${tierNum}): buy < $${this.targets[ck].buy.toFixed(2)}, sell > $${this.targets[ck].sell.toFixed(2)}`,
-            "info",
-          );
         }
       }
     }
 
     this._log(`Tier ${tierNum} cooldowns overridden — ${cleared} cleared`, "success");
 
-    // Save cooldowns to server
     this._saveCooldowns();
     this._saveActiveState();
     this._notifyChange();
-
-    // Trigger immediate check if tier is active
-    if (this.tierActive[tierNum]) {
-      this._checkPrices();
-    }
   }
 
-  // ── Monitoring Control ──────────────────────────────────
-
-  private _ensureMonitoring() {
-    if (!this._monitorInterval) {
-      this._monitorInterval = setInterval(() => this._checkPrices(), CHECK_INTERVAL_MS);
-      // Immediate first check
-      this._checkPrices();
-    }
-  }
-
-  private _stopMonitoring() {
-    if (this._monitorInterval) {
-      clearInterval(this._monitorInterval);
-      this._monitorInterval = null;
-    }
-  }
-
-  // ── Price Checking Loop (the core!) ─────────────────────
-
-  private async _checkPrices() {
-    if (!this.isActive || !this._isOwner) {
-      this._stopMonitoring();
-      return;
-    }
-
-    // Prevent concurrent execution (e.g. interval + trigger-crossing check)
-    if (this._priceCheckRunning) return;
-    this._priceCheckRunning = true;
-    try {
-      await this._checkPricesInner();
-    } finally {
-      this._priceCheckRunning = false;
-    }
-  }
-
-  private async _checkPricesInner() {
-
-    // Retry any pending tier settings save that previously failed
-    if (this._pendingTierSave) {
-      this.retryPendingSave();
-    }
-
-    this._checkCount++;
-
-    // Warmup: on first check after resume, refresh data but skip trading.
-    // This lets fresh prices load so we don't trade on stale targets.
-    if (this._warmup) {
-      this._warmup = false;
-      this._log("Warmup: refreshing prices before monitoring begins...", "info");
-      await this._refreshData();
-      this._saveActiveState();
-      this._notifyChange();
-      return;
-    }
-
-    // Refresh heartbeat
-    this._saveActiveState();
-
-    // Every 3rd check (~9 min): verify device ownership
-    if (this._checkCount % 3 === 0) {
-      const stillOwner = await this._verifyOwnership();
-      if (!stillOwner) return;
-    }
-
-    // Always refresh data before checking prices — stale USDC balance
-    // was causing buys to be skipped ("would break $30 reserve")
-    this._log("Refreshing prices...", "info");
-    await this._refreshData();
-
-    // Regenerate compound key targets for assigned coins that lost them
-    // (e.g. after cooldown expired but target was previously deleted from DB).
-    for (const [code, tiers] of Object.entries(this.tierAssignments)) {
-      for (const tier of tiers) {
-        if (!this.tierActive[tier]) continue;
-        const ck = compoundKey(code, tier);
-        if (this._isOnCooldown(ck)) continue;
-        if (this.targets[ck]) continue; // already has target
-        const price = this._cachedPrices[code];
-        if (price && price > 0) {
-          const ts3 = this.getTierSettings(tier);
-          this.targets[ck] = {
-            buy: price * (1 - ts3.deviation / 100),
-            sell: price * (1 + ts3.sellDeviation / 100),
-          };
-          this._log(`${code} (T${tier}): regenerated targets — buy $${this.targets[ck].buy.toFixed(2)}, sell $${this.targets[ck].sell.toFixed(2)}`, "info");
-        }
-      }
-    }
-
-    this._log(
-      `Check #${this._checkCount}: USDC $${this._cachedUsdcBalance.toFixed(2)}, monitoring ${Object.keys(this.targets).length} coin-tier combos`,
-      "info",
-    );
-
-    let tradeExecuted = false;
-    const tradesThisCycle: TradeAlertEntry[] = [];
-
-    for (const ck of Object.keys(this.targets)) {
-      if (this._isOnCooldown(ck)) {
-        this._setDiagnostic(ck, `Cooldown: ${this.getCooldownRemaining(ck)}`, "info");
-        continue;
-      }
-
-      const { coin, tier } = parseCompoundKey(ck);
-      if (!this.tierActive[tier]) continue;
-
-      const settings = this.getTierSettings(tier);
-      const currentPrice = this._cachedPrices[coin];
-      const tgt = this.targets[ck];
-
-      if (!tgt || !currentPrice) {
-        const reason = !currentPrice ? "No price data" : "No target set";
-        this._setDiagnostic(ck, reason, "error");
-        this._log(`${coin} (T${tier}): no target or price data`, "error");
-        continue;
-      }
-
-      const pctToBuy = ((currentPrice - tgt.buy) / currentPrice * 100).toFixed(2);
-      const pctToSell = ((tgt.sell - currentPrice) / currentPrice * 100).toFixed(2);
-
-      // BUY: price dropped below buy target
-      if (currentPrice <= tgt.buy) {
-        this._setDiagnostic(ck, "Executing BUY...", "info");
-        this._log(
-          `${coin} (T${tier}) hit buy target $${tgt.buy.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToBuy}% below) — EXECUTING BUY`,
-          "success",
-        );
-        const buyTrade = await this._executeBuy(coin, tier, currentPrice, settings);
-        if (buyTrade) tradesThisCycle.push(buyTrade);
-        tradeExecuted = true;
-      }
-      // SELL: price rose above sell target — but never sell below avg cost
-      else if (currentPrice >= tgt.sell) {
-        const avgCost = this._cachedAvgCost[coin] || 0;
-        if (avgCost > 0 && currentPrice < avgCost) {
-          this._setDiagnostic(
-            ck,
-            `Below avg cost ($${avgCost.toFixed(2)}) — sell blocked`,
-            "warn",
-          );
-          this._log(
-            `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} but price $${currentPrice.toFixed(2)} < avg cost $${avgCost.toFixed(2)} — SELL BLOCKED`,
-            "info",
-          );
-          this._setRetryBackoff(coin, tier, `below avg cost ($${avgCost.toFixed(2)})`);
-        } else {
-          this._setDiagnostic(ck, "Executing SELL...", "info");
-          this._log(
-            `${coin} (T${tier}) hit sell target $${tgt.sell.toFixed(2)} (price: $${currentPrice.toFixed(2)}, ${pctToSell}% above) — EXECUTING SELL`,
-            "success",
-          );
-          const sellTrade = await this._executeSell(coin, tier, currentPrice, settings);
-          if (sellTrade) tradesThisCycle.push(sellTrade);
-          tradeExecuted = true;
-        }
-      }
-      else {
-        this._setDiagnostic(ck, `${pctToSell}% to sell, ${pctToBuy}% to buy`, "info");
-      }
-    }
-
-    // Refresh after trades
-    if (tradeExecuted) {
-      await this._refreshData();
-      this._saveActiveState();
-    }
-
-    // One batched Telegram digest per cycle — never per-trade (that already
-    // blew past Telegram's ~20/min rate limit once; see auto-trade-cron.py).
-    // This is the ONLY place the browser-side bot notifies Telegram at all;
-    // the server cron sends its own digest only for trades IT executes.
-    if (tradesThisCycle.length > 0) {
-      await this._sendTradeAlert(tradesThisCycle);
-    }
-
-    this._notifyChange();
-
-    // Log cooldown status
-    const remaining = Object.keys(this.targets).filter((c) => !this._isOnCooldown(c));
-    const onCooldown = Object.keys(this.targets).length - remaining.length;
-    if (remaining.length === 0 && onCooldown > 0) {
-      this._log(`All ${onCooldown} coin-tier combos on cooldown — waiting...`, "info");
-    }
-  }
-
-  // ── Trade Execution ─────────────────────────────────────
-
-  private async _executeBuy(code: string, tier: number, currentPrice: number, settings: TierSettings): Promise<TradeAlertEntry | null> {
-    const ck = compoundKey(code, tier);
-    const usdcBalance = this._cachedUsdcBalance;
-
-    const tradeAmount = Math.max((settings.allocation / 100) * usdcBalance, MIN_ORDER_USDC);
-    if (usdcBalance - tradeAmount < MIN_USDC_RESERVE) {
-      this._setDiagnostic(ck, `BUY blocked: USDC $${usdcBalance.toFixed(0)} too low (need $${MIN_USDC_RESERVE} reserve)`, "error");
-      this._log(`Skipping ${code} (T${tier}) buy — USDC $${usdcBalance.toFixed(2)}, trade $${tradeAmount.toFixed(2)}, would break $${MIN_USDC_RESERVE} reserve`, "error");
-      this._setRetryBackoff(code, tier, `USDC too low ($${usdcBalance.toFixed(2)})`);
-      return null;
-    }
-
-    const quantity = parseFloat((tradeAmount / currentPrice).toFixed(8));
-    this._log(
-      `AUTO BUY (T${tier}): ${quantity} ${code} at $${currentPrice.toFixed(2)} ($${tradeAmount.toFixed(2)} USDC)`,
-      "success",
-    );
-
-    try {
-      const result = await placeTrade({
-        assetCode: code,
-        side: "buy",
-        amount: tradeAmount,
-        orderType: "market",
-        source: "bot",
-      });
-
-      if (result.success) {
-        this._setDiagnostic(ck, "BUY executed!", "info");
-        this._log(`${code} (T${tier}) buy executed!`, "success");
-        this._addTradeLog(code, "BUY", quantity, currentPrice, tradeAmount);
-        this._setCooldown(code, tier);
-        // Awaited — this used to fire-and-forget, which let the DB write get
-        // silently dropped (abandoned mid-fetch) if the page navigated/reloaded
-        // before it finished. Confirmed in prod: ~half of a trade burst went
-        // missing from the trades collection this way (2026-10-22 incident).
-        await this._recordTradeInDB(code, "buy", quantity, currentPrice);
-        this._recordRecentTrade(code, "BUY", currentPrice, tradeAmount);
-
-        // ASYMMETRIC RESET: After buy, ratchet buy band down but keep sell band anchored
-        const tgt = this.targets[ck];
-        if (tgt) {
-          const oldBuy = tgt.buy;
-          const oldSell = tgt.sell;
-          tgt.buy = currentPrice * (1 - settings.deviation / 100);
-          const newSellFromHere = currentPrice * (1 + settings.sellDeviation / 100);
-          tgt.sell = Math.max(oldSell, newSellFromHere);
-          this._log(
-            `${code} (T${tier}) targets after BUY: buy $${oldBuy.toFixed(2)} → $${tgt.buy.toFixed(2)}, sell stays $${tgt.sell.toFixed(2)}`,
-            "info",
-          );
-        }
-        return { coin: code, side: "BUY" as const, qty: quantity, price: currentPrice, amount: tradeAmount };
-      } else {
-        this._setDiagnostic(ck, `BUY failed: ${result.error}`, "error");
-        this._log(`${code} (T${tier}) buy failed: ${result.error}`, "error");
-        // A real Swyftx API failure (e.g. "Too many requests") leaves the
-        // target still crossed, same as the pre-check blocks below — without
-        // a backoff the very next price tick retries instantly, hammering
-        // Swyftx's rate limit again every ~2-7s. Confirmed live 2026-10-25
-        // with LUNC/ENA stuck repeating "Too many requests" back-to-back.
-        this._setRetryBackoff(code, tier, `buy failed (${result.error})`);
-      }
-    } catch (error: any) {
-      this._setDiagnostic(ck, `BUY error: ${error.message}`, "error");
-      this._log(`${code} (T${tier}) buy error: ${error.message}`, "error");
-      this._setRetryBackoff(code, tier, `buy error (${error.message})`);
-    }
-    return null;
-  }
-
-  private async _executeSell(code: string, tier: number, currentPrice: number, settings: TierSettings): Promise<TradeAlertEntry | null> {
-    const ck = compoundKey(code, tier);
-    const asset = this._cachedAssets.find((a) => a.code === code);
-    const assetBalance = asset?.balance ?? 0;
-
-    const sellPercent = settings.allocation * SELL_RATIO;
-    let quantity = parseFloat(((sellPercent / 100) * assetBalance).toFixed(8));
-
-    if (quantity <= 0) {
-      this._setDiagnostic(ck, `SELL blocked: no balance on Swyftx (${code} = 0)`, "error");
-      this._log(`Skipping ${code} (T${tier}) sell — insufficient balance`, "error");
-      this._setRetryBackoff(code, tier, "no balance on Swyftx");
-      return null;
-    }
-
-    let sellValue = quantity * currentPrice;
-
-    // If below minimum order size, bump up to meet it (matching server-side cron logic)
-    if (sellValue < MIN_ORDER_USDC) {
-      const minQty = MIN_ORDER_USDC / currentPrice;
-      if (minQty <= assetBalance) {
-        quantity = parseFloat(minQty.toFixed(8));
-        sellValue = quantity * currentPrice;
-        this._log(`${code} (T${tier}): bumped sell qty to ${quantity} to meet $${MIN_ORDER_USDC} minimum`, "info");
-      } else {
-        quantity = parseFloat(assetBalance.toFixed(8));
-        sellValue = quantity * currentPrice;
-        if (sellValue < MIN_ORDER_USDC) {
-          this._setDiagnostic(ck, `SELL blocked: total holding ($${sellValue.toFixed(2)}) below $${MIN_ORDER_USDC} minimum`, "error");
-          this._log(`Skipping ${code} (T${tier}) sell — total holding $${sellValue.toFixed(2)} below $${MIN_ORDER_USDC} minimum`, "error");
-          this._setRetryBackoff(code, tier, `holding ($${sellValue.toFixed(2)}) below minimum`);
-          return null;
-        }
-      }
-    }
-
-    this._log(
-      `AUTO SELL (T${tier}): ${quantity} ${code} at $${currentPrice.toFixed(2)} (${sellPercent.toFixed(1)}% of holdings, $${sellValue.toFixed(2)} USDC)`,
-      "success",
-    );
-
-    try {
-      const result = await placeTrade({
-        assetCode: code,
-        side: "sell",
-        amount: sellValue,
-        orderType: "market",
-        source: "bot",
-      });
-
-      if (result.success) {
-        this._setDiagnostic(ck, "SELL executed!", "info");
-        this._log(`${code} (T${tier}) sell executed!`, "success");
-        this._addTradeLog(code, "SELL", quantity, currentPrice, sellValue);
-        this._setCooldown(code, tier);
-        // Awaited for the same reason as the buy path — see comment there.
-        await this._recordTradeInDB(code, "sell", quantity, currentPrice);
-        this._recordRecentTrade(code, "SELL", currentPrice, sellValue);
-
-        // After SELL: reset both bands from current price (fresh start after taking profit)
-        const tgt = this.targets[ck];
-        if (tgt) {
-          const oldBuy = tgt.buy;
-          const oldSell = tgt.sell;
-          tgt.buy = currentPrice * (1 - settings.deviation / 100);
-          tgt.sell = currentPrice * (1 + settings.sellDeviation / 100);
-          this._log(
-            `${code} (T${tier}) targets after SELL: buy $${oldBuy.toFixed(2)} → $${tgt.buy.toFixed(2)}, sell $${oldSell.toFixed(2)} → $${tgt.sell.toFixed(2)}`,
-            "info",
-          );
-        }
-        return { coin: code, side: "SELL" as const, qty: quantity, price: currentPrice, amount: sellValue };
-      } else {
-        this._setDiagnostic(ck, `SELL failed: ${result.error}`, "error");
-        this._log(`${code} (T${tier}) sell failed: ${result.error}`, "error");
-        // Same reasoning as the matching BUY branch — a real API failure
-        // must back off too, not just the pre-check blocks above.
-        this._setRetryBackoff(code, tier, `sell failed (${result.error})`);
-      }
-    } catch (error: any) {
-      this._setDiagnostic(ck, `SELL error: ${error.message}`, "error");
-      this._log(`${code} (T${tier}) sell error: ${error.message}`, "error");
-      this._setRetryBackoff(code, tier, `sell error (${error.message})`);
-    }
-    return null;
-  }
-
-  // ── Device Ownership ────────────────────────────────────
-
-  private async _verifyOwnership(): Promise<boolean> {
-    try {
-      const state = await fetchTraderState();
-      if (!state || !state._rawAutoActive) return true;
-
-      const autoActive = state._rawAutoActive;
-
-      // Another device took over
-      if (autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId) {
-        this._log("Another device took over — stopping local monitoring", "info");
-        this._isOwner = false;
-        this._stopMonitoring();
-        this._notifyChange();
-        return false;
-      }
-
-      // Stopped remotely
-      if (autoActive.isActive === false) {
-        this._log("Auto-trading stopped from another device", "info");
-        this.tierActive = { 1: false, 2: false, 3: false };
-        this._isOwner = false;
-        this._stopMonitoring();
-        this._notifyChange();
-        return false;
-      }
-
-      // Sync tier active state from server
-      if (autoActive.tierActive) {
-        for (let t = 1; t <= 3; t++) {
-          this.tierActive[t] = !!(autoActive.tierActive[t] ?? autoActive.tierActive[String(t)]);
-        }
-      }
-
-      return true;
-    } catch {
-      return true; // Network error, keep running
-    }
-  }
-
-  // ── Ownership Retry ────────────────────────────────────
-
-  private _scheduleOwnershipRetry(delayMs: number) {
-    this._clearOwnershipRetry();
-    this._log(`Will retry ownership in ${Math.round(delayMs / 1000)}s`, "info");
-    this._ownershipRetryTimer = setTimeout(async () => {
-      this._ownershipRetryTimer = null;
-      if (this._isOwner) return; // Already reclaimed
-      if (!this.isActive) return; // No tiers active
-
-      try {
-        const state = await fetchTraderState();
-        if (!state || !state._rawAutoActive) {
-          // No active state on server — safe to take ownership
-          this._isOwner = true;
-        } else {
-          const autoActive = state._rawAutoActive;
-          const otherDevice = autoActive.botDeviceId && autoActive.botDeviceId !== this._deviceId;
-          const freshHeartbeat = autoActive.botHeartbeat && (Date.now() - autoActive.botHeartbeat < HEARTBEAT_STALE_MS);
-
-          if (otherDevice && freshHeartbeat) {
-            // Still active on another device — retry again
-            const staleness = HEARTBEAT_STALE_MS - (Date.now() - (autoActive.botHeartbeat || 0));
-            const retryDelay = Math.max(staleness + 5000, 10_000);
-            this._scheduleOwnershipRetry(retryDelay);
-            return;
-          }
-
-          // Heartbeat is stale or same device — reclaim ownership
-          this._isOwner = true;
-        }
-
-        if (this._isOwner) {
-          this._warmup = true;
-          this._log("Ownership reclaimed — resuming auto-trading", "success");
-          this._saveActiveState();
-          this._ensureMonitoring();
-          this._notifyChange();
-        }
-      } catch {
-        // Network error — retry in 30s
-        this._scheduleOwnershipRetry(30_000);
-      }
-    }, delayMs);
-  }
-
-  private _clearOwnershipRetry() {
-    if (this._ownershipRetryTimer) {
-      clearTimeout(this._ownershipRetryTimer);
-      this._ownershipRetryTimer = null;
-    }
-  }
-
-  // ── Data Refresh ────────────────────────────────────────
+  // ── Data Refresh (for display estimates only) ───────────
 
   private async _refreshData() {
     try {
-      // Bust the cache for portfolio, prices, and cash balance so the
-      // trading loop always gets a live fetch — stale cached { usdc: 0 }
-      // from a failed Swyftx call was silently blocking every buy.
+      // Bust the cache so estimate displays always reflect a live fetch.
       clearCacheKeys("portfolio", "prices", "cash");
 
       // Snapshot only WebSocket-connected prices before the API call.
@@ -1203,7 +639,6 @@ export class AutoTrader {
       ]);
       this._cachedAssets = assets;
       // API prices as base, then overlay real-time WebSocket prices.
-      // Also capture any WS updates that arrived during the API call.
       const freshWs: Record<string, number> = {};
       for (const code of Object.keys(CODE_TO_BINANCE)) {
         if (this._cachedPrices[code]) {
@@ -1213,7 +648,7 @@ export class AutoTrader {
       this._cachedPrices = { ...apiPrices, ...wsPrices, ...freshWs };
       this._cachedUsdcBalance = cash.usdc;
 
-      // Avg cost map for sell-below-cost guard (missing/0 = allow sells)
+      // Avg cost map for the "below avg cost" badge (missing/0 = unknown)
       if (coinStats?.coins?.length) {
         const avgMap: Record<string, number> = {};
         for (const c of coinStats.coins) {
@@ -1231,76 +666,13 @@ export class AutoTrader {
     return this._cachedAvgCost[coin] || 0;
   }
 
-  /** Update cached prices externally (from parent component's price ticker).
-   *  If any price crosses a buy/sell trigger, schedule an immediate check
-   *  so trades execute within seconds instead of waiting for the 3-min interval.
-   */
+  /** Feed live prices in from the parent component's WebSocket ticker, for
+   *  display/estimate purposes only. No execution is triggered here. */
   updatePrices(prices: Record<string, number>) {
     this._cachedPrices = { ...this._cachedPrices, ...prices };
-
-    // Set diagnostics for non-owner mode so UI shows why trades aren't executing
-    if (this.isActive && !this._isOwner) {
-      for (const [ck, tgt] of Object.entries(this.targets)) {
-        const { coin } = parseCompoundKey(ck);
-        const price = prices[coin];
-        if (!tgt || !price || this._isOnCooldown(ck)) continue;
-        if (price >= tgt.sell || price <= tgt.buy) {
-          this._setDiagnostic(ck, "Not owner — cron-managed", "warn");
-        }
-      }
-    }
-
-    if (!this.isActive || !this._isOwner || this._warmup) return;
-
-    // Check if any updated price crossed a compound key trigger
-    let triggered = false;
-    for (const [ck, tgt] of Object.entries(this.targets)) {
-      const { coin } = parseCompoundKey(ck);
-      const price = prices[coin];
-      if (!tgt || !price || this._isOnCooldown(ck)) continue;
-      if (price <= tgt.buy || price >= tgt.sell) {
-        triggered = true;
-        break;
-      }
-    }
-
-    if (triggered && !this._triggerCheckTimer) {
-      // Debounce 2s to batch rapid WebSocket updates, then execute
-      this._triggerCheckTimer = setTimeout(() => {
-        this._triggerCheckTimer = null;
-        this._checkPrices();
-      }, 2000);
-    }
-  }
-
-  updateAssets(assets: PortfolioAsset[]) {
-    this._cachedAssets = assets;
   }
 
   // ── Cooldown Management ─────────────────────────────────
-
-  private _setCooldown(coin: string, tier: number) {
-    const ck = compoundKey(coin, tier);
-    const tierKey = `tier${tier}`;
-    const hours = this.tierSettings[tierKey]?.cooldownHours ?? DEFAULT_COOLDOWN_HOURS;
-    const expiresAt = Date.now() + hours * 60 * 60 * 1000;
-    this.cooldowns[ck] = expiresAt;
-    this._saveCooldowns();
-    this._log(`${coin} (T${tier}) on cooldown for ${hours}h`, "info");
-  }
-
-  /** Short backoff for a buy/sell that was blocked (not executed) — e.g. the
-   *  reserve floor. Unlike _setCooldown this isn't "trade just happened,
-   *  wait the full tier cooldown" — it's "nothing changed, stop retrying
-   *  every couple of seconds until there's a real chance of a different
-   *  outcome." Keeps the brief-but-real diagnostic visible in the UI via
-   *  _setDiagnostic (called by the caller) while this is active. */
-  private _setRetryBackoff(coin: string, tier: number, reason: string) {
-    const ck = compoundKey(coin, tier);
-    this.cooldowns[ck] = Date.now() + RESERVE_BLOCKED_RETRY_MS;
-    this._saveCooldowns();
-    this._log(`${coin} (T${tier}) backing off ${RESERVE_BLOCKED_RETRY_MS / 60_000}m — ${reason}`, "info");
-  }
 
   /** Check cooldown using compound key "BTC:1" or plain coin code "BTC" (checks all tiers) */
   _isOnCooldown(key: string): boolean {
@@ -1334,32 +706,14 @@ export class AutoTrader {
     return `${hours}h ${minutes}m`;
   }
 
-  // ── Trade Log ───────────────────────────────────────────
-
-  private _addTradeLog(coin: string, side: "BUY" | "SELL", quantity: number, price: number, amount: number) {
-    const entry: TradeLogEntry = {
-      time: new Date().toISOString(),
-      coin,
-      side,
-      quantity,
-      price,
-      amount,
-    };
-    this.tradeLog.unshift(entry);
-    if (this.tradeLog.length > 50) this.tradeLog.pop();
-    this._saveTradeLog();
-  }
-
   // ── Recent Trade Tracking (for UI celebrations) ────────
 
-  private _recordRecentTrade(coin: string, side: "BUY" | "SELL", price: number, amount: number) {
-    const tradeTime = Date.now();
-    this.recentTrades[coin] = { side, price, amount, time: tradeTime };
+  private _recordRecentTrade(coin: string, side: "BUY" | "SELL", price: number, amount: number, time: number) {
+    this.recentTrades[coin] = { side, price, amount, time };
     this._notifyChange();
     // Auto-clear after 60 seconds so the celebration badge fades
     setTimeout(() => {
-      // Only delete if it's still the same trade (not a newer one)
-      if (this.recentTrades[coin]?.time === tradeTime) {
+      if (this.recentTrades[coin]?.time === time) {
         delete this.recentTrades[coin];
         this._notifyChange();
       }
@@ -1377,60 +731,6 @@ export class AutoTrader {
     return trade;
   }
 
-  // ── Record to MongoDB ───────────────────────────────────
-
-  private async _recordTradeInDB(coin: string, tradeType: "buy" | "sell", amount: number, price: number) {
-    if (!this._adminWallet) return;
-    try {
-      const auth = await getAdminAuth(this._adminWallet);
-      if (!auth) return;
-
-      const res = await fetch("/api/trade", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...auth,
-          coin,
-          type: tradeType,
-          amount,
-          price,
-        }),
-      });
-      if (res.ok) {
-        this._log(`Trade saved to DB: ${tradeType} ${amount.toFixed(6)} ${coin} @ $${price.toFixed(2)}`, "success");
-      }
-    } catch {
-      // Non-critical
-    }
-  }
-
-  // ── Telegram Alert ───────────────────────────────────────
-  // Only path to Telegram for browser-executed trades — the server cron
-  // sends its own digest, but only for trades it executes itself. Without
-  // this, a browser-owned trading session is completely silent on Telegram.
-  private async _sendTradeAlert(trades: TradeAlertEntry[]) {
-    if (!this._adminWallet || trades.length === 0) return;
-    try {
-      const portfolioValue =
-        this._cachedAssets.reduce((sum, a) => sum + (a.usdValue || 0), 0) +
-        this._cachedUsdcBalance;
-
-      await fetch("/api/telegram", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "tradeAlert",
-          adminWallet: this._adminWallet,
-          trades,
-          usdcBalance: this._cachedUsdcBalance,
-          portfolioValue,
-        }),
-      });
-    } catch {
-      // Non-critical — a missed Telegram alert should never block trading.
-    }
-  }
-
   // ── Persistence (Server State) ──────────────────────────
 
   private async _saveActiveState() {
@@ -1440,8 +740,6 @@ export class AutoTrader {
       isActive: this.isActive,
       tierActive: this.tierActive,
       targets: this.targets,
-      botDeviceId: this._deviceId,
-      botHeartbeat: Date.now(),
     };
 
     try {
@@ -1451,50 +749,10 @@ export class AutoTrader {
     }
   }
 
-  private async _saveTierSettings() {
-    if (!this._adminWallet) return;
-
-    const autoTiers: Record<string, any> = {};
-    for (let t = 1; t <= 3; t++) {
-      autoTiers[`tier${t}`] = {
-        ...this.tierSettings[`tier${t}`],
-        name: TIER_CONFIG[t].name,
-        active: this.tierActive[t],
-      };
-    }
-
-    try {
-      const result = await saveTraderState(this._adminWallet, { autoTiers });
-      if (result.success) {
-        this._pendingTierSave = false;
-      } else {
-        // Don't retry on signature denial — user explicitly rejected or wallet unavailable
-        const isAuthError = result.error?.includes("signature") || result.error?.includes("Admin");
-        this._pendingTierSave = !isAuthError;
-        this._log(`Tier settings save failed: ${result.error || "unknown"} — cached locally`, "error");
-      }
-    } catch (err: any) {
-      this._pendingTierSave = true;
-      this._log(`Tier settings save error: ${err.message || "unknown"} — cached locally`, "error");
-    }
-  }
-
-  /** Flush any pending debounced tier settings save immediately (called on page unload) */
+  /** Flush any in-flight state to the server immediately (called on page unload) */
   flushPendingSave(): void {
-    if (this._saveTierSettingsTimer) {
-      clearTimeout(this._saveTierSettingsTimer);
-      this._saveTierSettingsTimer = null;
-      // Fire and forget — beforeunload can't wait for async
-      this._saveTierSettings();
-      this._saveActiveState();
-    }
-  }
-
-  /** Retry any pending tier settings save (called from monitoring loop) */
-  async retryPendingSave(): Promise<void> {
-    if (!this._pendingTierSave || !this._adminWallet) return;
-    this._log("Retrying pending tier settings save...", "info");
-    await this._saveTierSettings();
+    // Fire and forget — beforeunload can't wait for async
+    this._saveActiveState();
   }
 
   private async _saveTierAssignments() {
@@ -1519,30 +777,7 @@ export class AutoTrader {
     }
   }
 
-  private async _saveTradeLog() {
-    if (!this._adminWallet) return;
-
-    const log = this.tradeLog.map((e) => ({
-      coin: e.coin,
-      side: e.side.toLowerCase(),
-      qty: e.quantity,
-      price: e.price,
-      timestamp: e.time,
-    }));
-
-    try {
-      await saveTraderState(this._adminWallet, { autoTradeLog: log });
-    } catch {
-      // Non-critical
-    }
-  }
-
   // ── Trade Amount Estimates ──────────────────────────────
-
-  /** Get cached USDC balance (from last refresh) */
-  getUsdcBalance(): number {
-    return this._cachedUsdcBalance;
-  }
 
   /** Get estimated BUY order amount in USDC for a coin (optionally for specific tier) */
   getEstimatedBuyAmount(code: string, tierNum?: number): number {
@@ -1562,7 +797,7 @@ export class AutoTrader {
     const balance = asset?.balance ?? 0;
     const price = this._cachedPrices[code] || 0;
     const sellPercent = settings.allocation * SELL_RATIO;
-    let quantity = (sellPercent / 100) * balance;
+    const quantity = (sellPercent / 100) * balance;
     let value = quantity * price;
     if (value < MIN_ORDER_USDC && price > 0) {
       const minQty = MIN_ORDER_USDC / price;
@@ -1577,10 +812,6 @@ export class AutoTrader {
 
   // ── Snapshot for UI ─────────────────────────────────────
 
-  private _setDiagnostic(code: string, reason: string, level: CoinDiagnostic["level"] = "info") {
-    this.coinDiagnostics[code] = { reason, level, timestamp: Date.now() };
-  }
-
   getSnapshot(): AutoTraderSnapshot {
     return {
       isActive: this.isActive,
@@ -1591,9 +822,6 @@ export class AutoTrader {
       tierAssignments: { ...this.tierAssignments },
       tradeLog: [...this.tradeLog],
       recentTrades: { ...this.recentTrades },
-      isOwner: this._isOwner,
-      deviceId: this._deviceId,
-      coinDiagnostics: { ...this.coinDiagnostics },
       cronDiagnostics: { ...this.cronDiagnostics },
     };
   }
@@ -1601,12 +829,6 @@ export class AutoTrader {
   // ── Cleanup ─────────────────────────────────────────────
 
   destroy() {
-    this._stopMonitoring();
-    this._clearOwnershipRetry();
-    if (this._saveTierSettingsTimer) {
-      clearTimeout(this._saveTierSettingsTimer);
-      this._saveTierSettingsTimer = null;
-    }
     this._onStateChange = null;
   }
 }
