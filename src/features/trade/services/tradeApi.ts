@@ -1298,38 +1298,6 @@ export async function setAutoTradeEnabled(
   }
 }
 
-/** One-off real-money manual BUY through the same per-user, non-custodial
- *  pipeline the auto-trade cron uses — lets an owner (or admin, for any
- *  wallet) fire a single test trade on demand instead of waiting for a
- *  real price dip, to prove buy -> ledger -> Activity actually works.
- *  Sized server-side at max($10, 4% of this wallet's live USDC balance);
- *  refuses outright rather than shrinking if that would breach the $30
- *  reserve floor. See execute_test_buy() in database.py for the exact rule. */
-export async function placeTestBuy(
-  walletAddress: string,
-  requesterWallet: string,
-  coin: string = "BTC",
-): Promise<{ success: boolean; error?: string; coin?: string; quantity?: number; usdcSpent?: number; price?: number }> {
-  if (LOCAL_READ_ONLY) return blockLocalWrite("place a test buy");
-  try {
-    // retries=0 — this places a REAL order. See fetchWithRetry's docstring.
-    const res = await fetchWithRetry(
-      "/api/user/test-buy",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ walletAddress, requesterWallet, coin }),
-      },
-      0,
-    );
-    const data = await res.json();
-    if (!res.ok) return { success: false, error: data.error || `HTTP ${res.status}` };
-    return { success: true, coin: data.coin, quantity: data.quantity, usdcSpent: data.usdcSpent, price: data.price };
-  } catch (err: any) {
-    return { success: false, error: err.message || "Network error" };
-  }
-}
-
 export interface UserActivityEntry {
   walletAddress?: string;
   coin: string;

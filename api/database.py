@@ -2300,10 +2300,9 @@ def record_user_trade(wallet_address: str, coin: str, side: str, quantity: float
     itself. Also backs this wallet's own Activity view.
 
     `source` distinguishes a real recurring auto-trade ("auto", the
-    default — what auto-trade-cron.py always passes) from a one-off
-    manual "test" buy (see execute_test_buy below), so Activity can label
-    the latter distinctly without it looking like the bot fired on its
-    own schedule."""
+    default — what auto-trade-cron.py always passes) from other origins,
+    so Activity can label them distinctly without it looking like the
+    bot fired on its own schedule."""
     doc = {
         "walletAddress": wallet_address,
         "coin": coin,
@@ -2347,83 +2346,6 @@ def get_user_avg_cost(wallet_address: str, coin: str) -> float:
             spent += q * p
             qty_bought += q
     return (spent / qty_bought) if qty_bought > 0 else 0.0
-
-
-# Mirrors auto-trade-cron.py's own MIN_USDC_RESERVE / MIN_ORDER_USDC constants —
-# duplicated here (not imported) because database.py must stay import-clean of
-# the cron module; keep both in sync if either changes.
-TEST_BUY_MIN_BALANCE_USDC = float(os.getenv("USER_MIN_USDC_RESERVE", "30"))
-TEST_BUY_FLAT_USDC = 10.0
-TEST_BUY_PCT_OF_BALANCE = 4.0
-
-
-def execute_test_buy(wallet_address: str, requester_wallet: str, coin: str = "BTC") -> Dict:
-    """One-off, real-money manual BUY — lets a wallet owner (or admin) fire
-    a single test trade through the EXACT same per-user, non-custodial
-    pipeline auto-trade-cron.py uses for a real auto-trade buy
-    (place_market_order -> record_user_trade), without waiting for a real
-    price dip to trigger it naturally. This is how to prove the whole
-    buy -> ledger -> Activity pipeline actually works end-to-end on a live
-    account before trusting the recurring cron to do it unattended.
-
-    Sized at max($10, 4% of this wallet's own live USDC balance) — refuses
-    outright (no partial/shrunk trade) if the balance isn't already above
-    the $30 reserve floor, or if the full computed amount would drop it
-    below that floor, exactly mirroring the real auto-trader's own guard."""
-    if requester_wallet != wallet_address and not is_admin(requester_wallet):
-        raise ValueError("Not authorized to trade on this wallet")
-
-    coin = coin.upper()
-    client = _get_user_swyftx_client(wallet_address)
-    try:
-        holdings = client.get_holdings()
-    except SwyftxAuthError as e:
-        update = {"lastError": str(e)}
-        if not _is_transient_swyftx_error(e):
-            update["status"] = "invalid"
-        user_exchange_keys_collection.update_one({"walletAddress": wallet_address}, {"$set": update})
-        raise ValueError(f"Could not fetch your Swyftx balance: {e}")
-    _mark_key_valid(wallet_address)
-
-    usdc_balance = sum(v for k, v in holdings.items() if k in ("USDC", "USD", "USDT"))
-    if usdc_balance <= TEST_BUY_MIN_BALANCE_USDC:
-        raise ValueError(
-            f"Your USDC balance (${usdc_balance:.2f}) must be above "
-            f"${TEST_BUY_MIN_BALANCE_USDC:.0f} to run a test buy"
-        )
-
-    trade_amount = max(TEST_BUY_FLAT_USDC, usdc_balance * (TEST_BUY_PCT_OF_BALANCE / 100))
-    if usdc_balance - trade_amount < TEST_BUY_MIN_BALANCE_USDC:
-        raise ValueError(
-            f"A ${trade_amount:.2f} buy would drop your balance below the "
-            f"${TEST_BUY_MIN_BALANCE_USDC:.0f} reserve floor — not placed"
-        )
-
-    price = get_prices_for_coins([coin]).get(coin, 0)
-    if price <= 0:
-        raise ValueError(f"No live price available for {coin}")
-
-    try:
-        code_to_id = client.get_code_to_id_map()
-    except Exception as e:
-        raise ValueError(f"Could not fetch the asset list: {e}")
-
-    ok, order_id, err = client.place_market_order(coin, "buy", trade_amount, code_to_id)
-    if not ok:
-        raise ValueError(err or "Order failed")
-
-    quantity = round(trade_amount / price, 8)
-    record_user_trade(wallet_address, coin, "buy", quantity, price, tier=None,
-                       order_id=order_id, source="test")
-
-    return {
-        "success": True,
-        "coin": coin,
-        "quantity": quantity,
-        "usdcSpent": round(trade_amount, 2),
-        "price": price,
-        "orderId": order_id,
-    }
 
 
 def get_user_trade_activity(target_wallet: str, requester_wallet: str) -> List[Dict]:
