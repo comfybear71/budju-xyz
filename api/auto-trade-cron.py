@@ -1,36 +1,61 @@
 # ==========================================
-# Server-Side Auto-Trade Cron Job
+# Unified Auto-Trade Cron — ONE bot, every wallet
 # ==========================================
-# Runs periodically via Vercel cron to check prices and execute trades
-# even when the browser is closed.
+# 2026-10-29 consolidation: this used to be two separate trading engines —
+# this file (the admin's own pooled Swyftx account, via a hardcoded
+# SWYFTX_API_KEY) and api/user-trade-cron.py (every OTHER connected wallet,
+# via its own key), PLUS a third copy running live in the browser
+# (src/features/trade/services/autoTrader.ts). All three read the same
+# shared tier settings/coin assignments, but ran on separate code paths,
+# with separate circuit breakers, and sent separate Telegram messages —
+# which is exactly what looked (and was) like "two different systems
+# running" from the outside: different buy orders landing at different
+# times for different wallets on the same signal, and two message formats
+# in the same Telegram channel.
 #
-# This mirrors the client-side AutoTrader logic:
-#   - Reads tier settings, targets, cooldowns from MongoDB
-#   - Fetches live prices from CoinGecko
-#   - Fetches portfolio from Swyftx
-#   - Executes market buy/sell orders when targets are hit
-#   - Updates targets, cooldowns, and trade log in MongoDB
-#   - Sends Telegram notifications for executed trades
+# Now there is exactly one engine, one 5-minute schedule, one safety rule
+# set, and one Telegram digest per run — this loop simply repeats the
+# same decision for every connected, auto-trading-enabled wallet
+# (admin's pool account included), each sized from that wallet's own
+# Swyftx balance. The browser never executes trades anymore (see
+# autoTrader.ts) and api/user-trade-cron.py has been deleted.
+#
+# The one place admin's wallet still differs from everyone else: trade
+# recording. Admin's Swyftx account is the legacy POOLED account that
+# other depositors' shares/NAV are computed against (record_trade() ->
+# calculate_pool_allocations(), see database.py's pool accounting
+# docstring) — that bookkeeping has nothing to do with WHICH engine
+# placed the trade, so it stays exactly as-is. Every other wallet's
+# trades go into its own non-custodial per-user ledger
+# (record_user_trade()) instead. Both still go through the identical
+# target/signal/safety logic below.
 # ==========================================
 
 import os
 import sys
-import json
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+import json
 
-# Add current directory for sibling imports (database.py)
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database import (
+    user_exchange_keys_collection,
+    decrypt_secret,
     get_trader_state,
     save_trader_state,
+    get_user_trader_state,
+    save_user_trader_state,
     record_trade,
+    record_user_trade,
     calculate_pool_allocations,
     get_coin_stats,
+    get_user_bot_position,
+    get_user_avg_cost,
+    get_prices_for_coins,
+    ADMIN_WALLETS,
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
@@ -40,252 +65,95 @@ from trade_guards import (
     is_rebuy_blocked,
     sell_below_min,
 )
-from swyftx_client import get_cached_token
+from swyftx_client import SwyftxClient, SwyftxAuthError
 
 # ── Config ────────────────────────────────────────────────────
 
-SWYFTX_BASE = "https://api.swyftx.com.au"
-SWYFTX_API_KEY = os.getenv("SWYFTX_API_KEY", "")
-# Paid CoinGecko plan (any tier) serves from pro-api.coingecko.com with an
-# x-cg-pro-api-key header — falls back to the free public API if unset.
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
-COINGECKO_URL = (
-    "https://pro-api.coingecko.com/api/v3/simple/price"
-    if COINGECKO_API_KEY else "https://api.coingecko.com/api/v3/simple/price"
-)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = -1002398835975
 
-# Trading constants (mirrors autoTrader.ts)
-DEFAULT_COOLDOWN_HOURS = 24
-# Lowered from $100 -> $30 on 2026-10-25 — see autoTrader.ts's matching
-# constant for why: this cron and the browser bot both trade the admin's
-# own linked Swyftx account, which the non-custodial model now treats as
-# just another per-wallet account (same floor as user-trade-cron.py's
-# USER_MIN_USDC_RESERVE), not a shared pool needing a bigger buffer.
-MIN_USDC_RESERVE = 30
-MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
-SELL_RATIO = 0.833
-HEARTBEAT_STALE_MS = 5 * 60 * 1000  # 5 minutes
+CASH_CODES = {"USDC", "USD", "AUD", "USDT"}
 
-# Dry-run mode: set DRY_RUN=true to simulate trades without executing
+# Trading constants — one set, applied identically to every wallet.
+DEFAULT_COOLDOWN_HOURS = 24
+MIN_USDC_RESERVE = float(os.getenv("MIN_USDC_RESERVE", "30"))
+MIN_ORDER_USDC = 8  # Floor for any trade (Swyftx minimum is $7)
+SELL_RATIO = 0.833  # Sell 83% of the allocation band (accumulation bias)
+
+# Emergency kill-switch + dry-run (single switch for every wallet now —
+# there's only one bot to pause).
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 
-# Circuit breakers (configurable via env vars)
-MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "500"))   # Max USDC per trade
-MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "20"))                 # Max trades per 24h
-MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "2000"))       # Max total USDC sold per 24h
+# Circuit breakers (configurable via env vars) — same per-wallet ceiling
+# for everyone, including the admin's pool account. Unifying onto the
+# lower, per-user-tuned defaults (previously only applied to non-admin
+# wallets) rather than the admin-only $500/$2000/20 ones: every wallet
+# now ALSO gets the max-daily-sell-exposure breaker, which non-admin
+# wallets never had before this merge.
+MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
+MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
+MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "1000"))
 
-# Stale-target refresh window — see matching constant + comment in
-# user-trade-cron.py. Same risk applies here for any coin that goes a long
-# stretch without crossing its target: the reference price freezes at
-# whenever it was last set, drifting further from reality the longer the
-# market trends away from it.
+# Stale-target refresh window — any target older than this is treated as
+# missing and regenerated off the current price. See git history
+# (2026-10-27) for the full incident writeup.
 TARGET_STALE_MS = float(os.getenv("TARGET_STALE_HOURS", "48")) * 3_600_000
 
 # Debt-payoff-sale guards (July 2026). See trade_guards.py.
-MAX_AUD_DEPLOYABLE = float(os.getenv("MAX_AUD_DEPLOYABLE", "500"))          # Cap on deployable capital for buys
-SWYFTX_MIN_SELL_USDC = float(os.getenv("SWYFTX_MIN_SELL_USDC", "30"))       # Real Swyftx min order — skip sub-min sells
+MAX_AUD_DEPLOYABLE = float(os.getenv("MAX_AUD_DEPLOYABLE", "500"))
+SWYFTX_MIN_SELL_USDC = float(os.getenv("SWYFTX_MIN_SELL_USDC", "30"))
 
-# Best-effort de-dup so blocklist / min-order skips log once per warm instance
-# (avoids spamming the activity log every 5-minute cycle).
+# Best-effort de-dup so blocklist / min-order skips log once per warm
+# instance (avoids spamming the activity log every 5-minute cycle).
 _blocklist_logged = set()
 _minsell_logged = set()
 
-# Swyftx order types
-MARKET_BUY = 1
-MARKET_SELL = 2
-
-# Asset code → CoinGecko ID (mirrors tradeApi.ts ASSET_CONFIG)
-ASSET_CG_IDS = {
-    "BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana",
-    "XRP": "ripple", "DOGE": "dogecoin", "ADA": "cardano",
-    "SUI": "sui", "XAUT": "tether-gold", "AVAX": "avalanche-2",
-    "DOT": "polkadot", "LINK": "chainlink", "POL": "polygon-ecosystem-token",
-    "HBAR": "hedera-hashgraph", "UNI": "uniswap", "NEAR": "near",
-    "NEO": "neo", "TRX": "tron", "BCH": "bitcoin-cash",
-    "BNB": "binancecoin", "ENA": "ethena", "NEXO": "nexo",
-    "HYPE": "hyperliquid", "RENDER": "render-token", "FET": "fetch-ai",
-    "TAO": "bittensor", "PEPE": "pepe", "LUNA": "terra-luna-2",
-    "JUP": "jupiter-exchange-solana", "LUNC": "terra-luna",
-    "SKY": "sky", "SYRUP": "syrup", "LDO": "lido-dao",
-}
-
-# ── HTTP Helper ───────────────────────────────────────────────
-
-def _http_json(url, method="GET", body=None, headers=None, retries=0, backoff=2):
-    """Simple HTTP JSON request with optional retry + exponential backoff."""
-    hdrs = dict(headers) if headers else {}
-    data = json.dumps(body).encode() if body else None
-    if data and "Content-Type" not in hdrs:
-        hdrs["Content-Type"] = "application/json"
-    hdrs.setdefault("User-Agent", "SwyftxTrader/1.0")
-    last_error = None
-    for attempt in range(1 + retries):
-        try:
-            req = Request(url, data=data, headers=hdrs, method=method)
-            with urlopen(req, timeout=20) as resp:
-                return json.loads(resp.read().decode())
-        except Exception as e:
-            last_error = e
-            if attempt < retries:
-                wait = backoff ** attempt  # 1s, 2s, 4s...
-                time.sleep(wait)
-    raise last_error
-
-# ── Swyftx Token Management ──────────────────────────────────
-# Delegates to swyftx_client.get_cached_token(), a cache shared (via a tiny
-# Mongo-backed collection) with every other process touching this same
-# SWYFTX_API_KEY — including the admin's own non-custodial key entry, which
-# can be "linked" to this exact master key (see link_admin_master_key in
-# database.py). Before this, this cron kept its own isolated token cache,
-# so it and index.py's SwyftxClient instances each refreshed independently
-# against Swyftx's tightly rate-limited /auth/refresh/ endpoint for the
-# SAME physical key — confirmed live 2026-10-24 to 429 the admin's wallet
-# out of the leaderboard within seconds of linking it.
-
-def _get_swyftx_token():
-    return get_cached_token(SWYFTX_API_KEY)
-
-def _swyftx_headers():
-    return {
-        "Authorization": f"Bearer {_get_swyftx_token()}",
-        "Content-Type": "application/json",
-        "User-Agent": "SwyftxTrader/1.0",
-    }
-
-# ── Data Fetching ─────────────────────────────────────────────
-
-def fetch_prices():
-    """Fetch USD prices from CoinGecko for all tracked assets (with retry)."""
-    ids = ",".join(ASSET_CG_IDS.values())
-    url = f"{COINGECKO_URL}?ids={ids}&vs_currencies=usd,aud"
-    headers = {"x-cg-pro-api-key": COINGECKO_API_KEY} if COINGECKO_API_KEY else None
-    data = _http_json(url, headers=headers, retries=2, backoff=2)  # Retry up to 2x with 1s, 2s backoff
-
-    prices = {}
-    for code, cg_id in ASSET_CG_IDS.items():
-        entry = data.get(cg_id)
-        if entry and entry.get("usd"):
-            prices[code] = float(entry["usd"])
-    return prices
-
-
-def fetch_portfolio():
-    """Fetch portfolio balances and USDC balance from Swyftx."""
-    headers = _swyftx_headers()
-    balances = _http_json(SWYFTX_BASE + "/user/balance/", headers=headers)
-    assets_list = _http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
-
-    # Build asset ID → code map — use String keys to avoid int/string mismatch
-    asset_map = {}
-    if isinstance(assets_list, list):
-        for a in assets_list:
-            if a.get("id") is not None:
-                asset_map[str(a["id"])] = a.get("code", "")
-
-    portfolio = {}
-    usdc_balance = 0.0
-
-    for item in (balances if isinstance(balances, list) else []):
-        asset_id = item.get("assetId") or (item.get("asset", {}).get("id"))
-        code = item.get("asset", {}).get("code") or (asset_map.get(str(asset_id), "") if asset_id is not None else "")
-        balance = float(item.get("availableBalance", 0) or 0)
-
-        if code == "USDC":
-            usdc_balance = balance
-        elif code and balance > 0:
-            portfolio[code] = balance
-
-    return portfolio, usdc_balance
-
-
-def fetch_swyftx_asset_ids():
-    """Build code → Swyftx numeric ID map."""
-    headers = _swyftx_headers()
-    assets_list = _http_json(SWYFTX_BASE + "/markets/assets/", headers=headers)
-    code_to_id = {}
-    if isinstance(assets_list, list):
-        for a in assets_list:
-            if a.get("code") and a.get("id") is not None:
-                code_to_id[str(a["code"]).upper()] = str(a["id"])
-    return code_to_id
-
-# ── Trade Execution ───────────────────────────────────────────
-
-def place_market_order(asset_code, side, amount_usdc, code_to_id):
-    """Place a market order on Swyftx. Returns (success, order_id, error)."""
-    if amount_usdc < 7:
-        return False, None, "Below $7 minimum"
-
-    usdc_id = code_to_id.get("USDC")
-    asset_id = code_to_id.get(asset_code.upper())
-    if not usdc_id or not asset_id:
-        return False, None, f"Cannot resolve IDs for USDC/{asset_code}"
-
-    payload = {
-        "primary": usdc_id,
-        "secondary": asset_id,
-        "quantity": str(round(amount_usdc, 2)),
-        "assetQuantity": usdc_id,
-        "orderType": MARKET_BUY if side == "buy" else MARKET_SELL,
-        "trigger": "",
-    }
-
-    try:
-        data = _http_json(
-            SWYFTX_BASE + "/orders/",
-            method="POST",
-            body=payload,
-            headers=_swyftx_headers(),
-        )
-    except HTTPError as e:
-        body_text = e.read().decode() if e.fp else ""
-        return False, None, f"HTTP {e.code}: {body_text[:200]}"
-
-    order_id = data.get("orderUuid") or data.get("orderId") or data.get("order_id")
-    msg = str(data.get("message", "")).lower()
-    has_error = data.get("error") or "error" in msg or "fail" in msg
-
-    if order_id and not has_error:
-        # Verify order wasn't rejected by checking status
-        try:
-            time.sleep(1)
-            verify = _http_json(
-                SWYFTX_BASE + f"/orders/{order_id}/",
-                headers=_swyftx_headers(),
-            )
-            status = verify.get("status", 0)
-            # Swyftx statuses: 2=pending, 3=open, 4=filled, 5=partially_filled, 6=cancelled, 7=failed
-            if status in (6, 7):
-                return False, None, f"Order {order_id} rejected by Swyftx (status={status})"
-        except Exception:
-            pass  # Verification failed — assume order is OK (don't block on verify failure)
-        return True, order_id, None
-    err = data.get("error") or data.get("message") or "No order confirmation"
-    return False, None, str(err) if isinstance(err, str) else json.dumps(err)
-
-# ── Telegram Notifications ────────────────────────────────────
+# ── Telegram ──────────────────────────────────────────────────
 
 def send_telegram(text):
     """Send a Telegram message (best-effort, non-blocking)."""
     if not TELEGRAM_BOT_TOKEN:
         return
     try:
-        _http_json(
+        req = Request(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            method="POST",
-            body={
+            data=json.dumps({
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": text,
                 "parse_mode": "HTML",
-            },
-            retries=2,
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
+        urlopen(req, timeout=10)
     except Exception:
         pass  # Non-critical
 
-# ── Tier Helpers ──────────────────────────────────────────────
+
+def _format_digest(all_trades):
+    """One combined Telegram message for the whole run — every wallet
+    that traded this cycle, buys then sells. Replaces the old two
+    separate formats ("🤖 Auto-Trade" for the admin, "🔑 Personal
+    Auto-Trade" for everyone else) with a single shared one."""
+    buys = [t for t in all_trades if t["side"] == "BUY"]
+    sells = [t for t in all_trades if t["side"] == "SELL"]
+    lines = [f"🤖 <b>Auto-Trade</b> — {len(all_trades)} trade(s) across {len({t['wallet'] for t in all_trades})} wallet(s)"]
+
+    def _wallet_label(t):
+        w = t["wallet"]
+        return "pool" if t.get("isPool") else f"{w[:4]}...{w[-4:]}"
+
+    if buys:
+        lines.append(f"\n🟢 <b>{len(buys)} BUY</b>")
+        for t in buys[:25]:
+            lines.append(f"🛒 {_wallet_label(t)}  {t['qty']:.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
+    if sells:
+        lines.append(f"\n🔴 <b>{len(sells)} SELL</b>")
+        for t in sells[:25]:
+            lines.append(f"💸 {_wallet_label(t)}  {t['qty']:.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
+    return "\n".join(lines)
+
+# ── Tier / Shared-Rule Helpers ───────────────────────────────
 
 def _tier_num(value):
     """Convert tier value ('tier1', '1', 1, etc.) to int."""
@@ -294,17 +162,17 @@ def _tier_num(value):
     s = str(value).replace("tier", "")
     try:
         return int(s)
-    except ValueError:
+    except (TypeError, ValueError):
         return 0
 
 
 def _tier_settings(tier_assets, tier_num):
-    """Get deviation and allocation % for a tier from DB, with defaults.
-    Defaults: T1: 1% dev / 5% alloc, T2+T3: 2% dev / 5% alloc."""
+    """Get deviation/sellDeviation/allocation/cooldown for a tier from the
+    shared admin "Auto Trade" screen, with defaults."""
     key = f"tier{tier_num}"
     db_settings = tier_assets.get(key, {}) if isinstance(tier_assets, dict) else {}
     default_dev = 1.0 if tier_num == 1 else 2.0
-    default_sell_dev = default_dev * 2  # Sell deviation defaults to 2x buy deviation
+    default_sell_dev = default_dev * 2
     return {
         "deviation": float(db_settings.get("deviation", default_dev)),
         "sellDeviation": float(db_settings.get("sellDeviation", default_sell_dev)),
@@ -314,122 +182,40 @@ def _tier_settings(tier_assets, tier_num):
 
 
 def _is_tier_active(tier_active, tier_num):
-    """Check if a tier is active (handles both string and int keys)."""
     return bool(tier_active.get(str(tier_num)) or tier_active.get(tier_num))
 
-# ── Circuit Breakers ─────────────────────────────────────────
 
-def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
-    """Check circuit breakers before executing a trade.
-    Returns (allowed: bool, reason: str or None)."""
-    # 1. Max single trade size
-    if amount_usdc > MAX_SINGLE_TRADE_USDC:
-        reason = f"Trade ${amount_usdc:.2f} exceeds MAX_SINGLE_TRADE_USDC (${MAX_SINGLE_TRADE_USDC:.2f})"
-        log.append(f"{code}: BLOCKED — {reason}")
-        return False, reason
-
-    # 2. Count trades in last 24h from trade log
-    now_iso = datetime.utcnow().isoformat()
-    recent_trades = 0
-    daily_sell_total = 0.0
-    cutoff_ms = int(time.time() * 1000) - (24 * 3_600_000)
-
-    for entry in trade_log:
-        ts = entry.get("timestamp", "")
-        # Parse ISO timestamp to compare
-        try:
-            entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-            entry_ms = int(entry_time.timestamp() * 1000)
-        except (ValueError, AttributeError):
+def _build_active_pairs(tier_assignments, tier_active):
+    """(coin, tier) pairs for every coin assigned to a currently-active
+    tier — identical for every wallet, since the coin list/tier settings
+    are the one shared rulebook, not a per-wallet choice."""
+    active_pairs = []
+    for coin, tiers in tier_assignments.items():
+        if is_permanently_buy_denied(coin):
             continue
-
-        if entry_ms > cutoff_ms:
-            recent_trades += 1
-            if str(entry.get("side", "")).lower() == "sell":
-                daily_sell_total += float(entry.get("qty", 0)) * float(entry.get("price", 0))
-
-    # 3. Max daily trades
-    if recent_trades >= MAX_DAILY_TRADES:
-        reason = f"Hit MAX_DAILY_TRADES limit ({MAX_DAILY_TRADES} trades in 24h)"
-        log.append(f"{code}: BLOCKED — {reason}")
-        return False, reason
-
-    # 4. Max daily sell exposure (only for sells)
-    if side == "sell" and (daily_sell_total + amount_usdc) > MAX_DAILY_LOSS_USDC:
-        reason = f"Daily sell total ${daily_sell_total + amount_usdc:.2f} would exceed MAX_DAILY_LOSS_USDC (${MAX_DAILY_LOSS_USDC:.2f})"
-        log.append(f"{code}: BLOCKED — {reason}")
-        return False, reason
-
-    return True, None
+        if isinstance(tiers, list):
+            for t in tiers:
+                try:
+                    t = int(t)
+                except (TypeError, ValueError):
+                    continue
+                if _is_tier_active(tier_active, t):
+                    active_pairs.append((coin, t))
+        else:
+            tn = _tier_num(tiers)
+            if 1 <= tn <= 3:
+                for t in (1, 2, 3):
+                    if _is_tier_active(tier_active, t):
+                        active_pairs.append((coin, t))
+    return active_pairs
 
 
-# ── Main Auto-Trade Check ────────────────────────────────────
-
-def run_auto_trade_check():
-    """Core auto-trade logic. Returns a result dict with a log."""
-    log = []
-
-    # Emergency kill-switch: set TRADING_ENABLED=false in Vercel env to halt all trades
-    if os.getenv("TRADING_ENABLED", "true").lower() == "false":
-        return {"skipped": True, "reason": "Trading disabled via TRADING_ENABLED env var", "log": log}
-
-    if DRY_RUN:
-        log.append("DRY RUN MODE — trades will be simulated, not executed")
-
-    if not SWYFTX_API_KEY:
-        return {"error": "SWYFTX_API_KEY not set", "log": log}
-
-    # 1. Read trader state from MongoDB
-    state = get_trader_state()
-    auto_active = state.get("autoActive", {})
-
-    if not isinstance(auto_active, dict) or not auto_active.get("isActive"):
-        return {"skipped": True, "reason": "Auto-trading not active", "log": log}
-
-    tier_active = auto_active.get("tierActive", {})
-    targets = auto_active.get("targets", {})
-
-    if not any(_is_tier_active(tier_active, t) for t in (1, 2, 3)):
-        return {"skipped": True, "reason": "No tiers active", "log": log}
-
-    if not targets:
-        return {"skipped": True, "reason": "No targets set", "log": log}
-
-    # Check if a browser is actively trading (fresh heartbeat from non-cron device)
-    now_ms = int(time.time() * 1000)
-    bot_device = auto_active.get("botDeviceId", "")
-    bot_heartbeat = auto_active.get("botHeartbeat", 0)
-    browser_active = (
-        bot_device
-        and bot_device != "server-cron"
-        and isinstance(bot_heartbeat, (int, float))
-        and (now_ms - bot_heartbeat) < HEARTBEAT_STALE_MS
-    )
-
-    if browser_active:
-        log.append(f"Browser active (device={bot_device}, heartbeat {(now_ms - bot_heartbeat) // 1000}s ago) — skipping")
-        return {"skipped": True, "reason": "Browser is actively trading", "log": log}
-
-    # Claim ownership NOW, before any Swyftx calls — not after the trading
-    # loop finishes. A cron run that fires several real orders can take many
-    # seconds; leaving the heartbeat stale for that whole window let a
-    # browser's own ownership check (which claims its heartbeat up front,
-    # before its own loop) read a >5-min-old heartbeat mid-run, conclude the
-    # cron wasn't active, and start its OWN concurrent buy loop against the
-    # same real USDC balance — both loops individually decrement their own
-    # balance correctly, but neither sees the other's spend, so the combined
-    # total blew straight through the reserve floor on 2026-10-22.
-    _save_heartbeat(auto_active, now_ms)
-
-    tier_assets = state.get("autoTiers", state.get("autoTierAssets", {}))
-    tier_assignments = state.get("autoTierAssignments", {})
-    cooldowns = state.get("autoCooldowns", {})
-    trade_log = state.get("autoTradeLog", [])
-
-    # Rebuy blocklist (tax-loss / wash-sale guard). DB-backed + admin-editable.
-    # Only strip *legacy* July-2026 entries (expiry on/before 2026-08-30). Newer
-    # admin blocks with later expiries must persist across cron runs.
-    rebuy_blocklist = state.get("autoRebuyBlocklist")
+def _load_rebuy_blocklist(shared_state, log):
+    """Tax-loss / wash-sale rebuy blocklist — shared across every wallet
+    (a content-based decision like "don't rebuy ENA yet" should be
+    uniform, not per-wallet). Only strips *legacy* July-2026 entries
+    (expiry on/before 2026-08-30); newer admin blocks persist."""
+    rebuy_blocklist = shared_state.get("autoRebuyBlocklist")
     seed_blocklist = False
     if rebuy_blocklist is None:
         rebuy_blocklist = dict(DEFAULT_REBUY_BLOCKLIST)
@@ -448,461 +234,419 @@ def run_auto_trade_check():
             else:
                 cleaned[code] = until
         if dropped:
-            log.append(
-                f"Dropped {len(dropped)} legacy tax-loss rebuy block(s): {', '.join(sorted(dropped))}"
-            )
+            log.append(f"Dropped {len(dropped)} legacy tax-loss rebuy block(s): {', '.join(sorted(dropped))}")
             seed_blocklist = True
         rebuy_blocklist = cleaned
     else:
         rebuy_blocklist = {}
+    return rebuy_blocklist, seed_blocklist
 
-    # Build active coin-tier pairs from multi-tier assignments.
-    # Assignments can be old format {coin: tierNum} or new format {coin: [1,2,3]}
-    active_pairs = []  # list of (coin, tier_num)
-    for coin, tiers in tier_assignments.items():
-        if is_permanently_buy_denied(coin):
-            continue  # never monitor / buy denied coins
-        if isinstance(tiers, list):
-            # New multi-tier format: coin is in multiple tiers
-            for t in tiers:
-                if isinstance(t, (int, float)) and _is_tier_active(tier_active, int(t)):
-                    active_pairs.append((coin, int(t)))
-        else:
-            # Old single-tier format: migrate — treat as all tiers
-            tn = _tier_num(tiers)
-            if tn >= 1 and tn <= 3:
-                for t in (1, 2, 3):
-                    if _is_tier_active(tier_active, t):
-                        active_pairs.append((coin, t))
+# ── Circuit Breakers ─────────────────────────────────────────
+
+def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
+    """Check circuit breakers before executing a trade, scoped to ONE
+    wallet's own trade log. Returns (allowed: bool, reason: str or None)."""
+    if amount_usdc > MAX_SINGLE_TRADE_USDC:
+        reason = f"Trade ${amount_usdc:.2f} exceeds MAX_SINGLE_TRADE_USDC (${MAX_SINGLE_TRADE_USDC:.2f})"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    cutoff_ms = int(time.time() * 1000) - (24 * 3_600_000)
+    recent_trades = 0
+    daily_sell_total = 0.0
+    for entry in trade_log:
+        ts = entry.get("timestamp") or entry.get("time") or ""
+        try:
+            entry_time = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            entry_ms = int(entry_time.timestamp() * 1000)
+        except (ValueError, AttributeError, TypeError):
+            continue
+        if entry_ms > cutoff_ms:
+            recent_trades += 1
+            if str(entry.get("side", "")).lower() == "sell":
+                daily_sell_total += float(entry.get("qty", entry.get("quantity", 0)) or 0) * float(entry.get("price", 0) or 0)
+
+    if recent_trades >= MAX_DAILY_TRADES:
+        reason = f"Hit MAX_DAILY_TRADES limit ({MAX_DAILY_TRADES} trades in 24h)"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    if side == "sell" and (daily_sell_total + amount_usdc) > MAX_DAILY_LOSS_USDC:
+        reason = f"Daily sell total ${daily_sell_total + amount_usdc:.2f} would exceed MAX_DAILY_LOSS_USDC (${MAX_DAILY_LOSS_USDC:.2f})"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    return True, None
+
+# ── Per-Wallet Avg Cost (sell-below-cost guard inputs) ──────
+
+def _sell_guard_inputs(ctx, code, pool_avg_cost_map):
+    """(avg_cost, position_cap) for the SELL path. The pool account's
+    position is capped by its real Swyftx balance (same as this file's
+    pre-merge behavior) since trades_collection isn't a per-coin ledger
+    the way user_trades_collection is; every other wallet is capped by
+    what BUDJU's own ledger says IT bought for that wallet — never the
+    account's raw balance, so the bot can never touch coins a user holds
+    that it didn't buy itself."""
+    if ctx["isPool"]:
+        return pool_avg_cost_map.get(code, 0.0), ctx["holdings"].get(code, 0.0)
+    return get_user_avg_cost(ctx["wallet"], code), get_user_bot_position(ctx["wallet"], code)
+
+
+def _record_trade_ledger(ctx, code, side, quantity, price, tier_num, order_id, log):
+    """Admin's pool account records into the legacy shared pool ledger
+    (feeds other depositors' share P&L); every other wallet records into
+    its own non-custodial ledger. Both feed the exact same decision logic
+    above — this is the one deliberate branch in the whole file."""
+    if ctx["isPool"]:
+        try:
+            allocations = calculate_pool_allocations()
+            record_trade(code, side, quantity, price, allocations, swyftx_id=order_id)
+        except Exception as e:
+            log.append(f"Pool trade record error: {e}")
+    else:
+        record_user_trade(ctx["wallet"], code, side, quantity, price, tier_num, order_id)
+
+# ── Per-Wallet Trading Cycle ─────────────────────────────────
+
+def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool_avg_cost_map, now_ms, log, code_to_id_box):
+    wallet = ctx["wallet"]
+    short = "pool" if ctx["isPool"] else (wallet[:4] + "..." + wallet[-4:])
+    holdings = ctx["holdings"]
+    state = ctx["state"]
+
+    usdc_balance = sum(v for k, v in holdings.items() if k in CASH_CODES)
+    targets = state.get("targets", {})
+    cooldowns = state.get("cooldowns", {})
+    trade_log = state.get("tradeLog", [])
+
+    # Settlement guard — let a just-executed trade's balance change settle
+    # before this wallet trades again this cycle. Per-wallet now (each
+    # account's own recent activity, not a shared/global check).
+    if trade_log:
+        last_ts = trade_log[0].get("timestamp") or trade_log[0].get("time")
+        try:
+            last_ms = datetime.fromisoformat(str(last_ts).replace("Z", "+00:00")).timestamp() * 1000
+            if (now_ms - last_ms) < 120_000:
+                log.append(f"{short}: settlement guard, skipping this cycle")
+                return {"wallet": wallet, "isPool": ctx["isPool"], "skipped": "settlement_guard"}
+        except Exception:
+            pass
+
+    trades_this_wallet = []
+
+    for code, tier_num in active_pairs:
+        ck = f"{code}:{tier_num}"
+        cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
+        if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
+            continue
+        elif cooldown_expiry:
+            cooldowns.pop(ck, None)
+            cooldowns.pop(code, None)
+
+        settings = _tier_settings(auto_tiers, tier_num)
+        current_price = prices.get(code, 0)
+        if current_price <= 0:
+            continue
+
+        tgt = targets.get(ck) or targets.get(code)
+        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
+        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
+        if not isinstance(tgt, dict) or is_stale:
+            tgt = {
+                "buy": current_price * (1 - settings["deviation"] / 100),
+                "sell": current_price * (1 + settings["sellDeviation"] / 100),
+                "setAt": now_ms,
+            }
+            targets[ck] = tgt
+            targets.pop(code, None)
+
+        buy_target = float(tgt.get("buy", 0))
+        sell_target = float(tgt.get("sell", 0))
+        if buy_target <= 0 or sell_target <= 0:
+            continue
+
+        # ── BUY ──
+        if current_price <= buy_target:
+            if is_permanently_buy_denied(code):
+                if code not in _blocklist_logged:
+                    log.append(f"{code}: BUY skipped — permanent buy denylist")
+                    _blocklist_logged.add(code)
+                continue
+            if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
+                if code not in _blocklist_logged:
+                    log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
+                    _blocklist_logged.add(code)
+                continue
+
+            deployable = deployable_amount(usdc_balance, MAX_AUD_DEPLOYABLE)
+            trade_amount = max((settings["allocation"] / 100) * deployable, MIN_ORDER_USDC)
+            if usdc_balance - trade_amount < MIN_USDC_RESERVE:
+                continue
+
+            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
+            if not cb_ok:
+                continue
+
+            if DRY_RUN:
+                log.append(f"{short}: DRY RUN — would BUY {code} ${trade_amount:.2f}")
+                continue
+
+            if code_to_id_box.get("map") is None:
+                try:
+                    code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
+                except Exception as e:
+                    log.append(f"{short}: asset ID map failed — {e}")
+                    break
+
+            ok, order_id, err = ctx["client"].place_market_order(code, "buy", trade_amount, code_to_id_box["map"])
+            if ok:
+                quantity = round(trade_amount / current_price, 8)
+                _record_trade_ledger(ctx, code, "buy", quantity, current_price, tier_num, order_id, log)
+
+                old_sell = targets.get(ck, {}).get("sell", sell_target)
+                new_buy = current_price * (1 - settings["deviation"] / 100)
+                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
+                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+
+                trade_log.insert(0, {
+                    "coin": code, "side": "buy", "qty": quantity, "price": current_price,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
+                trade_log = trade_log[:50]
+
+                usdc_balance -= trade_amount
+                log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${current_price:.4f}")
+                trades_this_wallet.append({
+                    "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY",
+                    "amount": round(trade_amount, 2), "price": round(current_price, 2), "qty": quantity,
+                })
+            else:
+                log.append(f"{short}: BUY {code} failed — {err}")
+
+        # ── SELL ──
+        elif current_price >= sell_target:
+            avg_cost, position_cap = _sell_guard_inputs(ctx, code, pool_avg_cost_map)
+            if avg_cost > 0 and current_price < avg_cost:
+                log.append(f"{short}: {code} hit sell target but price ${current_price:.2f} < avg cost ${avg_cost:.2f} — SELL BLOCKED")
+                continue
+            if position_cap <= 0:
+                continue
+
+            sell_pct = settings["allocation"] * SELL_RATIO
+            quantity = round(min((sell_pct / 100) * position_cap, position_cap), 8)
+            if quantity <= 0:
+                continue
+            sell_value = quantity * current_price
+
+            if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
+                min_qty = SWYFTX_MIN_SELL_USDC / current_price
+                if min_qty <= position_cap:
+                    quantity = round(min_qty, 8)
+                    sell_value = quantity * current_price
+                else:
+                    quantity = round(position_cap, 8)
+                    sell_value = quantity * current_price
+                    if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
+                        if code not in _minsell_logged:
+                            log.append(f"{code}: SELL skipped — position ${sell_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
+                            _minsell_logged.add(code)
+                        continue
+
+            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
+            if not cb_ok:
+                continue
+
+            if DRY_RUN:
+                log.append(f"{short}: DRY RUN — would SELL {code} ${sell_value:.2f}")
+                continue
+
+            if code_to_id_box.get("map") is None:
+                try:
+                    code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
+                except Exception as e:
+                    log.append(f"{short}: asset ID map failed — {e}")
+                    break
+
+            ok, order_id, err = ctx["client"].place_market_order(code, "sell", sell_value, code_to_id_box["map"])
+            if ok:
+                _record_trade_ledger(ctx, code, "sell", quantity, current_price, tier_num, order_id, log)
+
+                new_buy = current_price * (1 - settings["deviation"] / 100)
+                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
+                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+
+                trade_log.insert(0, {
+                    "coin": code, "side": "sell", "qty": quantity, "price": current_price,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                })
+                trade_log = trade_log[:50]
+
+                log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${current_price:.4f}")
+                trades_this_wallet.append({
+                    "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL",
+                    "amount": round(sell_value, 2), "price": round(current_price, 2), "qty": quantity,
+                })
+            else:
+                log.append(f"{short}: SELL {code} failed — {err}")
+
+    # Persist this wallet's own targets/cooldowns/trade log.
+    if ctx["isPool"]:
+        # Written back into the same shared document the frontend's
+        # Auto Trade screen already polls (/api/state) — keeps the
+        # admin's live monitoring panel working with zero frontend
+        # changes, even though targets/cooldowns/tradeLog are now
+        # computed by the exact same per-wallet function as everyone else.
+        save_trader_state({
+            "autoActive": {**ctx["sharedAutoActive"], "targets": targets},
+            "autoCooldowns": cooldowns,
+            "autoTradeLog": trade_log,
+        })
+    else:
+        save_user_trader_state(wallet, {"targets": targets, "cooldowns": cooldowns, "tradeLog": trade_log})
+
+    return {"wallet": wallet, "isPool": ctx["isPool"], "trades": trades_this_wallet}
+
+# ── Main Entry Point ─────────────────────────────────────────
+
+def run_auto_trade_check():
+    """One cycle of the single unified bot — every connected,
+    auto-trading-enabled wallet (admin's pool account included), same
+    rules, same safety checks, one combined Telegram digest."""
+    log = []
+
+    if os.getenv("TRADING_ENABLED", "true").lower() == "false":
+        return {"skipped": True, "reason": "Trading disabled via TRADING_ENABLED env var", "log": log}
+
+    if DRY_RUN:
+        log.append("DRY RUN MODE — trades will be simulated, not executed")
+
+    shared_state = get_trader_state()
+    auto_active = shared_state.get("autoActive", {})
+    if not isinstance(auto_active, dict) or not auto_active.get("isActive"):
+        return {"skipped": True, "reason": "Auto-trading not active (master switch off)", "log": log}
+
+    tier_active = auto_active.get("tierActive", {})
+    if not any(_is_tier_active(tier_active, t) for t in (1, 2, 3)):
+        return {"skipped": True, "reason": "No tiers active", "log": log}
+
+    auto_tiers = shared_state.get("autoTiers", shared_state.get("autoTierAssets", {}))
+    tier_assignments = shared_state.get("autoTierAssignments", {})
+    active_pairs = _build_active_pairs(tier_assignments, tier_active)
+    if not active_pairs:
+        return {"skipped": True, "reason": "No coins assigned to an active tier", "log": log}
+
     unique_coins = sorted(set(c for c, _ in active_pairs))
     log.append(f"Monitoring {len(active_pairs)} coin-tier combos ({len(unique_coins)} coins): {', '.join(unique_coins)}")
 
-    # 2. Fetch prices from CoinGecko
+    rebuy_blocklist, seed_blocklist = _load_rebuy_blocklist(shared_state, log)
+
     try:
-        prices = fetch_prices()
+        prices = get_prices_for_coins(unique_coins)
         log.append(f"Prices: {len(prices)} coins fetched")
     except Exception as e:
-        log.append(f"Price fetch error: {e}")
-        # Still save heartbeat so the cron doesn't lose ownership
-        _save_heartbeat(auto_active, now_ms)
         return {"error": f"Price fetch failed: {e}", "log": log}
 
-    # 3. Fetch portfolio from Swyftx
-    try:
-        portfolio, usdc_balance = fetch_portfolio()
-        log.append(f"Portfolio: USDC ${usdc_balance:.2f}, {len(portfolio)} assets: {', '.join(f'{c}={b:.4f}' for c, b in sorted(portfolio.items()))}")
-    except Exception as e:
-        log.append(f"Portfolio fetch error: {e}")
-        _save_heartbeat(auto_active, now_ms)
-        return {"error": f"Portfolio fetch failed: {e}", "log": log}
-
-    # 4. Check each coin's price targets
-    code_to_id = None  # Lazy-loaded only if a trade is needed
-    trades_executed = []
-    decisions = []  # Structured log of every decision for debugging
-
-    # Avg-cost map for sell-below-cost guard (missing/0 = allow sells)
-    avg_cost_map = {}
+    # Pool-level avg cost (admin's account only) — same source this file
+    # always used, since the pool's trades_collection isn't per-coin
+    # ledgered the way user_trades_collection is for everyone else.
+    pool_avg_cost_map = {}
     try:
         stats = get_coin_stats()
         for c in stats.get("coins", []) or []:
             coin = c.get("coin")
             avg = float(c.get("avgCost") or 0)
             if coin and avg > 0:
-                avg_cost_map[coin] = avg
-        log.append(f"Avg cost loaded for {len(avg_cost_map)} coins")
+                pool_avg_cost_map[coin] = avg
     except Exception as e:
-        log.append(f"Avg cost fetch failed (sells allowed without guard): {e}")
+        log.append(f"Pool avg cost fetch failed (pool sells allowed without guard): {e}")
 
-    # Settlement guard: if trades executed very recently, skip this run
-    # to let Swyftx balances settle (prevents double-execution)
-    last_trade_time = 0
-    for entry in trade_log[:5]:
-        ts = entry.get("timestamp") or entry.get("time")
-        if ts:
-            try:
-                t = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() * 1000
-                last_trade_time = max(last_trade_time, t)
-            except Exception:
-                pass
-    if last_trade_time > 0 and (now_ms - last_trade_time) < 120_000:
-        log.append(f"Settlement guard: trades executed {(now_ms - last_trade_time) / 1000:.0f}s ago, skipping this cycle to let balances settle")
-        _save_heartbeat(auto_active, now_ms)
-        return {"tradesExecuted": 0, "trades": [], "log": log, "skipped": "settlement_guard"}
+    # Every connected, auto-trading-enabled wallet — admin's pool account
+    # included. (Pre-merge, api/user-trade-cron.py explicitly excluded
+    # ADMIN_WALLETS here because this file separately traded that same
+    # account with its own key/heartbeat; now there's only one engine, so
+    # the exclusion is gone.)
+    wallets = list(user_exchange_keys_collection.find({
+        "status": "active",
+        "autoTradeEnabled": True,
+    }))
+    if not wallets:
+        return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 
-    for code, tier_num in active_pairs:
-        ck = f"{code}:{tier_num}"  # Compound key
-
-        # Skip if on cooldown (check compound key first, fall back to old plain key)
-        cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
-        if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
-            remaining_h = (cooldown_expiry - now_ms) / 3_600_000
-            decisions.append({"coin": code, "tier": tier_num, "action": "skip", "reason": "cooldown", "remaining_h": round(remaining_h, 1)})
-            continue
-        elif cooldown_expiry and isinstance(cooldown_expiry, (int, float)) and cooldown_expiry <= now_ms:
-            # Clean up expired cooldowns (both compound and legacy keys)
-            cooldowns.pop(ck, None)
-            cooldowns.pop(code, None)
-
-        settings = _tier_settings(tier_assets, tier_num)
-        current_price = prices.get(code, 0)
-
-        # Regenerate target if missing OR stale (check compound key first, fall back to old plain key)
-        tgt = targets.get(ck) or targets.get(code)
-        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
-        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
-        if (not isinstance(tgt, dict) or not tgt or is_stale) and current_price > 0:
-            buy_dev = settings["deviation"]
-            sell_dev = settings["sellDeviation"]
-            tgt = {
-                "buy": current_price * (1 - buy_dev / 100),
-                "sell": current_price * (1 + sell_dev / 100),
-                "setAt": now_ms,
-            }
-            targets[ck] = tgt
-            log.append(f"{code} (T{tier_num}): regenerated targets — buy ${tgt['buy']:.4f} (-{buy_dev}%), sell ${tgt['sell']:.4f} (+{sell_dev}%)")
-
-        if not isinstance(tgt, dict):
-            continue
-
-        buy_target = float(tgt.get("buy", 0))
-        sell_target = float(tgt.get("sell", 0))
-
-        if current_price <= 0 or buy_target <= 0 or sell_target <= 0:
-            continue
-
-        pct_to_buy = (current_price - buy_target) / current_price * 100
-        pct_to_sell = (sell_target - current_price) / current_price * 100
-
-        # ── BUY: price dropped below buy target ──
-        if current_price <= buy_target:
-            # Permanent denylist + tax-loss rebuy blocklist — never buy these
-            if is_permanently_buy_denied(code):
-                decisions.append({
-                    "coin": code, "tier": tier_num, "action": "BUY", "result": "blocked",
-                    "reason": "permanent_buy_denylist",
-                })
-                if code not in _blocklist_logged:
-                    log.append(f"{code}: BUY skipped — permanent buy denylist")
-                    _blocklist_logged.add(code)
-                continue
-            if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
-                decisions.append({
-                    "coin": code, "tier": tier_num, "action": "BUY", "result": "blocked",
-                    "reason": "rebuy_blocklist", "blocked_until": rebuy_blocklist.get(code),
-                })
-                if code not in _blocklist_logged:
-                    log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
-                    _blocklist_logged.add(code)
-                continue
-
-            # Cap deployable capital — parked funds (e.g. sale proceeds) never size buys
-            deployable = deployable_amount(usdc_balance, MAX_AUD_DEPLOYABLE)
-            trade_amount = (settings["allocation"] / 100) * deployable
-            trade_amount = max(trade_amount, MIN_ORDER_USDC)
-
-            if usdc_balance - trade_amount < MIN_USDC_RESERVE:
-                reason = f"BUY signal but USDC ${usdc_balance:.2f} too low (need ${MIN_USDC_RESERVE} reserve)"
-                log.append(f"{code}: {reason}")
-                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": reason, "error": reason})
-                continue
-
-            quantity = round(trade_amount / current_price, 8)
-            log.append(f"{code}: BUY at ${current_price:.2f} (target ${buy_target:.2f}) — ${trade_amount:.2f}")
-
-            # Circuit breaker check
-            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
-            if not cb_ok:
-                log.append(f"{code}: BUY BLOCKED — {cb_reason}")
-                decisions.append({"coin": code, "action": "BUY", "result": "blocked", "reason": cb_reason, "error": cb_reason})
-                continue
-
-            # Dry-run: simulate without executing
-            if DRY_RUN:
-                log.append(f"{code}: DRY RUN — would BUY {quantity:.6f} @ ${current_price:.2f} (${trade_amount:.2f} USDC)")
-                continue
-
-            if code_to_id is None:
-                try:
-                    code_to_id = fetch_swyftx_asset_ids()
-                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
-                except Exception as e:
-                    log.append(f"Failed to load asset ID map: {e}")
-                    code_to_id = {}
-
-            ok, order_id, err = place_market_order(code, "buy", trade_amount, code_to_id)
-
-            if ok:
-                log.append(f"{code}: BUY executed (order {order_id})")
-                decisions.append({
-                    "coin": code, "action": "BUY", "result": "executed",
-                    "price": current_price, "target": buy_target,
-                    "amount_usdc": round(trade_amount, 2), "quantity": quantity,
-                    "order_id": order_id, "dry_run": False,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-
-                # ASYMMETRIC RESET after BUY: ratchet buy band down, keep sell anchored
-                tgt_ref = targets.get(ck, targets.get(code, {}))
-                old_sell = tgt_ref.get("sell", sell_target)
-                new_buy = current_price * (1 - settings["deviation"] / 100)
-                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
-                # Clean up old non-compound key if it exists
-                targets.pop(code, None) if code in targets and ck != code else None
-                log.append(f"{code} (T{tier_num}): targets after BUY — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell stays ${targets[ck]['sell']:.2f}")
-
-                # Set cooldown using compound key
-                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
-
-                # Trade log
-                trade_log.insert(0, {
-                    "coin": code, "side": "buy", "qty": quantity,
-                    "price": current_price,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-                if len(trade_log) > 50:
-                    trade_log = trade_log[:50]
-
-                # Record in DB (pass order_id so sync can deduplicate)
-                try:
-                    allocations = calculate_pool_allocations()
-                    record_trade(code, "buy", quantity, current_price, allocations, swyftx_id=order_id)
-                except Exception as e:
-                    log.append(f"DB record error: {e}")
-
-                trades_executed.append({
-                    "coin": code, "side": "BUY",
-                    "amount": round(trade_amount, 2),
-                    "price": round(current_price, 2),
-                    "qty": quantity,
-                })
-
-                usdc_balance -= trade_amount
-                # Telegram alert is batched into one digest per run (see end of loop)
-                # to avoid Telegram's per-chat rate limit silently dropping bursts.
-            else:
-                log.append(f"{code}: BUY failed — {err}")
-                decisions.append({
-                    "coin": code, "action": "BUY", "result": "failed",
-                    "price": current_price, "target": buy_target,
-                    "amount_usdc": round(trade_amount, 2), "error": err,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-
-        # ── SELL: price rose above sell target ──
-        elif current_price >= sell_target:
-            avg_cost = avg_cost_map.get(code, 0)
-            if avg_cost > 0 and current_price < avg_cost:
-                reason = f"Below avg cost (${avg_cost:.2f}) — sell blocked at ${current_price:.2f}"
-                log.append(f"{code}: {reason}")
-                decisions.append({
-                    "coin": code, "tier": tier_num, "action": "SELL", "result": "blocked",
-                    "reason": reason, "error": reason,
-                    "price": current_price, "avg_cost": avg_cost, "target": sell_target,
-                })
-                continue
-
-            asset_balance = portfolio.get(code, 0)
-
-            # Min-order guard: sliver positions below the Swyftx minimum can't be
-            # sold — skip cleanly (single log) instead of error-looping every cycle.
-            position_value = asset_balance * current_price
-            if sell_below_min(position_value, SWYFTX_MIN_SELL_USDC):
-                if code not in _minsell_logged:
-                    log.append(f"{code}: SELL skipped — position ${position_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
-                    _minsell_logged.add(code)
-                decisions.append({
-                    "coin": code, "tier": tier_num, "action": "SELL", "result": "blocked",
-                    "reason": "below_swyftx_min", "position_value": round(position_value, 2),
-                })
-                continue
-
-            sell_pct = settings["allocation"] * SELL_RATIO
-            quantity = round((sell_pct / 100) * asset_balance, 8)
-
-            if quantity <= 0:
-                reason = f"SELL signal but no balance on Swyftx ({code} = 0)"
-                log.append(f"{code}: {reason}")
-                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
-                continue
-
-            sell_value = quantity * current_price
-
-            # If below the Swyftx minimum, sell enough to meet it (up to full balance)
-            if sell_value < SWYFTX_MIN_SELL_USDC:
-                min_qty = SWYFTX_MIN_SELL_USDC / current_price
-                if min_qty <= asset_balance:
-                    quantity = round(min_qty, 8)
-                    sell_value = quantity * current_price
-                else:
-                    # Sell entire balance if it meets minimum
-                    quantity = round(asset_balance, 8)
-                    sell_value = quantity * current_price
-                    if sell_value < SWYFTX_MIN_SELL_USDC:
-                        reason = f"SELL signal but total holding (${sell_value:.2f}) below ${SWYFTX_MIN_SELL_USDC:.0f} minimum"
-                        log.append(f"{code}: {reason}")
-                        decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": reason, "error": reason})
-                        continue
-
-            log.append(f"{code}: SELL at ${current_price:.2f} (target ${sell_target:.2f}) — {quantity:.8f} (${sell_value:.2f})")
-
-            # Circuit breaker check
-            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
-            if not cb_ok:
-                log.append(f"{code}: SELL BLOCKED — {cb_reason}")
-                decisions.append({"coin": code, "action": "SELL", "result": "blocked", "reason": cb_reason, "error": cb_reason})
-                continue
-
-            # Dry-run: simulate without executing
-            if DRY_RUN:
-                log.append(f"{code}: DRY RUN — would SELL {quantity:.6f} @ ${current_price:.2f} (${sell_value:.2f} USDC)")
-                continue
-
-            if code_to_id is None:
-                try:
-                    code_to_id = fetch_swyftx_asset_ids()
-                    log.append(f"Asset ID map loaded: {len(code_to_id)} assets")
-                except Exception as e:
-                    log.append(f"Failed to load asset ID map: {e}")
-                    code_to_id = {}
-
-            ok, order_id, err = place_market_order(code, "sell", sell_value, code_to_id)
-
-            if ok:
-                log.append(f"{code}: SELL executed (order {order_id})")
-                decisions.append({
-                    "coin": code, "action": "SELL", "result": "executed",
-                    "price": current_price, "target": sell_target,
-                    "amount_usdc": round(sell_value, 2), "quantity": quantity,
-                    "order_id": order_id, "dry_run": False,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-
-                # After SELL: reset both bands from current price (fresh start after profit)
-                new_buy = current_price * (1 - settings["deviation"] / 100)
-                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
-                # Clean up old non-compound key if it exists
-                targets.pop(code, None) if code in targets and ck != code else None
-                log.append(f"{code} (T{tier_num}): targets after SELL — buy ${targets[ck]['buy']:.2f} (-{settings['deviation']}%), sell ${targets[ck]['sell']:.2f} (+{settings['sellDeviation']}%)")
-
-                # Set cooldown using compound key
-                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
-
-                # Trade log
-                trade_log.insert(0, {
-                    "coin": code, "side": "sell", "qty": quantity,
-                    "price": current_price,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-                if len(trade_log) > 50:
-                    trade_log = trade_log[:50]
-
-                # Record in DB (pass order_id so sync can deduplicate)
-                try:
-                    allocations = calculate_pool_allocations()
-                    record_trade(code, "sell", quantity, current_price, allocations, swyftx_id=order_id)
-                except Exception as e:
-                    log.append(f"DB record error: {e}")
-
-                trades_executed.append({
-                    "coin": code, "side": "SELL",
-                    "amount": round(sell_value, 2),
-                    "price": round(current_price, 2),
-                    "qty": quantity,
-                })
-                # Telegram alert is batched into one digest per run (see end of loop).
-            else:
-                log.append(f"{code}: SELL failed — {err}")
-                decisions.append({
-                    "coin": code, "action": "SELL", "result": "failed",
-                    "price": current_price, "target": sell_target,
-                    "amount_usdc": round(sell_value, 2), "error": err,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-
-        # ── No trigger ──
-        else:
-            log.append(
-                f"{code}: ${current_price:.2f} — "
-                f"{pct_to_buy:.1f}% to buy (${buy_target:.2f}), "
-                f"{pct_to_sell:.1f}% to sell (${sell_target:.2f})"
+    wallet_contexts = []
+    for doc in wallets:
+        wallet = doc["walletAddress"]
+        short = wallet[:4] + "..." + wallet[-4:]
+        is_pool = wallet in ADMIN_WALLETS
+        try:
+            api_key = decrypt_secret(doc["encryptedApiKey"])
+            client = SwyftxClient(api_key)
+            holdings = client.get_holdings()
+        except SwyftxAuthError as e:
+            user_exchange_keys_collection.update_one(
+                {"walletAddress": wallet},
+                {"$set": {"status": "invalid", "lastError": str(e)}},
             )
-            decisions.append({
-                "coin": code, "action": "hold", "price": current_price,
-                "buy_target": buy_target, "sell_target": sell_target,
-                "pct_to_buy": round(pct_to_buy, 2), "pct_to_sell": round(pct_to_sell, 2),
-            })
+            log.append(f"{short}: auth failed — {e}")
+            continue
+        except Exception as e:
+            log.append(f"{short}: holdings fetch failed — {e}")
+            continue
 
-    # 5. Save updated state to MongoDB
-    auto_active["targets"] = targets
-    auto_active["botDeviceId"] = "server-cron"
-    auto_active["botHeartbeat"] = now_ms
+        ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
+        if is_pool:
+            ctx["sharedAutoActive"] = auto_active
+            ctx["state"] = {
+                "targets": auto_active.get("targets", {}),
+                "tradeLog": shared_state.get("autoTradeLog", []),
+            }
+            ctx["state"]["cooldowns"] = shared_state.get("autoCooldowns", {})
+        else:
+            ctx["state"] = get_user_trader_state(wallet)
+        wallet_contexts.append(ctx)
 
-    save_payload = {
-        "autoActive": auto_active,
-        "autoCooldowns": cooldowns,
-        "autoTradeLog": trade_log,
-        "autoCronLog": {
-            "decisions": decisions,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "tradesExecuted": len(trades_executed),
-        },
-    }
-    # Only write the blocklist when seeding the default the first time — never
-    # on later runs, so admin edits in the DB are preserved.
+    if not wallet_contexts:
+        return {"skipped": True, "reason": "No wallet's holdings could be read this cycle", "log": log}
+
+    now_ms = int(time.time() * 1000)
+    code_to_id_box = {"map": None}
+    results = []
+    all_trades = []
+    for ctx in wallet_contexts:
+        try:
+            result = _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool_avg_cost_map, now_ms, log, code_to_id_box)
+        except Exception as e:
+            # One wallet's unexpected failure never stops the rest.
+            log.append(f"{ctx['wallet'][:8]}: unexpected error — {e}")
+            result = {"wallet": ctx["wallet"], "isPool": ctx["isPool"], "error": str(e)}
+        results.append(result)
+        all_trades.extend(result.get("trades", []))
+
+    # Only write the blocklist when seeding the default the first time —
+    # never on later runs, so admin edits in the DB are preserved.
     if seed_blocklist:
-        save_payload["autoRebuyBlocklist"] = rebuy_blocklist
-    save_trader_state(save_payload)
+        save_trader_state({"autoRebuyBlocklist": rebuy_blocklist})
 
-    log.append(f"Done: {len(trades_executed)} trade(s) executed")
+    if all_trades:
+        send_telegram(_format_digest(all_trades))
 
-    # Send ONE Telegram digest for the whole run, with the *final* USDC + portfolio.
-    # (Per-trade messages used to exceed Telegram's ~20/min per-chat limit on bursts
-    #  and get silently dropped, leaving a stale "USDC remaining" in the channel.)
-    if trades_executed:
-        final_portfolio = sum(portfolio.get(c, 0) * prices.get(c, 0) for c in portfolio) + usdc_balance
-        buys = [t for t in trades_executed if t.get("side") == "BUY"]
-        sells = [t for t in trades_executed if t.get("side") == "SELL"]
-        lines = [f"🤖 <b>Auto-Trade</b> — {len(trades_executed)} trade(s)"]
-        if buys:
-            lines.append(f"\n🟢 <b>{len(buys)} BUY</b>")
-            for t in buys[:25]:
-                lines.append(f"🛒 {t.get('qty', 0):.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
-        if sells:
-            lines.append(f"\n🔴 <b>{len(sells)} SELL</b>")
-            for t in sells[:25]:
-                lines.append(f"💸 {t.get('qty', 0):.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
-        lines.append(f"\n💰 USDC remaining: ${usdc_balance:,.2f}")
-        lines.append(f"📊 Portfolio: ${final_portfolio:,.0f}")
-        send_telegram("\n".join(lines))
+    log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
 
     return {
-        "tradesExecuted": len(trades_executed),
-        "trades": trades_executed,
-        "coinsMonitored": len(active_pairs),
+        "walletsProcessed": len(wallet_contexts),
+        "walletsOptedIn": len(wallets),
+        "tradesExecuted": len(all_trades),
         "dryRun": DRY_RUN,
-        "decisions": decisions,
+        "results": results,
         "log": log,
     }
-
-
-def _save_heartbeat(auto_active, now_ms):
-    """Save just the heartbeat (used on error paths to keep ownership)."""
-    auto_active["botDeviceId"] = "server-cron"
-    auto_active["botHeartbeat"] = now_ms
-    try:
-        save_trader_state({"autoActive": auto_active})
-    except Exception:
-        pass
-
 
 # ── Vercel Handler ────────────────────────────────────────────
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Verify cron secret if configured (Vercel sends Authorization header)
         cron_secret = os.getenv("CRON_SECRET")
         if cron_secret:
             auth = self.headers.get("Authorization", "")

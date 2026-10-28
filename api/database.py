@@ -2198,10 +2198,10 @@ def get_community_aggregate_holdings() -> Dict:
 # There is only ONE bot — one brain, one set of tier settings, one coin
 # list, one on/off switch — the SAME "Auto Trade" screen the admin edits
 # (trader_state_collection, see get_trader_state()/DEFAULT_TRADER_STATE
-# above). Every connected wallet's own cron run (api/user-trade-cron.py)
-# reads that single shared rulebook and carries it out inside that wallet's
-# own Swyftx account, with that wallet's own key, sized from that wallet's
-# own USDC balance — it is NOT a second, independently-configured bot.
+# above). The single unified cron (api/auto-trade-cron.py) reads that
+# shared rulebook and carries it out inside every connected wallet's own
+# Swyftx account — including the admin's — with that wallet's own key,
+# sized from that wallet's own USDC balance.
 #
 # Only this per-wallet document remains: each account's own computed price
 # targets, cooldown timers, and trade history. Those aren't decisions —
@@ -2211,8 +2211,8 @@ def get_community_aggregate_holdings() -> Dict:
 # Before 2026-10-25 this document also held its own copy of autoTiers/
 # tierActive/tierAssignments, defaulting every coin in the registry to all
 # three tiers — that let coins get auto-enrolled and traded without ever
-# being added to T1/T2/T3 on the admin's screen (see api/user-trade-cron.py
-# header comment for the concrete LUMIA incident this caused). Removed.
+# being added to T1/T2/T3 on the admin's screen (concrete LUMIA incident).
+# Removed.
 
 DEFAULT_USER_TRADER_STATE = {
     "targets": {},
@@ -2300,7 +2300,7 @@ def record_user_trade(wallet_address: str, coin: str, side: str, quantity: float
     itself. Also backs this wallet's own Activity view.
 
     `source` distinguishes a real recurring auto-trade ("auto", the
-    default — what user-trade-cron.py always passes) from a one-off
+    default — what auto-trade-cron.py always passes) from a one-off
     manual "test" buy (see execute_test_buy below), so Activity can label
     the latter distinctly without it looking like the bot fired on its
     own schedule."""
@@ -2330,7 +2330,26 @@ def get_user_bot_position(wallet_address: str, coin: str) -> float:
     return max(0.0, net)
 
 
-# Mirrors user-trade-cron.py's own MIN_USDC_RESERVE / MIN_ORDER_USDC constants —
+def get_user_avg_cost(wallet_address: str, coin: str) -> float:
+    """Weighted average BUY price for `coin` from this wallet's own full
+    trade ledger (user_trades_collection, not the 50-entry-capped display
+    log in user_trader_state) — same spent/qtyBought formula get_coin_stats()
+    uses for the pooled admin account, scoped to one wallet. Backs the
+    per-wallet "never sell below cost" guard in the unified auto-trade
+    cron. Returns 0 (= unknown, sells allowed) if this wallet has no
+    recorded buys for this coin."""
+    spent = 0.0
+    qty_bought = 0.0
+    for t in user_trades_collection.find({"walletAddress": wallet_address, "coin": coin, "side": "buy"}):
+        q = float(t.get("quantity", 0) or 0)
+        p = float(t.get("price", 0) or 0)
+        if q > 0 and p > 0:
+            spent += q * p
+            qty_bought += q
+    return (spent / qty_bought) if qty_bought > 0 else 0.0
+
+
+# Mirrors auto-trade-cron.py's own MIN_USDC_RESERVE / MIN_ORDER_USDC constants —
 # duplicated here (not imported) because database.py must stay import-clean of
 # the cron module; keep both in sync if either changes.
 TEST_BUY_MIN_BALANCE_USDC = float(os.getenv("USER_MIN_USDC_RESERVE", "30"))
@@ -2341,7 +2360,7 @@ TEST_BUY_PCT_OF_BALANCE = 4.0
 def execute_test_buy(wallet_address: str, requester_wallet: str, coin: str = "BTC") -> Dict:
     """One-off, real-money manual BUY — lets a wallet owner (or admin) fire
     a single test trade through the EXACT same per-user, non-custodial
-    pipeline user-trade-cron.py uses for a real auto-trade buy
+    pipeline auto-trade-cron.py uses for a real auto-trade buy
     (place_market_order -> record_user_trade), without waiting for a real
     price dip to trigger it naturally. This is how to prove the whole
     buy -> ledger -> Activity pipeline actually works end-to-end on a live
