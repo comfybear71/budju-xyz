@@ -70,10 +70,6 @@
       "schedule": "* * * * *"
     },
     {
-      "path": "/api/user-trade-cron",
-      "schedule": "*/5 * * * *"
-    },
-    {
       "path": "/api/copytrade-cron",
       "schedule": "*/5 * * * *"
     }

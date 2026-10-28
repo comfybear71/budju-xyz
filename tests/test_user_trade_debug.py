@@ -94,8 +94,56 @@ class TestDiagnoseUserAutoTrade:
         )
 
         assert "reason" not in result or not result.get("reason")
+        assert result["isPool"] is False
         assert "perCoin" in result
         entry = result["perCoin"][0]
         assert entry["coin"] == "BTC"
         assert entry["targetWasStale"] is True
         assert entry["buyTarget"] is not None
+
+
+class TestDiagnoseAdminPoolWallet:
+    """Since the 2026-10-29 bot consolidation, the admin's own pooled
+    Swyftx account is no longer special-cased out of this diagnostic --
+    it goes through the exact same per-wallet gates as everyone else,
+    sourcing its targets/cooldowns/trade log from the shared trader_state
+    document and its avg-cost/position from get_coin_stats()/holdings
+    instead of the per-user ledger."""
+
+    def test_admin_wallet_is_diagnosed_not_excluded(self, mock_database, mock_swyftx_client):
+        admin_wallet = "AEWvE2xXaHSGdGCaCArb2PWdKS7K9RwoCRV7CT2CJTWq"
+        mock_database.user_exchange_keys_collection.find_one = MagicMock(return_value={
+            "walletAddress": admin_wallet,
+            "status": "active",
+            "autoTradeEnabled": True,
+            "encryptedApiKey": "enc",
+            "lastError": None,
+        })
+        mock_database.get_trader_state = MagicMock(return_value={
+            "autoActive": {
+                "isActive": True,
+                "tierActive": {"1": True},
+                "targets": {"BTC:1": {"buy": 50000, "sell": 90000}},
+            },
+            "autoTiers": {"tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5}},
+            "autoTierAssignments": {"BTC": [1]},
+            "autoCooldowns": {},
+            "autoTradeLog": [],
+        })
+        mock_database.get_coin_stats = MagicMock(return_value={
+            "coins": [{"coin": "BTC", "avgCost": 55000}]
+        })
+
+        spec = importlib.util.spec_from_file_location(
+            "user_trade_debug_pool_test",
+            os.path.join(os.path.dirname(__file__), "..", "api", "user_trade_debug.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        result = mod.diagnose_user_auto_trade(admin_wallet)
+
+        assert "reason" not in result or not result.get("reason")
+        assert result["isPool"] is True
+        assert "perCoin" in result
+        assert result["perCoin"][0]["coin"] == "BTC"
