@@ -1,12 +1,19 @@
 import { useMemo, useState } from "react";
 import { HiOutlineArrowTrendingUp } from "react-icons/hi2";
-import type { PositionHistoryPoint } from "../services/tradeApi";
+import { sliceToPeriod, type PositionHistoryPoint } from "../services/tradeApi";
 
 interface Props {
   points: PositionHistoryPoint[];
   /** Shown above the chart, e.g. "Your Position" or "Admin Position". */
   label?: string;
 }
+
+const PERIODS = [
+  { label: "30d", days: 30 },
+  { label: "60d", days: 60 },
+  { label: "90d", days: 90 },
+  { label: "120d", days: 120 },
+] as const;
 
 const formatUsd = (n: number) =>
   n >= 1000
@@ -18,8 +25,17 @@ const formatDate = (iso: string) =>
 
 const PositionHistoryChart = ({ points, label }: Props) => {
   const [hovered, setHovered] = useState<number | null>(null);
+  // Default to the widest window (120d) — closest to the old always-show-
+  // everything behavior for any wallet whose whole history fits inside it.
+  const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1);
+
+  const windowedPoints = useMemo(
+    () => sliceToPeriod(points, PERIODS[periodIdx].days),
+    [points, periodIdx],
+  );
 
   const chart = useMemo(() => {
+    const points = windowedPoints;
     if (points.length < 2) return null;
 
     const width = 400;
@@ -86,9 +102,30 @@ const PositionHistoryChart = ({ points, label }: Props) => {
       valuePath, areaPath, valuePoints, withdrawalTicks,
       minV, maxV, isUp,
     };
-  }, [points]);
+  }, [windowedPoints]);
 
-  if (!chart) {
+  const periodTabs = (
+    <div className="flex items-center justify-end gap-1 mb-1.5">
+      {PERIODS.map((p, i) => (
+        <button
+          key={p.label}
+          onClick={() => {
+            setPeriodIdx(i);
+            setHovered(null); // avoid pointing at a stale index from the previous window's point count
+          }}
+          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${
+            i === periodIdx
+              ? "bg-blue-500/15 text-blue-400"
+              : "text-slate-600 hover:text-slate-400"
+          }`}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (points.length < 2) {
     return (
       <div className="text-center py-6 text-slate-500 text-[11px]">
         Not enough deposit history yet to chart.
@@ -96,10 +133,27 @@ const PositionHistoryChart = ({ points, label }: Props) => {
     );
   }
 
+  if (!chart) {
+    return (
+      <div>
+        {label && (
+          <div className="flex items-center gap-2 mb-2">
+            <HiOutlineArrowTrendingUp className="w-3 h-3 text-blue-400" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">{label}</span>
+          </div>
+        )}
+        {periodTabs}
+        <div className="text-center py-6 text-slate-500 text-[11px]">
+          No deposit history in this window yet.
+        </div>
+      </div>
+    );
+  }
+
   const { width, height, padding, chartW, isUp, investedStepPath, valuePath, areaPath, valuePoints, withdrawalTicks, minV, maxV } = chart;
   const strokeColor = isUp ? "#34d399" : "#f87171";
   const fillColor = isUp ? "#34d399" : "#f87171";
-  const last = points[points.length - 1];
+  const last = windowedPoints[windowedPoints.length - 1];
   const pnl = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
 
   return (
@@ -110,6 +164,8 @@ const PositionHistoryChart = ({ points, label }: Props) => {
           <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70">{label}</span>
         </div>
       )}
+
+      {periodTabs}
 
       <svg
         viewBox={`0 0 ${width} ${height}`}
@@ -173,7 +229,7 @@ const PositionHistoryChart = ({ points, label }: Props) => {
       <div className="h-8">
         {hovered !== null ? (
           (() => {
-            const p = points[hovered];
+            const p = windowedPoints[hovered];
             return (
               <div className="flex items-center justify-between text-[10px] px-0.5">
                 <span className="text-slate-400">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { PositionHistoryPoint } from "../services/tradeApi";
+import { sliceToPeriod, type PositionHistoryPoint } from "../services/tradeApi";
 
 interface Props {
   points: PositionHistoryPoint[];
@@ -19,21 +19,6 @@ const PERIODS = [
   { label: "60d", days: 60 },
   { label: "90d", days: 90 },
 ] as const;
-
-/** Slice the full event history down to the selected window. Strictly
- *  filtering by timestamp would often lose the most recent event BEFORE
- *  the cutoff, making the line falsely start at $0 instead of whatever the
- *  position was actually worth at the start of the window — so the latest
- *  point before the cutoff is kept and re-timestamped to the cutoff as the
- *  window's opening baseline. */
-const sliceToPeriod = (points: PositionHistoryPoint[], days: number): PositionHistoryPoint[] => {
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const before = points.filter((p) => new Date(p.timestamp).getTime() < cutoff);
-  const inWindow = points.filter((p) => new Date(p.timestamp).getTime() >= cutoff);
-  if (before.length === 0) return inWindow;
-  const baseline = { ...before[before.length - 1], timestamp: new Date(cutoff).toISOString() };
-  return [baseline, ...inWindow];
-};
 
 /**
  * Deliberately minimal — just one smooth filled area + line of value over
