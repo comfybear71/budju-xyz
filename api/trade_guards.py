@@ -101,20 +101,39 @@ def evaluate_order(coin, side, amount_usd, source, confirm, blocklist, now,
                    max_deployable, min_sell):
     """Single server-side order-guard decision for the /orders choke-point.
 
-    Policy (approved): BOT-originated orders are HARD-BLOCKED by any guard;
-    MANUAL admin orders get a warning and are allowed only on explicit confirm.
-    An unknown/missing source is treated as a bot (fail-safe: a blocklisted
-    coin can never be bought without an explicit manual confirm).
+    Policy: BOT-originated orders are HARD-BLOCKED UNCONDITIONALLY, not just
+    when they also happen to trip a specific guard. Since the 2026-10-29
+    auto-trade consolidation there is no longer any legitimate bot-originated
+    order path at all — the single engine (api/auto-trade-cron.py) calls
+    Swyftx directly and never touches this endpoint. A "bot"-sourced order
+    reaching this guard means a browser tab is still running pre-consolidation
+    JS cached from before that deploy (SPAs don't reload a stale tab's JS on
+    their own) — confirmed live 2026-10-29: a stale tab placed a real BUY
+    through this exact endpoint, 8 minutes after the new engine deployed,
+    because the coin it bought wasn't on any blocklist and so sailed through
+    the old "only hard-block on a tripped guard" policy below. Closing this
+    for good regardless of which coin/amount a stale tab tries.
+
+    MANUAL admin/user orders are unaffected — they still get a warning on a
+    specific guard condition and are allowed only on explicit confirm. An
+    unknown/missing source is treated as a bot (fail-safe).
 
     Returns: {allow, block, requiresConfirm, warning, reason, message}.
     """
     side = (side or "").lower()
     is_bot = source != "manual"
 
+    if is_bot:
+        return {
+            "allow": False, "block": True, "requiresConfirm": False,
+            "warning": None, "reason": "bot_execution_retired",
+            "message": (
+                "Client-side bot execution has been retired — please refresh "
+                "the page. Every trade now runs from the single server-side cron."
+            ),
+        }
+
     def deny(reason, msg):
-        if is_bot:
-            return {"allow": False, "block": True, "requiresConfirm": False,
-                    "warning": None, "reason": reason, "message": msg}
         if confirm:
             return {"allow": True, "block": False, "requiresConfirm": False,
                     "warning": msg + " (manually overridden)", "reason": reason, "message": msg}
