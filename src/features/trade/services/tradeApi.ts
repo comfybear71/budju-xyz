@@ -929,6 +929,23 @@ export async function fetchDeposits(wallet: string): Promise<DepositRecord[]> {
   }
 }
 
+/** Slice a full event history down to the last `days` days. Strictly
+ *  filtering by timestamp would often lose the most recent event BEFORE
+ *  the cutoff, making the line falsely start at $0 instead of whatever the
+ *  position was actually worth at the start of the window — so the latest
+ *  point before the cutoff is kept and re-timestamped to the cutoff as the
+ *  window's opening baseline. Shared by every chart built on
+ *  PositionHistoryPoint (GrowthAreaChart, PositionHistoryChart) so the
+ *  windowing behavior is identical everywhere. */
+export function sliceToPeriod(points: PositionHistoryPoint[], days: number): PositionHistoryPoint[] {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const before = points.filter((p) => new Date(p.timestamp).getTime() < cutoff);
+  const inWindow = points.filter((p) => new Date(p.timestamp).getTime() >= cutoff);
+  if (before.length === 0) return inWindow;
+  const baseline = { ...before[before.length - 1], timestamp: new Date(cutoff).toISOString() };
+  return [baseline, ...inWindow];
+}
+
 /** One point in a wallet's reconstructed deposit/value history (see buildPositionHistory). */
 export interface PositionHistoryPoint {
   timestamp: string;
