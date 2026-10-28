@@ -1,15 +1,15 @@
-"""Tests for auto-trade-cron circuit breakers and decision logic."""
+"""Tests for the unified auto-trade-cron's circuit breakers and tier/decision
+helpers — applied identically to every wallet (admin's pool account
+included) since the 2026-10-29 consolidation."""
 
 import importlib
 import os
 import sys
-import time
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
 import pytest
 
-# We need to mock database imports before importing the cron module
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
 
@@ -20,7 +20,12 @@ def mock_database():
     mock_db.get_trader_state = MagicMock(return_value={})
     mock_db.save_trader_state = MagicMock()
     mock_db.record_trade = MagicMock()
+    mock_db.record_user_trade = MagicMock()
     mock_db.calculate_pool_allocations = MagicMock(return_value={})
+    mock_db.get_coin_stats = MagicMock(return_value={"coins": []})
+    mock_db.ADMIN_WALLETS = ["ADMIN_WALLET_FAKE"]
+    mock_db.user_exchange_keys_collection = MagicMock()
+    mock_db.user_exchange_keys_collection.find.return_value = []
     with patch.dict("sys.modules", {"database": mock_db}):
         yield mock_db
 
@@ -28,7 +33,6 @@ def mock_database():
 @pytest.fixture
 def cron_module(mock_database):
     """Import the auto-trade-cron module with mocked dependencies."""
-    # Remove cached module if present
     mod_name = "auto-trade-cron"
     safe_name = mod_name.replace("-", "_")
 
@@ -53,8 +57,8 @@ class TestCircuitBreakers:
 
     def test_blocks_trade_exceeding_max_single(self, cron_module):
         log = []
-        # Default MAX_SINGLE_TRADE_USDC is 500
-        ok, reason = cron_module._check_circuit_breakers([], "buy", 600.0, "BTC", log)
+        # Default MAX_SINGLE_TRADE_USDC is 250
+        ok, reason = cron_module._check_circuit_breakers([], "buy", 300.0, "BTC", log)
         assert ok is False
         assert "MAX_SINGLE_TRADE_USDC" in reason
         assert len(log) == 1
@@ -63,12 +67,12 @@ class TestCircuitBreakers:
     def test_blocks_at_exact_limit(self, cron_module):
         log = []
         # Exactly at limit should pass (> not >=)
-        ok, _ = cron_module._check_circuit_breakers([], "buy", 500.0, "BTC", log)
+        ok, _ = cron_module._check_circuit_breakers([], "buy", cron_module.MAX_SINGLE_TRADE_USDC, "BTC", log)
         assert ok is True
 
     def test_blocks_above_limit(self, cron_module):
         log = []
-        ok, _ = cron_module._check_circuit_breakers([], "buy", 500.01, "BTC", log)
+        ok, _ = cron_module._check_circuit_breakers([], "buy", cron_module.MAX_SINGLE_TRADE_USDC + 0.01, "BTC", log)
         assert ok is False
 
     def test_blocks_max_daily_trades(self, cron_module):
@@ -82,7 +86,7 @@ class TestCircuitBreakers:
                 "price": 100,
                 "timestamp": (now - timedelta(hours=1)).isoformat() + "Z",
             }
-            for i in range(20)  # Default MAX_DAILY_TRADES is 20
+            for i in range(cron_module.MAX_DAILY_TRADES)
         ]
         log = []
         ok, reason = cron_module._check_circuit_breakers(trade_log, "buy", 50.0, "ETH", log)
@@ -100,7 +104,7 @@ class TestCircuitBreakers:
                 "price": 100,
                 "timestamp": old_time.isoformat() + "Z",
             }
-            for i in range(20)
+            for i in range(cron_module.MAX_DAILY_TRADES)
         ]
         log = []
         ok, _ = cron_module._check_circuit_breakers(trade_log, "buy", 50.0, "ETH", log)
@@ -109,19 +113,22 @@ class TestCircuitBreakers:
     def test_blocks_daily_sell_exposure(self, cron_module):
         """Should block sells when daily sell total would exceed limit."""
         now = datetime.utcnow()
-        # Create sells totaling $1900 (qty * price)
+        # Sells totaling 90% of the daily sell limit so far
+        existing_sell_total = cron_module.MAX_DAILY_LOSS_USDC * 0.9
         trade_log = [
             {
                 "coin": "BTC",
                 "side": "sell",
-                "qty": 19,
-                "price": 100,
+                "qty": 1,
+                "price": existing_sell_total,
                 "timestamp": (now - timedelta(hours=1)).isoformat() + "Z",
             }
         ]
         log = []
-        # Adding $200 more would push to $2100 > $2000 limit
-        ok, reason = cron_module._check_circuit_breakers(trade_log, "sell", 200.0, "ETH", log)
+        # Adding 20% more would push well past the limit
+        ok, reason = cron_module._check_circuit_breakers(
+            trade_log, "sell", cron_module.MAX_DAILY_LOSS_USDC * 0.2, "ETH", log
+        )
         assert ok is False
         assert "MAX_DAILY_LOSS_USDC" in reason
 
@@ -132,13 +139,13 @@ class TestCircuitBreakers:
             {
                 "coin": "BTC",
                 "side": "sell",
-                "qty": 19,
-                "price": 100,
+                "qty": 1,
+                "price": cron_module.MAX_DAILY_LOSS_USDC * 0.9,
                 "timestamp": (now - timedelta(hours=1)).isoformat() + "Z",
             }
         ]
         log = []
-        ok, _ = cron_module._check_circuit_breakers(trade_log, "buy", 200.0, "ETH", log)
+        ok, _ = cron_module._check_circuit_breakers(trade_log, "buy", 50.0, "ETH", log)
         assert ok is True
 
     def test_handles_malformed_timestamps(self, cron_module):
@@ -187,15 +194,32 @@ class TestTierHelpers:
         assert cron_module._is_tier_active(tier_active, 2) is False
 
     def test_tier_settings_defaults(self, cron_module):
-        settings = cron_module._tier_settings({}, 1)
-        assert settings["deviation"] == 5
-        assert settings["allocation"] == 5
+        # Tier 1 defaults to 1% deviation, tiers 2/3 default to 2%
+        assert cron_module._tier_settings({}, 1)["deviation"] == 1.0
+        assert cron_module._tier_settings({}, 2)["deviation"] == 2.0
+        assert cron_module._tier_settings({}, 1)["allocation"] == 5.0
 
     def test_tier_settings_custom(self, cron_module):
         tier_assets = {"tier2": {"deviation": 4, "allocation": 8}}
         settings = cron_module._tier_settings(tier_assets, 2)
         assert settings["deviation"] == 4.0
         assert settings["allocation"] == 8.0
+
+    def test_build_active_pairs_multi_tier_format(self, cron_module):
+        pairs = cron_module._build_active_pairs(
+            {"BTC": [1, 2], "ETH": [1]},
+            {"1": True, "2": False},
+        )
+        assert ("BTC", 1) in pairs
+        assert ("BTC", 2) not in pairs  # tier 2 inactive
+        assert ("ETH", 1) in pairs
+
+    def test_build_active_pairs_denylisted_coin_excluded(self, cron_module):
+        pairs = cron_module._build_active_pairs(
+            {"ENA": [1]},
+            {"1": True},
+        )
+        assert pairs == []
 
 
 class TestDryRunMode:

@@ -15,10 +15,15 @@ behavior per wallet, purely based on trade frequency.
 
 Fix: stamp every target with a "setAt" timestamp, and treat any target
 older than TARGET_STALE_MS as missing — regenerate it off the CURRENT
-price exactly like a first-time evaluation. This file tests the pooled
-admin cron (api/auto-trade-cron.py); api/user-trade-cron.py's
-run_one_wallet() carries the identical fix and is exercised indirectly
-via api/user_trade_debug.py's mirrored logic.
+price exactly like a first-time evaluation.
+
+Since the 2026-10-29 bot consolidation, api/auto-trade-cron.py is the one
+engine trading every wallet (admin's pool account included) — this test
+exercises the admin/pool path through the unified cron, since that's the
+one wallet whose targets/cooldowns/trade log are still persisted into the
+shared trader_state document this test can inspect directly via
+save_trader_state(). api/user_trade_debug.py carries the identical fix
+for every other (per-user) wallet.
 """
 
 import importlib
@@ -31,14 +36,26 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
+ADMIN_WALLET = "ADMIN_WALLET_FAKE"
+
 
 @pytest.fixture
 def mock_database():
     mock_db = MagicMock()
     mock_db.save_trader_state = MagicMock(return_value={"success": True})
     mock_db.record_trade = MagicMock()
+    mock_db.record_user_trade = MagicMock()
     mock_db.calculate_pool_allocations = MagicMock(return_value={})
     mock_db.get_coin_stats = MagicMock(return_value={"coins": []})
+    mock_db.get_user_bot_position = MagicMock(return_value=0)
+    mock_db.get_user_avg_cost = MagicMock(return_value=0)
+    mock_db.get_prices_for_coins = MagicMock(return_value={"BTC": 60000})
+    mock_db.decrypt_secret = MagicMock(return_value="fake-api-key")
+    mock_db.ADMIN_WALLETS = [ADMIN_WALLET]
+    mock_db.user_exchange_keys_collection = MagicMock()
+    mock_db.user_exchange_keys_collection.find.return_value = [
+        {"walletAddress": ADMIN_WALLET, "status": "active", "autoTradeEnabled": True, "encryptedApiKey": "x"}
+    ]
     with patch.dict("sys.modules", {"database": mock_db}):
         yield mock_db
 
@@ -57,14 +74,13 @@ def cron_module(mock_database):
 
 def _run_with_targets(cron_module, mock_database, targets):
     """Run one cron cycle with BTC priced so it neither buys nor sells
-    (holds), and return the targets dict the cron would have saved."""
+    (holds), and return the targets dict the cron would have saved for
+    the admin/pool wallet."""
     mock_database.get_trader_state.return_value = {
         "autoActive": {
             "isActive": True,
             "tierActive": {"1": True},
             "targets": targets,
-            "botDeviceId": "",
-            "botHeartbeat": 0,
         },
         "autoTierAssignments": {"BTC": [1]},
         "autoTiers": {"tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5}},
@@ -72,8 +88,9 @@ def _run_with_targets(cron_module, mock_database, targets):
         "autoTradeLog": [],
     }
 
-    cron_module.fetch_prices = MagicMock(return_value={"BTC": 60000})
-    cron_module.fetch_portfolio = MagicMock(return_value=({}, 1000.0))
+    fake_client = MagicMock()
+    fake_client.get_holdings.return_value = {"USDC": 1000.0}
+    cron_module.SwyftxClient = MagicMock(return_value=fake_client)
 
     saved = {}
 
@@ -83,8 +100,7 @@ def _run_with_targets(cron_module, mock_database, targets):
 
     mock_database.save_trader_state.side_effect = record_save
 
-    with patch.object(cron_module, "SWYFTX_API_KEY", "fake-key"):
-        cron_module.run_auto_trade_check()
+    cron_module.run_auto_trade_check()
 
     return saved["autoActive"]["targets"]["BTC:1"]
 
