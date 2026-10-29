@@ -3217,6 +3217,23 @@ def save_copytrade_state(updates: Dict) -> None:
     )
 
 
+def record_copytrade_webhook_ping(auth_ok: bool, item_count: int = 0, error: str = None) -> None:
+    """Every single POST api/copytrade-webhook.py receives, regardless of
+    outcome -- including a rejected-auth attempt. The DB-side event count
+    (copytrade_events_collection) alone can't tell "Helius never called us"
+    apart from "Helius called us but every delivery got rejected/ignored
+    before being recorded" -- this does. Separate counters for auth-failed
+    deliveries vs. successfully-authed ones so a secret mismatch between
+    what Helius echoes back and COPYTRADE_WEBHOOK_SECRET shows up clearly
+    instead of looking identical to zero deliveries at all."""
+    now = datetime.utcnow()
+    inc = {"webhookPingCountAuthFail": 1} if not auth_ok else {"webhookPingCountOk": 1, "webhookPingItemsTotal": item_count}
+    update = {"$inc": inc, "$set": {"lastWebhookPingAt": now, "lastWebhookPingAuthOk": auth_ok}}
+    if error:
+        update["$set"]["lastWebhookPingError"] = error[:300]
+    copytrade_state_collection.update_one({"_id": COPYTRADE_STATE_ID}, update, upsert=True)
+
+
 def upsert_copytrade_wallets(candidates: List[Dict]) -> Dict:
     """Insert newly-seen tracked wallets, touch lastSeenAt on known ones.
     `candidates`: [{"address", "label"?, "source", "sourceQueryId"?}].
@@ -3444,6 +3461,17 @@ def get_copytrade_debug() -> Dict:
         "totalEvents": copytrade_events_collection.count_documents({}),
         "totalPositions": copytrade_positions_collection.count_documents({}),
         "openPositions": copytrade_positions_collection.count_documents({"status": "open"}),
+        # Raw delivery counters -- tells "Helius never called us" apart from
+        # "Helius called us but every delivery was rejected/ignored". See
+        # record_copytrade_webhook_ping()'s docstring.
+        "webhookPings": {
+            "lastPingAt": state.get("lastWebhookPingAt").isoformat() if state.get("lastWebhookPingAt") else None,
+            "lastPingAuthOk": state.get("lastWebhookPingAuthOk"),
+            "lastPingError": state.get("lastWebhookPingError"),
+            "countAuthOk": state.get("webhookPingCountOk", 0),
+            "countAuthFail": state.get("webhookPingCountAuthFail", 0),
+            "itemsTotal": state.get("webhookPingItemsTotal", 0),
+        },
         "samplePendingWallets": [
             {
                 "address": d["address"],
