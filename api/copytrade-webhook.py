@@ -26,6 +26,7 @@ from database import (
     get_trackable_copytrade_wallet_addresses,
     get_copytrade_wallet,
     record_copytrade_event,
+    record_copytrade_webhook_ping,
     open_copytrade_position,
     get_open_copytrade_position,
     close_copytrade_position,
@@ -127,6 +128,14 @@ class handler(BaseHTTPRequestHandler):
     def do_POST(self):
         auth = self.headers.get("Authorization", "")
         if not COPYTRADE_WEBHOOK_SECRET or auth != COPYTRADE_WEBHOOK_SECRET:
+            # Record even a rejected delivery -- this is the only way to
+            # tell "Helius never called us" apart from "Helius called us
+            # with a secret that doesn't match COPYTRADE_WEBHOOK_SECRET"
+            # from the database side (see get_copytrade_debug()).
+            try:
+                record_copytrade_webhook_ping(False)
+            except Exception as e:
+                print(f"[copytrade-webhook] ping-record error: {e}")
             self.send_response(401)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -137,6 +146,11 @@ class handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length) if length else b"{}"
             payload = json.loads(raw.decode() or "{}")
+            item_count = len(payload) if isinstance(payload, list) else 1
+            try:
+                record_copytrade_webhook_ping(True, item_count)
+            except Exception as e:
+                print(f"[copytrade-webhook] ping-record error: {e}")
             result = handle_delivery(payload)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -144,6 +158,10 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(result).encode())
         except Exception as e:
             print(f"[copytrade-webhook] error: {e}")
+            try:
+                record_copytrade_webhook_ping(True, 0, error=str(e))
+            except Exception:
+                pass
             self.send_response(200)  # ack anyway — don't make Helius retry on our own bug
             self.send_header("Content-Type", "application/json")
             self.end_headers()
