@@ -124,6 +124,10 @@ def list_helius_webhooks() -> Dict:
                 "webhookType": w.get("webhookType"),
                 "accountAddressCount": len(w.get("accountAddresses") or []),
                 "hasAuthHeader": bool(w.get("authHeader")),
+                # Previously only surfaced via rawKeys (presence, not value) --
+                # a webhook can be fully, correctly configured and still never
+                # deliver anything if Helius has it flagged inactive.
+                "active": w.get("active"),
                 # Diagnostic-only: every top-level key Helius actually returned
                 # for this webhook, so a wrong field-name assumption above
                 # (e.g. "accountAddresses" vs some other casing/shape) shows
@@ -164,6 +168,7 @@ def get_helius_webhook(webhook_id: str) -> Dict:
             "ok": True,
             "webhookID": data.get("webhookID"),
             "webhookURL": data.get("webhookURL"),
+            "active": data.get("active"),
             "accountAddressCount": len(addresses),
             "accountAddressesSample": addresses[:5],
             "rawKeys": sorted(data.keys()),
