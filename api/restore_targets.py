@@ -1,10 +1,9 @@
 # ==========================================
-# One-off restore of the admin wallet's T1 targets erased by the 48h
+# One-off restore of the admin wallet's targets erased by the 48h
 # stale-target reset on 2026-10-30 18:00 UTC.
 # ==========================================
-# Exact values only: read off the admin screen (and the 2026-10-24 cron
-# log for BTC) BEFORE the reset. Every other coin/tier/wallet is left
-# alone — its old target is not known exactly, so the cron sets it fresh.
+# Only values known from before the reset (see RESTORE_TARGETS). Every
+# other coin/tier/wallet is left alone — the cron sets it fresh.
 #
 # Two steps, both via GET /api/admin/restore-targets?admin_wallet=...
 #   (default)   PREVIEW — writes nothing; shows what each coin would do
@@ -18,7 +17,15 @@ import time
 from database import get_trader_state, save_trader_state
 
 # key -> (buy target, sell target)
+#
+# T1 values: read off the admin screen before the reset (exact).
+# T2/T3 values: the 2026-10-24 cron log's per-coin decisions (listed in tier
+# order; BTC's T1 there matches the screen exactly). Only coins with NO
+# trade after that log are included, since a later trade would have moved
+# their targets. Tiers that were on cooldown at the time are not in the log
+# and are left out.
 RESTORE_TARGETS = {
+    # ── T1, from the screen ──
     "BTC:1": (78189.5885, 92592.93375),
     "ETH:1": (2307.0, 2732.0),
     "SOL:1": (99.24, 117.52),
@@ -26,6 +33,33 @@ RESTORE_TARGETS = {
     "SUI:1": (0.8976, 1.12),
     "HYPE:1": (74.80, 88.58),
     "NEAR:1": (4.29, 5.64),
+    # ── From the Oct 24 cron log ──
+    "BTC:2": (72601.59, 91247.9),
+    "BTC:3": (67445.188, 95216.736),
+    "ETH:2": (2267.89155, 2850.3555),
+    "ETH:3": (2106.6825, 2974.14),
+    "XRP:2": (1.23525, 1.69786),
+    "XRP:3": (1.0625, 1.7712),
+    "HYPE:2": (71.8641, 107.939),
+    "HYPE:3": (70.703, 117.528),
+    "NEAR:3": (4.2585, 6.012),
+    "BNB:1": (700.815, 829.9125),
+    "BNB:2": (673.074, 926.1525),
+    "BNB:3": (594.881, 839.832),
+    "AVAX:2": (7.9056, 9.936),
+    "AVAX:3": (7.6755, 10.836),
+    "POL:2": (0.079344225, 0.144325),
+    "POL:3": (0.0767006, 0.15066),
+    "BCH:1": (262.96, 311.4),
+    "BCH:2": (248.98065, 409.883),
+    "BCH:3": (235.45, 391.332),
+    "DOGE:2": (0.0728523, 0.12055795),
+    "LINK:2": (10.78968, 17.71),
+    "NEXO:1": (0.77433645, 0.916977375),
+    "NEXO:2": (0.760442775, 0.95574775),
+    "NEXO:3": (0.70642225, 0.997302),
+    "RENDER:1": (1.653, 2.068875),
+    "RENDER:3": (1.56315, 2.664),
 }
 
 

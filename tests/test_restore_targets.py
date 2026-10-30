@@ -34,11 +34,11 @@ def mod(mock_db):
 
 
 class TestApplyRestore:
-    def test_writes_all_seven_targets_with_setat(self, mod, mock_db):
+    def test_writes_all_targets_with_setat(self, mod, mock_db):
         result = mod.apply_restore()
 
         assert result["applied"] is True
-        assert len(result["restored"]) == 7
+        assert len(result["restored"]) == len(mod.RESTORE_TARGETS)
         saved = mock_db.save_trader_state.call_args[0][0]
         btc = saved["autoActive"]["targets"]["BTC:1"]
         assert btc["buy"] == pytest.approx(78189.5885)
@@ -70,3 +70,14 @@ class TestApplyRestore:
     def test_force_allows_second_run(self, mod, mock_db):
         mock_db.get_trader_state.return_value["autoTargetRestoredAt"] = 123
         assert mod.apply_restore(force=True)["applied"] is True
+
+
+class TestRestoreData:
+    def test_every_target_is_positive_and_sell_above_buy(self, mod):
+        for key, (buy, sell) in mod.RESTORE_TARGETS.items():
+            assert 0 < buy < sell, key
+
+    def test_keys_are_valid_tiers(self, mod):
+        for key in mod.RESTORE_TARGETS:
+            coin, tier = key.split(":")
+            assert coin and tier in ("1", "2", "3")
