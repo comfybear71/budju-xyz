@@ -4,6 +4,7 @@ import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave
 import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
+import BotStatusBanner from "./BotStatusBanner";
 
 interface Props {
   prices: Record<string, number>;
@@ -319,6 +320,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       </div>
 
       <div className="p-4 space-y-3">
+        <BotStatusBanner />
         {/* Error banner */}
         {tierError && (
           <div className="text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">

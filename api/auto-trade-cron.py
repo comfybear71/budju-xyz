@@ -68,6 +68,7 @@ from trade_guards import (
     sell_below_min,
 )
 from swyftx_client import SwyftxClient, SwyftxAuthError
+from bot_status import record_cron_status
 
 # ── Config ────────────────────────────────────────────────────
 
@@ -739,9 +740,11 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             result = run_auto_trade_check()
+            record_cron_status(save_trader_state, result)
             self._send_json(200, result)
         except Exception as e:
             print(f"Auto-trade cron error: {e}")
+            record_cron_status(save_trader_state, {"error": str(e)})
             self._send_json(500, {"error": str(e)})
 
     def _send_json(self, status, data):

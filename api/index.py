@@ -335,6 +335,11 @@ class handler(BaseHTTPRequestHandler):
             elif path == '/api/state':
                 # Public read access - everyone can view trade state
                 state = get_trader_state()
+                try:
+                    from bot_status import compute_bot_status
+                    state["botStatus"] = compute_bot_status(state)
+                except Exception as e:
+                    state["botStatus"] = {"level": "warn", "messages": [f"Status check failed: {e}"], "lastRunAgo": None}
                 self._send_json(200, state)
 
             elif path == '/api/pool/allocations':
