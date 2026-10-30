@@ -427,6 +427,11 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         fired.setdefault(ck, {"side": "buy", "price": current_price, "settings": settings})
                     if catchup_buy:
                         catchup_done.append(ck)
+                        # Remember it IMMEDIATELY (not at the end of the cycle),
+                        # so a timeout mid-cycle can never repeat a placed buy.
+                        on_catchup = ctx.get("onCatchupBuy")
+                        if on_catchup:
+                            on_catchup(wallet, ck)
 
                     trade_log.insert(0, {
                         "coin": code, "side": "buy", "qty": quantity, "price": fill_price,
@@ -700,7 +705,15 @@ def run_auto_trade_check():
     catchup_active = isinstance(catchup, dict) and now_ms < (catchup.get("expiresAt") or 0)
     catchup_done_map = {w: list(v) for w, v in ((catchup or {}).get("done") or {}).items()} if catchup_active else {}
 
+    def _persist_catchup(wallet, ck):
+        catchup_done_map.setdefault(wallet, []).append(ck)
+        try:
+            save_trader_state({"autoCatchUp": {**catchup, "done": catchup_done_map}})
+        except Exception as e:
+            print(f"[catchup] could not save progress for {wallet[:8]} {ck}: {e}", flush=True)
+
     for ctx in wallet_contexts:
+        ctx["onCatchupBuy"] = _persist_catchup
         ctx["sharedTargets"] = shared_targets
         ctx["sharedCooldowns"] = shared_cooldowns
         ctx["fired"] = fired
@@ -726,8 +739,6 @@ def run_auto_trade_check():
             result = {"wallet": ctx["wallet"], "isPool": ctx["isPool"], "error": str(e)}
         results.append(result)
         all_trades.extend(result.get("trades", []))
-        for ck in result.get("catchupDone", []):
-            catchup_done_map.setdefault(ctx["wallet"], []).append(ck)
 
     # Move each traded signal's shared target + start its shared cooldown ONCE,
     # no matter how many wallets traded it this cycle.
