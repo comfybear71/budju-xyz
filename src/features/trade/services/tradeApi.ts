@@ -243,6 +243,32 @@ function cached<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T>
   });
 }
 
+const inflight: Record<string, Promise<unknown>> = {};
+
+/** Like cached(), for the slow "read every wallet's Swyftx account" endpoints
+ *  (leaderboard, cash flows): concurrent callers share ONE request, and a
+ *  failed/empty (null) result is never kept — so a blip can't blank the page
+ *  for the whole TTL. Shares the same store as cached(), so clearCache()
+ *  (the Refresh button) still forces fresh data. */
+function cachedLive<T>(key: string, ttlMs: number, fn: () => Promise<T | null>): Promise<T | null> {
+  const hit = cache[key];
+  if (hit && Date.now() < hit.expiry) return Promise.resolve(hit.data as T);
+  const pending = inflight[key];
+  if (pending) return pending as Promise<T | null>;
+  const p = fn()
+    .then((data) => {
+      if (data !== null) cache[key] = { data, expiry: Date.now() + ttlMs };
+      return data;
+    })
+    .finally(() => {
+      delete inflight[key];
+    });
+  inflight[key] = p;
+  return p;
+}
+
+const LIVE_READ_TTL_MS = 60_000;
+
 // Live AUD→USD rate derived from CoinGecko prices (updated each fetch cycle).
 // Falls back to 0.708 if CoinGecko hasn't returned AUD data yet.
 export let AUD_TO_USD = 0.708;
@@ -1371,14 +1397,16 @@ export interface LiveLeaderboard {
 /** Public, non-custodial leaderboard — every connected wallet's own live
  *  holdings, ranked by current value, with a %cash / %crypto split. No
  *  shares, no NAV; this entirely replaces the old pool leaderboard. */
-export async function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
-  try {
-    const res = await fetchWithRetry("/api/community/leaderboard");
-    if (!res.ok) return null;
-    return (await res.json()) as LiveLeaderboard;
-  } catch {
-    return null;
-  }
+export function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
+  return cachedLive("live_leaderboard", LIVE_READ_TTL_MS, async () => {
+    try {
+      const res = await fetchWithRetry("/api/community/leaderboard");
+      if (!res.ok) return null;
+      return (await res.json()) as LiveLeaderboard;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /** The Trade page's "Pool" Holdings grid data — the true combined coin
@@ -1461,14 +1489,16 @@ export interface WalletCashFlows {
 
 /** Public, wallet-scoped — this wallet's lifetime deposits/withdrawals
  *  (live from Swyftx, or an admin's manual override) plus running totals. */
-export async function fetchWalletCashFlows(wallet: string): Promise<WalletCashFlows | null> {
-  try {
-    const res = await fetchWithRetry(`/api/user/cash-flows?wallet=${encodeURIComponent(wallet)}`);
-    if (!res.ok) return null;
-    return (await res.json()) as WalletCashFlows;
-  } catch {
-    return null;
-  }
+export function fetchWalletCashFlows(wallet: string): Promise<WalletCashFlows | null> {
+  return cachedLive(`wallet_cash_flows:${wallet}`, LIVE_READ_TTL_MS, async () => {
+    try {
+      const res = await fetchWithRetry(`/api/user/cash-flows?wallet=${encodeURIComponent(wallet)}`);
+      if (!res.ok) return null;
+      return (await res.json()) as WalletCashFlows;
+    } catch {
+      return null;
+    }
+  });
 }
 
 export interface CommunityCashFlows {
@@ -1487,14 +1517,16 @@ export interface CommunityCashFlows {
 
 /** Public — aggregate deposited/withdrawn across every wallet that has
  *  either a working Swyftx key (live) or a manual override recorded. */
-export async function fetchCommunityCashFlows(): Promise<CommunityCashFlows | null> {
-  try {
-    const res = await fetchWithRetry("/api/community/cash-flows");
-    if (!res.ok) return null;
-    return (await res.json()) as CommunityCashFlows;
-  } catch {
-    return null;
-  }
+export function fetchCommunityCashFlows(): Promise<CommunityCashFlows | null> {
+  return cachedLive("community_cash_flows", LIVE_READ_TTL_MS, async () => {
+    try {
+      const res = await fetchWithRetry("/api/community/cash-flows");
+      if (!res.ok) return null;
+      return (await res.json()) as CommunityCashFlows;
+    } catch {
+      return null;
+    }
+  });
 }
 
 /**

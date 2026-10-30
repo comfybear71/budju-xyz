@@ -191,6 +191,17 @@ const Trade = () => {
       setApiStatus("connecting");
       activityLog.log("Connecting to exchange and price feeds...", "info");
 
+      // Start the slow, independent reads (each one reads every connected
+      // wallet's own Swyftx account server-side) RIGHT NOW so they overlap
+      // with the first wave below instead of queueing behind it. None of
+      // them need priceData/poolVal.
+      const earlyTraderState = fetchTraderState();
+      const earlyLivePosition = isConnected ? fetchLivePosition(walletAddress) : Promise.resolve(null);
+      const earlyMyHoldings = isConnected && !isAdmin ? fetchPersonalPricedHoldings(walletAddress) : Promise.resolve([]);
+      const earlyLeaderboard = fetchLiveLeaderboard();
+      const earlyMyCashFlows = isConnected ? fetchWalletCashFlows(walletAddress) : Promise.resolve(null);
+      const earlyCommunityCashFlows = fetchCommunityCashFlows();
+
       // Use allSettled so one failing source never kills the whole page
       const results = await Promise.allSettled([
         fetchPortfolio(),
@@ -236,6 +247,11 @@ const Trade = () => {
       }
       setChanges(enrichedChanges);
 
+      // Show the page as soon as the core data (balances + prices) is in.
+      // The slower community reads below fill in as they arrive instead of
+      // keeping the whole page on a spinner until the slowest one finishes.
+      setLoading(false);
+
       // Calculate pool value for MongoDB queries (crypto + cash)
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
 
@@ -259,14 +275,14 @@ const Trade = () => {
         myCashFlowsResult,
         communityCashFlowsResult,
       ] = await Promise.allSettled([
-        fetchTraderState(),
+        earlyTraderState,
         fetchEnrichedPendingOrders(priceData),
         isConnected && poolVal > 0 ? fetchUserPosition(walletAddress, poolVal) : Promise.resolve(null),
-        isConnected ? fetchLivePosition(walletAddress) : Promise.resolve(null),
-        isConnected && !isAdmin ? fetchPersonalPricedHoldings(walletAddress) : Promise.resolve([]),
-        fetchLiveLeaderboard(),
-        isConnected ? fetchWalletCashFlows(walletAddress) : Promise.resolve(null),
-        fetchCommunityCashFlows(),
+        earlyLivePosition,
+        earlyMyHoldings,
+        earlyLeaderboard,
+        earlyMyCashFlows,
+        earlyCommunityCashFlows,
       ]);
 
       // Fetch trader state for insight cards (bot status, tier config)
