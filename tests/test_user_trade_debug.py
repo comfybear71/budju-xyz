@@ -42,16 +42,14 @@ def mock_database():
     mock_db.user_exchange_keys_collection.find_one = MagicMock(return_value=key_doc)
 
     mock_db.get_trader_state = MagicMock(return_value={
-        "autoActive": {"isActive": True, "tierActive": {"1": True}},
+        # Shared targets (same for every wallet). Deliberately NO "setAt" key —
+        # the exact shape that triggered the original bug.
+        "autoActive": {"isActive": True, "tierActive": {"1": True},
+                       "targets": {"BTC:1": {"buy": 50000, "sell": 90000}}},
         "autoTiers": {"tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5}},
         "autoTierAssignments": {"BTC": [1]},
     })
-    # Deliberately NO "setAt" key — the exact shape that triggered the bug
-    mock_db.get_user_trader_state = MagicMock(return_value={
-        "targets": {"BTC:1": {"buy": 50000, "sell": 90000}},
-        "cooldowns": {},
-        "tradeLog": [],
-    })
+    mock_db.get_user_trader_state = MagicMock(return_value={"tradeLog": []})
     mock_db.get_prices_for_coins = MagicMock(return_value={"BTC": 60000})
 
     with patch.dict("sys.modules", {"database": mock_db}):
