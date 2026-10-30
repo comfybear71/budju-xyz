@@ -13,9 +13,9 @@ wallet's targets stay pinned near the live price because every trade
 resets them — so the same shared rules produced wildly different
 behavior per wallet, purely based on trade frequency.
 
-Fix: stamp every target with a "setAt" timestamp, and treat any target
-older than TARGET_STALE_MS as missing — regenerate it off the CURRENT
-price exactly like a first-time evaluation.
+That fix (a 48h "stale" reset) was REMOVED 2026-10-30: after a multi-day
+outage it erased targets that had already been crossed, so the due buys
+never fired. Targets now change only after a trade or when missing/invalid.
 
 Since the 2026-10-29 bot consolidation, api/auto-trade-cron.py is the one
 engine trading every wallet (admin's pool account included) — this test
@@ -105,46 +105,58 @@ def _run_with_targets(cron_module, mock_database, targets):
     return saved["autoActive"]["targets"]["BTC:1"]
 
 
-class TestStaleTargetRefresh:
-    def test_target_missing_setat_is_treated_as_stale_and_regenerated(self, cron_module, mock_database):
-        """Pre-fix data has no 'setAt' key at all — must be regenerated off
-        today's price on the very next run, not left at its old values."""
-        old_targets = {"BTC:1": {"buy": 50000, "sell": 200000}}  # no setAt; both sides far from 60000
+class TestTargetsNeverExpireByAge:
+    """Targets change only after a trade, or when missing/invalid. Age and a
+    missing "setAt" never cause a reset (a bot outage must not erase targets
+    that were already crossed)."""
 
-        new_tgt = _run_with_targets(cron_module, mock_database, old_targets)
-
-        assert new_tgt["buy"] != 50000
-        assert new_tgt["sell"] != 200000
-        assert new_tgt["buy"] == pytest.approx(60000 * 0.99, rel=1e-6)
-        assert new_tgt["sell"] == pytest.approx(60000 * 1.02, rel=1e-6)
-        assert isinstance(new_tgt.get("setAt"), (int, float))
-
-    def test_target_older_than_stale_window_is_regenerated(self, cron_module, mock_database):
-        now_ms = int(time.time() * 1000)
-        old_targets = {
-            "BTC:1": {"buy": 50000, "sell": 200000, "setAt": now_ms - 49 * 3_600_000}  # 49h old > 48h window
-        }
-
-        new_tgt = _run_with_targets(cron_module, mock_database, old_targets)
-
-        assert new_tgt["buy"] == pytest.approx(60000 * 0.99, rel=1e-6)
-        assert new_tgt["sell"] == pytest.approx(60000 * 1.02, rel=1e-6)
-
-    def test_fresh_target_within_stale_window_is_left_untouched(self, cron_module, mock_database):
-        """This fix must not disturb targets that were set recently — only
-        genuinely stale ones get reset, so normal ratchet behavior (and the
-        gap before a real BUY/SELL trigger) is unaffected."""
-        now_ms = int(time.time() * 1000)
-        fresh_set_at = now_ms - 60_000  # 1 minute ago
-        old_targets = {
-            "BTC:1": {"buy": 50000, "sell": 200000, "setAt": fresh_set_at}
-        }
+    def test_old_target_without_setat_is_kept(self, cron_module, mock_database):
+        old_targets = {"BTC:1": {"buy": 50000, "sell": 200000}}  # no setAt
 
         new_tgt = _run_with_targets(cron_module, mock_database, old_targets)
 
         assert new_tgt["buy"] == 50000
         assert new_tgt["sell"] == 200000
-        assert new_tgt["setAt"] == fresh_set_at
+
+    def test_target_older_than_48h_is_kept(self, cron_module, mock_database):
+        now_ms = int(time.time() * 1000)
+        old_set_at = now_ms - 10 * 24 * 3_600_000  # 10 days old
+        old_targets = {"BTC:1": {"buy": 50000, "sell": 200000, "setAt": old_set_at}}
+
+        new_tgt = _run_with_targets(cron_module, mock_database, old_targets)
+
+        assert new_tgt["buy"] == 50000
+        assert new_tgt["sell"] == 200000
+        assert new_tgt["setAt"] == old_set_at
+
+    def test_old_crossed_buy_target_still_fires(self, cron_module, mock_database):
+        """The incident: price already below an old buy target after an
+        outage. The buy must fire, not be reset away."""
+        old_targets = {"BTC:1": {"buy": 65000, "sell": 90000}}  # price is 60000 < 65000
+        mock_database.get_trader_state.return_value = {
+            "autoActive": {"isActive": True, "tierActive": {"1": True}, "targets": old_targets},
+            "autoTierAssignments": {"BTC": [1]},
+            "autoTiers": {"tier1": {"deviation": 5, "sellDeviation": 12.5, "allocation": 5, "cooldownHours": 12}},
+            "autoCooldowns": {},
+            "autoTradeLog": [],
+        }
+        fake_client = MagicMock()
+        fake_client.get_holdings.return_value = {"USDC": 1000.0}
+        fake_client.get_code_to_id_map.return_value = {"USDC": "1", "BTC": "2"}
+        fake_client.place_market_order.return_value = (True, "order-1", None)
+        cron_module.SwyftxClient = MagicMock(return_value=fake_client)
+
+        cron_module.run_auto_trade_check()
+
+        fake_client.place_market_order.assert_called_once()
+        assert fake_client.place_market_order.call_args[0][:2] == ("BTC", "buy")
+
+    def test_missing_or_invalid_target_is_created_from_current_price(self, cron_module, mock_database):
+        for bad in ({}, {"BTC:1": {"buy": 0, "sell": 0}}, {"BTC:1": "garbage"}):
+            new_tgt = _run_with_targets(cron_module, mock_database, bad)
+            assert new_tgt["buy"] == pytest.approx(60000 * 0.99, rel=1e-6)
+            assert new_tgt["sell"] == pytest.approx(60000 * 1.02, rel=1e-6)
+            assert isinstance(new_tgt.get("setAt"), (int, float))
 
     def test_one_coins_order_crash_does_not_skip_save_or_other_coins_setat(
         self, cron_module, mock_database
@@ -178,8 +190,7 @@ class TestStaleTargetRefresh:
                 "targets": {
                     # BTC: fresh target already crossed -> cron will try to BUY
                     "BTC:1": {"buy": 70000, "sell": 90000, "setAt": now_ms - 60_000},
-                    # ETH: stale (no setAt at all) -> must be regenerated this cycle
-                    "ETH:1": {"buy": 1, "sell": 999999},
+                    # ETH: no target at all -> must be created this cycle
                 },
             },
             "autoTierAssignments": {"BTC": [1], "ETH": [1]},

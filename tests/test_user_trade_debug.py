@@ -98,8 +98,7 @@ class TestDiagnoseUserAutoTrade:
         assert "perCoin" in result
         entry = result["perCoin"][0]
         assert entry["coin"] == "BTC"
-        assert entry["targetWasStale"] is True
-        assert entry["buyTarget"] is not None
+        assert entry["buyTarget"] == 50000  # old target kept, never reset by age
 
 
 class TestDiagnoseAdminPoolWallet:

@@ -35,7 +35,6 @@ CASH_CODES = {"USDC", "USD", "AUD", "USDT"}
 # wrong answer.
 MIN_USDC_RESERVE = float(os.getenv("MIN_USDC_RESERVE", "30"))
 MIN_ORDER_USDC = 8
-TARGET_STALE_MS = float(os.getenv("TARGET_STALE_HOURS", "48")) * 3_600_000
 
 
 def _tier_settings(auto_tiers: Dict, tier_num: int) -> Dict:
@@ -204,10 +203,13 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
 
         tgt = targets.get(ck) or targets.get(code)
         set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
-        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
-        if (not isinstance(tgt, dict) or is_stale) and current_price > 0:
-            # Not-yet-generated OR stale — the real cron would regenerate
-            # this from TODAY's price on its next run too.
+        # Same rule as the real cron: targets never expire by age; only a
+        # missing/invalid one is regenerated off today's price.
+        try:
+            target_ok = isinstance(tgt, dict) and float(tgt.get("buy", 0)) > 0 and float(tgt.get("sell", 0)) > 0
+        except (TypeError, ValueError):
+            target_ok = False
+        if not target_ok and current_price > 0:
             tgt = {
                 "buy": current_price * (1 - settings["deviation"] / 100),
                 "sell": current_price * (1 + settings["sellDeviation"] / 100),
@@ -222,7 +224,6 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
             "onCooldown": on_cooldown,
             "cooldownRemainingHours": round((cooldown_expiry - now_ms) / 3_600_000, 2) if on_cooldown else 0,
             "targetAgeHours": round((now_ms - set_at) / 3_600_000, 1) if isinstance(set_at, (int, float)) else None,
-            "targetWasStale": is_stale,
             "signal": "hold",
         }
 
