@@ -434,6 +434,19 @@ class SwyftxClient:
         except HTTPError as e:
             body_text = e.read().decode() if e.fp else ""
             return False, None, f"HTTP {e.code}: {body_text[:200]}"
+        except Exception as e:
+            # Anything else here -- timeout, connection reset, malformed
+            # JSON reply, etc. -- must come back as a normal (False, None,
+            # err) result, same as any other declined order. An uncaught
+            # exception used to propagate all the way out of the per-coin
+            # trading loop in auto-trade-cron.py and skip saving ANY of
+            # that cycle's work, including every OTHER coin's freshly-
+            # stamped target -- see _run_one_wallet()'s matching try/except
+            # guard for the other half of this fix.
+            return False, None, f"{type(e).__name__}: {e}"
+
+        if not isinstance(data, dict):
+            return False, None, f"Unexpected response shape from Swyftx: {type(data).__name__}"
 
         order_id = data.get("orderUuid") or data.get("orderId") or data.get("order_id")
         msg = str(data.get("message", "")).lower()
