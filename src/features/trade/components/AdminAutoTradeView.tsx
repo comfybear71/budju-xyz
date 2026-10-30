@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, syncSwyftxTradesToDB, resetAdminAuthDenied, type PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
@@ -54,10 +54,41 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const snapshot = autoTrader?.getSnapshot?.() || {};
   const botActive = snapshot.isActive;
 
+  // Combined coin balances across EVERY connected wallet (the bot trades all
+  // of them with the same targets, so this is the number that matters here).
+  // Shares the Leaderboard's 60s cached fetch; until it arrives, falls back
+  // to the admin wallet's own balances so the badge is never empty.
+  const [poolCoins, setPoolCoins] = useState<Record<string, { balance: number; usdValue: number }> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchLiveLeaderboard()
+        .then((lb) => {
+          if (cancelled || !lb) return;
+          const map: Record<string, { balance: number; usdValue: number }> = {};
+          for (const c of lb.coinTotals) {
+            if (c.balance > 0) map[c.code] = { balance: c.balance, usdValue: c.usdValue };
+          }
+          setPoolCoins(map);
+        })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
   // Build asset balance lookup: code → { balance, usdValue }
   const assetMap: Record<string, { balance: number; usdValue: number }> = {};
-  for (const a of assets) {
-    if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+  if (poolCoins) {
+    Object.assign(assetMap, poolCoins);
+  } else {
+    for (const a of assets) {
+      if (a.balance > 0) assetMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+    }
   }
 
   // Build tier data
@@ -798,6 +829,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                           {assetMap[item.coin] && (
                             <span
                               className="text-[9px] font-bold font-mono px-1.5 py-0.5 rounded"
+                              title={poolCoins ? "All wallets combined" : "Admin wallet only (loading combined…)"}
                               style={{ background: "rgba(96,165,250,0.15)", border: "1px solid rgba(96,165,250,0.25)", color: "#93c5fd" }}
                             >
                               {assetMap[item.coin].balance < 1
