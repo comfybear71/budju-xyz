@@ -736,10 +736,18 @@ export class AutoTrader {
   private async _saveActiveState() {
     if (!this._adminWallet) return;
 
+    // Deliberately NOT including `targets` here. This class only keeps an
+    // optimistic, setAt-less *display* copy for the monitoring panel — the
+    // server cron is the sole authority that computes and persists real
+    // targets (always stamped with "setAt"). Sending this copy back used to
+    // wholesale-overwrite the cron's real targets on every tab close /
+    // Start/Stop-tier click, which made every target look "stale" to the
+    // cron on its very next cycle and get re-anchored to the live price —
+    // so it could never actually be crossed. See api/database.py's
+    // save_trader_state() for the matching server-side guard.
     const autoActive = {
       isActive: this.isActive,
       tierActive: this.tierActive,
-      targets: this.targets,
     };
 
     try {

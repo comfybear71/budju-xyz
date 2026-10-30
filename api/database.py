@@ -1511,6 +1511,42 @@ def save_trader_state(state: Dict) -> Dict:
                     merged[tier_key] = tier_val
             state["autoTiers"] = merged
 
+    # Guard autoActive.targets: the cron is the sole authority for real
+    # buy/sell targets and always stamps every entry it writes with
+    # "setAt" (api/auto-trade-cron.py). The browser's AutoTrader class only
+    # ever keeps an optimistic *display* copy with no "setAt" at all. A
+    # plain $set here would let any browser-triggered save (closing the
+    # Trade tab, Start/Stop tier, Override Cooldowns) wholesale-replace the
+    # cron's real targets with that setAt-less copy — every target then
+    # looks "stale" on the cron's very next cycle and gets regenerated
+    # anchored to the price AT THAT MOMENT, so it can never actually be
+    # crossed and no trade ever fires, even though the UI still shows the
+    # (just-destroyed) target as hit. Merge instead: only let an incoming
+    # entry replace an existing one when it carries its own valid "setAt"
+    # (i.e. it actually came from the cron).
+    if "autoActive" in state and isinstance(state["autoActive"], dict):
+        existing = trader_state_collection.find_one({"_id": "admin_state"})
+        existing_active = existing.get("autoActive") if existing else None
+        existing_targets = (
+            existing_active.get("targets", {})
+            if isinstance(existing_active, dict)
+            else {}
+        ) or {}
+
+        incoming_targets = state["autoActive"].get("targets")
+        if incoming_targets is None:
+            # Caller isn't touching targets at all — carry the existing
+            # ones forward so this $set doesn't silently drop them.
+            state["autoActive"]["targets"] = existing_targets
+        elif isinstance(incoming_targets, dict):
+            merged_targets = dict(existing_targets)
+            for key, val in incoming_targets.items():
+                has_set_at = isinstance(val, dict) and isinstance(val.get("setAt"), (int, float))
+                if not has_set_at and key in existing_targets:
+                    continue  # preserve the cron's authoritative entry
+                merged_targets[key] = val
+            state["autoActive"]["targets"] = merged_targets
+
     trader_state_collection.update_one(
         {"_id": "admin_state"},
         {"$set": state},
