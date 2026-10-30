@@ -16,6 +16,7 @@ per-coin breakdown without raising.
 import importlib
 import os
 import sys
+import time
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -154,7 +155,7 @@ class TestTargetsOverride:
         """Powers the restore preview: simulate with replacement targets."""
         result = debug_module.diagnose_user_auto_trade(
             "6qtFybGqanZzNMt6oDNYyzeNrwhVmj826Twkv7X5PQEv",
-            targets_override={"BTC:1": {"buy": 65000, "sell": 90000}},  # price is 60000
+            targets_override={"BTC:1": {"buy": 65000, "sell": 90000, "setAt": int(time.time() * 1000)}},  # price is 60000
         )
 
         entry = result["perCoin"][0]
