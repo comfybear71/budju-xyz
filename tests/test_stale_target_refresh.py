@@ -216,3 +216,92 @@ class TestStaleTargetRefresh:
             "ETH's freshly regenerated setAt must survive BTC's crash, not "
             "be discarded along with it"
         )
+
+    def test_stale_target_that_is_already_crossed_still_fires_the_trade(
+        self, cron_module, mock_database
+    ):
+        """Regression test for the 2026-10-30 bug found right after fixing
+        the TRADING_ENABLED kill switch: a target that went stale during a
+        long outage, while price had ALREADY crossed it -- a real, earned
+        dip -- must not be silently overwritten and erased before it is
+        ever checked.
+
+        buy_target is always recomputed as current_price * (1 - dev%),
+        which is ALWAYS below current_price by construction. So if a
+        stale target is blindly reset before the buy/sell check runs, the
+        very next line (current_price <= buy_target) can NEVER be true
+        that same cycle -- not a fluke, a guaranteed outcome of the
+        formula, every single time a target goes stale while already
+        crossed. That's exactly what happened after the 2+ day
+        TRADING_ENABLED outage: BTC/ETH showed "0.0% to buy" (already
+        crossed) right up until the cron finally ran again, at which
+        point the stale-refresh logic erased that crossing and reset to
+        "0% away" instead of buying.
+        """
+        now_ms = int(time.time() * 1000)
+        mock_database.get_trader_state.return_value = {
+            "autoActive": {
+                "isActive": True,
+                "tierActive": {"1": True},
+                "targets": {
+                    # Stale (70h old, > 48h window) AND already crossed:
+                    # current price (60000) is below this old buy trigger.
+                    "BTC:1": {"buy": 65000, "sell": 90000, "setAt": now_ms - 70 * 3_600_000},
+                },
+            },
+            "autoTierAssignments": {"BTC": [1]},
+            "autoTiers": {
+                "tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5, "cooldownHours": 24}
+            },
+            "autoCooldowns": {},
+            "autoTradeLog": [],
+        }
+        mock_database.get_prices_for_coins.return_value = {"BTC": 60000}
+
+        fake_client = MagicMock()
+        fake_client.get_holdings.return_value = {"USDC": 1000.0}
+        fake_client.get_code_to_id_map.return_value = {"USDC": "1", "BTC": "2"}
+        fake_client.place_market_order.return_value = (True, "order-123", None)
+        cron_module.SwyftxClient = MagicMock(return_value=fake_client)
+
+        saved = {}
+
+        def record_save(state):
+            saved.update(state)
+            return {"success": True}
+
+        mock_database.save_trader_state.side_effect = record_save
+
+        cron_module.run_auto_trade_check()
+
+        assert fake_client.place_market_order.called, (
+            "A stale target that was ALREADY crossed must still fire the "
+            "trade it earned -- not get silently reset to 0% away and "
+            "wait for an entirely new move"
+        )
+        args, _ = fake_client.place_market_order.call_args
+        assert args[0] == "BTC"
+        assert args[1] == "buy"
+
+    def test_stale_target_not_yet_crossed_is_still_safely_regenerated(
+        self, cron_module, mock_database
+    ):
+        """The fix above must not make EVERY stale target "sticky" --
+        only ones that are already crossed. A stale target that current
+        price hasn't reached yet has no real signal to preserve, so it
+        should still reset to a fresh baseline off today's price exactly
+        like before."""
+        now_ms = int(time.time() * 1000)
+        original_set_at = now_ms - 49 * 3_600_000  # captured before the call --
+        # the "targets" dict passed in is mutated in place by the cron, so
+        # reading old_targets[...] back out AFTER the call would just see
+        # the new value through the same dict reference.
+        old_targets = {
+            "BTC:1": {"buy": 50000, "sell": 200000, "setAt": original_set_at}
+        }
+
+        new_tgt = _run_with_targets(cron_module, mock_database, old_targets)
+
+        assert new_tgt["buy"] == pytest.approx(60000 * 0.99, rel=1e-6)
+        assert new_tgt["sell"] == pytest.approx(60000 * 1.02, rel=1e-6)
+        assert new_tgt["setAt"] != original_set_at

@@ -357,7 +357,25 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
             tgt = targets.get(ck) or targets.get(code)
             set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
             is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
-            if not isinstance(tgt, dict) or is_stale:
+
+            # A stale target can be ALREADY CROSSED -- e.g. after any outage
+            # longer than TARGET_STALE_MS where price genuinely dipped/
+            # rallied past the old trigger while nobody was watching.
+            # Recalculating buy_target as current_price * (1 - dev%) is
+            # ALWAYS below current_price by construction, so blindly
+            # overwriting a stale target before checking it means that
+            # earned crossing is erased and can NEVER fire -- not a fluke,
+            # a guaranteed outcome of the formula, every single time. Only
+            # discard the stale target when it ISN'T already crossed, so a
+            # real dip/rally that happened during a gap still triggers the
+            # trade it already earned instead of resetting to "0% away"
+            # and waiting for an entirely new move.
+            old_buy = float(tgt.get("buy", 0)) if isinstance(tgt, dict) else 0
+            old_sell = float(tgt.get("sell", 0)) if isinstance(tgt, dict) else 0
+            tgt_valid = isinstance(tgt, dict) and old_buy > 0 and old_sell > 0
+            already_crossed = tgt_valid and (current_price <= old_buy or current_price >= old_sell)
+
+            if not tgt_valid or (is_stale and not already_crossed):
                 tgt = {
                     "buy": current_price * (1 - settings["deviation"] / 100),
                     "sell": current_price * (1 + settings["sellDeviation"] / 100),
