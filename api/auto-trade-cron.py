@@ -514,7 +514,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     # TEMPORARY diagnostic (2026-10-30) -- see matching comments above.
     # Confirms the save was actually attempted (and with what BTC:1 looks
     # like going in) regardless of whether it then succeeds or raises.
-    print(f"[DIAG] {short}: reached save step, BTC:1 target about to be saved = {targets.get('BTC:1')}")
+    print(f"[DIAG] {short}: reached save step, BTC:1 target about to be saved = {targets.get('BTC:1')}", flush=True)
 
     # Persist this wallet's own targets/cooldowns/trade log.
     if ctx["isPool"]:
@@ -531,7 +531,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     else:
         save_user_trader_state(wallet, {"targets": targets, "cooldowns": cooldowns, "tradeLog": trade_log})
 
-    print(f"[DIAG] {short}: save_trader_state()/save_user_trader_state() returned without raising")
+    print(f"[DIAG] {short}: save_trader_state()/save_user_trader_state() returned without raising", flush=True)
 
     return {"wallet": wallet, "isPool": ctx["isPool"], "trades": trades_this_wallet}
 
@@ -542,6 +542,7 @@ def run_auto_trade_check():
     auto-trading-enabled wallet (admin's pool account included), same
     rules, same safety checks, one combined Telegram digest."""
     log = []
+    print(f"[DIAG] run_auto_trade_check() started at {int(time.time()*1000)}", flush=True)
 
     if os.getenv("TRADING_ENABLED", "true").lower() == "false":
         return {"skipped": True, "reason": "Trading disabled via TRADING_ENABLED env var", "log": log}
@@ -622,11 +623,11 @@ def run_auto_trade_check():
             # wallet silently dropping out of this cycle actually visible.
             # Remove once the live "why is admin's wallet not persisting
             # updated targets" investigation is closed.
-            print(f"[DIAG] {short}: auth failed, excluded this cycle -- {e}")
+            print(f"[DIAG] {short}: auth failed, excluded this cycle -- {e}", flush=True)
             continue
         except Exception as e:
             log.append(f"{short}: holdings fetch failed — {e}")
-            print(f"[DIAG] {short}: holdings fetch failed, excluded this cycle -- {type(e).__name__}: {e}")
+            print(f"[DIAG] {short}: holdings fetch failed, excluded this cycle -- {type(e).__name__}: {e}", flush=True)
             continue
 
         ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
@@ -642,10 +643,10 @@ def run_auto_trade_check():
         wallet_contexts.append(ctx)
 
     if not wallet_contexts:
-        print(f"[DIAG] No wallet_contexts at all this cycle ({len(wallets)} opted-in wallet docs found)")
+        print(f"[DIAG] No wallet_contexts at all this cycle ({len(wallets)} opted-in wallet docs found)", flush=True)
         return {"skipped": True, "reason": "No wallet's holdings could be read this cycle", "log": log}
 
-    print(f"[DIAG] wallet_contexts this cycle: {[c['wallet'][:8] for c in wallet_contexts]}")
+    print(f"[DIAG] wallet_contexts this cycle: {[c['wallet'][:8] for c in wallet_contexts]}", flush=True)
 
     now_ms = int(time.time() * 1000)
     code_to_id_box = {"map": None}
@@ -664,8 +665,8 @@ def run_auto_trade_check():
             # save_user_trader_state() call itself -- so if this prints,
             # that is almost certainly where it is failing.
             print(f"[DIAG] {ctx['wallet'][:8]} ({'pool' if ctx['isPool'] else 'user'}): "
-                  f"unexpected error -- {type(e).__name__}: {e}")
-            print(f"[DIAG] {ctx['wallet'][:8]} traceback:\n{traceback.format_exc()}")
+                  f"unexpected error -- {type(e).__name__}: {e}", flush=True)
+            print(f"[DIAG] {ctx['wallet'][:8]} traceback:\n{traceback.format_exc()}", flush=True)
             result = {"wallet": ctx["wallet"], "isPool": ctx["isPool"], "error": str(e)}
         results.append(result)
         all_trades.extend(result.get("trades", []))
