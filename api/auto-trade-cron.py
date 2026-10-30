@@ -94,10 +94,10 @@ MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
 MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
 MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "1000"))
 
-# Stale-target refresh window — any target older than this is treated as
-# missing and regenerated off the current price. See git history
-# (2026-10-27) for the full incident writeup.
-TARGET_STALE_MS = float(os.getenv("TARGET_STALE_HOURS", "48")) * 3_600_000
+# Targets are NEVER discarded because of age. A target only changes after a
+# trade on that coin/tier, or when it is missing/invalid. (A 48h "stale"
+# reset used to live here; after a bot outage it wiped every target that had
+# already been crossed, so the buys/sells that were due never fired.)
 
 # Debt-payoff-sale guard (July 2026). See trade_guards.py. (The matching
 # $500 "deployable capital" cap that used to live here was removed
@@ -212,6 +212,17 @@ def _build_active_pairs(tier_assignments, tier_active):
                     if _is_tier_active(tier_active, t):
                         active_pairs.append((coin, t))
     return active_pairs
+
+
+def _target_is_valid(tgt):
+    """A stored target is usable if it has positive numeric buy and sell
+    prices. Age and a missing "setAt" are irrelevant."""
+    if not isinstance(tgt, dict):
+        return False
+    try:
+        return float(tgt.get("buy", 0)) > 0 and float(tgt.get("sell", 0)) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _load_rebuy_blocklist(shared_state, log):
@@ -355,9 +366,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                 continue
 
             tgt = targets.get(ck) or targets.get(code)
-            set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
-            is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
-            if not isinstance(tgt, dict) or is_stale:
+            if not _target_is_valid(tgt):
                 tgt = {
                     "buy": current_price * (1 - settings["deviation"] / 100),
                     "sell": current_price * (1 + settings["sellDeviation"] / 100),
