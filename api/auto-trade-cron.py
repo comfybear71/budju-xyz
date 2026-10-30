@@ -326,8 +326,16 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     state = ctx["state"]
 
     usdc_balance = sum(v for k, v in holdings.items() if k in CASH_CODES)
-    targets = state.get("targets", {})
-    cooldowns = state.get("cooldowns", {})
+    # ONE set of targets and cooldowns for every wallet — the ones on the
+    # admin Auto Trade screen. Read-only here: a trade is recorded in
+    # ctx["fired"] and the shared target is ratcheted ONCE after every wallet
+    # has had its turn (see run_auto_trade_check), so wallets can't change
+    # each other's price mid-cycle.
+    targets = ctx["sharedTargets"]
+    cooldowns = ctx["sharedCooldowns"]
+    fired = ctx["fired"]
+    catchup_limits = ctx.get("catchupLimits", {})
+    catchup_done = []
     trade_log = state.get("tradeLog", [])
 
     # Settlement guard — let a just-executed trade's balance change settle
@@ -349,34 +357,34 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
         try:
             ck = f"{code}:{tier_num}"
             cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
-            if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
-                continue
-            elif cooldown_expiry:
-                cooldowns.pop(ck, None)
-                cooldowns.pop(code, None)
+            on_cooldown = isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms
 
             settings = _tier_settings(auto_tiers, tier_num)
             current_price = prices.get(code, 0)
             if current_price <= 0:
                 continue
 
+            # One-time catch-up (api/catchup_buys.py): this wallet missed a buy
+            # the admin wallet already made at this signal. It may buy ONCE
+            # more, but only while the price is still at/below that signal's
+            # original target, and it ignores the (already running) shared
+            # cooldown. It never moves the shared target.
+            catchup_limit = catchup_limits.get(ck)
+            catchup_buy = catchup_limit is not None and current_price <= catchup_limit
+
+            if on_cooldown and not catchup_buy:
+                continue
+
             tgt = targets.get(ck) or targets.get(code)
             if not _target_is_valid(tgt):
-                tgt = {
-                    "buy": current_price * (1 - settings["deviation"] / 100),
-                    "sell": current_price * (1 + settings["sellDeviation"] / 100),
-                    "setAt": now_ms,
-                }
-                targets[ck] = tgt
-                targets.pop(code, None)
+                continue  # created once, up front, by run_auto_trade_check
 
             buy_target = float(tgt.get("buy", 0))
             sell_target = float(tgt.get("sell", 0))
-            if buy_target <= 0 or sell_target <= 0:
-                continue
+            normal_buy = (not on_cooldown) and current_price <= buy_target
 
             # ── BUY ──
-            if current_price <= buy_target:
+            if normal_buy or catchup_buy:
                 if is_permanently_buy_denied(code):
                     if code not in _blocklist_logged:
                         log.append(f"{code}: BUY skipped — permanent buy denylist")
@@ -415,11 +423,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     quantity, fill_price = _real_fill(ctx["client"], est_qty, trade_amount, current_price)
                     _record_trade_ledger(ctx, code, "buy", quantity, fill_price, tier_num, order_id, log)
 
-                    old_sell = targets.get(ck, {}).get("sell", sell_target)
-                    new_buy = current_price * (1 - settings["deviation"] / 100)
-                    new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                    targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
-                    cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+                    if normal_buy:
+                        fired.setdefault(ck, {"side": "buy", "price": current_price, "settings": settings})
+                    if catchup_buy:
+                        catchup_done.append(ck)
 
                     trade_log.insert(0, {
                         "coin": code, "side": "buy", "qty": quantity, "price": fill_price,
@@ -485,10 +492,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     quantity, fill_price = _real_fill(ctx["client"], quantity, sell_value, current_price)
                     _record_trade_ledger(ctx, code, "sell", quantity, fill_price, tier_num, order_id, log)
 
-                    new_buy = current_price * (1 - settings["deviation"] / 100)
-                    new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                    targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
-                    cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+                    fired.setdefault(ck, {"side": "sell", "price": current_price, "settings": settings})
 
                     trade_log.insert(0, {
                         "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
@@ -520,26 +524,18 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     # TEMPORARY diagnostic (2026-10-30) -- see matching comments above.
     # Confirms the save was actually attempted (and with what BTC:1 looks
     # like going in) regardless of whether it then succeeds or raises.
-    print(f"[DIAG] {short}: reached save step, BTC:1 target about to be saved = {targets.get('BTC:1')}", flush=True)
+    print(f"[DIAG] {short}: reached save step", flush=True)
 
-    # Persist this wallet's own targets/cooldowns/trade log.
+    # Persist this wallet's own trade log only. Targets and cooldowns are
+    # shared and saved once per cycle by run_auto_trade_check().
     if ctx["isPool"]:
-        # Written back into the same shared document the frontend's
-        # Auto Trade screen already polls (/api/state) — keeps the
-        # admin's live monitoring panel working with zero frontend
-        # changes, even though targets/cooldowns/tradeLog are now
-        # computed by the exact same per-wallet function as everyone else.
-        save_trader_state({
-            "autoActive": {**ctx["sharedAutoActive"], "targets": targets},
-            "autoCooldowns": cooldowns,
-            "autoTradeLog": trade_log,
-        })
+        save_trader_state({"autoTradeLog": trade_log})
     else:
-        save_user_trader_state(wallet, {"targets": targets, "cooldowns": cooldowns, "tradeLog": trade_log})
+        save_user_trader_state(wallet, {"tradeLog": trade_log})
 
     print(f"[DIAG] {short}: save_trader_state()/save_user_trader_state() returned without raising", flush=True)
 
-    return {"wallet": wallet, "isPool": ctx["isPool"], "trades": trades_this_wallet}
+    return {"wallet": wallet, "isPool": ctx["isPool"], "trades": trades_this_wallet, "catchupDone": catchup_done}
 
 # ── Main Entry Point ─────────────────────────────────────────
 
@@ -662,13 +658,10 @@ def run_auto_trade_check():
             continue
 
         ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
+        # Only each wallet's own TRADE LOG is per-wallet (daily-trade limit and
+        # the "just traded" pause). Targets and cooldowns are shared by all.
         if is_pool:
-            ctx["sharedAutoActive"] = auto_active
-            ctx["state"] = {
-                "targets": auto_active.get("targets", {}),
-                "tradeLog": shared_state.get("autoTradeLog", []),
-            }
-            ctx["state"]["cooldowns"] = shared_state.get("autoCooldowns", {})
+            ctx["state"] = {"tradeLog": shared_state.get("autoTradeLog", [])}
         else:
             ctx["state"] = get_user_trader_state(wallet)
         wallet_contexts.append(ctx)
@@ -683,6 +676,38 @@ def run_auto_trade_check():
     code_to_id_box = {"map": None}
     results = []
     all_trades = []
+
+    # ── ONE set of targets/cooldowns for every wallet ──
+    # Missing/invalid targets are created once, here, off the current price.
+    shared_targets = dict(auto_active.get("targets") or {})
+    shared_cooldowns = dict(shared_state.get("autoCooldowns") or {})
+    for code, tier_num in active_pairs:
+        ck = f"{code}:{tier_num}"
+        price = prices.get(code, 0)
+        if price > 0 and not _target_is_valid(shared_targets.get(ck) or shared_targets.get(code)):
+            st = _tier_settings(auto_tiers, tier_num)
+            shared_targets[ck] = {
+                "buy": price * (1 - st["deviation"] / 100),
+                "sell": price * (1 + st["sellDeviation"] / 100),
+                "setAt": now_ms,
+            }
+            shared_targets.pop(code, None)
+    fired = {}  # "BTC:1" -> {"side", "price", "settings"} — ratcheted once, after all wallets
+
+    # One-time catch-up for wallets that missed buys the admin wallet already
+    # made (see api/catchup_buys.py). Pool/admin wallet is never part of it.
+    catchup = shared_state.get("autoCatchUp")
+    catchup_active = isinstance(catchup, dict) and now_ms < (catchup.get("expiresAt") or 0)
+    catchup_done_map = {w: list(v) for w, v in ((catchup or {}).get("done") or {}).items()} if catchup_active else {}
+
+    for ctx in wallet_contexts:
+        ctx["sharedTargets"] = shared_targets
+        ctx["sharedCooldowns"] = shared_cooldowns
+        ctx["fired"] = fired
+        if catchup_active and not ctx["isPool"]:
+            done = set(catchup_done_map.get(ctx["wallet"], []))
+            ctx["catchupLimits"] = {k: float(v) for k, v in (catchup.get("limits") or {}).items() if k not in done}
+
     for ctx in wallet_contexts:
         try:
             result = _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool_avg_cost_map, now_ms, log, code_to_id_box)
@@ -701,6 +726,32 @@ def run_auto_trade_check():
             result = {"wallet": ctx["wallet"], "isPool": ctx["isPool"], "error": str(e)}
         results.append(result)
         all_trades.extend(result.get("trades", []))
+        for ck in result.get("catchupDone", []):
+            catchup_done_map.setdefault(ctx["wallet"], []).append(ck)
+
+    # Move each traded signal's shared target + start its shared cooldown ONCE,
+    # no matter how many wallets traded it this cycle.
+    for ck, ev in fired.items():
+        st = ev["settings"]
+        price = ev["price"]
+        old_sell = float((shared_targets.get(ck) or {}).get("sell", 0) or 0)
+        new_sell = price * (1 + st["sellDeviation"] / 100)
+        shared_targets[ck] = {
+            "buy": price * (1 - st["deviation"] / 100),
+            "sell": max(old_sell, new_sell) if ev["side"] == "buy" else new_sell,
+            "setAt": now_ms,
+        }
+        shared_cooldowns[ck] = now_ms + st["cooldownHours"] * 3_600_000
+    shared_cooldowns = {k: v for k, v in shared_cooldowns.items()
+                        if not (isinstance(v, (int, float)) and v <= now_ms)}
+
+    save_update = {
+        "autoActive": {**auto_active, "targets": shared_targets},
+        "autoCooldowns": shared_cooldowns,
+    }
+    if catchup_active:
+        save_update["autoCatchUp"] = {**catchup, "done": catchup_done_map}
+    save_trader_state(save_update)
 
     # Only write the blocklist when seeding the default the first time —
     # never on later runs, so admin edits in the DB are preserved.

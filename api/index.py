@@ -629,6 +629,20 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(200, restore_targets.preview_restore(admin_wallet))
 
+            elif path == '/api/admin/catchup-buys':
+                # Admin-only, one-off — lets the NON-admin wallets make the
+                # same buys the admin wallet already made (see
+                # catchup_buys.py). Default = read-only preview; &apply=1 arms.
+                admin_wallet = params.get('admin_wallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import catchup_buys
+                if params.get('apply') == '1':
+                    self._send_json(200, catchup_buys.arm_catchup(force=params.get('force') == '1'))
+                else:
+                    self._send_json(200, catchup_buys.preview_catchup(admin_wallet))
+
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
                 # create/update RIGHT NOW instead of waiting for the next

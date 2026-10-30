@@ -146,12 +146,12 @@ def diagnose_user_auto_trade(wallet: str, targets_override: Optional[Dict] = Non
     out["liveUsdcBalance"] = round(usdc_balance, 2)
     out["liveHoldings"] = {k: round(v, 8) for k, v in holdings.items() if v > 0}
 
-    # Pool account's targets/cooldowns/trade log live in the shared doc;
-    # every other wallet has its own user_trader_state doc.
+    # Targets and cooldowns are the SAME shared ones for every wallet (the
+    # admin Auto Trade screen). Only the trade log is per wallet.
+    targets = auto_active.get("targets", {})
+    cooldowns = shared_state.get("autoCooldowns", {})
     pool_avg_cost_map = {}
     if is_pool:
-        targets = auto_active.get("targets", {})
-        cooldowns = shared_state.get("autoCooldowns", {})
         trade_log = shared_state.get("autoTradeLog", [])
         try:
             stats = get_coin_stats()
@@ -163,10 +163,7 @@ def diagnose_user_auto_trade(wallet: str, targets_override: Optional[Dict] = Non
         except Exception:
             pass
     else:
-        state = get_user_trader_state(wallet)
-        targets = state.get("targets", {})
-        cooldowns = state.get("cooldowns", {})
-        trade_log = state.get("tradeLog", [])
+        trade_log = get_user_trader_state(wallet).get("tradeLog", [])
     if targets_override:
         # Simulation only (see restore_targets.preview_restore) — never saved.
         targets = {**targets, **targets_override}
