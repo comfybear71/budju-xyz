@@ -545,6 +545,12 @@ def run_auto_trade_check():
     print(f"[DIAG] run_auto_trade_check() started at {int(time.time()*1000)}", flush=True)
 
     if os.getenv("TRADING_ENABLED", "true").lower() == "false":
+        # TEMPORARY diagnostic (2026-10-30) -- every early-return in this
+        # function used to be silent (no print), so when the ONLY log line
+        # that showed up was "started", we had no way to tell which of
+        # these six gates was the actual stop. Printing the reason at
+        # every one closes that blind spot for good.
+        print("[DIAG] EXIT: TRADING_ENABLED env var is false", flush=True)
         return {"skipped": True, "reason": "Trading disabled via TRADING_ENABLED env var", "log": log}
 
     if DRY_RUN:
@@ -553,27 +559,33 @@ def run_auto_trade_check():
     shared_state = get_trader_state()
     auto_active = shared_state.get("autoActive", {})
     if not isinstance(auto_active, dict) or not auto_active.get("isActive"):
+        print(f"[DIAG] EXIT: master switch off -- autoActive={auto_active!r}", flush=True)
         return {"skipped": True, "reason": "Auto-trading not active (master switch off)", "log": log}
 
     tier_active = auto_active.get("tierActive", {})
     if not any(_is_tier_active(tier_active, t) for t in (1, 2, 3)):
+        print(f"[DIAG] EXIT: no tiers active -- tierActive={tier_active!r}", flush=True)
         return {"skipped": True, "reason": "No tiers active", "log": log}
 
     auto_tiers = shared_state.get("autoTiers", shared_state.get("autoTierAssets", {}))
     tier_assignments = shared_state.get("autoTierAssignments", {})
     active_pairs = _build_active_pairs(tier_assignments, tier_active)
     if not active_pairs:
+        print(f"[DIAG] EXIT: no active pairs -- tier_assignments keys={list(tier_assignments.keys())}, tierActive={tier_active!r}", flush=True)
         return {"skipped": True, "reason": "No coins assigned to an active tier", "log": log}
 
     unique_coins = sorted(set(c for c, _ in active_pairs))
     log.append(f"Monitoring {len(active_pairs)} coin-tier combos ({len(unique_coins)} coins): {', '.join(unique_coins)}")
+    print(f"[DIAG] {len(active_pairs)} active pairs, {len(unique_coins)} unique coins: {unique_coins}", flush=True)
 
     rebuy_blocklist, seed_blocklist = _load_rebuy_blocklist(shared_state, log)
 
     try:
         prices = get_prices_for_coins(unique_coins)
         log.append(f"Prices: {len(prices)} coins fetched")
+        print(f"[DIAG] prices fetched for {len(prices)}/{len(unique_coins)} coins", flush=True)
     except Exception as e:
+        print(f"[DIAG] EXIT: price fetch raised -- {type(e).__name__}: {e}", flush=True)
         return {"error": f"Price fetch failed: {e}", "log": log}
 
     # Pool-level avg cost (admin's account only) — same source this file
@@ -599,7 +611,9 @@ def run_auto_trade_check():
         "status": "active",
         "autoTradeEnabled": True,
     }))
+    print(f"[DIAG] {len(wallets)} wallet doc(s) matched status=active, autoTradeEnabled=True", flush=True)
     if not wallets:
+        print("[DIAG] EXIT: no wallets have auto-trading enabled", flush=True)
         return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 
     wallet_contexts = []
