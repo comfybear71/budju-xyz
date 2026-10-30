@@ -325,6 +325,18 @@ def _record_trade_ledger(ctx, code, side, quantity, price, tier_num, order_id, l
     else:
         record_user_trade(ctx["wallet"], code, side, quantity, price, tier_num, order_id)
 
+def _real_fill(client, est_qty, usdc_amount, est_price):
+    """(qty, price) for the order just placed. Uses the quantity Swyftx
+    actually filled when the client could read it (then price = USDC value
+    / real qty, i.e. the true effective price incl. spread/fee); otherwise
+    the estimate."""
+    fill = getattr(client, "last_fill", None)
+    if isinstance(fill, dict) and fill.get("qty", 0) > 0:
+        qty = round(float(fill["qty"]), 8)
+        return qty, usdc_amount / qty
+    return est_qty, est_price
+
+
 # ── Per-Wallet Trading Cycle ─────────────────────────────────
 
 def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool_avg_cost_map, now_ms, log, code_to_id_box):
@@ -417,10 +429,11 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         log.append(f"{short}: asset ID map failed — {e}")
                         break
 
-                ok, order_id, err = ctx["client"].place_market_order(code, "buy", trade_amount, code_to_id_box["map"])
+                est_qty = round(trade_amount / current_price, 8)
+                ok, order_id, err = ctx["client"].place_market_order(code, "buy", trade_amount, code_to_id_box["map"], expected_qty=est_qty)
                 if ok:
-                    quantity = round(trade_amount / current_price, 8)
-                    _record_trade_ledger(ctx, code, "buy", quantity, current_price, tier_num, order_id, log)
+                    quantity, fill_price = _real_fill(ctx["client"], est_qty, trade_amount, current_price)
+                    _record_trade_ledger(ctx, code, "buy", quantity, fill_price, tier_num, order_id, log)
 
                     old_sell = targets.get(ck, {}).get("sell", sell_target)
                     new_buy = current_price * (1 - settings["deviation"] / 100)
@@ -429,16 +442,16 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
 
                     trade_log.insert(0, {
-                        "coin": code, "side": "buy", "qty": quantity, "price": current_price,
+                        "coin": code, "side": "buy", "qty": quantity, "price": fill_price,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
                     trade_log = trade_log[:50]
 
                     usdc_balance -= trade_amount
-                    log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${current_price:.4f}")
+                    log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
                         "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY",
-                        "amount": round(trade_amount, 2), "price": round(current_price, 2), "qty": quantity,
+                        "amount": round(trade_amount, 2), "price": round(fill_price, 8), "qty": quantity,
                     })
                 else:
                     log.append(f"{short}: BUY {code} failed — {err}")
@@ -487,9 +500,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         log.append(f"{short}: asset ID map failed — {e}")
                         break
 
-                ok, order_id, err = ctx["client"].place_market_order(code, "sell", sell_value, code_to_id_box["map"])
+                ok, order_id, err = ctx["client"].place_market_order(code, "sell", sell_value, code_to_id_box["map"], expected_qty=quantity)
                 if ok:
-                    _record_trade_ledger(ctx, code, "sell", quantity, current_price, tier_num, order_id, log)
+                    quantity, fill_price = _real_fill(ctx["client"], quantity, sell_value, current_price)
+                    _record_trade_ledger(ctx, code, "sell", quantity, fill_price, tier_num, order_id, log)
 
                     new_buy = current_price * (1 - settings["deviation"] / 100)
                     new_sell = current_price * (1 + settings["sellDeviation"] / 100)
@@ -497,15 +511,15 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
 
                     trade_log.insert(0, {
-                        "coin": code, "side": "sell", "qty": quantity, "price": current_price,
+                        "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
                     trade_log = trade_log[:50]
 
-                    log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${current_price:.4f}")
+                    log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
                         "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL",
-                        "amount": round(sell_value, 2), "price": round(current_price, 2), "qty": quantity,
+                        "amount": round(sell_value, 2), "price": round(fill_price, 8), "qty": quantity,
                     })
                 else:
                     log.append(f"{short}: SELL {code} failed — {err}")

@@ -251,11 +251,48 @@ class SwyftxAuthError(Exception):
     this as a per-user error, not crash a loop iterating many users."""
 
 
+# Candidate keys Swyftx may use for "how much of the asset was actually
+# filled". The exact schema of GET /orders/{id}/ is not documented in this
+# repo, so each candidate is only trusted if it passes a sanity check against
+# the expected quantity (see extract_fill_qty). If none does, callers keep
+# their own estimate and the response's key names are logged once so the
+# right field can be added here.
+FILL_QTY_KEYS = ("amount", "filledAmount", "filled_amount", "quantity_filled",
+                 "assetAmount", "asset_amount", "executedAmount", "total_amount")
+FILL_TOLERANCE = 0.15  # real fills differ from the estimate by ~1-3%; 15% = clearly a different field
+
+
+def extract_fill_qty(order, expected_qty):
+    """Real filled asset quantity from a Swyftx order-detail reply, or None.
+    Looks at the top level and under an "order" wrapper. A value is accepted
+    only if it is within FILL_TOLERANCE of expected_qty, so a field that means
+    something else (fee, USD total, ordered quantity in another unit) is
+    never mistaken for the fill."""
+    if not isinstance(order, dict) or not expected_qty or expected_qty <= 0:
+        return None
+    layers = [order]
+    inner = order.get("order")
+    if isinstance(inner, dict):
+        layers.append(inner)
+    for layer in layers:
+        for key in FILL_QTY_KEYS:
+            try:
+                val = float(layer.get(key))
+            except (TypeError, ValueError):
+                continue
+            if val > 0 and abs(val - expected_qty) / expected_qty <= FILL_TOLERANCE:
+                return val
+    return None
+
+
 class SwyftxClient:
     def __init__(self, api_key: str):
         if not api_key:
             raise ValueError("api_key is required")
         self._api_key = api_key
+        # Set by place_market_order(): {"qty": float, "source": "swyftx"} when
+        # the real filled quantity could be read, else None.
+        self.last_fill: Optional[dict] = None
 
     def _http_json(self, url: str, method: str = "GET", body: Optional[dict] = None,
                     headers: Optional[dict] = None, timeout: int = 20) -> dict:
@@ -407,10 +444,12 @@ class SwyftxClient:
         return code_to_id
 
     def place_market_order(self, asset_code: str, side: str, amount_usdc: float,
-                            code_to_id: Dict[str, str]) -> Tuple[bool, Optional[str], Optional[str]]:
+                            code_to_id: Dict[str, str],
+                            expected_qty: Optional[float] = None) -> Tuple[bool, Optional[str], Optional[str]]:
         """Place a market buy/sell order sized in USDC. Mirrors
         auto-trade-cron.py's place_market_order(), scoped to this instance's
         own key/token. Returns (success, order_id, error)."""
+        self.last_fill = None
         if amount_usdc < 7:
             return False, None, "Below $7 minimum"
 
@@ -460,6 +499,14 @@ class SwyftxClient:
                 # Swyftx statuses: 2=pending, 3=open, 4=filled, 5=partially_filled, 6=cancelled, 7=failed
                 if status in (6, 7):
                     return False, None, f"Order {order_id} rejected by Swyftx (status={status})"
+                fill_qty = extract_fill_qty(verify, expected_qty)
+                if fill_qty is not None:
+                    self.last_fill = {"qty": fill_qty, "source": "swyftx"}
+                elif expected_qty:
+                    # One-line breadcrumb so the real field name can be found.
+                    print(f"[fill] no usable fill qty in order reply; keys={sorted(verify.keys())[:20]}"
+                          f" order-keys={sorted((verify.get('order') or {}).keys())[:20] if isinstance(verify.get('order'), dict) else None}",
+                          flush=True)
             except Exception:
                 pass  # Verification failed — assume order is OK (don't block on verify failure)
             return True, order_id, None
