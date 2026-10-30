@@ -57,6 +57,8 @@ from database import (
     get_user_avg_cost,
     get_prices_for_coins,
     ADMIN_WALLETS,
+    _is_transient_swyftx_error,
+    _mark_key_valid,
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
@@ -617,7 +619,11 @@ def run_auto_trade_check():
     # account with its own key/heartbeat; now there's only one engine, so
     # the exclusion is gone.)
     wallets = list(user_exchange_keys_collection.find({
-        "status": "active",
+        # "invalid" is included on purpose: this cron used to flip a wallet
+        # to "invalid" on ANY Swyftx hiccup (429, 5xx, degraded asset list),
+        # which then dropped it from this query forever. Retrying them
+        # lets a wrongly-flagged wallet self-heal on its next good fetch.
+        "status": {"$in": ["active", "invalid"]},
         "autoTradeEnabled": True,
     }))
     print(f"[DIAG] {len(wallets)} wallet doc(s) matched status=active, autoTradeEnabled=True", flush=True)
@@ -634,10 +640,17 @@ def run_auto_trade_check():
             api_key = decrypt_secret(doc["encryptedApiKey"])
             client = SwyftxClient(api_key)
             holdings = client.get_holdings()
+            if doc.get("status") != "active":
+                _mark_key_valid(wallet)
         except SwyftxAuthError as e:
+            # Only a genuine 401/403 proves the key is bad. Rate limits,
+            # 5xx and degraded replies just skip this wallet for one cycle.
+            update = {"lastError": str(e)}
+            if not _is_transient_swyftx_error(e):
+                update["status"] = "invalid"
             user_exchange_keys_collection.update_one(
                 {"walletAddress": wallet},
-                {"$set": {"status": "invalid", "lastError": str(e)}},
+                {"$set": update},
             )
             log.append(f"{short}: auth failed — {e}")
             # TEMPORARY diagnostic (2026-10-30): this log line never reaches
