@@ -69,6 +69,7 @@ from trade_guards import (
 )
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from bot_status import record_cron_status
+from trade_digest import format_digest, split_message
 
 # ── Config ────────────────────────────────────────────────────
 
@@ -118,47 +119,26 @@ _minsell_logged = set()
 # ── Telegram ──────────────────────────────────────────────────
 
 def send_telegram(text):
-    """Send a Telegram message (best-effort, non-blocking)."""
+    """Send a Telegram message (best-effort, non-blocking). Splits at line
+    boundaries if it is over Telegram's length cap."""
     if not TELEGRAM_BOT_TOKEN:
         return
-    try:
-        req = Request(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            data=json.dumps({
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text,
-                "parse_mode": "HTML",
-            }).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        urlopen(req, timeout=10)
-    except Exception:
-        pass  # Non-critical
+    for chunk in split_message(text):
+        try:
+            req = Request(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                data=json.dumps({
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": chunk,
+                    "parse_mode": "HTML",
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urlopen(req, timeout=10)
+        except Exception:
+            pass  # Non-critical
 
-
-def _format_digest(all_trades):
-    """One combined Telegram message for the whole run — every wallet
-    that traded this cycle, buys then sells. Replaces the old two
-    separate formats ("🤖 Auto-Trade" for the admin, "🔑 Personal
-    Auto-Trade" for everyone else) with a single shared one."""
-    buys = [t for t in all_trades if t["side"] == "BUY"]
-    sells = [t for t in all_trades if t["side"] == "SELL"]
-    lines = [f"🤖 <b>Auto-Trade</b> — {len(all_trades)} trade(s) across {len({t['wallet'] for t in all_trades})} wallet(s)"]
-
-    def _wallet_label(t):
-        w = t["wallet"]
-        return "pool" if t.get("isPool") else f"{w[:4]}...{w[-4:]}"
-
-    if buys:
-        lines.append(f"\n🟢 <b>{len(buys)} BUY</b>")
-        for t in buys[:25]:
-            lines.append(f"🛒 {_wallet_label(t)}  {t['qty']:.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
-    if sells:
-        lines.append(f"\n🔴 <b>{len(sells)} SELL</b>")
-        for t in sells[:25]:
-            lines.append(f"💸 {_wallet_label(t)}  {t['qty']:.4f} {t['coin']} @ ${t['price']:,.2f}  (${t['amount']:,.2f})")
-    return "\n".join(lines)
 
 # ── Tier / Shared-Rule Helpers ───────────────────────────────
 
@@ -450,7 +430,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     usdc_balance -= trade_amount
                     log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
-                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY",
+                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY", "tier": tier_num,
                         "amount": round(trade_amount, 2), "price": round(fill_price, 8), "qty": quantity,
                     })
                 else:
@@ -518,7 +498,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
 
                     log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
-                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL",
+                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL", "tier": tier_num,
                         "amount": round(sell_value, 2), "price": round(fill_price, 8), "qty": quantity,
                     })
                 else:
@@ -728,7 +708,7 @@ def run_auto_trade_check():
         save_trader_state({"autoRebuyBlocklist": rebuy_blocklist})
 
     if all_trades:
-        send_telegram(_format_digest(all_trades))
+        send_telegram(format_digest(all_trades))
 
     log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
 
