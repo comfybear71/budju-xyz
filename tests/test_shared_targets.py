@@ -129,6 +129,25 @@ class TestCatchUp:
         assert saved["autoCatchUp"]["done"][USER] == ["BTC:1"]
         assert saved["autoActive"]["targets"]["BTC:1"]["buy"] == 50000  # shared target NOT ratcheted
 
+    def test_progress_is_saved_right_after_each_buy_not_only_at_cycle_end(self, env):
+        """If the server is cut off mid-cycle, a buy already placed must
+        already be remembered, or the next cycle would repeat it."""
+        cron, db = env
+        calls = []
+        db.save_trader_state.side_effect = lambda s: calls.append(s) or {"success": True}
+        db.get_trader_state.return_value = self.blocked_state()
+        clients = {"k-pool": make_client(1000.0), "k-user": make_client(500.0)}
+        cron.SwyftxClient = MagicMock(side_effect=lambda key: clients[key])
+        cron.send_telegram = lambda t: None
+
+        cron.run_auto_trade_check()
+
+        first = next(c for c in calls if "autoCatchUp" in c)
+        first_shared_save = next(i for i, c in enumerate(calls) if "autoActive" in c)
+        assert first["autoCatchUp"]["done"][USER] == ["BTC:1"]
+        assert calls.index(first) < first_shared_save           # saved BEFORE the end-of-cycle save
+        assert calls[-1]["autoCatchUp"]["done"][USER] == ["BTC:1"]  # and not duplicated
+
     def test_not_repeated_once_done(self, env):
         _, clients, _, _ = run(env, self.blocked_state(done={USER: ["BTC:1"]}))
         assert clients["k-user"].place_market_order.call_count == 0
