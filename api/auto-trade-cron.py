@@ -34,6 +34,7 @@
 import os
 import sys
 import time
+import traceback
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler
 from urllib.request import Request, urlopen
@@ -510,6 +511,11 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
             log.append(f"{code}: unexpected error this cycle -- {e}")
             continue
 
+    # TEMPORARY diagnostic (2026-10-30) -- see matching comments above.
+    # Confirms the save was actually attempted (and with what BTC:1 looks
+    # like going in) regardless of whether it then succeeds or raises.
+    print(f"[DIAG] {short}: reached save step, BTC:1 target about to be saved = {targets.get('BTC:1')}")
+
     # Persist this wallet's own targets/cooldowns/trade log.
     if ctx["isPool"]:
         # Written back into the same shared document the frontend's
@@ -524,6 +530,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
         })
     else:
         save_user_trader_state(wallet, {"targets": targets, "cooldowns": cooldowns, "tradeLog": trade_log})
+
+    print(f"[DIAG] {short}: save_trader_state()/save_user_trader_state() returned without raising")
 
     return {"wallet": wallet, "isPool": ctx["isPool"], "trades": trades_this_wallet}
 
@@ -608,9 +616,17 @@ def run_auto_trade_check():
                 {"$set": {"status": "invalid", "lastError": str(e)}},
             )
             log.append(f"{short}: auth failed — {e}")
+            # TEMPORARY diagnostic (2026-10-30): this log line never reaches
+            # Vercel's own logs -- it only exists in the HTTP response body,
+            # which nobody is reading per-cycle. Printing it too makes a
+            # wallet silently dropping out of this cycle actually visible.
+            # Remove once the live "why is admin's wallet not persisting
+            # updated targets" investigation is closed.
+            print(f"[DIAG] {short}: auth failed, excluded this cycle -- {e}")
             continue
         except Exception as e:
             log.append(f"{short}: holdings fetch failed — {e}")
+            print(f"[DIAG] {short}: holdings fetch failed, excluded this cycle -- {type(e).__name__}: {e}")
             continue
 
         ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
@@ -626,7 +642,10 @@ def run_auto_trade_check():
         wallet_contexts.append(ctx)
 
     if not wallet_contexts:
+        print(f"[DIAG] No wallet_contexts at all this cycle ({len(wallets)} opted-in wallet docs found)")
         return {"skipped": True, "reason": "No wallet's holdings could be read this cycle", "log": log}
+
+    print(f"[DIAG] wallet_contexts this cycle: {[c['wallet'][:8] for c in wallet_contexts]}")
 
     now_ms = int(time.time() * 1000)
     code_to_id_box = {"map": None}
@@ -638,6 +657,15 @@ def run_auto_trade_check():
         except Exception as e:
             # One wallet's unexpected failure never stops the rest.
             log.append(f"{ctx['wallet'][:8]}: unexpected error — {e}")
+            # TEMPORARY diagnostic (2026-10-30) -- see matching comment
+            # above. After the per-coin try/except fix, the ONLY thing
+            # left inside _run_one_wallet that can still raise all the way
+            # out here is the final save_trader_state()/
+            # save_user_trader_state() call itself -- so if this prints,
+            # that is almost certainly where it is failing.
+            print(f"[DIAG] {ctx['wallet'][:8]} ({'pool' if ctx['isPool'] else 'user'}): "
+                  f"unexpected error -- {type(e).__name__}: {e}")
+            print(f"[DIAG] {ctx['wallet'][:8]} traceback:\n{traceback.format_exc()}")
             result = {"wallet": ctx["wallet"], "isPool": ctx["isPool"], "error": str(e)}
         results.append(result)
         all_trades.extend(result.get("trades", []))
