@@ -146,7 +146,8 @@ class TestCatchUp:
         first_shared_save = next(i for i, c in enumerate(calls) if "autoActive" in c)
         assert first["autoCatchUp"]["done"][USER] == ["BTC:1"]
         assert calls.index(first) < first_shared_save           # saved BEFORE the end-of-cycle save
-        assert calls[-1]["autoCatchUp"]["done"][USER] == ["BTC:1"]  # and not duplicated
+        shared_save = calls[first_shared_save]
+        assert shared_save["autoCatchUp"]["done"][USER] == ["BTC:1"]  # end-of-cycle save agrees, no duplicates
 
     def test_not_repeated_once_done(self, env):
         _, clients, _, _ = run(env, self.blocked_state(done={USER: ["BTC:1"]}))
