@@ -24,7 +24,18 @@ const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
 const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
   const [, setTick] = useState(0);
   const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState(30);
+  // Seconds until the server's auto-trade-cron next runs (vercel.json:
+  // "*/5 * * * *" — every 5 minutes, on the UTC clock). This used to be a
+  // cosmetic 30→0 counter that reset itself and never triggered anything —
+  // genuinely pointless, since it implied a check was happening every 30s
+  // when the real cron only runs every 5 minutes server-side. Replaced with
+  // an honest countdown to the actual next cron tick, computed from wall
+  // clock (Date.now() epoch ms is UTC regardless of local timezone, and
+  // 1970-01-01T00:00:00Z was itself a 5-minute boundary, so this needs no
+  // server round-trip to stay accurate).
+  const CRON_INTERVAL_MS = 5 * 60 * 1000;
+  const secondsUntilNextCron = () => Math.ceil((CRON_INTERVAL_MS - (Date.now() % CRON_INTERVAL_MS)) / 1000);
+  const [countdown, setCountdown] = useState(secondsUntilNextCron);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
@@ -37,10 +48,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     return () => autoTrader?.setOnStateChange?.(() => {});
   }, [autoTrader, refresh]);
 
-  // Countdown timer for next price check
+  // Countdown to the next real server-side cron tick (see state init above)
   useEffect(() => {
     const interval = setInterval(() => {
-      setCountdown((c) => (c > 0 ? c - 1 : 30));
+      setCountdown(secondsUntilNextCron());
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -616,7 +627,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
             Monitoring {monitoringCount} coins
           </span>
           <span className="text-[10px] font-mono text-slate-500">
-            {countdown}s
+            Next check in {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, "0")}
           </span>
         </div>
 
