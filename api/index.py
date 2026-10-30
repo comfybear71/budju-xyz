@@ -610,6 +610,20 @@ class handler(BaseHTTPRequestHandler):
                 from user_trade_debug import diagnose_user_auto_trade
                 self._send_json(200, diagnose_user_auto_trade(target_wallet))
 
+            elif path == '/api/admin/restore-targets':
+                # Admin-only, one-off — restores the admin wallet's T1
+                # targets erased by the 2026-10-30 stale-target reset.
+                # Default = read-only preview; &apply=1 writes them.
+                admin_wallet = params.get('admin_wallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import restore_targets
+                if params.get('apply') == '1':
+                    self._send_json(200, restore_targets.apply_restore(force=params.get('force') == '1'))
+                else:
+                    self._send_json(200, restore_targets.preview_restore(admin_wallet))
+
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
                 # create/update RIGHT NOW instead of waiting for the next

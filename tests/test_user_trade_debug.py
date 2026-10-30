@@ -16,6 +16,7 @@ per-coin breakdown without raising.
 import importlib
 import os
 import sys
+import time
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -146,3 +147,16 @@ class TestDiagnoseAdminPoolWallet:
         assert result["isPool"] is True
         assert "perCoin" in result
         assert result["perCoin"][0]["coin"] == "BTC"
+
+
+class TestTargetsOverride:
+    def test_override_is_used_for_signal_without_touching_stored_targets(self, debug_module):
+        """Powers the restore preview: simulate with replacement targets."""
+        result = debug_module.diagnose_user_auto_trade(
+            "6qtFybGqanZzNMt6oDNYyzeNrwhVmj826Twkv7X5PQEv",
+            targets_override={"BTC:1": {"buy": 65000, "sell": 90000, "setAt": int(time.time() * 1000)}},  # price is 60000
+        )
+
+        entry = result["perCoin"][0]
+        assert entry["buyTarget"] == 65000
+        assert entry["signal"] == "BUY"
