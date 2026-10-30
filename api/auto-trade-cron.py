@@ -339,162 +339,176 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     trades_this_wallet = []
 
     for code, tier_num in active_pairs:
-        ck = f"{code}:{tier_num}"
-        cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
-        if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
-            continue
-        elif cooldown_expiry:
-            cooldowns.pop(ck, None)
-            cooldowns.pop(code, None)
-
-        settings = _tier_settings(auto_tiers, tier_num)
-        current_price = prices.get(code, 0)
-        if current_price <= 0:
-            continue
-
-        tgt = targets.get(ck) or targets.get(code)
-        set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
-        is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
-        if not isinstance(tgt, dict) or is_stale:
-            tgt = {
-                "buy": current_price * (1 - settings["deviation"] / 100),
-                "sell": current_price * (1 + settings["sellDeviation"] / 100),
-                "setAt": now_ms,
-            }
-            targets[ck] = tgt
-            targets.pop(code, None)
-
-        buy_target = float(tgt.get("buy", 0))
-        sell_target = float(tgt.get("sell", 0))
-        if buy_target <= 0 or sell_target <= 0:
-            continue
-
-        # ── BUY ──
-        if current_price <= buy_target:
-            if is_permanently_buy_denied(code):
-                if code not in _blocklist_logged:
-                    log.append(f"{code}: BUY skipped — permanent buy denylist")
-                    _blocklist_logged.add(code)
+        try:
+            ck = f"{code}:{tier_num}"
+            cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
+            if isinstance(cooldown_expiry, (int, float)) and cooldown_expiry > now_ms:
                 continue
-            if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
-                if code not in _blocklist_logged:
-                    log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
-                    _blocklist_logged.add(code)
+            elif cooldown_expiry:
+                cooldowns.pop(ck, None)
+                cooldowns.pop(code, None)
+
+            settings = _tier_settings(auto_tiers, tier_num)
+            current_price = prices.get(code, 0)
+            if current_price <= 0:
                 continue
 
-            # No deployable-capital cap — every wallet sizes off its own
-            # real balance, uncapped, every wallet and every trade equal.
-            trade_amount = max((settings["allocation"] / 100) * usdc_balance, MIN_ORDER_USDC)
-            if usdc_balance - trade_amount < MIN_USDC_RESERVE:
+            tgt = targets.get(ck) or targets.get(code)
+            set_at = tgt.get("setAt") if isinstance(tgt, dict) else None
+            is_stale = not isinstance(set_at, (int, float)) or (now_ms - set_at) > TARGET_STALE_MS
+            if not isinstance(tgt, dict) or is_stale:
+                tgt = {
+                    "buy": current_price * (1 - settings["deviation"] / 100),
+                    "sell": current_price * (1 + settings["sellDeviation"] / 100),
+                    "setAt": now_ms,
+                }
+                targets[ck] = tgt
+                targets.pop(code, None)
+
+            buy_target = float(tgt.get("buy", 0))
+            sell_target = float(tgt.get("sell", 0))
+            if buy_target <= 0 or sell_target <= 0:
                 continue
 
-            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
-            if not cb_ok:
-                continue
+            # ── BUY ──
+            if current_price <= buy_target:
+                if is_permanently_buy_denied(code):
+                    if code not in _blocklist_logged:
+                        log.append(f"{code}: BUY skipped — permanent buy denylist")
+                        _blocklist_logged.add(code)
+                    continue
+                if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
+                    if code not in _blocklist_logged:
+                        log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
+                        _blocklist_logged.add(code)
+                    continue
 
-            if DRY_RUN:
-                log.append(f"{short}: DRY RUN — would BUY {code} ${trade_amount:.2f}")
-                continue
+                # No deployable-capital cap — every wallet sizes off its own
+                # real balance, uncapped, every wallet and every trade equal.
+                trade_amount = max((settings["allocation"] / 100) * usdc_balance, MIN_ORDER_USDC)
+                if usdc_balance - trade_amount < MIN_USDC_RESERVE:
+                    continue
 
-            if code_to_id_box.get("map") is None:
-                try:
-                    code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
-                except Exception as e:
-                    log.append(f"{short}: asset ID map failed — {e}")
-                    break
+                cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
+                if not cb_ok:
+                    continue
 
-            ok, order_id, err = ctx["client"].place_market_order(code, "buy", trade_amount, code_to_id_box["map"])
-            if ok:
-                quantity = round(trade_amount / current_price, 8)
-                _record_trade_ledger(ctx, code, "buy", quantity, current_price, tier_num, order_id, log)
+                if DRY_RUN:
+                    log.append(f"{short}: DRY RUN — would BUY {code} ${trade_amount:.2f}")
+                    continue
 
-                old_sell = targets.get(ck, {}).get("sell", sell_target)
-                new_buy = current_price * (1 - settings["deviation"] / 100)
-                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
-                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+                if code_to_id_box.get("map") is None:
+                    try:
+                        code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
+                    except Exception as e:
+                        log.append(f"{short}: asset ID map failed — {e}")
+                        break
 
-                trade_log.insert(0, {
-                    "coin": code, "side": "buy", "qty": quantity, "price": current_price,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-                trade_log = trade_log[:50]
+                ok, order_id, err = ctx["client"].place_market_order(code, "buy", trade_amount, code_to_id_box["map"])
+                if ok:
+                    quantity = round(trade_amount / current_price, 8)
+                    _record_trade_ledger(ctx, code, "buy", quantity, current_price, tier_num, order_id, log)
 
-                usdc_balance -= trade_amount
-                log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${current_price:.4f}")
-                trades_this_wallet.append({
-                    "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY",
-                    "amount": round(trade_amount, 2), "price": round(current_price, 2), "qty": quantity,
-                })
-            else:
-                log.append(f"{short}: BUY {code} failed — {err}")
+                    old_sell = targets.get(ck, {}).get("sell", sell_target)
+                    new_buy = current_price * (1 - settings["deviation"] / 100)
+                    new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                    targets[ck] = {"buy": new_buy, "sell": max(old_sell, new_sell), "setAt": now_ms}
+                    cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
 
-        # ── SELL ──
-        elif current_price >= sell_target:
-            avg_cost, position_cap = _sell_guard_inputs(ctx, code, pool_avg_cost_map)
-            if avg_cost > 0 and current_price < avg_cost:
-                log.append(f"{short}: {code} hit sell target but price ${current_price:.2f} < avg cost ${avg_cost:.2f} — SELL BLOCKED")
-                continue
-            if position_cap <= 0:
-                continue
+                    trade_log.insert(0, {
+                        "coin": code, "side": "buy", "qty": quantity, "price": current_price,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    })
+                    trade_log = trade_log[:50]
 
-            sell_pct = settings["allocation"] * SELL_RATIO
-            quantity = round(min((sell_pct / 100) * position_cap, position_cap), 8)
-            if quantity <= 0:
-                continue
-            sell_value = quantity * current_price
-
-            if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
-                min_qty = SWYFTX_MIN_SELL_USDC / current_price
-                if min_qty <= position_cap:
-                    quantity = round(min_qty, 8)
-                    sell_value = quantity * current_price
+                    usdc_balance -= trade_amount
+                    log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${current_price:.4f}")
+                    trades_this_wallet.append({
+                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY",
+                        "amount": round(trade_amount, 2), "price": round(current_price, 2), "qty": quantity,
+                    })
                 else:
-                    quantity = round(position_cap, 8)
-                    sell_value = quantity * current_price
-                    if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
-                        if code not in _minsell_logged:
-                            log.append(f"{code}: SELL skipped — position ${sell_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
-                            _minsell_logged.add(code)
-                        continue
+                    log.append(f"{short}: BUY {code} failed — {err}")
 
-            cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
-            if not cb_ok:
-                continue
+            # ── SELL ──
+            elif current_price >= sell_target:
+                avg_cost, position_cap = _sell_guard_inputs(ctx, code, pool_avg_cost_map)
+                if avg_cost > 0 and current_price < avg_cost:
+                    log.append(f"{short}: {code} hit sell target but price ${current_price:.2f} < avg cost ${avg_cost:.2f} — SELL BLOCKED")
+                    continue
+                if position_cap <= 0:
+                    continue
 
-            if DRY_RUN:
-                log.append(f"{short}: DRY RUN — would SELL {code} ${sell_value:.2f}")
-                continue
+                sell_pct = settings["allocation"] * SELL_RATIO
+                quantity = round(min((sell_pct / 100) * position_cap, position_cap), 8)
+                if quantity <= 0:
+                    continue
+                sell_value = quantity * current_price
 
-            if code_to_id_box.get("map") is None:
-                try:
-                    code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
-                except Exception as e:
-                    log.append(f"{short}: asset ID map failed — {e}")
-                    break
+                if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
+                    min_qty = SWYFTX_MIN_SELL_USDC / current_price
+                    if min_qty <= position_cap:
+                        quantity = round(min_qty, 8)
+                        sell_value = quantity * current_price
+                    else:
+                        quantity = round(position_cap, 8)
+                        sell_value = quantity * current_price
+                        if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
+                            if code not in _minsell_logged:
+                                log.append(f"{code}: SELL skipped — position ${sell_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
+                                _minsell_logged.add(code)
+                            continue
 
-            ok, order_id, err = ctx["client"].place_market_order(code, "sell", sell_value, code_to_id_box["map"])
-            if ok:
-                _record_trade_ledger(ctx, code, "sell", quantity, current_price, tier_num, order_id, log)
+                cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
+                if not cb_ok:
+                    continue
 
-                new_buy = current_price * (1 - settings["deviation"] / 100)
-                new_sell = current_price * (1 + settings["sellDeviation"] / 100)
-                targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
-                cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+                if DRY_RUN:
+                    log.append(f"{short}: DRY RUN — would SELL {code} ${sell_value:.2f}")
+                    continue
 
-                trade_log.insert(0, {
-                    "coin": code, "side": "sell", "qty": quantity, "price": current_price,
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                })
-                trade_log = trade_log[:50]
+                if code_to_id_box.get("map") is None:
+                    try:
+                        code_to_id_box["map"] = ctx["client"].get_code_to_id_map()
+                    except Exception as e:
+                        log.append(f"{short}: asset ID map failed — {e}")
+                        break
 
-                log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${current_price:.4f}")
-                trades_this_wallet.append({
-                    "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL",
-                    "amount": round(sell_value, 2), "price": round(current_price, 2), "qty": quantity,
-                })
-            else:
-                log.append(f"{short}: SELL {code} failed — {err}")
+                ok, order_id, err = ctx["client"].place_market_order(code, "sell", sell_value, code_to_id_box["map"])
+                if ok:
+                    _record_trade_ledger(ctx, code, "sell", quantity, current_price, tier_num, order_id, log)
+
+                    new_buy = current_price * (1 - settings["deviation"] / 100)
+                    new_sell = current_price * (1 + settings["sellDeviation"] / 100)
+                    targets[ck] = {"buy": new_buy, "sell": new_sell, "setAt": now_ms}
+                    cooldowns[ck] = now_ms + settings["cooldownHours"] * 3_600_000
+
+                    trade_log.insert(0, {
+                        "coin": code, "side": "sell", "qty": quantity, "price": current_price,
+                        "timestamp": datetime.utcnow().isoformat() + "Z",
+                    })
+                    trade_log = trade_log[:50]
+
+                    log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${current_price:.4f}")
+                    trades_this_wallet.append({
+                        "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL",
+                        "amount": round(sell_value, 2), "price": round(current_price, 2), "qty": quantity,
+                    })
+                else:
+                    log.append(f"{short}: SELL {code} failed — {err}")
+        except Exception as e:
+            # A single coin's unexpected failure here (bad API reply, timeout,
+            # malformed response, etc.) must never cost every OTHER coin's
+            # freshly-stamped target this cycle. Before this guard, ANY
+            # uncaught error anywhere in this per-coin block propagated out of
+            # the whole per-wallet loop and skipped save_trader_state()/
+            # save_user_trader_state() at the bottom entirely -- silently
+            # discarding every coin's fresh setAt stamp for the whole cycle.
+            # That is why targets looked permanently "stale" cycle after
+            # cycle and a buy never actually fired even once price had
+            # already crossed the (just-destroyed) target.
+            log.append(f"{code}: unexpected error this cycle -- {e}")
+            continue
 
     # Persist this wallet's own targets/cooldowns/trade log.
     if ctx["isPool"]:

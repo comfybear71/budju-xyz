@@ -145,3 +145,74 @@ class TestStaleTargetRefresh:
         assert new_tgt["buy"] == 50000
         assert new_tgt["sell"] == 200000
         assert new_tgt["setAt"] == fresh_set_at
+
+    def test_one_coins_order_crash_does_not_skip_save_or_other_coins_setat(
+        self, cron_module, mock_database
+    ):
+        """Regression test for the 2026-10-30 bug: BTC's buy target had not
+        moved in 2+ days — even though its live price had already crossed
+        the trigger — while this exact cron kept running successfully
+        (200 OK) every 5 minutes the whole time.
+
+        Root cause: place_market_order() only caught HTTPError. Any OTHER
+        exception while actually placing an order (timeout, connection
+        reset, malformed reply) propagated all the way out of the
+        per-wallet loop in _run_one_wallet() and skipped
+        save_trader_state() entirely for that cycle — discarding every
+        OTHER coin's freshly regenerated "setAt" stamp too, not just the
+        failing coin's. Next cycle, every target (including the one that
+        already crossed) looked "stale" all over again, got silently
+        re-anchored to whatever price was live AT THAT MOMENT, and the
+        crash recurred — so no buy ever actually executed.
+
+        This test forces BTC's order placement to raise, and asserts ETH
+        (a second, unrelated coin processed in the same cycle) still gets
+        its fresh "setAt" saved, and that save_trader_state() for
+        autoActive is still called at all.
+        """
+        now_ms = int(time.time() * 1000)
+        mock_database.get_trader_state.return_value = {
+            "autoActive": {
+                "isActive": True,
+                "tierActive": {"1": True},
+                "targets": {
+                    # BTC: fresh target already crossed -> cron will try to BUY
+                    "BTC:1": {"buy": 70000, "sell": 90000, "setAt": now_ms - 60_000},
+                    # ETH: stale (no setAt at all) -> must be regenerated this cycle
+                    "ETH:1": {"buy": 1, "sell": 999999},
+                },
+            },
+            "autoTierAssignments": {"BTC": [1], "ETH": [1]},
+            "autoTiers": {
+                "tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5, "cooldownHours": 24}
+            },
+            "autoCooldowns": {},
+            "autoTradeLog": [],
+        }
+        mock_database.get_prices_for_coins.return_value = {"BTC": 60000, "ETH": 2000}
+
+        fake_client = MagicMock()
+        fake_client.get_holdings.return_value = {"USDC": 1000.0}
+        fake_client.get_code_to_id_map.return_value = {"USDC": "1", "BTC": "2", "ETH": "3"}
+        fake_client.place_market_order.side_effect = RuntimeError("Swyftx timed out")
+        cron_module.SwyftxClient = MagicMock(return_value=fake_client)
+
+        saved = {}
+
+        def record_save(state):
+            saved.update(state)
+            return {"success": True}
+
+        mock_database.save_trader_state.side_effect = record_save
+
+        cron_module.run_auto_trade_check()
+
+        assert "autoActive" in saved, (
+            "save_trader_state() must still be called with autoActive this "
+            "cycle even though BTC's order attempt raised an exception"
+        )
+        targets = saved["autoActive"]["targets"]
+        assert isinstance(targets["ETH:1"].get("setAt"), (int, float)), (
+            "ETH's freshly regenerated setAt must survive BTC's crash, not "
+            "be discarded along with it"
+        )
