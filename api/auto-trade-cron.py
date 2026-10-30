@@ -60,7 +60,6 @@ from database import (
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
     REBUY_LEGACY_EXPIRY,
-    deployable_amount,
     is_permanently_buy_denied,
     is_rebuy_blocked,
     sell_below_min,
@@ -99,8 +98,12 @@ MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "1000"))
 # (2026-10-27) for the full incident writeup.
 TARGET_STALE_MS = float(os.getenv("TARGET_STALE_HOURS", "48")) * 3_600_000
 
-# Debt-payoff-sale guards (July 2026). See trade_guards.py.
-MAX_AUD_DEPLOYABLE = float(os.getenv("MAX_AUD_DEPLOYABLE", "500"))
+# Debt-payoff-sale guard (July 2026). See trade_guards.py. (The matching
+# $500 "deployable capital" cap that used to live here was removed
+# 2026-10-30 per explicit operator instruction — it was never lifted after
+# the debt-payoff sale it was built for ended, and kept silently capping
+# every wallet's buy sizing. Every wallet now sizes off its own real
+# balance, uncapped, no exceptions.)
 SWYFTX_MIN_SELL_USDC = float(os.getenv("SWYFTX_MIN_SELL_USDC", "30"))
 
 # Best-effort de-dup so blocklist / min-order skips log once per warm
@@ -379,8 +382,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     _blocklist_logged.add(code)
                 continue
 
-            deployable = deployable_amount(usdc_balance, MAX_AUD_DEPLOYABLE)
-            trade_amount = max((settings["allocation"] / 100) * deployable, MIN_ORDER_USDC)
+            # No deployable-capital cap — every wallet sizes off its own
+            # real balance, uncapped, every wallet and every trade equal.
+            trade_amount = max((settings["allocation"] / 100) * usdc_balance, MIN_ORDER_USDC)
             if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                 continue
 
