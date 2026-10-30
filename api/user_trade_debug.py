@@ -13,7 +13,7 @@
 
 import os
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 from database import (
     user_exchange_keys_collection,
@@ -64,7 +64,7 @@ def _tier_num(value) -> int:
         return 0
 
 
-def diagnose_user_auto_trade(wallet: str) -> Dict:
+def diagnose_user_auto_trade(wallet: str, targets_override: Optional[Dict] = None) -> Dict:
     """Walks the exact same gates the unified cron applies for this one
     wallet, read-only. Returns as soon as it finds the first gate that
     would currently exclude this wallet from trading — that's the answer
@@ -168,6 +168,9 @@ def diagnose_user_auto_trade(wallet: str) -> Dict:
         targets = state.get("targets", {})
         cooldowns = state.get("cooldowns", {})
         trade_log = state.get("tradeLog", [])
+    if targets_override:
+        # Simulation only (see restore_targets.preview_restore) — never saved.
+        targets = {**targets, **targets_override}
     out["tradeLogCount"] = len(trade_log)
     out["lastTrades"] = trade_log[:5]
 
