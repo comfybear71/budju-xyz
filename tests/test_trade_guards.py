@@ -1,9 +1,13 @@
 """Tests for the debt-payoff-sale trading guards (api/trade_guards.py).
 
 Pure logic — no Swyftx or Mongo needed. Covers:
-- MAX_AUD_DEPLOYABLE cap
 - REBUY_BLOCKLIST expiry
 - Swyftx min-order sell skip
+
+NOTE (2026-10-30): the $500 "deployable capital" cap that used to be
+covered here (TestDeployableCap / deployable_amount()) was removed per
+explicit operator instruction — see trade_guards.py's module docstring.
+Every wallet now sizes buys off its own real balance, uncapped.
 """
 import os
 import sys
@@ -15,37 +19,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "api"))
 
 from trade_guards import (  # noqa: E402
     DEFAULT_REBUY_BLOCKLIST,
-    deployable_amount,
     evaluate_order,
     is_rebuy_blocked,
     sell_below_min,
 )
-
-
-class TestDeployableCap:
-    """min(balance, MAX_AUD_DEPLOYABLE) — parked capital never over-deployed."""
-
-    def test_balance_below_cap_uses_balance(self):
-        assert deployable_amount(300.0, 500.0) == pytest.approx(300.0)
-
-    def test_balance_above_cap_uses_cap(self):
-        # $12,750 sale proceeds sitting in the account must not size buys
-        assert deployable_amount(12750.0, 500.0) == pytest.approx(500.0)
-
-    def test_balance_equal_cap(self):
-        assert deployable_amount(500.0, 500.0) == pytest.approx(500.0)
-
-    def test_allocation_maths_capped(self):
-        # 5% allocation off a huge balance is still sized off the $500 cap
-        deployable = deployable_amount(20000.0, 500.0)
-        trade_amount = (5.0 / 100) * deployable
-        assert trade_amount == pytest.approx(25.0)
-
-    def test_zero_balance(self):
-        assert deployable_amount(0.0, 500.0) == pytest.approx(0.0)
-
-    def test_bad_input_is_safe(self):
-        assert deployable_amount(None, 500.0) == pytest.approx(0.0)
 
 
 class TestRebuyBlocklist:
@@ -129,12 +106,11 @@ class TestEvaluateOrder:
 
     NOW = datetime(2026, 7, 16)
     BL = {"LUNA": "2026-08-30T00:00:00Z"}
-    CAP = 500.0
     MIN = 30.0
 
     def _eval(self, coin, side, amt, source, confirm=False):
         return evaluate_order(coin, side, amt, source, confirm,
-                              self.BL, self.NOW, self.CAP, self.MIN)
+                              self.BL, self.NOW, self.MIN)
 
     # ── Bot orders are hard-blocked unconditionally ──────────
     def test_bot_buy_blocklisted_hard_blocked(self):
@@ -147,7 +123,7 @@ class TestEvaluateOrder:
         d = self._eval("LUNA", "buy", 100.0, None)
         assert d["allow"] is False and d["block"] is True
 
-    def test_bot_buy_over_cap_hard_blocked(self):
+    def test_bot_buy_large_amount_still_hard_blocked(self):
         d = self._eval("SOL", "buy", 750.0, "bot")
         assert d["allow"] is False and d["block"] is True
         assert d["reason"] == "bot_execution_retired"
@@ -165,7 +141,7 @@ class TestEvaluateOrder:
         assert d["allow"] is False and d["block"] is True
         assert d["reason"] == "bot_execution_retired"
 
-    def test_bot_buy_under_cap_still_blocked(self):
+    def test_bot_buy_small_amount_still_blocked(self):
         d = self._eval("SOL", "buy", 250.0, "bot")
         assert d["allow"] is False and d["block"] is True
 
@@ -185,10 +161,6 @@ class TestEvaluateOrder:
         assert d["allow"] is True
         assert "overridden" in d["warning"]
 
-    def test_manual_buy_over_cap_requires_confirm(self):
-        d = self._eval("SOL", "buy", 750.0, "manual")
-        assert d["requiresConfirm"] is True and d["allow"] is False
-
     def test_manual_sell_below_min_requires_confirm(self):
         d = self._eval("SOL", "sell", 12.0, "manual")
         assert d["requiresConfirm"] is True
@@ -197,6 +169,6 @@ class TestEvaluateOrder:
         d = self._eval("SOL", "buy", 100.0, "manual")
         assert d["allow"] is True and d["reason"] == "ok"
 
-    def test_manual_buy_at_exact_cap_allowed(self):
-        d = self._eval("SOL", "buy", 500.0, "manual")
+    def test_manual_buy_large_amount_allowed(self):
+        d = self._eval("SOL", "buy", 750.0, "manual")
         assert d["allow"] is True

@@ -3,12 +3,22 @@
 Extracted so they can be unit-tested without a live Swyftx or Mongo connection.
 These are the July-2026 debt-payoff-sale safeguards:
 
-- deployable-capital cap  (never treat parked capital as fully deployable)
 - tax-loss rebuy blocklist with expiry  (ATO wash-sale protection)
 - Swyftx minimum-order skip on sells  (avoid error loops on sliver positions)
 
 Nothing here touches keys, wallets, order execution or tier trigger logic —
 these are read-only decision helpers the cron consults before acting.
+
+NOTE (2026-10-30): the third July-2026 guard that used to live here — a
+$500 "deployable capital" cap, sizing every buy off min(balance, $500)
+instead of the wallet's real balance — was removed per explicit operator
+instruction. It was a one-time safeguard for a debt-payoff asset sale that
+ended in August 2026 (the matching tax-loss rebuy blocklist was lifted
+2026-08-16) but, unlike that blocklist, was never lifted. It kept silently
+capping every wallet's buy sizing — including wallets that joined months
+after the sale ended — at $500 regardless of actual balance. Every wallet
+and every trade must now size identically: allocation% × that wallet's own
+real balance, no cap, no exceptions.
 """
 from datetime import datetime
 
@@ -24,23 +34,6 @@ DEFAULT_REBUY_BLOCKLIST = {}
 # Permanent buy denylist — never auto-buy (or bot-buy) these again.
 # Admin can still force a manual buy with explicit confirm via evaluate_order.
 PERMANENT_BUY_DENYLIST = frozenset({"ENA", "PEPE", "LUNA", "LUNC"})
-
-
-def deployable_amount(balance: float, max_deployable: float) -> float:
-    """Capital the bot may size a buy from = min(balance, cap).
-
-    The bot deploys USDC (AUD is converted to USDC before trading), so this
-    caps how much USDC is treated as deployable. Parked capital above the cap
-    (e.g. sale proceeds awaiting withdrawal) is never used to size buys.
-    """
-    try:
-        b = float(balance)
-        c = float(max_deployable)
-    except (TypeError, ValueError):
-        return 0.0
-    if c < 0:
-        c = 0.0
-    return b if b < c else c
 
 
 def _parse_iso(value):
@@ -98,7 +91,7 @@ def sell_below_min(position_value_usd: float, min_order_usd: float) -> bool:
 
 
 def evaluate_order(coin, side, amount_usd, source, confirm, blocklist, now,
-                   max_deployable, min_sell):
+                   min_sell):
     """Single server-side order-guard decision for the /orders choke-point.
 
     Policy: BOT-originated orders are HARD-BLOCKED UNCONDITIONALLY, not just
@@ -159,8 +152,6 @@ def evaluate_order(coin, side, amount_usd, source, confirm, blocklist, now,
         if is_rebuy_blocked(blocklist, coin, now):
             until = blocklist.get(coin) if blocklist else "?"
             return deny("rebuy_blocklist", f"{coin} is on the tax-loss rebuy blocklist until {until}")
-        if amt is not None and amt > float(max_deployable):
-            return deny("deployable_cap", f"Buy ${amt:.2f} exceeds the deployable cap ${float(max_deployable):.0f}")
         return ok()
 
     if side == "sell":
