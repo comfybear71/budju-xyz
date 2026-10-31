@@ -201,3 +201,38 @@ class TestRolloutModes:
     def test_public_path_never_flagged(self):
         d = sa.evaluate("GET", "/api/community/leaderboard", {}, {}, None, A, mode="on", now_ms=NOW)
         assert d["block"] is False and d["log"] is False
+
+
+class TestMemberAndCoinStatsRoutes:
+    MEMBER = "MemberWalletAddr33333333333333333333333333"
+
+    def check(self, method, path, auth=None, params=None, body=None, is_member=None):
+        return sa.check_request(method, path, params or {}, body or {}, auth, A, now_ms=NOW + 1, is_member=is_member)
+
+    def test_legacy_coin_stats_without_a_scope_stays_public(self):
+        assert self.check("GET", "/api/coin-stats")[0] is True
+        assert self.check("GET", "/api/coin-trades", params={"coin": "BTC"})[0] is True
+
+    def test_mine_needs_the_owners_own_pass(self):
+        p = {"scope": "mine", "wallet": USERW}
+        assert self.check("GET", "/api/coin-stats", params=p)[1] == 401
+        assert self.check("GET", "/api/coin-stats", hdr(USERW), params=p)[0] is True
+        assert self.check("GET", "/api/coin-stats", hdr(ADMIN), params=p)[1] == 403   # nobody reads someone else's "mine"
+
+    def test_everyone_is_for_members_and_admins_only(self):
+        p = {"scope": "everyone", "wallet": self.MEMBER}
+        assert self.check("GET", "/api/coin-stats", params=p)[1] == 401
+        ok, status, reason = self.check("GET", "/api/coin-stats", hdr(self.MEMBER), params=p, is_member=lambda w: False)
+        assert (ok, status) == (False, 403) and "Members only" in reason
+        assert self.check("GET", "/api/coin-stats", hdr(self.MEMBER), params=p, is_member=lambda w: w == self.MEMBER)[0] is True
+        assert self.check("GET", "/api/coin-stats", hdr(ADMIN), params={"scope": "everyone", "wallet": ADMIN})[0] is True
+
+    def test_member_cannot_borrow_another_wallets_identity(self):
+        p = {"scope": "everyone", "wallet": ADMIN}
+        assert self.check("GET", "/api/coin-trades", hdr(self.MEMBER), params=p, is_member=lambda w: True)[1] == 403
+
+    def test_leaderboard_holdings_are_member_only_not_admin_only(self):
+        p = {"admin_wallet": self.MEMBER}
+        assert self.check("GET", "/api/community/aggregate-holdings", params=p)[1] == 401
+        assert self.check("GET", "/api/community/aggregate-holdings", hdr(self.MEMBER), params=p, is_member=lambda w: True)[0] is True
+        assert self.check("GET", "/api/community/aggregate-holdings", hdr(USERW), params={"admin_wallet": USERW}, is_member=lambda w: False)[1] == 403

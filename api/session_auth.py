@@ -123,8 +123,7 @@ def bearer(auth_header):
 # ── which requests need a pass ───────────────────────────────
 
 _ADMIN_GET_EXACT = {
-    "/api/users", "/api/pool/allocations", "/api/pool/deposit-summary",
-    "/api/community/aggregate-holdings", "/api/debug",
+    "/api/users", "/api/pool/allocations", "/api/pool/deposit-summary", "/api/debug",
 }
 _ADMIN_POST_EXACT = {
     "/api/state", "/api/trade", "/api/trade/sync", "/api/deposit", "/api/withdrawal",
@@ -144,6 +143,18 @@ def classify(method: str, path: str, params: dict, body: dict):
     if path.startswith("/api/admin/"):
         return "admin", admin_claim
     if method == "GET":
+        # Coin stats: "mine" is the owner's own trades; "everyone" is the
+        # combined view, for BUDJU members (10M BUDJU + a connected key).
+        if path in ("/api/coin-stats", "/api/coin-trades"):
+            scope = params.get("scope")
+            if scope == "mine":
+                return "owner", params.get("wallet")
+            if scope == "everyone":
+                return "member", params.get("wallet")
+            return None, None
+        # Per-wallet holdings behind the Leaderboard drill-down: members only.
+        if path == "/api/community/aggregate-holdings":
+            return "member", params.get("admin_wallet") or params.get("wallet")
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
         if path == "/api/transactions" and params.get("admin") == "true":
@@ -158,8 +169,9 @@ def classify(method: str, path: str, params: dict, body: dict):
     return None, None
 
 
-def check_request(method, path, params, body, auth_header, admin_wallets, now_ms=None):
-    """Pure decision. -> (ok, http_status, reason). ok=True also for public paths."""
+def check_request(method, path, params, body, auth_header, admin_wallets, now_ms=None, is_member=None):
+    """Pure decision. -> (ok, http_status, reason). ok=True also for public paths.
+    `is_member(wallet) -> bool` decides BUDJU membership for "member" routes."""
     kind, acting = classify(method, path, params, body)
     if kind is None:
         return True, 200, None
@@ -172,12 +184,18 @@ def check_request(method, path, params, body, auth_header, admin_wallets, now_ms
         if acting and acting != wallet:
             return False, 403, "Signed-in wallet does not match this request"
         return True, 200, None
+    if kind == "member":
+        if acting and acting != wallet:
+            return False, 403, "Signed-in wallet does not match this request"
+        if wallet in admin_wallets or (is_member is not None and is_member(wallet)):
+            return True, 200, None
+        return False, 403, "Members only — hold 10M BUDJU and connect a Swyftx key to see this"
     if not acting or acting != wallet:
         return False, 403, "Signed-in wallet does not match this request"
     return True, 200, None
 
 
-def evaluate(method, path, params, body, auth_header, admin_wallets, mode=None, now_ms=None):
+def evaluate(method, path, params, body, auth_header, admin_wallets, mode=None, now_ms=None, is_member=None):
     """Apply the roll-out mode to check_request().
     -> {"block": bool, "log": bool, "status": int, "reason": str|None}
        block=True  -> reject the request (mode "on")
@@ -185,7 +203,7 @@ def evaluate(method, path, params, body, auth_header, admin_wallets, mode=None, 
     mode = mode or auth_mode()
     if mode == "off":
         return {"block": False, "log": False, "status": 200, "reason": None}
-    ok, status, reason = check_request(method, path, params, body, auth_header, admin_wallets, now_ms)
+    ok, status, reason = check_request(method, path, params, body, auth_header, admin_wallets, now_ms, is_member)
     if ok:
         return {"block": False, "log": False, "status": 200, "reason": None}
     return {"block": mode == "on", "log": mode == "log", "status": status, "reason": reason}

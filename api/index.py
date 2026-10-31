@@ -46,6 +46,9 @@ from database import (
     record_trade,
     get_coin_stats,
     get_coin_trades,
+    get_coin_stats_scoped,
+    get_coin_trades_scoped,
+    is_budju_member,
     get_deposit_summary,
     void_deposit,
     reprice_deposit,
@@ -246,7 +249,8 @@ class handler(BaseHTTPRequestHandler):
     def _auth_blocked(self, method, path, params, body):
         """Wallet-signature check (see session_auth.py). Returns True if the
         request was rejected and a response already sent."""
-        d = session_auth.evaluate(method, path, params, body, self.headers.get('Authorization'), ADMIN_WALLETS)
+        d = session_auth.evaluate(method, path, params, body, self.headers.get('Authorization'), ADMIN_WALLETS,
+                                  is_member=is_budju_member)
         if d["log"]:
             print(f"[auth] WOULD BLOCK ({d['status']}) {method} {path}: {d['reason']}", flush=True)
         if d["block"]:
@@ -298,8 +302,14 @@ class handler(BaseHTTPRequestHandler):
                 self._send_json(200, {"deposits": deposits, "count": len(deposits)})
 
             elif path == '/api/coin-stats':
-                # Public, read-only per-coin trading analytics (cost-basis stats).
-                self._send_json(200, get_coin_stats())
+                # Per-coin trading analytics (cost-basis stats). No scope = the
+                # admin account's own ledger (public, as always). scope=mine is
+                # one wallet's bot trades; scope=everyone is every wallet combined.
+                scope = params.get('scope')
+                if scope in ('mine', 'everyone'):
+                    self._send_json(200, get_coin_stats_scoped(scope, params.get('wallet')))
+                else:
+                    self._send_json(200, get_coin_stats())
 
             elif path == '/api/coin-trades':
                 # Public, read-only individual buy/sell points for one coin (detail chart).
@@ -307,7 +317,11 @@ class handler(BaseHTTPRequestHandler):
                 if not coin:
                     self._send_json(400, {"error": "coin parameter required"})
                     return
-                self._send_json(200, get_coin_trades(coin))
+                scope = params.get('scope')
+                if scope in ('mine', 'everyone'):
+                    self._send_json(200, get_coin_trades_scoped(coin, scope, params.get('wallet')))
+                else:
+                    self._send_json(200, get_coin_trades(coin))
 
             elif path == '/api/desk/brief':
                 # Public-lite by default; full (with position contradictions) for admin
@@ -474,11 +488,13 @@ class handler(BaseHTTPRequestHandler):
                     return
 
             elif path == '/api/community/aggregate-holdings':
-                # Admin-only — iterates every user's own Swyftx account via
-                # their own key. Not something to expose publicly per-wallet.
-                wallet = params.get('admin_wallet')
-                if not wallet or not is_admin(wallet):
-                    self._send_json(403, {"error": "Admin access required"})
+                # Members only (10M BUDJU + a connected key; admins always) —
+                # iterates every user's own Swyftx account via their own key.
+                # The sign-in pass check (session_auth) already ran; this is
+                # the belt-and-braces claim check for log/off modes.
+                wallet = params.get('admin_wallet') or params.get('wallet')
+                if not wallet or not is_budju_member(wallet):
+                    self._send_json(403, {"error": "Members only — hold 10M BUDJU and connect a Swyftx key to see this"})
                     return
                 self._send_json(200, get_community_aggregate_holdings())
 

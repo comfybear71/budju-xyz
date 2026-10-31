@@ -873,14 +873,39 @@ export interface CoinStatsResponse {
   coinCount: number;
   coins: CoinStat[];
   funding: CoinStat[];
+  /** Set when the server refused this view (e.g. "Everyone" is for BUDJU members). */
+  denied?: boolean;
+  message?: string;
 }
 
-/** Fetch read-only per-coin trading analytics (public, cost-basis stats). */
-export async function fetchCoinStats(force = false): Promise<CoinStatsResponse | null> {
-  if (force) delete cache["coin_stats"];
-  return cached("coin_stats", 60_000, async () => {
+export type CoinStatsScope = "mine" | "everyone";
+
+const statsQuery = (scope?: CoinStatsScope, wallet?: string) =>
+  scope && wallet ? `scope=${scope}&wallet=${encodeURIComponent(wallet)}` : "";
+
+/** Fetch per-coin trading analytics (cost-basis stats). With no scope it is the
+ *  admin account's public ledger; scope "mine" is one wallet's own bot trades;
+ *  "everyone" is every wallet combined (BUDJU members). */
+export async function fetchCoinStats(
+  force = false,
+  scope?: CoinStatsScope,
+  wallet?: string,
+): Promise<CoinStatsResponse | null> {
+  const key = `coin_stats:${scope || "pool"}:${wallet || ""}`;
+  if (force) delete cache[key];
+  return cached(key, 60_000, async () => {
     try {
-      const res = await fetchWithRetry("/api/coin-stats");
+      const q = statsQuery(scope, wallet);
+      const res = await fetchWithRetry(`/api/coin-stats${q ? `?${q}` : ""}`);
+      if (res.status === 401 || res.status === 403) {
+        let message = "Members only — hold 10M BUDJU and connect a Swyftx key to see this.";
+        try {
+          message = (await res.json())?.error || message;
+        } catch {
+          /* keep default */
+        }
+        return { generatedAt: "", totalTrades: 0, coinCount: 0, coins: [], funding: [], denied: true, message };
+      }
       if (!res.ok) return null;
       return (await res.json()) as CoinStatsResponse;
     } catch {
@@ -903,10 +928,15 @@ export interface CoinTradesResponse {
 }
 
 /** Fetch individual buy/sell points for one coin (for the detail chart). */
-export async function fetchCoinTrades(coin: string): Promise<CoinTradesResponse | null> {
-  return cached(`coin_trades_${coin}`, 60_000, async () => {
+export async function fetchCoinTrades(
+  coin: string,
+  scope?: CoinStatsScope,
+  wallet?: string,
+): Promise<CoinTradesResponse | null> {
+  return cached(`coin_trades_${coin}:${scope || "pool"}:${wallet || ""}`, 60_000, async () => {
     try {
-      const res = await fetchWithRetry(`/api/coin-trades?coin=${encodeURIComponent(coin)}`);
+      const q = statsQuery(scope, wallet);
+      const res = await fetchWithRetry(`/api/coin-trades?coin=${encodeURIComponent(coin)}${q ? `&${q}` : ""}`);
       if (!res.ok) return null;
       return (await res.json()) as CoinTradesResponse;
     } catch {
@@ -1271,6 +1301,34 @@ export interface CommunityAggregateHoldings {
  *  live via each wallet's own key. Replaces the pooled leaderboard's
  *  "cumulative total" for non-custodial users — this is a live read across
  *  everyone's own accounts, not a shared balance BUDJU controls. */
+/** Same call, but says WHY it failed — the server only lets BUDJU members
+ *  (10M BUDJU + a connected key) and admins see other wallets' holdings. */
+export type MemberFetch<T> =
+  | { status: "ok"; data: T }
+  | { status: "denied"; message: string }
+  | { status: "error" };
+
+export async function fetchCommunityAggregateHoldingsGated(
+  viewerWallet: string,
+): Promise<MemberFetch<CommunityAggregateHoldings>> {
+  try {
+    const res = await fetchWithRetry(`/api/community/aggregate-holdings?admin_wallet=${encodeURIComponent(viewerWallet)}`);
+    if (res.status === 401 || res.status === 403) {
+      let message = "Members only — hold 10M BUDJU and connect a Swyftx key to see wallet details.";
+      try {
+        message = (await res.json())?.error || message;
+      } catch {
+        /* keep default */
+      }
+      return { status: "denied", message };
+    }
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", data: (await res.json()) as CommunityAggregateHoldings };
+  } catch {
+    return { status: "error" };
+  }
+}
+
 export async function fetchCommunityAggregateHoldings(adminWallet: string): Promise<CommunityAggregateHoldings | null> {
   try {
     const res = await fetchWithRetry(`/api/community/aggregate-holdings?admin_wallet=${encodeURIComponent(adminWallet)}`);

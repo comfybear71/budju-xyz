@@ -1138,6 +1138,9 @@ const Trade = () => {
         onClose={() => setShowStats(false)}
         prices={prices}
         assets={assets}
+        wallet={isConnected ? walletAddress : undefined}
+        assetsMine={isAdmin ? assets : myHoldings}
+        assetsEveryone={poolAssetsFromLeaderboard(liveLeaderboard)}
       />
       <PoolPerformanceView
         isOpen={showPerformance}

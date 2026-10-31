@@ -8,7 +8,7 @@ import {
   buildLiveCashFlowHistory,
   fetchAutoTradeStatus,
   setAutoTradeEnabled,
-  fetchCommunityAggregateHoldings,
+  fetchCommunityAggregateHoldingsGated,
   ASSET_CONFIG,
   AUD_TO_USD,
   type LiveLeaderboardEntry,
@@ -67,6 +67,8 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
   // self-toggle it from their "My Exchange Key" panel.
   const [autoTradeByWallet, setAutoTradeByWallet] = useState<Record<string, AutoTradeStatus | null>>({});
   const [togglingWallet, setTogglingWallet] = useState<string | null>(null);
+  // Shown when someone taps a wallet but isn't allowed to see its details.
+  const [memberMessage, setMemberMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -91,9 +93,39 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
       .finally(() => setLoading(false));
   }, [isOpen]);
 
-  const toggleExpanded = (wallet: string) => {
-    if (!isAdmin) return;
-    setExpandedWallet((cur) => (cur === wallet ? null : wallet));
+  /** Anyone can see the rankings. Opening a wallet's details is for BUDJU
+   *  members (10M BUDJU + a connected key) and admins — the server decides;
+   *  everyone else gets a clear message instead of a blank card. */
+  const toggleExpanded = async (wallet: string) => {
+    setMemberMessage(null);
+    if (expandedWallet === wallet) {
+      setExpandedWallet(null);
+      return;
+    }
+    if (!adminWallet) {
+      setMemberMessage("Connect your wallet to see wallet details. Members hold 10M BUDJU and have a Swyftx key connected.");
+      return;
+    }
+
+    let holdings = aggregateHoldings;
+    if (!holdings) {
+      if (loadingHoldings) return;
+      setLoadingHoldings(true);
+      const result = await fetchCommunityAggregateHoldingsGated(adminWallet);
+      setLoadingHoldings(false);
+      if (result.status === "denied") {
+        setMemberMessage(result.message);
+        return;
+      }
+      if (result.status === "error") {
+        setMemberMessage("Couldn't load wallet details just now — please try again.");
+        return;
+      }
+      holdings = result.data;
+      setAggregateHoldings(result.data);
+    }
+
+    setExpandedWallet(wallet);
     if (!cashFlowsByWallet[wallet]) {
       setLoadingWallet(wallet);
       fetchWalletCashFlows(wallet)
@@ -104,12 +136,6 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
       fetchAutoTradeStatus(wallet).then((status) =>
         setAutoTradeByWallet((prev) => ({ ...prev, [wallet]: status })),
       );
-    }
-    if (!aggregateHoldings && !loadingHoldings && adminWallet) {
-      setLoadingHoldings(true);
-      fetchCommunityAggregateHoldings(adminWallet)
-        .then(setAggregateHoldings)
-        .finally(() => setLoadingHoldings(false));
     }
   };
 
@@ -330,6 +356,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                     Bot is {enabled ? "ON" : "OFF"} for this wallet
                   </span>
                 </div>
+                {(isAdmin || entry.walletAddress === adminWallet) && (
                 <button
                   onClick={() => handleToggleWalletAutoTrade(entry.walletAddress, !enabled)}
                   disabled={toggling || autoTrade.status !== "active"}
@@ -342,6 +369,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                   <FaPowerOff size={10} />
                   {toggling ? "Working..." : enabled ? "Turn off" : "Turn on"}
                 </button>
+                )}
               </div>
             );
           })()}
@@ -403,6 +431,13 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
               </div>
             ) : (
               <>
+                {memberMessage && (
+                  <div className="mb-4 rounded-xl px-4 py-3 text-[12px] leading-relaxed text-amber-300/90 border border-amber-500/25 bg-amber-500/10 flex items-start justify-between gap-3">
+                    <span>🔒 {memberMessage}</span>
+                    <button onClick={() => setMemberMessage(null)} className="text-amber-400/70 flex-shrink-0" aria-label="Dismiss">✕</button>
+                  </div>
+                )}
+
                 {/* Cumulative total across every connected wallet */}
                 <div className="mb-6">
                   <LeaderboardDoughnut entries={entries} combinedValue={combinedValue} />
@@ -428,18 +463,16 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                             isFirst
                               ? "bg-gradient-to-b from-amber-500/15 to-amber-500/5 border-amber-500/30 shadow-[0_0_15px_rgba(234,179,8,0.1)]"
                               : "bg-slate-800/40 border-slate-700/30"
-                          } ${isAdmin ? "cursor-pointer hover:border-slate-500/50 active:scale-95" : ""}`}
+                          } cursor-pointer hover:border-slate-500/50 active:scale-95`}
                         >
                           <div className="text-2xl mb-1">{medalEmojis[realIndex]}</div>
                           <div className="flex items-center justify-center gap-1 text-xs font-mono text-slate-400 mb-1">
                             {entry.walletShort}
                             {entry.isAdmin && <FaCrown className="text-amber-400" size={9} />}
-                            {isAdmin && (
-                              <FaChevronDown
-                                size={8}
-                                className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
-                              />
-                            )}
+                            <FaChevronDown
+                              size={8}
+                              className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
+                            />
                           </div>
                           <div className="text-base font-bold text-white font-mono">
                             ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
@@ -485,9 +518,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                     >
                       <div
                         onClick={() => toggleExpanded(entry.walletAddress)}
-                        className={`flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20 ${
-                          isAdmin ? "cursor-pointer hover:border-slate-600/40 active:scale-[0.99] transition-all" : ""
-                        }`}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/30 border border-slate-700/20 cursor-pointer hover:border-slate-600/40 active:scale-[0.99] transition-all"
                       >
                         <div className="w-8 h-8 rounded-full bg-slate-700/50 flex items-center justify-center flex-shrink-0">
                           <span className="text-xs font-bold text-slate-400">{i + 4}</span>
@@ -506,12 +537,10 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
                           <div className="text-sm font-bold text-white font-mono">
                             ${entry.totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </div>
-                          {isAdmin && (
-                            <FaChevronDown
-                              size={9}
-                              className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
-                            />
-                          )}
+                          <FaChevronDown
+                            size={9}
+                            className={`text-slate-600 transition-transform ${expandedWallet === entry.walletAddress ? "rotate-180" : ""}`}
+                          />
                         </div>
                       </div>
                       <AnimatePresence>{renderWalletDetail(entry)}</AnimatePresence>
