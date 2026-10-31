@@ -107,6 +107,7 @@ from database import (
     manage_coins_bulk,
     get_sizing_preview,
     get_health_check,
+    get_live_leaderboard_cached,
     save_sizing_settings,
     refresh_coin_classes,
     get_copytrade_overview,
@@ -549,7 +550,7 @@ class handler(BaseHTTPRequestHandler):
                 # Public — mirrors the old pool leaderboard's visibility.
                 # Shows each connected wallet's own live holdings split
                 # (%cash vs %crypto), never a pool share or NAV figure.
-                self._send_json(200, get_live_leaderboard())
+                self._send_json(200, get_live_leaderboard_cached(params.get('fresh') == '1'))
 
             elif path == '/api/coin-price-history':
                 # Public — just a price chart, same CoinGecko data anyone

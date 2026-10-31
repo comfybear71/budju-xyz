@@ -21,6 +21,19 @@ def run() -> dict:
     from scout import daily_report_text
     import tg_notify
 
+    # Every run: keep the leaderboard snapshot fresh so the app reads it instantly.
+    leaderboard_ok = False
+    try:
+        from database import refresh_leaderboard_cache
+        refresh_leaderboard_cache()
+        leaderboard_ok = True
+    except Exception as e:
+        print(f"[coin-report-cron] leaderboard snapshot error: {e}")
+
+    # The CoinGecko-heavy jobs below run about twice an hour, not every 10 minutes.
+    if (datetime.utcnow().minute % 30) >= 10:
+        return {"leaderboardSnapshot": leaderboard_ok, "heavyJobs": "skipped this run"}
+
     codes = set(ASSET_CG_IDS.keys()) | {d["code"] for d in coin_config_collection.find({"status": "custom"})}
     ages = {}
     for code in codes:
@@ -71,7 +84,7 @@ def run() -> dict:
                 if sent:
                     dip_report_cache_collection.replace_one(
                         {"_id": "daily-report-state"}, {"_id": "daily-report-state", "lastSent": today}, upsert=True)
-    return {"refreshed": refreshed, "warmed": warmed, "reportSent": sent}
+    return {"leaderboardSnapshot": leaderboard_ok, "refreshed": refreshed, "warmed": warmed, "reportSent": sent}
 
 
 class handler(BaseHTTPRequestHandler):

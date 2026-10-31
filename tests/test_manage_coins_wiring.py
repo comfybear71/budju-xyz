@@ -20,3 +20,11 @@ def test_health_route_and_coins_not_rate_counted():
     idx = _read("api", "index.py")
     assert "path == '/api/admin/health'" in idx
     assert "!= '/api/coins' and not _check_rate_limit" in idx
+
+
+def test_leaderboard_served_from_snapshot_and_warmed_by_cron():
+    assert "get_live_leaderboard_cached(params.get('fresh') == '1')" in _read("api", "index.py")
+    cron = _read("api", "coin-report-cron.py")
+    assert "refresh_leaderboard_cache" in cron
+    vj = _read("vercel.json")
+    assert '"path": "/api/coin-report-cron",\n      "schedule": "*/10 * * * *"' in vj

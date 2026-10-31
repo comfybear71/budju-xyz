@@ -2825,6 +2825,7 @@ def get_live_leaderboard() -> Dict:
     # error. get_holdings() now caches that fetch globally, so this loop
     # only triggers it once across the whole process regardless of how
     # many wallets are iterated.
+    _t0 = time.time()
     all_coins = set()
     wallet_holdings = {}
     for doc, holdings, err in _fetch_wallets_in_parallel(docs, _fetch_one_wallet_holdings):
@@ -2842,8 +2843,11 @@ def get_live_leaderboard() -> Dict:
         else:
             wallet_holdings[wallet] = None
 
+    _t1 = time.time()
     prices = get_prices_for_coins(list(all_coins))
+    _t2 = time.time()
     aud_to_usd = get_aud_to_usd_rate()
+    _t3 = time.time()
 
     entries = []
     errored = 0
@@ -2898,7 +2902,9 @@ def get_live_leaderboard() -> Dict:
 
     entries.sort(key=lambda e: e["totalValue"], reverse=True)
 
+    _t4 = time.time()
     coin_changes = get_price_changes_for_coins(list(coin_totals.keys()))
+    _t5 = time.time()
     coin_total_list = [
         {
             "code": code,
@@ -2918,7 +2924,34 @@ def get_live_leaderboard() -> Dict:
         "combinedValue": round(sum(e["totalValue"] for e in entries), 2),
         "cashByCurrency": {k: round(v, 2) for k, v in combined_cash_by_currency.items()},
         "coinTotals": coin_total_list,
+        # Where the time went (seconds) — shown by the admin connection check
+        "timings": {
+            "wallets": round(_t1 - _t0, 1), "prices": round(_t2 - _t1, 1), "audRate": round(_t3 - _t2, 1),
+            "changes": round(_t5 - _t4, 1), "coinsPriced": len(all_coins),
+        },
     }
+
+
+leaderboard_cache_collection = db["leaderboard_cache"]
+LEADERBOARD_MAX_AGE_S = 15 * 60
+
+
+def refresh_leaderboard_cache() -> Dict:
+    """Compute the leaderboard now and store it (called by the cron, and on demand)."""
+    data = get_live_leaderboard()
+    leaderboard_cache_collection.replace_one(
+        {"_id": "latest"}, {"_id": "latest", "at": datetime.utcnow(), "data": data}, upsert=True)
+    return data
+
+
+def get_live_leaderboard_cached(fresh: bool = False) -> Dict:
+    """The leaderboard from the last snapshot (a few minutes old) — instant. Falls
+    back to computing it when there is none or it is too old, or when asked."""
+    if not fresh:
+        doc = leaderboard_cache_collection.find_one({"_id": "latest"})
+        if doc and (datetime.utcnow() - doc["at"]).total_seconds() < LEADERBOARD_MAX_AGE_S:
+            return {**doc["data"], "cachedAt": doc["at"].isoformat() + "Z"}
+    return refresh_leaderboard_cache()
 
 
 # ── Wallet cash-flow ledger (lifetime deposited/withdrawn, non-custodial) ───
@@ -4270,7 +4303,10 @@ def get_health_check(admin_wallet: str) -> Dict:
 
     def board():
         lb = get_live_leaderboard()
-        return f"{len(lb.get('entries', []))} wallets, {lb.get('erroredWallets', lb.get('errored', 0))} errored"
+        tm = lb.get("timings", {})
+        return (f"{len(lb.get('entries', []))} wallets, {lb.get('erroredWallets', 0)} errored · "
+                f"wallets {tm.get('wallets')}s, prices {tm.get('prices')}s ({tm.get('coinsPriced')} coins), "
+                f"AUD rate {tm.get('audRate')}s, changes {tm.get('changes')}s")
     timed("leaderboard", board)
     out["wallets"] = user_exchange_keys_collection.count_documents({"encryptedApiKey": {"$exists": True}})
     out["hasCoinGeckoKey"] = bool(COINGECKO_API_KEY)
