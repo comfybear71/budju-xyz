@@ -148,6 +148,15 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
             return
 
+        if self.headers.get("X-Budju-Selftest") == "1":
+            # Admin "test our address" check: proves this URL is reachable and
+            # the secret matches, without counting as a Helius delivery.
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "selftest": True}).encode())
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length) if length else b"{}"

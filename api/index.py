@@ -756,6 +756,37 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(200, get_dip_report(params.get('force') == '1'))
 
+            elif path == '/api/admin/copytrade-selftest':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import copytrade_helius
+                import urllib.request as _ur
+                import urllib.error as _ue
+
+                class _NoRedirect(_ur.HTTPRedirectHandler):
+                    def redirect_request(self, *a, **k):
+                        return None
+
+                url = copytrade_helius.COPYTRADE_WEBHOOK_URL
+                out = {"url": url, "hasSecret": bool(copytrade_helius.COPYTRADE_WEBHOOK_SECRET)}
+                try:
+                    req = _ur.Request(url, data=b"[]", method="POST", headers={
+                        "Content-Type": "application/json",
+                        "Authorization": copytrade_helius.COPYTRADE_WEBHOOK_SECRET,
+                        "X-Budju-Selftest": "1",
+                        "User-Agent": "budju-selftest",
+                    })
+                    with _ur.build_opener(_NoRedirect).open(req, timeout=15) as r:
+                        out.update({"status": r.status, "body": r.read().decode()[:200]})
+                except _ue.HTTPError as e:
+                    out.update({"status": e.code, "location": e.headers.get("Location"), "body": e.read().decode(errors="ignore")[:200]})
+                except Exception as e:
+                    out.update({"status": None, "error": str(e)})
+                out["ok"] = out.get("status") == 200
+                self._send_json(200, out)
+
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
                 # create/update RIGHT NOW instead of waiting for the next

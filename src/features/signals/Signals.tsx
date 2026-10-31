@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import { FaSync, FaArrowLeft, FaExternalLinkAlt } from "react-icons/fa";
 import { useNavigate } from "react-router";
+import SignalsDiagnostics from "@features/signals/SignalsDiagnostics";
 import {
   fetchSignalsLeaderboard,
   fetchSignalsFeed,
@@ -216,6 +217,8 @@ const Signals = () => {
               </div>
             </>
           )}
+
+          <SignalsDiagnostics />
 
           {/* Live activity: every swap by a tracked wallet */}
           <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-2">
