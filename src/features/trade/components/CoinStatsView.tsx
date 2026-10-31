@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
-import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinTradePoint, type PortfolioAsset } from "../services/tradeApi";
+import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinStatsScope, type CoinTradePoint, type PortfolioAsset } from "../services/tradeApi";
 import CoinTradeChart from "./CoinTradeChart";
 
 interface Props {
@@ -9,6 +9,12 @@ interface Props {
   onClose: () => void;
   prices: Record<string, number>;
   assets?: PortfolioAsset[];
+  /** The connected wallet. With it the screen offers Mine / Everyone. */
+  wallet?: string;
+  /** Real holdings for the "Mine" view (admin's account, or this wallet's own). */
+  assetsMine?: PortfolioAsset[];
+  /** Combined holdings of every wallet, for the "Everyone" view. */
+  assetsEveryone?: PortfolioAsset[];
 }
 
 type SortKey = "coin" | "trades" | "avgCost" | "current" | "realized" | "unrealized" | "pnl" | "held";
@@ -49,8 +55,12 @@ const fmtQty = (n: number) => {
 
 const pnlColor = (n: number) => (n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#64748b");
 
-const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
+const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMine, assetsEveryone }: Props) => {
   const [data, setData] = useState<CoinStatsResponse | null>(null);
+  // Mine / Everyone only when a wallet is connected; otherwise the original public view.
+  const [scope, setScope] = useState<CoinStatsScope>("mine");
+  const activeScope: CoinStatsScope | undefined = wallet ? scope : undefined;
+  const holdings = wallet ? (scope === "everyone" ? assetsEveryone : assetsMine) ?? assets : assets;
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState<SortKey>("pnl");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -63,34 +73,37 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
   useEffect(() => {
     if (!expanded || tradePoints[expanded] !== undefined) return;
     setTradePoints((prev) => ({ ...prev, [expanded]: null }));
-    fetchCoinTrades(expanded).then((res) => {
+    fetchCoinTrades(expanded, activeScope, wallet).then((res) => {
       setTradePoints((prev) => ({ ...prev, [expanded]: res?.trades || [] }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
 
+  // Reload (and forget per-coin chart points) whenever the view or wallet changes.
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetchCoinStats().then((d) => {
+    setExpanded(null);
+    setTradePoints({});
+    fetchCoinStats(false, activeScope, wallet).then((d) => {
       setData(d);
       setLoading(false);
       setCountdown(30);
     });
-  }, [isOpen]);
+  }, [isOpen, activeScope, wallet]);
 
   // Auto-refresh trade-history stats every 30s while open (prices update live regardless)
   useEffect(() => {
     if (!isOpen) return;
     const refresh = setInterval(() => {
-      fetchCoinStats(true).then((d) => {
+      fetchCoinStats(true, activeScope, wallet).then((d) => {
         if (d) setData(d);
         setCountdown(30);
       });
     }, 30_000);
     const tick = setInterval(() => setCountdown((c) => (c > 0 ? c - 1 : 0)), 1_000);
     return () => { clearInterval(refresh); clearInterval(tick); };
-  }, [isOpen]);
+  }, [isOpen, activeScope, wallet]);
 
   const setSort = (k: SortKey) => {
     if (k === sortKey) {
@@ -105,7 +118,7 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
     if (!data?.coins) return [];
     // Real Swyftx balances are the source of truth for what's actually held.
     const balMap: Record<string, { balance: number; usdValue: number }> = {};
-    for (const a of assets) if (a.balance > 0) balMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
+    for (const a of holdings) if (a.balance > 0) balMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
     const enriched = data.coins.map((c) => {
       const currentPrice = Number(prices[c.coin]) || 0;
       const bal = balMap[c.coin];
@@ -149,7 +162,7 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
       }
       return (va - vb) * dir;
     });
-  }, [data, prices, assets, sortKey, sortDir]);
+  }, [data, prices, holdings, sortKey, sortDir]);
 
   const hero = useMemo(() => {
     if (rows.length === 0) return null;
@@ -203,13 +216,36 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [] }: Props) => {
                 </button>
               </div>
 
+              {/* Mine / Everyone */}
+              {wallet && (
+                <div className="flex gap-1.5 mb-4 p-1 rounded-xl bg-slate-900/60 border border-white/[0.05] w-fit">
+                  {(["mine", "everyone"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setScope(s)}
+                      className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        scope === s ? "bg-teal-500/25 text-teal-200 border border-teal-400/50" : "text-slate-500 hover:text-slate-300 border border-transparent"
+                      }`}
+                    >
+                      {s === "mine" ? "Mine" : "Everyone"}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {loading ? (
                 <div className="flex justify-center py-12">
                   <div className="w-8 h-8 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
                 </div>
+              ) : data?.denied ? (
+                <div className="text-center py-12 text-amber-400/90 text-xs px-6 leading-relaxed">
+                  🔒 {data.message}
+                </div>
               ) : !data || rows.length === 0 ? (
                 <div className="text-center py-12 text-slate-500 text-xs">
-                  No trade data yet. Per-coin stats appear here once the auto-trader has executed trades.
+                  {wallet && scope === "mine"
+                    ? "No trades recorded for this wallet yet. Your own stats appear here once your bot has traded."
+                    : "No trade data yet. Per-coin stats appear here once the auto-trader has executed trades."}
                 </div>
               ) : (
                 <>

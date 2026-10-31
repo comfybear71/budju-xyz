@@ -1014,6 +1014,70 @@ def get_coin_trades(coin: str, limit: int = 500) -> Dict:
     return {"coin": coin, "count": len(trades), "trades": trades}
 
 
+# ── Coin stats by wallet (Mine / Everyone) ───────────────────────────────
+# Maths and ledger selection live in coin_stats.py (pure, tested).
+
+def _find_pool_trades():
+    return trades_collection.find({"coin": {"$ne": None}, "price": {"$gt": 0}, "amount": {"$gt": 0}})
+
+
+def _find_user_trades(wallet: Optional[str]):
+    query: Dict = {"coin": {"$ne": None}, "price": {"$gt": 0}, "quantity": {"$gt": 0}}
+    if wallet:
+        query["walletAddress"] = wallet
+    return user_trades_collection.find(query)
+
+
+def get_coin_stats_scoped(scope: str, wallet: str = None) -> Dict:
+    """Coin stats for one wallet ("mine") or every wallet combined ("everyone")."""
+    from coin_stats import ledger_rows, coin_stats_from_rows
+    rows = ledger_rows(scope, wallet, ADMIN_WALLETS, _find_pool_trades, _find_user_trades)
+    return coin_stats_from_rows(rows, FUNDING_ASSETS)
+
+
+def get_coin_trades_scoped(coin: str, scope: str, wallet: str = None, limit: int = 500) -> Dict:
+    from coin_stats import ledger_rows
+    rows = [r for r in ledger_rows(scope, wallet, ADMIN_WALLETS, _find_pool_trades, _find_user_trades) if r["coin"] == coin]
+    rows.sort(key=lambda r: r["ts"] if isinstance(r["ts"], datetime) else datetime.min)
+    trades = [{
+        "t": r["ts"].isoformat() + "Z" if isinstance(r["ts"], datetime) else r["ts"],
+        "side": r["side"], "price": r["price"], "qty": r["qty"],
+    } for r in rows[:limit]]
+    return {"coin": coin, "count": len(trades), "trades": trades}
+
+
+# ── BUDJU membership: 10M BUDJU + a connected Swyftx key ─────────────────
+_MEMBER_CACHE: Dict[str, tuple] = {}
+_MEMBER_TTL_S = 600  # re-check the on-chain balance at most every 10 min per wallet
+
+
+def is_budju_member(wallet_address: str) -> bool:
+    """A BUDJU user = holds the gate amount of BUDJU AND has a Swyftx key
+    connected (admins always count). Used for member-only views. The chain
+    check is cached; if the chain lookup itself fails we fall back to "has a
+    key" rather than locking real members out of read-only views."""
+    if not wallet_address:
+        return False
+    if wallet_address in ADMIN_WALLETS:
+        return True
+    now = time.time()
+    hit = _MEMBER_CACHE.get(wallet_address)
+    if hit and now < hit[1]:
+        return hit[0]
+    has_key = user_exchange_keys_collection.find_one(
+        {"walletAddress": wallet_address, "encryptedApiKey": {"$exists": True}}, {"_id": 1}
+    ) is not None
+    result = False
+    if has_key:
+        try:
+            result = check_budju_gate(wallet_address)[0]
+        except Exception as e:
+            print(f"[member] gate lookup failed for {wallet_address[:8]}, falling back to key-on-file: {e}")
+            result = True
+    _MEMBER_CACHE[wallet_address] = (result, now + _MEMBER_TTL_S)
+    return result
+
+
 def get_deposit_summary(wallet: str = None) -> Dict:
     """Deposit totals + the deposit list in one call. Defaults to the admin's
     own deposits (userId in ADMIN_WALLETS) so it's correct regardless of which

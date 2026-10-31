@@ -121,13 +121,7 @@ export function ensureSession(): Promise<string | null> {
 
 // ── which requests need a pass (mirror of api/session_auth.py) ──
 
-const ADMIN_GET = new Set([
-  "/api/users",
-  "/api/pool/allocations",
-  "/api/pool/deposit-summary",
-  "/api/community/aggregate-holdings",
-  "/api/debug",
-]);
+const ADMIN_GET = new Set(["/api/users", "/api/pool/allocations", "/api/pool/deposit-summary", "/api/debug"]);
 const ADMIN_POST = new Set([
   "/api/state",
   "/api/trade",
@@ -144,6 +138,10 @@ function needsPass(method: string, url: URL, body: unknown): boolean {
   if (p.startsWith("/api/auth/")) return false;
   if (p.startsWith("/api/admin/")) return true;
   if (method === "GET") {
+    // Coin stats: "mine" / "everyone" need a pass; no scope stays public.
+    if (p === "/api/coin-stats" || p === "/api/coin-trades") return url.searchParams.has("scope");
+    // Per-wallet holdings behind the Leaderboard drill-down (members only).
+    if (p === "/api/community/aggregate-holdings") return true;
     if (ADMIN_GET.has(p) || p.startsWith("/api/desk/")) return true;
     return p === "/api/transactions" && url.searchParams.get("admin") === "true";
   }
