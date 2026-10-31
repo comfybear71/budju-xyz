@@ -1459,7 +1459,8 @@ export interface LiveLeaderboard {
 export function fetchLiveLeaderboard(): Promise<LiveLeaderboard | null> {
   return cachedLive("live_leaderboard", LIVE_READ_TTL_MS, async () => {
     try {
-      const res = await fetchWithRetry("/api/community/leaderboard");
+      // Heavy request: a longer wait and a single try (retries would just start the same work again)
+      const res = await fetchWithRetry("/api/community/leaderboard", undefined, 0, 45000);
       if (!res.ok) return null;
       return (await res.json()) as LiveLeaderboard;
     } catch {
