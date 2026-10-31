@@ -2296,3 +2296,24 @@ export async function cancelOrder(
     return { success: false, error: err.message || "Network error" };
   }
 }
+
+
+export interface DipTier { buys: number; sells: number; open: number; avgDaysToSell: number | null; netPct: number; openPct: number }
+export interface DipCoin {
+  coin: string; days: number; buys: number; sells: number; netPct: number; change1y: number;
+  maxDrawdown: number; fromHigh: number; advice: string; denied: boolean; focus: boolean;
+  yourBuys?: number; yourSells?: number;
+  tiers: { t1: DipTier; t2: DipTier; t3: DipTier };
+}
+export interface DipReport { coins: DipCoin[]; missing?: string[]; cached?: boolean; at?: string }
+
+/** Admin: replay a year of daily prices through the tier rules. */
+export async function fetchDipReport(wallet: string, force = false): Promise<DipReport | null> {
+  try {
+    const res = await fetchWithRetry(`/api/admin/dip-report?wallet=${wallet}&admin_wallet=${wallet}${force ? "&force=1" : ""}`);
+    if (!res.ok) return null;
+    return (await res.json()) as DipReport;
+  } catch {
+    return null;
+  }
+}

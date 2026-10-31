@@ -3818,3 +3818,62 @@ def get_copytrade_overview() -> Dict:
         "totalPaperPnlUsd": round(total_pnl, 2),
         "overallWinRate": round((wins / closed_count) * 100, 1) if closed_count else 0.0,
     }
+
+
+# ==========================================
+# Dip Report (admin) — see api/dip_report.py
+# ==========================================
+dip_report_cache_collection = db["dip_report_cache"]
+_DIP_CACHE_HOURS = 12
+
+
+def _fetch_daily_closes(coin_id: str) -> List[float]:
+    last_err = None
+    for attempt in range(2):
+        try:
+            data = _coingecko_get(f"/coins/{coin_id}/market_chart?vs_currency=usd&days=365&interval=daily", timeout=20)
+            return [float(p[1]) for p in data.get("prices", []) if p and p[1]]
+        except Exception as e:
+            last_err = e
+            time.sleep(2.5)
+    print(f"[dip-report] {coin_id}: {last_err}")
+    return []
+
+
+def get_dip_report(force: bool = False) -> Dict:
+    from dip_report import build_report
+    if not force:
+        doc = dip_report_cache_collection.find_one({"_id": "latest"})
+        if doc and (datetime.utcnow() - doc["at"]) < timedelta(hours=_DIP_CACHE_HOURS):
+            return {**doc["report"], "cached": True, "at": doc["at"].isoformat() + "Z"}
+
+    coins = {c: cg for c, cg in ASSET_CG_IDS.items()}
+    series: Dict[str, List[float]] = {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        futs = {ex.submit(_fetch_daily_closes, cg): c for c, cg in coins.items()}
+        for f in as_completed(futs):
+            try:
+                series[futs[f]] = f.result()
+            except Exception:
+                series[futs[f]] = []
+    report = build_report(series, denylist={"ENA", "PEPE", "LUNA", "LUNC"})
+    report["missing"] = sorted(c for c, v in series.items() if len(v) < 60)
+
+    # What the bot has really done so far, from the admin ledger.
+    try:
+        real: Dict[str, Dict] = {}
+        for row in trades_collection.aggregate([
+            {"$match": {"type": {"$in": ["buy", "sell"]}}},
+            {"$group": {"_id": {"coin": "$coin", "t": "$type"}, "n": {"$sum": 1}}},
+        ]):
+            real.setdefault(row["_id"]["coin"], {"buys": 0, "sells": 0})["buys" if row["_id"]["t"] == "buy" else "sells"] = row["n"]
+        for c in report["coins"]:
+            c["yourBuys"] = real.get(c["coin"], {}).get("buys", 0)
+            c["yourSells"] = real.get(c["coin"], {}).get("sells", 0)
+    except Exception as e:
+        print(f"[dip-report] ledger error: {e}")
+
+    now = datetime.utcnow()
+    if len(report["coins"]) >= 15:  # don't cache a mostly-failed run
+        dip_report_cache_collection.replace_one({"_id": "latest"}, {"_id": "latest", "at": now, "report": report}, upsert=True)
+    return {**report, "cached": False, "at": now.isoformat() + "Z"}
