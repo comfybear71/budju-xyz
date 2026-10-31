@@ -4260,6 +4260,12 @@ def get_health_check(admin_wallet: str) -> Dict:
     timed("database", lambda: client.admin.command("ping") and "ok")
     timed("coingecko", lambda: list(_coingecko_get("/ping", timeout=10).keys()))
     timed("adminSwyftx", lambda: f"{len(_get_user_swyftx_client(admin_wallet).get_holdings())} coins held")
+    def master_key():
+        key = os.getenv("SWYFTX_API_KEY", "")
+        if not key:
+            raise ValueError("SWYFTX_API_KEY is not set on the server")
+        return f"{len(SwyftxClient(key).get_holdings())} coins held"
+    timed("masterSwyftxKey", master_key)
     timed("prices", lambda: f"{len(get_prices_for_coins(['BTC', 'ETH', 'SOL']))} prices")
 
     def board():

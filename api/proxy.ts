@@ -235,8 +235,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
       ]);
 
-      const portfolioData = await portfolioRes.json();
-      const assetsData = await assetsRes.json();
+      // Swyftx sometimes answers with a plain-text/HTML error (rate limit, outage).
+      // Say WHAT it said instead of an opaque 500.
+      const readJson = async (r: Response, what: string) => {
+        const text = await r.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error(`Swyftx ${what} returned HTTP ${r.status}: ${text.replace(/\s+/g, " ").slice(0, 120)}`);
+        }
+      };
+      const portfolioData = await readJson(portfolioRes, "balance");
+      if (!portfolioRes.ok) {
+        throw new Error(`Swyftx balance HTTP ${portfolioRes.status}: ${JSON.stringify(portfolioData).slice(0, 120)}`);
+      }
+      let assetsData: any = [];
+      try {
+        assetsData = await readJson(assetsRes, "asset list");
+      } catch (e) {
+        console.warn("[portfolio] asset list unavailable, continuing without names:", (e as Error).message);
+      }
 
       // Build lookup: assetId → { code, name } — use String keys to avoid int/string mismatch
       const assetMap: Record<string, { code: string; name: string }> = {};

@@ -296,7 +296,10 @@ export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
         body: JSON.stringify({ endpoint: "/portfolio/" }),
       });
 
-      if (!res.ok) throw new Error(`Portfolio: ${res.status}`);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({} as any));
+        throw new Error(`Portfolio: ${res.status}${d?.error ? ` — ${d.error}` : ""}`);
+      }
       const data = await res.json();
       const rawAssets = data.assets || data || [];
 
@@ -2568,7 +2571,7 @@ export async function saveSizing(
 
 
 export interface HealthCheck {
-  database?: HealthItem; coingecko?: HealthItem; adminSwyftx?: HealthItem; prices?: HealthItem; leaderboard?: HealthItem;
+  database?: HealthItem; coingecko?: HealthItem; adminSwyftx?: HealthItem; masterSwyftxKey?: HealthItem; prices?: HealthItem; leaderboard?: HealthItem;
   wallets?: number; hasCoinGeckoKey?: boolean;
 }
 export interface HealthItem { ok: boolean; seconds: number; detail?: string; error?: string }

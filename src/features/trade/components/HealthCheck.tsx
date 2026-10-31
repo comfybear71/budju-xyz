@@ -5,7 +5,8 @@ import { fetchHealthCheck, type HealthCheck as Health, type HealthItem } from ".
 const LABELS: [keyof Health, string][] = [
   ["database", "Database"],
   ["coingecko", "CoinGecko (prices)"],
-  ["adminSwyftx", "Your Swyftx account"],
+  ["adminSwyftx", "Your Swyftx account (wallet key)"],
+  ["masterSwyftxKey", "Server Swyftx key (Holdings screen)"],
   ["prices", "Price lookup"],
   ["leaderboard", "Leaderboard (all wallets)"],
 ];
