@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
-import { fetchDipReport, type DipCoin, type DipReport as Report } from "../services/tradeApi";
+import { fetchDipReport, fetchTraderState, type DipCoin, type DipReport as Report } from "../services/tradeApi";
 
 const pct = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(0)}%`;
 
@@ -15,7 +15,9 @@ const badgeFor = (c: DipCoin): Badge => {
   return { icon: "✅", label: "OK", color: "#4ade80", bg: "rgba(34,197,94,0.12)" };
 };
 
-const DipReport = ({ wallet, assignments = {} }: { wallet: string; assignments?: Record<string, number[]> }) => {
+const DipReport = ({ wallet, assignments: given }: { wallet: string; assignments?: Record<string, number[]> }) => {
+  const [own, setOwn] = useState<Record<string, number[]>>({});
+  const assignments = given ?? own;
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,6 +33,17 @@ const DipReport = ({ wallet, assignments = {} }: { wallet: string; assignments?:
     setFailed(!r);
     setLoading(false);
   };
+
+  // Used on the Desk page, where nobody passes the tier assignments in.
+  useEffect(() => {
+    if (given || !open) return;
+    void fetchTraderState().then((st) => {
+      const raw = (st?.autoTierAssignments ?? {}) as Record<string, number[] | string | number>;
+      const out: Record<string, number[]> = {};
+      for (const [coin, v] of Object.entries(raw)) out[coin] = Array.isArray(v) ? v.map(Number) : [Number(v)].filter(Boolean);
+      setOwn(out);
+    });
+  }, [given, open]);
 
   const toggle = () => {
     const next = !open;

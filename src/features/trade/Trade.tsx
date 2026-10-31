@@ -39,6 +39,7 @@ import {
   buildLiveCashFlowHistory,
   buildCommunityCashFlowHistory,
   registerWallet,
+  loadCoinConfig,
   clearCache,
   AUD_TO_USD,
   type PortfolioAsset,
@@ -53,6 +54,7 @@ import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
 import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
+import WalletCoinSuggestions from "./components/WalletCoinSuggestions";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
@@ -1040,6 +1042,13 @@ const Trade = () => {
 
               {/* ─── Activity Log (visible to ALL users, hidden on perp page) ──────────── */}
               {!showHighRisk && <ActivityLog />}
+
+              {/* ─── Admin: coins held by wallets that the bot doesn't trade yet ─── */}
+              {isAdmin && !showHighRisk && (
+                <div className="mt-4">
+                  <WalletCoinSuggestions wallet={walletAddress} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig(); }} />
+                </div>
+              )}
 
             </div>
           )}

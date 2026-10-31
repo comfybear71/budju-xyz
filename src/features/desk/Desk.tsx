@@ -3,7 +3,8 @@ import { motion } from "motion/react";
 import { FaSync, FaArrowLeft } from "react-icons/fa";
 import { useNavigate } from "react-router";
 import { useWallet } from "@hooks/useWallet";
-import { fetchDeskBrief, type DeskBrief } from "@features/trade/services/tradeApi";
+import { fetchDeskBrief, registerWallet, type DeskBrief } from "@features/trade/services/tradeApi";
+import DipReport from "@features/trade/components/DipReport";
 
 const dirColor = (d: string) => (d === "long" ? "#22c55e" : d === "short" ? "#ef4444" : "#94a3b8");
 const dirIcon = (d: string) => (d === "long" ? "🟢" : d === "short" ? "🔴" : "⚪️");
@@ -11,11 +12,19 @@ const sevColor = (s: string) => (s === "high" ? "#ef4444" : s === "medium" ? "#f
 
 const Desk = () => {
   const navigate = useNavigate();
-  const { walletAddress } = useWallet();
+  const { connection } = useWallet();
+  const walletAddress = connection.wallet?.address || "";
   const [brief, setBrief] = useState<DeskBrief | null>(null);
   const [history, setHistory] = useState<DeskBrief[]>([]);
   const [loading, setLoading] = useState(true);
   const [picked, setPicked] = useState<number>(0); // 0 = latest
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsAdmin(false);
+    if (!walletAddress) return;
+    void registerWallet(walletAddress).then((d) => setIsAdmin(d?.role === "admin"));
+  }, [walletAddress]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +70,12 @@ const Desk = () => {
           <FaSync size={13} className={`text-slate-400 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
+
+      {isAdmin && walletAddress && (
+        <div className="mb-4">
+          <DipReport wallet={walletAddress} />
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-16">
