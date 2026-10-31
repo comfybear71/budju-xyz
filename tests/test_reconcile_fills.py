@@ -133,3 +133,14 @@ def test_tiny_differences_are_left_alone_but_marked_verified(env):
     out = m.run(ADMIN, apply=True)
     assert out["changed"] == 0 and out["unchanged"] == 2
     assert db.trades_collection.update_one.call_args[0][1]["$set"]["fillVerified"] is True
+
+
+def test_limit_caps_how_many_orders_are_examined(env):
+    m, db, client = env
+    lookup_table(client, {"ord_pool": reply("43.1865"), "ord_user": reply("0.0001275")})
+    assert m.run(ADMIN, apply=False, limit=1)["examined"] == 1
+
+
+def test_limit_is_capped_at_the_maximum(env):
+    m, _, _ = env
+    assert m.MAX_LIMIT == 300 and m.APPLY_LIMIT == 150

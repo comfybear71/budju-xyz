@@ -662,7 +662,11 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
                 import reconcile_fills
-                self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1'))
+                try:
+                    lim = int(params.get('limit')) if params.get('limit') else None
+                except ValueError:
+                    lim = None
+                self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
 
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook

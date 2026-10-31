@@ -8,7 +8,7 @@
 # the recorded quantity and price.
 #
 #   GET /api/admin/reconcile-fills?admin_wallet=...            PREVIEW (writes nothing)
-#   GET /api/admin/reconcile-fills?admin_wallet=...&apply=1    CORRECT up to 60 orders
+#   GET /api/admin/reconcile-fills?admin_wallet=...&apply=1    CORRECT up to 150 orders (&limit=N, max 300)
 #
 # Safe to repeat: each corrected/checked order is marked and skipped next time,
 # so just re-open the apply link until "remaining" is 0. A value is only
@@ -30,7 +30,8 @@ from database import (
 from swyftx_client import SWYFTX_BASE, SwyftxClient, extract_fill_qty
 
 PREVIEW_LIMIT = 30
-APPLY_LIMIT = 60
+APPLY_LIMIT = 150      # default per call; &limit=N raises it
+MAX_LIMIT = 300
 MIN_CHANGE = 0.0005   # ignore differences under 0.05%
 SAMPLE_CHANGES = 40
 
@@ -85,8 +86,9 @@ def _remaining():
     return pool + users
 
 
-def run(admin_wallet, apply=False):
-    budget = APPLY_LIMIT if apply else PREVIEW_LIMIT
+def run(admin_wallet, apply=False, limit=None):
+    default = APPLY_LIMIT if apply else PREVIEW_LIMIT
+    budget = max(1, min(int(limit), MAX_LIMIT)) if limit else default
     now = datetime.utcnow()
     stats = {"examined": 0, "changed": 0, "unchanged": 0, "skipped": {}, "retryLater": 0}
     changes = []
@@ -156,5 +158,5 @@ def run(admin_wallet, apply=False):
         "remaining": _remaining(),
         "sampleChanges": changes,
         "next": ("open the same link again until remaining is 0" if apply
-                 else "add &apply=1 to correct up to 60 orders per call"),
+                 else f"add &apply=1 to correct up to {APPLY_LIMIT} orders per call (&limit=N for up to {MAX_LIMIT})"),
     }
