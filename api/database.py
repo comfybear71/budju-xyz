@@ -3443,6 +3443,39 @@ def record_copytrade_event(event: Dict) -> bool:
         return False
 
 
+def set_copytrade_event_outcome(signature: str, outcome: str, reason: str = "", symbol: str = "") -> None:
+    """Remember what BUDJU did with a swap (copied / skipped / closed) so the
+    Signals Live Activity feed can show it."""
+    try:
+        copytrade_events_collection.update_one(
+            {"signature": signature},
+            {"$set": {"outcome": outcome, "reason": reason[:120], "tokenSymbol": symbol}},
+        )
+    except Exception as e:
+        print(f"[copytrade] outcome save error: {e}")
+
+
+def get_copytrade_activity(limit: int = 80) -> Dict:
+    """Public — newest swaps by tracked wallets (copied or not)."""
+    names = {d["address"]: d.get("label") for d in copytrade_wallets_collection.find({}, {"address": 1, "label": 1})}
+    out = []
+    for d in copytrade_events_collection.find({}).sort("createdAt", -1).limit(limit):
+        w = d.get("walletAddress", "")
+        bt = d.get("blockTime")
+        out.append({
+            "wallet": w,
+            "walletLabel": names.get(w),
+            "side": d.get("side"),
+            "tokenMint": d.get("tokenMint"),
+            "tokenSymbol": d.get("tokenSymbol") or "",
+            "amountUsd": d.get("amountUsd") or 0,
+            "outcome": d.get("outcome") or "seen",
+            "reason": d.get("reason") or "",
+            "time": datetime.utcfromtimestamp(bt).isoformat() + "Z" if isinstance(bt, (int, float)) else d["createdAt"].isoformat() + "Z",
+        })
+    return {"activity": out}
+
+
 def get_open_copytrade_position(wallet_address: str, token_mint: str) -> Optional[Dict]:
     return copytrade_positions_collection.find_one({
         "walletAddress": wallet_address, "tokenMint": token_mint, "status": "open",

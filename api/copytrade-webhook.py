@@ -26,6 +26,7 @@ from database import (
     get_trackable_copytrade_wallet_addresses,
     get_copytrade_wallet,
     record_copytrade_event,
+    set_copytrade_event_outcome,
     record_copytrade_webhook_ping,
     open_copytrade_position,
     get_open_copytrade_position,
@@ -85,6 +86,7 @@ def handle_delivery(payload) -> dict:
             decision = evaluate_entry(mint)
             if not decision["approved"]:
                 print(f"[copytrade-webhook] skip buy {label} {mint}: {decision['reason']}")
+                set_copytrade_event_outcome(event["signature"], "skipped", str(decision.get("reason") or ""), decision.get("symbol") or "")
                 continue
             entry_price = decision["priceUsd"]
             doc = open_copytrade_position({
@@ -97,6 +99,8 @@ def handle_delivery(payload) -> dict:
                 "entrySignature": event["signature"],
                 "liquidityUsd": decision.get("liquidityUsd", 0),
             })
+            set_copytrade_event_outcome(event["signature"], "copied" if doc else "skipped",
+                                        "" if doc else "already following", decision.get("symbol") or "")
             if doc:
                 opened += 1
                 send_telegram(
@@ -108,12 +112,14 @@ def handle_delivery(payload) -> dict:
         elif event["side"] == "sell":
             position = get_open_copytrade_position(wallet, mint)
             if not position:
+                set_copytrade_event_outcome(event["signature"], "ignored", "we were not following this token")
                 continue  # nothing BUDJU was paper-following on this token
             prices = get_dexscreener_prices([mint])
             exit_price = (prices.get(mint) or {}).get("priceUsd") or position.get("entryPriceUsd")
             result = close_copytrade_position(position, exit_price, "signal_sell")
             closed += 1
             pnl = result["pnlUsd"]
+            set_copytrade_event_outcome(event["signature"], "closed", f"paper P&L {pnl:+.2f}", position.get("tokenSymbol") or "")
             emoji = "💰" if pnl >= 0 else "📉"
             send_telegram(
                 f"{emoji} <b>Signals: paper SELL</b>\n"

@@ -95,6 +95,7 @@ from database import (
     get_coin_price_history,
     get_copytrade_leaderboard,
     get_copytrade_signals,
+    get_copytrade_activity,
     get_copytrade_overview,
     get_copytrade_status,
     get_copytrade_progress,
@@ -588,6 +589,13 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     limit_int = 60
                 self._send_json(200, get_copytrade_signals(limit_int))
+
+            elif path == '/api/copytrade/activity':
+                try:
+                    limit_int = max(1, min(int(params.get('limit', '80')), 200))
+                except (TypeError, ValueError):
+                    limit_int = 80
+                self._send_json(200, get_copytrade_activity(limit_int))
 
             elif path == '/api/copytrade/status':
                 # Public — aggregate health of the Signals pipeline, in plain English.
