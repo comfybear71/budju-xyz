@@ -2457,3 +2457,9 @@ export async function fetchWalletCoinSuggestions(wallet: string): Promise<Wallet
   const r = await adminGet("/api/admin/wallet-coins", wallet);
   return r ? ((r.suggestions ?? []) as WalletCoinSuggestion[]) : null;
 }
+
+
+/** Admin: the stored Dip Report only (no fetching) — used to show performance in the tier grid. */
+export async function fetchDipReportLight(wallet: string): Promise<DipReport | null> {
+  return (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
+}

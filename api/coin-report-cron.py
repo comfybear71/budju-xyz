@@ -33,6 +33,20 @@ def run() -> dict:
         if fetch_dip_series(code, force=True).get("ok"):
             refreshed.append(code)
 
+    # Warm a couple of Scout candidates per run, so by tomorrow the whole wide list is tested.
+    warmed = []
+    try:
+        from database import fetch_scout_series
+        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"}) or {}
+        have = {d["_id"] for d in dip_report_cache_collection.find(
+            {"_id": {"$regex": "^series:cg:"}, "at": {"$gte": datetime.utcnow() - timedelta(hours=20)}}, {"_id": 1})}
+        todo = [c["id"] for c in doc.get("cands", []) if f"series:cg:{c['id']}" not in have][:2]
+        for cid in todo:
+            if fetch_scout_series(cid).get("ok"):
+                warmed.append(cid)
+    except Exception as e:
+        print(f"[coin-report-cron] scout warm error: {e}")
+
     now = datetime.utcnow()
     sent = False
     if now.hour == REPORT_UTC_HOUR and now.minute < 30:
@@ -50,7 +64,7 @@ def run() -> dict:
                 if sent:
                     dip_report_cache_collection.replace_one(
                         {"_id": "daily-report-state"}, {"_id": "daily-report-state", "lastSent": today}, upsert=True)
-    return {"refreshed": refreshed, "reportSent": sent}
+    return {"refreshed": refreshed, "warmed": warmed, "reportSent": sent}
 
 
 class handler(BaseHTTPRequestHandler):

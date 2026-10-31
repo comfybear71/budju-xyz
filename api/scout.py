@@ -7,7 +7,7 @@ STABLE_HINTS = ("usd", "eur", "gold", "tether", "stable", "dai")
 WRAPPED_HINTS = ("wrapped", "staked", "bridged", "restaked", "liquid staking", "wbtc", "steth", "weth")
 MIN_MCAP = 300_000_000
 MIN_VOL_RATIO = 0.01     # 24h volume must be at least 1% of market cap
-MAX_CANDIDATES = 30
+MAX_CANDIDATES = 60
 
 
 def filter_candidates(markets: Iterable[Dict], tracked_codes: Set[str], tracked_cg_ids: Set[str],

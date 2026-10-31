@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
-import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin } from "../services/tradeApi";
+import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, fetchDipReportLight, type DipCoin } from "../services/tradeApi";
 import { TIER_CONFIG, type AutoTrader } from "../services/autoTrader";
 
 interface Props {
+  wallet: string;
   autoTrader: AutoTrader;
   assignments: Record<string, number[]>;
 }
@@ -11,10 +12,25 @@ interface Props {
 type Show = "all" | "in" | "out";
 
 /** One row per coin with T1 / T2 / T3 switches — tap to turn a tier on or off. */
-const CoinTierGrid = ({ autoTrader, assignments }: Props) => {
+const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [show, setShow] = useState<Show>("all");
+  const [perf, setPerf] = useState<Record<string, DipCoin>>({});
+
+  // Last year's performance per coin per tier, from the stored Dip Report.
+  useEffect(() => {
+    if (!open || Object.keys(perf).length) return;
+    void fetchDipReportLight(wallet).then((r) => {
+      if (r) setPerf(Object.fromEntries(r.coins.map((c) => [c.coin, c])));
+    });
+  }, [open, wallet, perf]);
+
+  const tierPerf = (coin: string, t: number) => {
+    const tr = perf[coin]?.tiers?.[`t${t}` as "t1" | "t2" | "t3"];
+    if (!tr || tr.buys === 0) return null;
+    return { avg: tr.netPct / tr.buys, buys: tr.buys, open: tr.open };
+  };
 
   const coins = useMemo(
     () =>
@@ -71,7 +87,14 @@ const CoinTierGrid = ({ autoTrader, assignments }: Props) => {
               const color = ASSET_CONFIG[c]?.color || "#64748b";
               return (
                 <div key={c} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
-                  <span className="text-xs font-bold w-16 truncate" style={{ color }}>{c}</span>
+                  <div className="w-16 min-w-0">
+                    <div className="text-xs font-bold truncate" style={{ color }}>{c}</div>
+                    {perf[c] && (
+                      <div className="text-[9px] font-mono" style={{ color: perf[c].perBuy >= 0 ? "#22c55e" : "#ef4444" }}>
+                        {perf[c].perBuy >= 0 ? "+" : ""}{perf[c].perBuy.toFixed(1)}%/buy
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-1.5">
                     {[1, 2, 3].map((t) => {
                       const on = mine.includes(t);
@@ -80,7 +103,7 @@ const CoinTierGrid = ({ autoTrader, assignments }: Props) => {
                           key={t}
                           onClick={() => toggle(c, t)}
                           title={TIER_CONFIG[t]?.name}
-                          className="w-10 h-8 rounded-lg text-[11px] font-bold transition-colors"
+                          className="w-12 h-10 rounded-lg text-[11px] font-bold transition-colors leading-tight"
                           style={{
                             background: on ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.05)",
                             border: `1px solid ${on ? "rgba(34,197,94,0.6)" : "rgba(255,255,255,0.08)"}`,
@@ -88,6 +111,16 @@ const CoinTierGrid = ({ autoTrader, assignments }: Props) => {
                           }}
                         >
                           T{t}
+                          {(() => {
+                            const p = tierPerf(c, t);
+                            return p ? (
+                              <div className="text-[9px] font-mono" style={{ color: p.avg >= 0 ? "#22c55e" : "#ef4444" }}>
+                                {p.avg >= 0 ? "+" : ""}{p.avg.toFixed(0)}%
+                              </div>
+                            ) : (
+                              <div className="text-[9px] text-slate-600">·</div>
+                            );
+                          })()}
                         </button>
                       );
                     })}
@@ -101,7 +134,7 @@ const CoinTierGrid = ({ autoTrader, assignments }: Props) => {
             {coins.length === 0 && <div className="text-xs text-slate-500 py-2">No coins match.</div>}
           </div>
           <div className="text-[10px] text-slate-500 mt-2 leading-relaxed">
-            Green = the coin is traded in that tier. Changes save automatically and the bot picks them up on its next run (within 5 minutes).
+            Green button = traded in that tier. The small % is last year's average gain per dip bought in that tier (red = it lost). Changes save automatically and the bot picks them up on its next run (within 5 minutes).
           </div>
         </div>
       )}
