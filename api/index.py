@@ -643,6 +643,16 @@ class handler(BaseHTTPRequestHandler):
                 else:
                     self._send_json(200, catchup_buys.preview_catchup(admin_wallet))
 
+            elif path == '/api/admin/order-shape':
+                # Admin-only, read-only — shows Swyftx's raw reply for the
+                # most recent recorded admin order (see order_shape.py).
+                admin_wallet = params.get('admin_wallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import order_shape
+                self._send_json(200, order_shape.inspect_last_order(admin_wallet))
+
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
                 # create/update RIGHT NOW instead of waiting for the next
