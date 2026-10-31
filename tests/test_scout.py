@@ -33,3 +33,10 @@ def test_daily_report_text():
     review = {"considerRemoving": [{"coin": "ADA", "why": ""}]}
     t = daily_report_text(coins, review, [{"code": "AAVE", "name": "Aave", "perBuy": 3.2}])
     assert "TAO" in t and "ADA" in t and "AAVE" in t and "not financial advice" in t
+def test_wallet_coin_suggestions():
+    from scout import wallet_coin_suggestions
+    per = [{"walletAddress": "a", "holdings": {"AAVE": 2.0, "BTC": 1.0, "USDC": 50, "DUST": 1}},
+           {"walletAddress": "b", "holdings": {"AAVE": 3.0}}]
+    out = wallet_coin_suggestions(per, {"BTC"}, {"AAVE": 100.0, "DUST": 0.5}, {"AAVE": 5e9})
+    assert [r["code"] for r in out] == ["AAVE"]
+    assert out[0]["wallets"] == 2 and out[0]["usdValue"] == 500.0 and out[0]["small"] is False

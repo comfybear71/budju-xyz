@@ -72,3 +72,31 @@ def daily_report_text(coins: List[Dict], review: Dict, opportunities: List[Dict]
             lines.append(f"• {o.get('code')} ({o.get('name')}) — {o['perBuy']:+.1f}% avg per dip")
     lines.append("<i>Based on a year of daily prices. Paper analysis, not financial advice.</i>")
     return "\n".join(lines)
+CASH_CODES = {"AUD", "USD", "USDC", "USDT"}
+MIN_SUGGEST_USD = 20.0       # ignore dust
+SMALL_CAP_USD = 100_000_000  # flagged "small" below this
+
+
+def wallet_coin_suggestions(per_wallet: List[Dict], tracked: Set[str], prices: Dict[str, float],
+                            mcaps: Optional[Dict[str, float]] = None) -> List[Dict]:
+    """Coins held by connected wallets that the bot doesn't trade yet.
+    per_wallet: [{"walletAddress", "holdings": {code: qty}}]."""
+    held: Dict[str, Dict] = {}
+    for w in per_wallet:
+        for code, qty in (w.get("holdings") or {}).items():
+            code = str(code).upper()
+            if code in CASH_CODES or code in tracked or not qty or qty <= 0:
+                continue
+            h = held.setdefault(code, {"wallets": 0, "qty": 0.0})
+            h["wallets"] += 1
+            h["qty"] += float(qty)
+    out = []
+    for code, h in held.items():
+        usd = h["qty"] * (prices.get(code) or 0.0)
+        if usd < MIN_SUGGEST_USD:
+            continue
+        mc = (mcaps or {}).get(code)
+        out.append({"code": code, "wallets": h["wallets"], "usdValue": round(usd, 2),
+                    "small": bool(mc is not None and mc < SMALL_CAP_USD)})
+    out.sort(key=lambda r: r["usdValue"], reverse=True)
+    return out
