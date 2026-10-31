@@ -24,6 +24,7 @@
     { "source": "/api/telegram", "destination": "/api/telegram.ts" },
     { "source": "/api/telegram-cron", "destination": "/api/telegram-cron.ts" },
     { "source": "/api/auto-trade-cron", "destination": "/api/auto-trade-cron.py" },
+    { "source": "/api/coin-report-cron", "destination": "/api/coin-report-cron.py" },
     { "source": "/api/perp-cron", "destination": "/api/perp-cron.py" },
     { "source": "/api/copytrade-cron", "destination": "/api/copytrade-cron.py" },
     { "source": "/api/copytrade-webhook", "destination": "/api/copytrade-webhook.py" },
@@ -66,6 +67,10 @@
     {
       "path": "/api/auto-trade-cron",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/coin-report-cron",
+      "schedule": "*/30 * * * *"
     },
     {
       "path": "/api/copytrade-cron",
