@@ -35,22 +35,33 @@ HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 HELIUS_WEBHOOKS_BASE = "https://api-mainnet.helius-rpc.com/v0/webhooks"
 # Where Helius should POST delivered events — production domain by default,
 # overridable (e.g. for a preview deployment) via env.
-COPYTRADE_WEBHOOK_URL = os.getenv("COPYTRADE_WEBHOOK_URL", "https://budju.xyz/api/copytrade-webhook")
+# MUST be the canonical www host: the apex budju.xyz 307-redirects, and a
+# redirected server-to-server POST is dropped / loses its auth header (same
+# lesson as the Telegram webhook, see api/telegram.ts). The old apex default
+# is the prime suspect for the "0 deliveries ever" Signals silence.
+COPYTRADE_WEBHOOK_URL = os.getenv("COPYTRADE_WEBHOOK_URL", "https://www.budju.xyz/api/copytrade-webhook")
 # Shared secret Helius echoes back as the `Authorization` header on every
 # delivery — set the same value in both places. Webhook receiver rejects
 # any delivery that doesn't match once this is configured.
 COPYTRADE_WEBHOOK_SECRET = os.getenv("COPYTRADE_WEBHOOK_SECRET", "")
 
-SOL_MINT = "So11111111111111111111111111111111111111"
+# Wrapped SOL (WSOL) — 43 characters ending in "...112". This constant was
+# previously truncated to 40 characters, so any swap whose SOL leg arrived as
+# a WSOL token (rather than a native-SOL leg) was misread as a token-for-token
+# swap and silently dropped.
+SOL_MINT = "So11111111111111111111111111111111111111112"
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 _STABLE_OR_NATIVE = {SOL_MINT, USDC_MINT}
 
 
-def addresses_hash(addresses: List[str]) -> str:
+def addresses_hash(addresses: List[str], salt: str = "") -> str:
     """Stable hash of the address set, used to skip a Helius API call when
     the tracked-wallet list hasn't actually changed since the last sync —
     each webhook create/update call costs Helius credits."""
-    return hashlib.sha256(",".join(sorted(addresses)).encode()).hexdigest()
+    # `salt` (the webhook URL) is part of the hash so CHANGING the URL also
+    # forces a re-sync — otherwise a fixed URL would never reach Helius until
+    # the wallet list happened to change.
+    return hashlib.sha256((salt + "|" + ",".join(sorted(addresses))).encode()).hexdigest()
 
 
 def sync_helius_webhook(addresses: List[str], existing_webhook_id: Optional[str]) -> Dict:

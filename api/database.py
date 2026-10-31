@@ -3519,6 +3519,66 @@ def get_copytrade_debug() -> Dict:
     }
 
 
+def get_copytrade_status_facts() -> Dict:
+    """Public, aggregate-only facts about the Signals pipeline (counts and
+    timestamps — no addresses, no secrets) for signals_status.compute_verdict()
+    and the Signals page's live status card."""
+    state = copytrade_state_collection.find_one({"_id": COPYTRADE_STATE_ID}) or {}
+    cutoff = datetime.utcnow() - timedelta(hours=24)
+    last_event = copytrade_events_collection.find_one({}, {"createdAt": 1}, sort=[("createdAt", -1)])
+    last_open = copytrade_positions_collection.find_one({}, {"entryAt": 1}, sort=[("entryAt", -1)])
+    return {
+        "trackedWallets": copytrade_wallets_collection.count_documents({}),
+        "pendingWallets": copytrade_wallets_collection.count_documents({"status": "pending"}),
+        "activeWallets": copytrade_wallets_collection.count_documents({"status": "active"}),
+        "webhookId": state.get("heliusWebhookId"),
+        "webhookUrl": state.get("heliusWebhookUrl"),
+        "walletsRefreshedAt": state.get("walletsRefreshedAt"),
+        "lastCronAt": state.get("lastCronAt"),
+        "lastWebhookSyncError": state.get("lastWebhookSyncError"),
+        "pingsOk": state.get("webhookPingCountOk", 0),
+        "pingsAuthFail": state.get("webhookPingCountAuthFail", 0),
+        "lastPingAt": state.get("lastWebhookPingAt"),
+        "eventsTotal": copytrade_events_collection.count_documents({}),
+        "events24h": copytrade_events_collection.count_documents({"createdAt": {"$gte": cutoff}}),
+        "lastEventAt": (last_event or {}).get("createdAt"),
+        "openPositions": copytrade_positions_collection.count_documents({"status": "open"}),
+        "closedPositions": copytrade_positions_collection.count_documents({"status": "closed"}),
+        "opened24h": copytrade_positions_collection.count_documents({"entryAt": {"$gte": cutoff}}),
+        "closed24h": copytrade_positions_collection.count_documents({"exitAt": {"$gte": cutoff}}),
+        "lastOpenedAt": (last_open or {}).get("entryAt"),
+    }
+
+
+def get_copytrade_status() -> Dict:
+    from signals_status import compute_verdict
+    facts = get_copytrade_status_facts()
+    now = datetime.utcnow()
+
+    def iso(v):
+        return v.isoformat() + "Z" if isinstance(v, datetime) else None
+
+    return {
+        "verdict": compute_verdict(facts, now),
+        "wallets": {k: facts[k] for k in ("trackedWallets", "pendingWallets", "activeWallets")},
+        "webhook": {
+            "connected": bool(facts["webhookId"]),
+            "deliveriesOk": facts["pingsOk"],
+            "deliveriesRejected": facts["pingsAuthFail"],
+            "lastDeliveryAt": iso(facts["lastPingAt"]),
+            "lastSyncError": facts["lastWebhookSyncError"],
+        },
+        "events": {"total": facts["eventsTotal"], "last24h": facts["events24h"], "lastAt": iso(facts["lastEventAt"])},
+        "paperTrades": {
+            "open": facts["openPositions"], "closed": facts["closedPositions"],
+            "opened24h": facts["opened24h"], "closed24h": facts["closed24h"],
+            "lastOpenedAt": iso(facts["lastOpenedAt"]),
+        },
+        "jobs": {"walletRefreshAt": iso(facts["walletsRefreshedAt"]), "pricingJobAt": iso(facts["lastCronAt"])},
+        "serverTime": iso(now),
+    }
+
+
 def get_copytrade_progress(limit: int = 30) -> Dict:
     """Public — wallets still in "pending" status (seeded, not yet proven
     OR excluded) that have logged at least one paper trade so far, sorted

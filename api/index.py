@@ -93,6 +93,7 @@ from database import (
     get_copytrade_leaderboard,
     get_copytrade_signals,
     get_copytrade_overview,
+    get_copytrade_status,
     get_copytrade_progress,
     get_copytrade_debug,
     reset_copytrade_helius_state,
@@ -571,6 +572,10 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     limit_int = 60
                 self._send_json(200, get_copytrade_signals(limit_int))
+
+            elif path == '/api/copytrade/status':
+                # Public — aggregate health of the Signals pipeline, in plain English.
+                self._send_json(200, get_copytrade_status())
 
             elif path == '/api/copytrade/overview':
                 self._send_json(200, get_copytrade_overview())
