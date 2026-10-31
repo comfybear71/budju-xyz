@@ -42,6 +42,7 @@ import json
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+from coin_sizing import size_buy
 from database import (
     user_exchange_keys_collection,
     decrypt_secret,
@@ -399,6 +400,19 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                 # No deployable-capital cap — every wallet sizes off its own
                 # real balance, uncapped, every wallet and every trade equal.
                 trade_amount = max((settings["allocation"] / 100) * usdc_balance, MIN_ORDER_USDC)
+                sizing = ctx.get("sizing")
+                if sizing:
+                    held_usd = holdings.get(code, 0.0) * current_price
+                    trade_amount, why = size_buy(
+                        (settings["allocation"] / 100) * usdc_balance,
+                        (sizing.get("classes") or {}).get(code), held_usd, sizing.get("capUsd", 0), MIN_ORDER_USDC,
+                    )
+                    if trade_amount <= 0:
+                        note = f"{code}:{why}"
+                        if note not in _blocklist_logged:
+                            log.append(f"{short}: BUY {code} skipped — {why}")
+                            _blocklist_logged.add(note)
+                        continue
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                     continue
 
@@ -440,6 +454,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     trade_log = trade_log[:50]
 
                     usdc_balance -= trade_amount
+                    holdings[code] = holdings.get(code, 0.0) + quantity   # keeps the position cap honest within this cycle
                     log.append(f"{short}: BUY {code} ${trade_amount:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
                         "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "BUY", "tier": tier_num,
@@ -712,7 +727,17 @@ def run_auto_trade_check():
         except Exception as e:
             print(f"[catchup] could not save progress for {wallet[:8]} {ck}: {e}", flush=True)
 
+    # Coin-class sizing + per-coin position cap (admin switch, ships OFF). Any
+    # problem here simply means "no sizing" — the original behaviour.
+    try:
+        from database import get_sizing_runtime
+        sizing = get_sizing_runtime()
+    except Exception as e:
+        sizing = None
+        print(f"[sizing] unavailable: {e}", flush=True)
+
     for ctx in wallet_contexts:
+        ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
         ctx["sharedTargets"] = shared_targets
         ctx["sharedCooldowns"] = shared_cooldowns

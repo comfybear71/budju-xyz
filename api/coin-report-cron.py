@@ -33,6 +33,13 @@ def run() -> dict:
         if fetch_dip_series(code, force=True).get("ok"):
             refreshed.append(code)
 
+    # Refresh coin classes (market cap / volume) at most once a day.
+    try:
+        from database import refresh_coin_classes
+        refresh_coin_classes()
+    except Exception as e:
+        print(f"[coin-report-cron] classes error: {e}")
+
     # Warm a couple of Scout candidates per run, so by tomorrow the whole wide list is tested.
     warmed = []
     try:
