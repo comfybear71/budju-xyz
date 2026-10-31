@@ -55,6 +55,7 @@ import { getActivityLog } from "./services/activityLog";
 import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
 import WalletCoinSuggestions from "./components/WalletCoinSuggestions";
+import StarterBuys from "./components/StarterBuys";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
@@ -1047,6 +1048,11 @@ const Trade = () => {
               {isAdmin && !showHighRisk && (
                 <div className="mt-4">
                   <WalletCoinSuggestions wallet={walletAddress} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig(); }} />
+                </div>
+              )}
+              {isAdmin && !showHighRisk && (
+                <div className="mt-3">
+                  <StarterBuys wallet={walletAddress} />
                 </div>
               )}
 
