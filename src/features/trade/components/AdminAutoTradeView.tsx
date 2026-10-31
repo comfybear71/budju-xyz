@@ -6,10 +6,8 @@ import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettin
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
 import DipReport from "./DipReport";
-import ManageCoins from "./ManageCoins";
 import CoinScout from "./CoinScout";
 import CoinTierGrid from "./CoinTierGrid";
-import WalletCoinSuggestions from "./WalletCoinSuggestions";
 import StarterBuys from "./StarterBuys";
 
 interface Props {
@@ -362,10 +360,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         <BotStatusBanner />
         <DipReport wallet={adminWallet} assignments={snapshot.tierAssignments} />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
-        <WalletCoinSuggestions wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <StarterBuys wallet={adminWallet} />
         <CoinScout wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
-        <ManageCoins wallet={adminWallet} assignments={snapshot.tierAssignments} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
           <div className="text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">
