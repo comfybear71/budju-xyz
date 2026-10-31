@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
-import { fetchScout, manageCoin, ASSET_CONFIG, loadCoinConfig, type Scout } from "../services/tradeApi";
+import { fetchScout, manageCoin, addCoinsBulk, greenTiers, ASSET_CONFIG, loadCoinConfig, type Scout, type ScoutCandidate } from "../services/tradeApi";
+import type { AutoTrader } from "../services/autoTrader";
 
 const Notes = ({ title, color, items }: { title: string; color: string; items: { coin: string; why: string }[] }) =>
   items.length === 0 ? null : (
@@ -12,13 +13,15 @@ const Notes = ({ title, color, items }: { title: string; color: string; items: {
     </div>
   );
 
-const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => void }) => {
+const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrader: AutoTrader; onChanged: () => void }) => {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Scout | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [prog, setProg] = useState<[number, number] | null>(null);
   const [msg, setMsg] = useState("");
+  const [adding, setAdding] = useState<string | null>(null);
+  const [bulk, setBulk] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -36,13 +39,39 @@ const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => voi
     if (next && !data && !loading) void load();
   };
 
-  const add = async (code: string, id: string, name: string) => {
-    const r = await manageCoin(wallet, "add", code, id, name);
-    setMsg(r.ok ? `${code} added — put it in a tier from the + button below` : r.error || "Failed");
+  const tiersLabel = (t: number[]) => (t.length ? t.map((x) => `T${x}`).join("+") : "no tier");
+
+  const add = async (c: ScoutCandidate) => {
+    setAdding(c.code);
+    setMsg("");
+    const r = await manageCoin(wallet, "add", c.code, c.id, c.name);
     if (r.ok) {
+      const tiers = greenTiers(c);
+      tiers.forEach((t) => autoTrader.assignCoin(c.code, t));
+      setMsg(`✅ ${c.code} added to the coin list and switched on for ${tiersLabel(tiers)}`);
       await loadCoinConfig();
       onChanged();
+    } else {
+      setMsg(`⛔ ${r.error || "Failed"}`);
     }
+    setAdding(null);
+  };
+
+  const addAllGreen = async () => {
+    const todo = (data?.results ?? []).filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
+    if (!todo.length) return;
+    setBulk(true);
+    setMsg("");
+    const r = await addCoinsBulk(wallet, todo.map((c) => ({ code: c.code, cgId: c.id, name: c.name })));
+    if (r.ok) {
+      for (const c of todo) if (r.added.includes(c.code)) greenTiers(c).forEach((t) => autoTrader.assignCoin(c.code, t));
+      setMsg(`✅ Added ${r.added.length} coin${r.added.length === 1 ? "" : "s"}, each switched on only for its green tiers`);
+      await loadCoinConfig();
+      onChanged();
+    } else {
+      setMsg(`⛔ ${r.error || "Failed"}`);
+    }
+    setBulk(false);
   };
 
   return (
@@ -57,6 +86,7 @@ const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => voi
             <FaSync size={10} className={loading ? "animate-spin" : ""} />
             {loading ? (prog ? `Testing new coins ${prog[0]}/${prog[1]}…` : "Working…") : "Refresh"}
           </button>
+          {msg && <div className="text-xs text-slate-200 rounded-lg px-2 py-1.5 mb-2" style={{ background: "rgba(255,255,255,0.08)" }}>{msg}</div>}
           {failed && <div className="text-xs text-red-400">Couldn't load the scout. Tap Refresh to try again.</div>}
           {data?.error && <div className="text-xs text-amber-400 mb-2">{data.error}</div>}
           {data && (
@@ -66,7 +96,14 @@ const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => voi
               <Notes title="Working well — accumulate" color="#22c55e" items={data.review.keepStrong} />
               <Notes title="Quiet" color="#94a3b8" items={data.review.quiet} />
 
-              <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mt-3 mb-1">New opportunities</div>
+              <div className="flex items-center justify-between mt-3 mb-1">
+                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">New opportunities</div>
+                {data.results.some((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0) && (
+                  <button onClick={addAllGreen} disabled={bulk || !!adding} className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/25 text-green-400 disabled:opacity-40">
+                    {bulk ? "Adding…" : `Add all green (${data.results.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0).length})`}
+                  </button>
+                )}
+              </div>
               {data.results.length === 0 ? (
                 <div className="text-[11px] text-slate-500">
                   {data.pending.length ? "Still testing — tap Refresh." : "Nothing new passes the test right now."}
@@ -82,11 +119,11 @@ const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => voi
                         </div>
                       </div>
                       <button
-                        onClick={() => add(c.code, c.id, c.name)}
-                        disabled={!!ASSET_CONFIG[c.code]}
-                        className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/20 text-green-400 disabled:opacity-40 flex-shrink-0"
+                        onClick={() => add(c)}
+                        disabled={!!ASSET_CONFIG[c.code] || adding === c.code || bulk}
+                        className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/20 text-green-400 disabled:opacity-60 flex-shrink-0 min-w-[64px]"
                       >
-                        {ASSET_CONFIG[c.code] ? "Added" : "Add"}
+                        {ASSET_CONFIG[c.code] ? "Added ✓" : adding === c.code ? "Adding…" : "Add"}
                       </button>
                     </div>
                   ))}
@@ -96,7 +133,6 @@ const CoinScout = ({ wallet, onChanged }: { wallet: string; onChanged: () => voi
                 Tests big, liquid coins ({data.swyftxChecked ? "listed on Swyftx" : "Swyftx list could not be checked — confirm it's listed before adding"}) with the same
                 tier rules as the Dip Report. A good past year is not a promise. Nothing is added unless you tap Add.
               </div>
-              {msg && <div className="text-xs text-slate-300 mt-1">{msg}</div>}
             </>
           )}
         </div>
