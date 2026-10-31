@@ -159,3 +159,27 @@ export async function fetchSignalsStatus(): Promise<SignalsStatus | null> {
     return null;
   }
 }
+
+export interface SignalActivity {
+  wallet: string;
+  walletLabel?: string | null;
+  side: "buy" | "sell";
+  tokenMint: string;
+  tokenSymbol: string;
+  amountUsd: number;
+  outcome: "copied" | "skipped" | "closed" | "ignored" | "seen";
+  reason: string;
+  time: string;
+}
+
+/** Every swap by a tracked wallet, with what BUDJU did about it. */
+export async function fetchSignalsActivity(limit = 80): Promise<SignalActivity[]> {
+  try {
+    const res = await fetchWithRetry(`/api/copytrade/activity?limit=${limit}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.activity ?? []) as SignalActivity[];
+  } catch {
+    return [];
+  }
+}

@@ -5,6 +5,8 @@ import { useNavigate } from "react-router";
 import {
   fetchSignalsLeaderboard,
   fetchSignalsFeed,
+  fetchSignalsActivity,
+  type SignalActivity,
   fetchSignalsOverview,
   fetchSignalsProgress,
   fetchSignalsStatus,
@@ -32,24 +34,27 @@ const Signals = () => {
   const navigate = useNavigate();
   const [leaderboard, setLeaderboard] = useState<SignalsLeaderboard | null>(null);
   const [feed, setFeed] = useState<SignalPosition[]>([]);
+  const [activity, setActivity] = useState<SignalActivity[]>([]);
   const [overview, setOverview] = useState<SignalsOverview | null>(null);
   const [progress, setProgress] = useState<SignalsProgress | null>(null);
   const [status, setStatus] = useState<SignalsStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [lb, sig, ov, prog, st] = await Promise.all([
+    const [lb, sig, ov, prog, st, act] = await Promise.all([
       fetchSignalsLeaderboard(),
       fetchSignalsFeed(),
       fetchSignalsOverview(),
       fetchSignalsProgress(),
       fetchSignalsStatus(),
+      fetchSignalsActivity(),
     ]);
     setLeaderboard(lb);
     setFeed(sig);
     setOverview(ov);
     setProgress(prog);
     setStatus(st);
+    setActivity(act);
     setLoading(false);
   }, []);
 
@@ -210,6 +215,45 @@ const Signals = () => {
                 })}
               </div>
             </>
+          )}
+
+          {/* Live activity: every swap by a tracked wallet */}
+          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-2">
+            ⚡ Live Activity — what the wallets are trading
+          </div>
+          {activity.length === 0 ? (
+            <div className="rounded-2xl p-6 text-center text-sm text-slate-500 mb-6" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              Nothing yet. Every buy and sell by the tracked wallets will show here the moment it happens.
+            </div>
+          ) : (
+            <div className="space-y-2 mb-6">
+              {activity.map((a, i) => {
+                const buy = a.side === "buy";
+                const outcomeText =
+                  a.outcome === "copied" ? "✅ We paper-copied it"
+                  : a.outcome === "closed" ? `💰 We closed our copy (${a.reason})`
+                  : a.outcome === "skipped" ? `⏭ Skipped${a.reason ? ` — ${a.reason}` : ""}`
+                  : a.outcome === "ignored" ? "Not one we were following"
+                  : "Seen";
+                return (
+                  <div key={`${a.time}-${i}`} className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ background: buy ? "rgba(34,197,94,0.15)" : "rgba(239,68,68,0.15)", color: buy ? "#22c55e" : "#ef4444" }}>
+                          {buy ? "BOUGHT" : "SOLD"}
+                        </span>
+                        <span className="text-sm font-bold text-slate-200 truncate">{a.tokenSymbol || shortAddr(a.tokenMint)}</span>
+                      </div>
+                      <span className="text-sm font-bold font-mono text-slate-300 flex-shrink-0">{fmtUsd(a.amountUsd)}</span>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      {a.walletLabel || shortAddr(a.wallet)} · {ago(a.time)}
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">{outcomeText}</div>
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {/* Recent signals feed */}
