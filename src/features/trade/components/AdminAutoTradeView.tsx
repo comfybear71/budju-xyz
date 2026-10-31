@@ -9,6 +9,7 @@ import DipReport from "./DipReport";
 import ManageCoins from "./ManageCoins";
 import CoinScout from "./CoinScout";
 import CoinTierGrid from "./CoinTierGrid";
+import WalletCoinSuggestions from "./WalletCoinSuggestions";
 
 interface Props {
   prices: Record<string, number>;
@@ -360,6 +361,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         <BotStatusBanner />
         <DipReport wallet={adminWallet} />
         <CoinTierGrid autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
+        <WalletCoinSuggestions wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <CoinScout wallet={adminWallet} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <ManageCoins wallet={adminWallet} assignments={snapshot.tierAssignments} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}

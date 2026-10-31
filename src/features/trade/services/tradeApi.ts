@@ -2448,3 +2448,12 @@ export async function fetchScout(
   if (total) await Promise.all([worker(), worker()]);
   return (await adminGet("/api/admin/scout", wallet)) as Scout | null;
 }
+
+
+export interface WalletCoinSuggestion { code: string; name: string; cgId: string; wallets: number; usdValue: number; small: boolean }
+
+/** Admin: coins connected wallets hold that the bot doesn't trade yet. */
+export async function fetchWalletCoinSuggestions(wallet: string): Promise<WalletCoinSuggestion[] | null> {
+  const r = await adminGet("/api/admin/wallet-coins", wallet);
+  return r ? ((r.suggestions ?? []) as WalletCoinSuggestion[]) : null;
+}

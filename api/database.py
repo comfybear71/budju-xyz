@@ -4059,3 +4059,36 @@ def get_scout() -> Dict:
     pending = [c["id"] for c in cands if f"cg:{c['id']}" not in fresh]
     return {"review": review, "candidates": cands, "results": results[:10], "pending": pending,
             "swyftxChecked": swyftx_checked, "tested": len(series)}
+
+
+def get_wallet_coin_suggestions() -> Dict:
+    """Admin: coins connected wallets hold that the bot doesn't trade yet."""
+    from scout import wallet_coin_suggestions
+    agg = get_community_aggregate_holdings()
+    tracked = set(ASSET_CG_IDS.keys()) | {d["code"] for d in coin_config_collection.find({"status": {"$in": ["custom", "retired"]}})}
+    tracked |= {"ENA", "PEPE", "LUNA", "LUNC"}
+    codes = sorted({c for w in agg["perWallet"] for c in (w.get("holdings") or {})
+                    if c not in ("AUD", "USD", "USDC", "USDT") and c not in tracked})
+    prices = get_prices_for_coins(codes) if codes else {}
+    rows = wallet_coin_suggestions(agg["perWallet"], tracked, prices)
+    # Pin each coin to its CoinGecko id (and size it) so Add is exact.
+    ids = {}
+    for r in rows:
+        cg = resolve_coingecko_id(r["code"])
+        if cg:
+            ids[r["code"]] = cg
+    mcaps = {}
+    if ids:
+        try:
+            mk = _coingecko_get("/coins/markets?vs_currency=usd&ids=" + ",".join(ids.values()) + "&per_page=100", timeout=20)
+            by_id = {m["id"]: m for m in mk}
+            for code, cg in ids.items():
+                mcaps[code] = (by_id.get(cg) or {}).get("market_cap")
+                r = next(x for x in rows if x["code"] == code)
+                r["name"] = (by_id.get(cg) or {}).get("name") or code
+        except Exception as e:
+            print(f"[wallet-coins] market lookup: {e}")
+    rows = [dict(r, cgId=ids[r["code"]], name=r.get("name") or r["code"],
+                 small=bool(mcaps.get(r["code"]) is not None and mcaps[r["code"]] < 100_000_000))
+            for r in rows if r["code"] in ids]
+    return {"suggestions": rows, "wallets": agg["activeWallets"], "errored": agg["erroredWallets"]}
