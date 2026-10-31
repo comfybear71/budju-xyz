@@ -96,6 +96,7 @@ from database import (
     get_copytrade_leaderboard,
     get_copytrade_signals,
     get_copytrade_activity,
+    get_dip_report,
     get_copytrade_overview,
     get_copytrade_status,
     get_copytrade_progress,
@@ -710,6 +711,13 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lim = None
                 self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
+
+            elif path == '/api/admin/dip-report':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_dip_report(params.get('force') == '1'))
 
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
