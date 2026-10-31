@@ -53,3 +53,22 @@ def review_tracked(coins: List[Dict]) -> Dict:
         elif c.get("focus"):
             keep_strong.append({"coin": c["coin"], "why": f"{c['perBuy']:+.1f}% per buy over {c['buys']} dips"})
     return {"considerRemoving": consider_removing, "keepStrong": keep_strong, "quiet": quiet}
+
+
+def daily_report_text(coins: List[Dict], review: Dict, opportunities: List[Dict]) -> str:
+    """Public-friendly daily Telegram summary."""
+    lines = ["📊 <b>BUDJU daily coin report</b>"]
+    best = [c for c in coins if c.get("focus")][:5]
+    if best:
+        lines.append("⭐ <b>Best dip coins right now</b>")
+        for c in best:
+            lines.append(f"• {c['coin']} — {c['perBuy']:+.1f}% avg per dip bought ({c['buys']} dips in 1y)")
+    watch = [n["coin"] for n in review.get("considerRemoving", [])]
+    if watch:
+        lines.append("👀 <b>Under review</b> (dips often don't recover): " + ", ".join(watch[:8]))
+    if opportunities:
+        lines.append("🔭 <b>New coins being watched</b>")
+        for o in opportunities[:3]:
+            lines.append(f"• {o.get('code')} ({o.get('name')}) — {o['perBuy']:+.1f}% avg per dip")
+    lines.append("<i>Based on a year of daily prices. Paper analysis, not financial advice.</i>")
+    return "\n".join(lines)

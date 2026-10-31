@@ -2354,6 +2354,8 @@ export async function fetchDipReport(
 // ── Coin list managed from the admin screen ─────────────────────────────────
 const retiredCoins = new Set<string>();
 export const isRetiredCoin = (code: string) => retiredCoins.has(code);
+let recentCoins: { code: string; name: string }[] = [];
+export const getRecentCoins = () => recentCoins;
 
 const colorFor = (code: string) => {
   let h = 0;
@@ -2372,6 +2374,7 @@ export async function loadCoinConfig(): Promise<void> {
         ASSET_CONFIG[c.code] = { color: colorFor(c.code), icon: c.code.charAt(0), name: c.name || c.code, coingeckoId: c.cgId };
       }
     }
+    recentCoins = Array.isArray(data?.recent) ? data.recent : [];
     retiredCoins.clear();
     for (const code of data?.retired ?? []) retiredCoins.add(code);
   } catch {

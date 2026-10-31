@@ -53,6 +53,7 @@ import { getAutoTrader, destroyAutoTrader } from "./services/autoTrader";
 import { getActivityLog } from "./services/activityLog";
 import { useLivePrices } from "@hooks/useLivePrices";
 import ActivityLog from "./components/ActivityLog";
+import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
 
@@ -467,6 +468,7 @@ const Trade = () => {
   return (
     <main className="min-h-screen">
       <div className="max-w-2xl mx-auto min-h-screen flex flex-col px-4 pt-20 pb-4">
+        <NewCoinMarquee />
         {/* ─── Header ─────────────────────────────── */}
         <div className="flex items-center justify-between py-3">
           <div className="flex items-center gap-2.5">

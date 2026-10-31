@@ -1,0 +1,71 @@
+# ==========================================
+# Coin report cron — runs every 30 min.
+#  * refreshes the few stalest coin price histories (gentle on CoinGecko)
+#  * once a day (23:00 UTC = 10am Sydney summer time) posts the daily report
+# ==========================================
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+REFRESH_PER_RUN = 4
+REPORT_UTC_HOUR = 23
+
+
+def run() -> dict:
+    from database import (ASSET_CG_IDS, coin_config_collection, dip_report_cache_collection,
+                          fetch_dip_series, get_dip_report, get_scout)
+    from scout import daily_report_text
+    import tg_notify
+
+    codes = set(ASSET_CG_IDS.keys()) | {d["code"] for d in coin_config_collection.find({"status": "custom"})}
+    ages = {}
+    for code in codes:
+        d = dip_report_cache_collection.find_one({"_id": f"series:{code}"}, {"at": 1})
+        ages[code] = d["at"] if d else datetime(2000, 1, 1)
+    stale = sorted(codes, key=lambda c: ages[c])
+    cutoff = datetime.utcnow() - timedelta(hours=20)
+    refreshed = []
+    for code in [c for c in stale if ages[c] < cutoff][:REFRESH_PER_RUN]:
+        if fetch_dip_series(code, force=True).get("ok"):
+            refreshed.append(code)
+
+    now = datetime.utcnow()
+    sent = False
+    if now.hour == REPORT_UTC_HOUR and now.minute < 30:
+        today = now.strftime("%Y-%m-%d")
+        state = dip_report_cache_collection.find_one({"_id": "daily-report-state"}) or {}
+        if state.get("lastSent") != today:
+            report = get_dip_report()
+            if len(report["coins"]) >= 10:
+                try:
+                    scout = get_scout()
+                except Exception:
+                    scout = {"review": {}, "results": []}
+                text = daily_report_text(report["coins"], scout.get("review", {}), scout.get("results", []))
+                sent = tg_notify.send(text)
+                if sent:
+                    dip_report_cache_collection.replace_one(
+                        {"_id": "daily-report-state"}, {"_id": "daily-report-state", "lastSent": today}, upsert=True)
+    return {"refreshed": refreshed, "reportSent": sent}
+
+
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        secret = os.getenv("CRON_SECRET")
+        if secret and self.headers.get("Authorization", "") != f"Bearer {secret}":
+            self.send_response(401)
+            self.end_headers()
+            return
+        try:
+            result = run()
+            code = 200
+        except Exception as e:
+            result, code = {"error": str(e)}, 500
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(result).encode())

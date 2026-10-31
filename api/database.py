@@ -3906,6 +3906,9 @@ def get_dip_report(force: bool = False) -> Dict:
 coin_config_collection = db["coin_config"]
 
 
+coin_announcements_collection = db["coin_announcements"]
+
+
 def get_coin_config() -> Dict:
     custom, retired = [], []
     for d in coin_config_collection.find({}):
@@ -3913,7 +3916,10 @@ def get_coin_config() -> Dict:
             retired.append(d["code"])
         elif d.get("status") == "custom":
             custom.append({"code": d["code"], "name": d.get("name") or d["code"], "cgId": d.get("cgId")})
-    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired)}
+    since = datetime.utcnow() - timedelta(days=7)
+    recent = [{"code": a["code"], "name": a.get("name") or a["code"]}
+              for a in coin_announcements_collection.find({"at": {"$gte": since}}).sort("at", -1).limit(10)]
+    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent}
 
 
 def search_coins(query: str) -> Dict:
@@ -3941,6 +3947,7 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict
         cg_id = (cg_id or "").strip().lower()
         if not re.fullmatch(r"[a-z0-9\-]{2,80}", cg_id):
             return {"error": "Bad CoinGecko id"}
+        existed = bool(coin_config_collection.find_one({"_id": code, "status": "custom"}))
         try:
             px = _coingecko_get(f"/simple/price?ids={cg_id}&vs_currencies=usd", timeout=15)
         except Exception as e:
@@ -3954,6 +3961,13 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict
         )
         dynamic_coin_registry_collection.update_one(
             {"code": code}, {"$set": {"cgId": cg_id, "resolvedAt": datetime.utcnow()}}, upsert=True)
+        if not existed:
+            coin_announcements_collection.insert_one({"code": code, "name": (name or code)[:40], "at": datetime.utcnow()})
+            try:
+                import tg_notify
+                tg_notify.send(f"🪙 <b>BUDJU now trades {code}</b>\n{(name or code)[:40]} has been added to the auto-trader coin list.")
+            except Exception as e:
+                print(f"[coins] announce error: {e}")
         return {"ok": True, **get_coin_config()}
     if action == "retire":
         existing = coin_config_collection.find_one({"_id": code}) or {}

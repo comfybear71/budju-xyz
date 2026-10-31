@@ -25,3 +25,11 @@ def test_review():
     r = review_tracked(coins)
     assert [c["coin"] for c in r["considerRemoving"]] == ["ADA"]
     assert [c["coin"] for c in r["keepStrong"]] == ["TRX"]
+
+
+def test_daily_report_text():
+    from scout import daily_report_text
+    coins = [{"coin": "TAO", "perBuy": 5.0, "buys": 73, "focus": True}]
+    review = {"considerRemoving": [{"coin": "ADA", "why": ""}]}
+    t = daily_report_text(coins, review, [{"code": "AAVE", "name": "Aave", "perBuy": 3.2}])
+    assert "TAO" in t and "ADA" in t and "AAVE" in t and "not financial advice" in t
