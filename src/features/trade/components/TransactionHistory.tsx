@@ -216,7 +216,13 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
             ) : filtered.length === 0 ? (
               <div className="text-center py-20">
                 <FaHistory className="mx-auto mb-3 text-slate-700" size={28} />
-                <p className="text-sm text-slate-500">No transactions found</p>
+                <p className="text-sm text-slate-500">
+                  {filter === "sell"
+                    ? "No sells yet — the bot sells when a coin reaches its sell target"
+                    : filter === "buy"
+                      ? "No buys yet"
+                      : "No transactions found"}
+                </p>
               </div>
             ) : isGroupedView ? (
               <div className="space-y-1.5">
