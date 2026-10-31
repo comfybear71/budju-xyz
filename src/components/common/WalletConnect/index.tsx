@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { storeSession } from "@lib/services/authSession";
 import { useNavigate } from "react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -426,6 +427,14 @@ const WalletConnect = ({
             if (qrPollRef.current) clearInterval(qrPollRef.current);
             // Auto-connect: store wallet and reload
             localStorage.setItem("budju_qr_wallet", pollData.wallet);
+            // The phone's signature already proved ownership — keep the 12h pass it earned
+            if (pollData.session?.token) {
+              storeSession({
+                wallet: pollData.wallet,
+                token: pollData.session.token,
+                expiresAt: pollData.session.expiresAt,
+              });
+            }
             window.location.reload();
           } else if (pollData.status === "expired") {
             setQrStatus("expired");

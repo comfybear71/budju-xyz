@@ -7,6 +7,7 @@ import {
   ReactNode,
 } from "react";
 import { clearAdminAuth } from "@features/trade/services/tradeApi";
+import { registerAuthWallet, clearSession } from "@lib/services/authSession";
 import {
   ConnectionState,
   WalletName,
@@ -278,11 +279,39 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
     }
   }, []);
 
+  // Tell the sign-in module which wallet is connected and how to ask it to
+  // sign (one popup per 12h, only when a protected action needs it). A QR
+  // session is read-only on this device — it already carries a pass from the
+  // phone, so it gets no signer.
+  useEffect(() => {
+    const w = connection.wallet as (ExtendedWallet & { publicKey?: string }) | null;
+    const address = w?.address || w?.publicKey || null;
+    if (!connection.connected || !address) {
+      registerAuthWallet(null, null);
+      return;
+    }
+    const isQr = !!localStorage.getItem("budju_qr_wallet");
+    if (isQr) {
+      registerAuthWallet(address, null);
+      return;
+    }
+    registerAuthWallet(address, async (message: Uint8Array) => {
+      const provider = getWalletProvider(w?.name);
+      if (!provider || typeof provider.signMessage !== "function") {
+        throw new Error("This wallet cannot sign messages");
+      }
+      const res: any = await provider.signMessage(message);
+      const sig = res?.signature ?? res?.signedMessage ?? res;
+      return sig instanceof Uint8Array ? sig : new Uint8Array(sig);
+    });
+  }, [connection.connected, connection.wallet]);
+
   // Disconnect from wallet
   const disconnect = useCallback(async () => {
     try {
       setConnecting(true);
       clearAdminAuth(); // Reset cached signature & denial state
+      clearSession(); // Forget the 12h sign-in pass
       localStorage.removeItem("budju_qr_wallet"); // Clear QR session
       await disconnectWallet();
       setConnection({

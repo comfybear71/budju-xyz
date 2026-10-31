@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "crypto";
 import { MongoClient } from "mongodb";
+import { mintSession } from "./_session";
 
 // ── Config ──────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", getCorsOrigin(req));
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -73,9 +74,21 @@ async function handleGet(req: VercelRequest, res: VercelResponse) {
     }
 
     if (challenge.status === "approved") {
+      // The phone's signature proved this wallet, so hand the polling device a
+      // 12h sign-in pass — exactly once (it reloads straight after).
+      let session: ReturnType<typeof mintSession> | undefined;
+      if (!challenge.sessionDelivered) {
+        try {
+          session = mintSession(challenge.wallet);
+          await coll.updateOne({ challengeId }, { $set: { sessionDelivered: true } });
+        } catch (e) {
+          console.error("[wallet-qr] could not mint session:", e);
+        }
+      }
       return res.status(200).json({
         status: "approved",
         wallet: challenge.wallet,
+        session,
       });
     }
 

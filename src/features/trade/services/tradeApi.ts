@@ -168,9 +168,10 @@ export const PERMANENT_BUY_DENYLIST = new Set(["ENA", "PEPE", "LUNA", "LUNC"]);
 
 // ── Admin Auth Helper ─────────────────────────────────────
 // Returns admin wallet identity for API requests.
-// No wallet signing needed — the backend accepts the wallet address
-// alone for admin endpoints (wallet is already authenticated by the
-// Solana wallet adapter connection).
+// Proof of identity is NOT done here: src/lib/services/authSession.ts wraps
+// fetch so protected /api calls carry a wallet-signed 12h pass
+// (Authorization: Bearer ...), asking the wallet to sign once when needed.
+// The server checks it (api/session_auth.py, api/_session.ts).
 
 interface AdminAuth {
   adminWallet: string;

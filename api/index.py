@@ -127,6 +127,7 @@ from perp_engine import (
     MARKETS,
 )
 from database import ADMIN_WALLETS
+import session_auth
 from trade_guards import DEFAULT_REBUY_BLOCKLIST, evaluate_order
 from perp_strategies import (
     get_strategy_status,
@@ -238,8 +239,19 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.end_headers()
+
+    def _auth_blocked(self, method, path, params, body):
+        """Wallet-signature check (see session_auth.py). Returns True if the
+        request was rejected and a response already sent."""
+        d = session_auth.evaluate(method, path, params, body, self.headers.get('Authorization'), ADMIN_WALLETS)
+        if d["log"]:
+            print(f"[auth] WOULD BLOCK ({d['status']}) {method} {path}: {d['reason']}", flush=True)
+        if d["block"]:
+            self._send_json(d["status"], {"error": d["reason"], "authRequired": True})
+            return True
+        return False
 
     def do_GET(self):
         # Rate limit check
@@ -251,6 +263,8 @@ class handler(BaseHTTPRequestHandler):
         try:
             path = self.path.split('?')[0]
             params = self._parse_query_params()
+            if self._auth_blocked('GET', path, params, {}):
+                return
 
             if path == '/api/user/portfolio':
                 wallet = params.get('wallet')
@@ -854,8 +868,19 @@ class handler(BaseHTTPRequestHandler):
         try:
             path = self.path.split('?')[0]
             body = self._read_body()
+            if self._auth_blocked('POST', path, self._parse_query_params(), body):
+                return
 
-            if path == '/api/user/register':
+            if path == '/api/auth/session':
+                # Sign-in: the wallet signed a short message; return a 12h pass.
+                try:
+                    self._send_json(200, session_auth.create_session(
+                        body.get('walletAddress'), body.get('message'), body.get('signature'),
+                        verify_wallet_signature))
+                except ValueError as e:
+                    self._send_json(401, {"error": str(e)})
+
+            elif path == '/api/user/register':
                 wallet_address = body.get('walletAddress')
                 signature = body.get('signature')
                 message = body.get('message')
@@ -1552,7 +1577,7 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', cors_origin)
         self.send_header('Vary', 'Origin')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         # Some DB-returned dicts carry raw datetime fields that individual

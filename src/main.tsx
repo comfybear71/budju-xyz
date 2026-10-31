@@ -3,6 +3,10 @@ import "./polyfills";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "@styles/globals.css";
+import { installAuthFetch } from "@lib/services/authSession";
+
+// Attach the wallet sign-in pass to /api calls (and ask for one when a protected action needs it)
+installAuthFetch();
 
 // Add Buffer polyfill
 import { Buffer } from "buffer";

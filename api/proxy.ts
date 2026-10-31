@@ -8,6 +8,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "crypto";
 import { MongoClient } from "mongodb";
+import { authMode, verifySession, bearerToken, adminWallets } from "./_session";
 
 const BASE_URL = "https://api.swyftx.com.au";
 const SITE_URL = "https://www.budju.xyz";
@@ -182,7 +183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader("Access-Control-Allow-Origin", corsOrigin);
   res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
@@ -203,6 +204,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { endpoint, method, body, guard } = req.body;
 
     console.log("Proxy request:", method, endpoint);
+
+    // ── Who may WRITE through the server's master Swyftx key ──
+    // Reads (portfolio, prices, open orders, history) stay public. Anything
+    // that can change the admin's Swyftx account — placing/cancelling orders
+    // or any non-GET call — needs a wallet-signed admin pass (api/_session.ts).
+    const isWrite = (method || "GET").toUpperCase() !== "GET";
+    if (isWrite) {
+      const mode = authMode();
+      if (mode !== "off") {
+        const wallet = verifySession(bearerToken(req.headers.authorization));
+        const ok = !!wallet && adminWallets().includes(wallet);
+        if (!ok) {
+          if (mode === "on") {
+            return res.status(401).json({ error: "Sign in with your admin wallet to place or change orders", authRequired: true });
+          }
+          console.warn(`[auth] WOULD BLOCK proxy write ${method} ${endpoint}: no valid admin pass`);
+        }
+      }
+    }
 
     // ── PORTFOLIO — auth + balance + asset info in one call ──
     if (endpoint === "/portfolio/") {
