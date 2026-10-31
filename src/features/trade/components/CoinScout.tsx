@@ -3,15 +3,27 @@ import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
 import { fetchScout, manageCoin, addCoinsBulk, greenTiers, ASSET_CONFIG, loadCoinConfig, type Scout, type ScoutCandidate } from "../services/tradeApi";
 import type { AutoTrader } from "../services/autoTrader";
 
-const Notes = ({ title, color, items }: { title: string; color: string; items: { coin: string; why: string }[] }) =>
-  items.length === 0 ? null : (
-    <div className="mb-2">
-      <div className="text-[10px] uppercase tracking-wider font-bold mb-1" style={{ color }}>{title}</div>
-      {items.map((n) => (
-        <div key={n.coin} className="text-[11px] text-slate-300"><b>{n.coin}</b> — <span className="text-slate-400">{n.why}</span></div>
-      ))}
+const Section = ({ title, color, count, defaultOpen = false, children }: { title: string; color: string; count: number; defaultOpen?: boolean; children: React.ReactNode }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  if (count === 0) return null;
+  return (
+    <div className="mb-2 rounded-lg" style={{ background: "rgba(255,255,255,0.025)" }}>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-2 py-1.5">
+        <span className="text-[11px] uppercase tracking-wider font-bold" style={{ color }}>{title} <span className="text-slate-500">({count})</span></span>
+        {open ? <FaChevronDown size={9} className="text-slate-500" /> : <FaChevronRight size={9} className="text-slate-500" />}
+      </button>
+      {open && <div className="px-2 pb-2">{children}</div>}
     </div>
   );
+};
+
+const Notes = ({ items }: { items: { coin: string; why: string }[] }) => (
+  <>
+    {items.map((n) => (
+      <div key={n.coin} className="text-[11px] text-slate-300"><b>{n.coin}</b> — <span className="text-slate-400">{n.why}</span></div>
+    ))}
+  </>
+);
 
 const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrader: AutoTrader; onChanged: () => void }) => {
   const [open, setOpen] = useState(false);
@@ -65,7 +77,7 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
     const r = await addCoinsBulk(wallet, todo.map((c) => ({ code: c.code, cgId: c.id, name: c.name })));
     if (r.ok) {
       for (const c of todo) if (r.added.includes(c.code)) greenTiers(c).forEach((t) => autoTrader.assignCoin(c.code, t));
-      setMsg(`✅ Added ${r.added.length} coin${r.added.length === 1 ? "" : "s"}, each switched on only for its green tiers`);
+      setMsg(`✅ Added ${r.added.length} coin${r.added.length === 1 ? "" : "s"}, each switched on only for its green tiers${r.failed ? ` · ${r.failed} could not be confirmed by CoinGecko — tap Add all green again in a minute` : ""}`);
       await loadCoinConfig();
       onChanged();
     } else {
@@ -92,9 +104,9 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
           {data && (
             <>
               <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Your current coins</div>
-              <Notes title="Consider removing" color="#ef4444" items={data.review.considerRemoving} />
-              <Notes title="Working well — accumulate" color="#22c55e" items={data.review.keepStrong} />
-              <Notes title="Quiet" color="#94a3b8" items={data.review.quiet} />
+              <Section title="Consider removing" color="#ef4444" count={data.review.considerRemoving.length}><Notes items={data.review.considerRemoving} /></Section>
+              <Section title="Working well — accumulate" color="#22c55e" count={data.review.keepStrong.length}><Notes items={data.review.keepStrong} /></Section>
+              <Section title="Quiet" color="#94a3b8" count={data.review.quiet.length}><Notes items={data.review.quiet} /></Section>
 
               <div className="flex items-center justify-between mt-3 mb-1">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">New opportunities</div>
