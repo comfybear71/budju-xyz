@@ -1301,6 +1301,34 @@ export interface CommunityAggregateHoldings {
  *  live via each wallet's own key. Replaces the pooled leaderboard's
  *  "cumulative total" for non-custodial users — this is a live read across
  *  everyone's own accounts, not a shared balance BUDJU controls. */
+/** Same call, but says WHY it failed — the server only lets BUDJU members
+ *  (10M BUDJU + a connected key) and admins see other wallets' holdings. */
+export type MemberFetch<T> =
+  | { status: "ok"; data: T }
+  | { status: "denied"; message: string }
+  | { status: "error" };
+
+export async function fetchCommunityAggregateHoldingsGated(
+  viewerWallet: string,
+): Promise<MemberFetch<CommunityAggregateHoldings>> {
+  try {
+    const res = await fetchWithRetry(`/api/community/aggregate-holdings?admin_wallet=${encodeURIComponent(viewerWallet)}`);
+    if (res.status === 401 || res.status === 403) {
+      let message = "Members only — hold 10M BUDJU and connect a Swyftx key to see wallet details.";
+      try {
+        message = (await res.json())?.error || message;
+      } catch {
+        /* keep default */
+      }
+      return { status: "denied", message };
+    }
+    if (!res.ok) return { status: "error" };
+    return { status: "ok", data: (await res.json()) as CommunityAggregateHoldings };
+  } catch {
+    return { status: "error" };
+  }
+}
+
 export async function fetchCommunityAggregateHoldings(adminWallet: string): Promise<CommunityAggregateHoldings | null> {
   try {
     const res = await fetchWithRetry(`/api/community/aggregate-holdings?admin_wallet=${encodeURIComponent(adminWallet)}`);
