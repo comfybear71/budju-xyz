@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, loadCoinConfig, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaSync, FaSave, FaCheck } from "react-icons/fa";
+import { ASSET_CONFIG, loadCoinConfig, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
@@ -20,20 +20,12 @@ interface Props {
   className?: string;
 }
 
-// Coins available for auto-trading (exclude stables/fiat)
-const getAvailableCoins = () =>
-  Object.keys(ASSET_CONFIG).filter(
-    (c) => c !== "USDC" && c !== "AUD" && c !== "USD" && !PERMANENT_BUY_DENYLIST.has(c) && !isRetiredCoin(c)
-  );
-
 const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
   const [, setTick] = useState(0);
-  const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
   const [, setCoinsVersion] = useState(0);
   const [countdown, setCountdown] = useState(30);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
-  const [expandedCoinTags, setExpandedCoinTags] = useState<Record<number, boolean>>({});
 
   // Force re-render when autoTrader state changes
   const refresh = useCallback(() => setTick((n) => n + 1), []);
@@ -107,14 +99,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       tiers.push({ num: t, cfg, settings, coins, active });
     }
     return tiers;
-  };
-
-  // Get coins NOT assigned to a specific tier (for add-coin picker)
-  const getUnassignedForTier = (tierNum: number): string[] => {
-    return getAvailableCoins().filter((c) => {
-      const tiers = snapshot.tierAssignments[c];
-      return !tiers || !tiers.includes(tierNum);
-    });
   };
 
   // Build monitoring data
@@ -261,15 +245,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     }
   };
 
-  const handleAddCoin = (tierNum: number, coin: string) => {
-    autoTrader.assignCoin(coin, tierNum);
-    setAddCoinTier(null);
-  };
-
-  const handleRemoveCoin = (coin: string, tierNum: number) => {
-    autoTrader.unassignCoin(coin, tierNum);
-  };
-
   const handleSyncTrades = async () => {
     setSyncStatus("Syncing...");
     resetAdminAuthDenied(); // Reset denied state so auth retries if previously denied
@@ -373,7 +348,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
         >
           {tiers.map((tier) => {
-            const availableToAdd = getUnassignedForTier(tier.num);
             const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(compoundKey(coin, tier.num)));
 
             return (
@@ -406,84 +380,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   </span>
                 </div>
 
-                {/* Coin tags — collapsible */}
-                <div className="mb-3">
-                  <button
-                    onClick={() => setExpandedCoinTags((prev) => ({ ...prev, [tier.num]: !prev[tier.num] }))}
-                    className="flex items-center gap-1.5 mb-1.5 text-[10px] font-bold transition-colors hover:opacity-80"
-                    style={{ color: tier.cfg.color }}
-                  >
-                    {expandedCoinTags[tier.num] ? <FaChevronDown size={8} /> : <FaChevronRight size={8} />}
-                    {expandedCoinTags[tier.num] ? "Coins" : `${tier.coins.length} coins`}
-                  </button>
-                  {expandedCoinTags[tier.num] && (
-                    <>
-                      <div className="flex flex-wrap gap-1.5">
-                        {tier.coins.map((coin: string) => {
-                          const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                          const cd = autoTrader._isOnCooldown(compoundKey(coin, tier.num));
-                          return (
-                            <span
-                              key={coin}
-                              className="text-[11px] font-bold px-2 py-1 rounded-lg inline-flex items-center gap-1.5"
-                              style={{
-                                background: cfg.color + "20",
-                                border: `1px solid ${cfg.color}40`,
-                                color: cfg.color,
-                                opacity: cd ? 0.5 : 1,
-                              }}
-                            >
-                              {coin}{cd ? " (cd)" : ""}
-                              <button
-                                onClick={() => handleRemoveCoin(coin, tier.num)}
-                                className="hover:opacity-100 transition-opacity"
-                                style={{ color: "#ef4444" }}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          );
-                        })}
-                        <button
-                          onClick={() => setAddCoinTier(addCoinTier === tier.num ? null : tier.num)}
-                          className="w-7 h-7 rounded-full flex items-center justify-center transition-colors"
-                          style={{
-                            background: "rgba(255,255,255,0.06)",
-                            border: "1px solid rgba(255,255,255,0.12)",
-                            color: "#64748b",
-                          }}
-                        >
-                          <FaPlus size={9} />
-                        </button>
-                      </div>
-
-                      {/* Add coin picker */}
-                      {addCoinTier === tier.num && availableToAdd.length > 0 && (
-                        <div
-                          className="flex flex-wrap gap-1 mt-1.5 p-2 rounded-lg"
-                          style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
-                        >
-                          {availableToAdd.map((coin) => {
-                            const cfg = ASSET_CONFIG[coin] || { color: "#64748b" };
-                            return (
-                              <button
-                                key={coin}
-                                onClick={() => handleAddCoin(tier.num, coin)}
-                                className="text-[9px] font-bold px-1.5 py-0.5 rounded transition-all hover:scale-105"
-                                style={{
-                                  background: cfg.color + "15",
-                                  border: `1px solid ${cfg.color}30`,
-                                  color: cfg.color,
-                                }}
-                              >
-                                {coin}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </>
-                  )}
+                {/* Coin count (coins are switched on/off in "Coin tiers" above) */}
+                <div className="mb-3 text-[10px] font-bold" style={{ color: tier.cfg.color }}>
+                  {tier.coins.length} coins
                 </div>
 
                 {/* Buy Dev + Sell Dev + Alloc sliders */}

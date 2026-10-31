@@ -14,3 +14,9 @@ def test_coin_routes_wired():
     assert '"/api/coins"' in _read("vercel.json")
     db = _read("api", "database.py")
     assert "def manage_coin" in db and "def get_coin_config" in db
+
+
+def test_health_route_and_coins_not_rate_counted():
+    idx = _read("api", "index.py")
+    assert "path == '/api/admin/health'" in idx
+    assert "!= '/api/coins' and not _check_rate_limit" in idx

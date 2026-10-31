@@ -2364,7 +2364,18 @@ const colorFor = (code: string) => {
 };
 
 /** Merge coins added/retired from the admin screen into ASSET_CONFIG. */
-export async function loadCoinConfig(): Promise<void> {
+let coinConfigInflight: Promise<void> | null = null;
+let coinConfigAt = 0;
+
+export function loadCoinConfig(force = false): Promise<void> {
+  // One request shared by everyone asking within 60 seconds (the page asks from several places)
+  if (!force && coinConfigInflight && Date.now() - coinConfigAt < 60_000) return coinConfigInflight;
+  coinConfigAt = Date.now();
+  coinConfigInflight = loadCoinConfigNow();
+  return coinConfigInflight;
+}
+
+async function loadCoinConfigNow(): Promise<void> {
   try {
     const res = await fetch("/api/coins");
     if (!res.ok) return;
@@ -2409,7 +2420,7 @@ export async function manageCoin(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.error) return { ok: false, error: data?.error || "Failed" };
-    await loadCoinConfig();
+    await loadCoinConfig(true);
     return { ok: true };
   } catch {
     return { ok: false, error: "Network error" };
@@ -2488,7 +2499,7 @@ export async function addCoinsBulk(
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.error) return { ok: false, added: [], error: data?.error || "Failed" };
-    await loadCoinConfig();
+    await loadCoinConfig(true);
     return { ok: true, added: data.added ?? [], failed: (data.errors ?? []).length };
   } catch {
     return { ok: false, added: [], error: "Network error" };
@@ -2552,5 +2563,25 @@ export async function saveSizing(
     return res.ok;
   } catch {
     return false;
+  }
+}
+
+
+export interface HealthCheck {
+  database?: HealthItem; coingecko?: HealthItem; adminSwyftx?: HealthItem; prices?: HealthItem; leaderboard?: HealthItem;
+  wallets?: number; hasCoinGeckoKey?: boolean;
+}
+export interface HealthItem { ok: boolean; seconds: number; detail?: string; error?: string }
+
+/** Admin: time each thing the Trade page depends on. */
+export async function fetchHealthCheck(wallet: string): Promise<HealthCheck | null> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 58000);
+    const res = await fetch(`/api/admin/health?wallet=${wallet}&admin_wallet=${wallet}`, { signal: ctl.signal });
+    clearTimeout(t);
+    return res.ok ? ((await res.json()) as HealthCheck) : null;
+  } catch {
+    return null;
   }
 }

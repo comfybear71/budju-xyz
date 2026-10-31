@@ -106,6 +106,7 @@ from database import (
     manage_coin,
     manage_coins_bulk,
     get_sizing_preview,
+    get_health_check,
     save_sizing_settings,
     refresh_coin_classes,
     get_copytrade_overview,
@@ -179,7 +180,7 @@ def get_cors_origin(headers) -> str:
 # Tracks requests per IP. Resets on cold start (acceptable for serverless).
 _rate_limit_store: dict = {}  # {ip: [timestamp, ...]}
 RATE_LIMIT_WINDOW = 60       # seconds
-RATE_LIMIT_MAX = 30          # max requests per window per IP
+RATE_LIMIT_MAX = 60          # max requests per window per IP (the app makes many parallel reads per page)
 RATE_LIMIT_MAX_WRITE = 10    # max write (POST) requests per window per IP
 
 def _check_rate_limit(ip: str, is_write: bool = False) -> bool:
@@ -272,9 +273,10 @@ class handler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        # Rate limit check
+        # Rate limit check (the tiny public coin-list read is not counted — the
+        # app asks for it on every page and it must never crowd out real data)
         client_ip = _get_client_ip(self)
-        if not _check_rate_limit(client_ip, is_write=False):
+        if self.path.split('?')[0] != '/api/coins' and not _check_rate_limit(client_ip, is_write=False):
             self._send_json(429, {"error": "Too many requests. Please try again later."})
             return
 
@@ -732,6 +734,13 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lim = None
                 self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
+
+            elif path == '/api/admin/health':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_health_check(wallet))
 
             elif path == '/api/admin/coin-sizing':
                 wallet = params.get('wallet')

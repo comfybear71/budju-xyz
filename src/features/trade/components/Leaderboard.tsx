@@ -69,16 +69,21 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
   const [togglingWallet, setTogglingWallet] = useState<string | null>(null);
   // Shown when someone taps a wallet but isn't allowed to see its details.
   const [memberMessage, setMemberMessage] = useState<string | null>(null);
+  // true when the request FAILED (not the same as "no wallets")
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
+    setLoadFailed(false);
     setExpandedWallet(null);
     setOpenHoldingsWallet(null);
     fetchLiveLeaderboard()
       .then((lb) => {
         if (!lb) {
           setEntries([]);
+          setLoadFailed(true);
           return;
         }
         setEntries(lb.entries);
@@ -91,7 +96,7 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [isOpen]);
+  }, [isOpen, reloadKey]);
 
   /** Anyone can see the rankings. Opening a wallet's details is for BUDJU
    *  members (10M BUDJU + a connected key) and admins — the server decides;
@@ -427,7 +432,16 @@ const Leaderboard = ({ isOpen, onClose, isAdmin = false, adminWallet = "" }: Pro
             ) : entries.length === 0 ? (
               <div className="text-center py-20">
                 <FaTrophy className="mx-auto mb-3 text-slate-700" size={32} />
-                <p className="text-sm text-slate-500">No connected wallets yet</p>
+                {loadFailed ? (
+                  <>
+                    <p className="text-sm text-slate-400">Couldn't load the rankings (the server was too slow or busy).</p>
+                    <button onClick={() => setReloadKey((k) => k + 1)} className="mt-3 px-4 py-2 rounded-lg text-xs font-bold bg-white/10 text-slate-200">
+                      Try again
+                    </button>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">No connected wallets yet</p>
+                )}
               </div>
             ) : (
               <>
