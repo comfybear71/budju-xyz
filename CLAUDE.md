@@ -314,7 +314,7 @@ MAX_PENDING_ORDERS = 30
 
 | Cron | File | Schedule |
 |------|------|----------|
-| Perp monitor | `api/perp-cron.py` | `* * * * *` (every 1 min) |
+| ~~Perp monitor~~ | `api/perp-cron.py` | **OFF since 2026-10-31** (removed from `vercel.json`; paper perps unused, Binance 451 errors every minute). Re-add `{"path": "/api/perp-cron", "schedule": "* * * * *"}` to turn it back on. |
 | Auto-trade (spot) | `api/auto-trade-cron.py` | `*/5 * * * *` (every 5 min) |
 | Telegram messages | `api/telegram-cron.ts` | `0 0,6,12,18 * * *` (4x daily) |
 
