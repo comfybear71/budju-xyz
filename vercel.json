@@ -67,10 +67,6 @@
       "schedule": "*/5 * * * *"
     },
     {
-      "path": "/api/perp-cron",
-      "schedule": "* * * * *"
-    },
-    {
       "path": "/api/copytrade-cron",
       "schedule": "*/5 * * * *"
     }
