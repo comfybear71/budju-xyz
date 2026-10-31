@@ -653,6 +653,17 @@ class handler(BaseHTTPRequestHandler):
                 import order_shape
                 self._send_json(200, order_shape.inspect_last_order(admin_wallet))
 
+            elif path == '/api/admin/reconcile-fills':
+                # Admin-only, one-off — corrects past trade records to the
+                # quantity Swyftx really filled (see reconcile_fills.py).
+                # Default = read-only preview; &apply=1 writes (60 per call).
+                admin_wallet = params.get('admin_wallet')
+                if not admin_wallet or not is_admin(admin_wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                import reconcile_fills
+                self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1'))
+
             elif path == '/api/admin/copytrade-resync':
                 # Admin-only, manual — force a fresh Helius webhook
                 # create/update RIGHT NOW instead of waiting for the next
