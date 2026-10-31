@@ -251,12 +251,11 @@ class SwyftxAuthError(Exception):
     this as a per-user error, not crash a loop iterating many users."""
 
 
-# Candidate keys Swyftx may use for "how much of the asset was actually
-# filled". The exact schema of GET /orders/{id}/ is not documented in this
-# repo, so each candidate is only trusted if it passes a sanity check against
-# the expected quantity (see extract_fill_qty). If none does, callers keep
-# their own estimate and the response's key names are logged once so the
-# right field can be added here.
+# Where the filled asset quantity lives in GET /orders/byId/{uuid}. Confirmed
+# live 2026-10-31: "amount" is the coin quantity received (net of the fee),
+# e.g. "43.186494402518897638" for a NEXO buy, matching the Swyftx app. The
+# other names are kept as fallbacks, and every candidate is still only trusted
+# if it passes a sanity check against the expected quantity (extract_fill_qty).
 FILL_QTY_KEYS = ("amount", "filledAmount", "filled_amount", "quantity_filled",
                  "assetAmount", "asset_amount", "executedAmount", "total_amount")
 FILL_TOLERANCE = 0.15  # real fills differ from the estimate by ~1-3%; 15% = clearly a different field
@@ -494,7 +493,11 @@ class SwyftxClient:
         if order_id and not has_error:
             try:
                 time.sleep(1)
-                verify = self._http_json(SWYFTX_BASE + f"/orders/{order_id}/", headers=self._headers())
+                # Swyftx's single-order lookup is /orders/byId/{uuid}. The plain
+                # /orders/{id}/ form is the "orders for an asset" route and
+                # always answers HTTP 400 for an order id — which is why this
+                # check (and real-fill reading) silently never worked before.
+                verify = self._http_json(SWYFTX_BASE + f"/orders/byId/{order_id}", headers=self._headers())
                 status = verify.get("status", 0)
                 # Swyftx statuses: 2=pending, 3=open, 4=filled, 5=partially_filled, 6=cancelled, 7=failed
                 if status in (6, 7):

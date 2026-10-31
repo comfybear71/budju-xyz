@@ -47,6 +47,26 @@ class TestPlaceMarketOrderFill:
         assert ok and oid == "ord-1"
         assert c.last_fill == {"qty": pytest.approx(34.956), "source": "swyftx"}
 
+    def test_uses_the_by_id_lookup_address(self):
+        """Swyftx rejects /orders/{id}/ with HTTP 400; the single-order
+        lookup is /orders/byId/{id} (confirmed live 2026-10-31)."""
+        c = self._client({"status": 4, "amount": "34.956"})
+        with patch.object(swyftx_client.time, "sleep"):
+            c.place_market_order("RENDER", "buy", 54.32, {"USDC": "1", "RENDER": "2"}, expected_qty=35.5011)
+        lookup_url = c._http_json.call_args_list[1][0][0]
+        assert lookup_url.endswith("/orders/byId/ord-1")
+
+    def test_real_swyftx_reply_shape_string_amount_is_read(self):
+        reply = {"orderUuid": "ord-1", "status": 4, "quantity": "33.78", "total": "33.78",
+                 "amount": "43.186494402518897638", "rate": "0.7775", "feeAmount": "0.2607"}
+        assert extract_fill_qty(reply, 44.4585) == pytest.approx(43.1865, rel=1e-4)
+
+    def test_rejected_order_is_reported_as_failure(self):
+        c = self._client({"status": 7})
+        with patch.object(swyftx_client.time, "sleep"):
+            ok, _, err = c.place_market_order("RENDER", "buy", 54.32, {"USDC": "1", "RENDER": "2"}, expected_qty=35.5)
+        assert ok is False and "rejected" in err
+
     def test_unreadable_reply_leaves_last_fill_none_and_still_succeeds(self):
         c = self._client({"status": 4})
         with patch.object(swyftx_client.time, "sleep"):
