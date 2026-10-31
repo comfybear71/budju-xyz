@@ -26,4 +26,5 @@ def test_leaderboard_served_from_snapshot_and_warmed_by_cron():
     assert "get_live_leaderboard_cached(params.get('fresh') == '1')" in _read("api", "index.py")
     cron = _read("api", "coin-report-cron.py")
     assert "refresh_leaderboard_cache" in cron
-    assert '"schedule": "*/10 * * * *"' in _read("vercel.json").split('"/api/coin-report-cron"')[1][:80]
+    vj = _read("vercel.json")
+    assert '"path": "/api/coin-report-cron",\n      "schedule": "*/10 * * * *"' in vj
