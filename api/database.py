@@ -3870,6 +3870,10 @@ def get_dip_report(force: bool = False) -> Dict:
     need fetching (`pending`)."""
     from dip_report import build_report
     codes = set(ASSET_CG_IDS.keys())
+    try:
+        codes |= {d["code"] for d in coin_config_collection.find({"status": "custom"})}
+    except Exception:
+        pass
     series = _fresh_series()
     pending = sorted(codes) if force else sorted(c for c in codes if c not in series)
     report = build_report({c: v for c, v in series.items() if c in codes}, denylist={"ENA", "PEPE", "LUNA", "LUNC"})
