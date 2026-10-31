@@ -9,11 +9,13 @@ const DipReport = ({ wallet }: { wallet: string }) => {
   const [data, setData] = useState<Report | null>(null);
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [prog, setProg] = useState<[number, number] | null>(null);
 
   const load = async (force = false) => {
     setLoading(true);
     setFailed(false);
-    const r = await fetchDipReport(wallet, force);
+    const r = await fetchDipReport(wallet, force, (d, t) => setProg([d, t]));
+    setProg(null);
     setData(r);
     setFailed(!r);
     setLoading(false);
@@ -38,7 +40,7 @@ const DipReport = ({ wallet }: { wallet: string }) => {
             Net % = profit if every dip bought 1 equal lot, including lots still open. Daily prices miss some intraday dips.
           </p>
           <button onClick={() => load(true)} disabled={loading} className="text-[11px] text-slate-400 mb-2 flex items-center gap-1">
-            <FaSync size={10} className={loading ? "animate-spin" : ""} /> {loading ? "Working — this takes up to a minute…" : "Refresh"}
+            <FaSync size={10} className={loading ? "animate-spin" : ""} /> {loading ? (prog ? `Loading prices ${prog[0]}/${prog[1]}…` : "Working…") : "Refresh"}
           </button>
           {failed && <div className="text-xs text-red-400">Couldn't load the report. Tap Refresh to try again.</div>}
           {data && (
@@ -77,8 +79,7 @@ const DipReport = ({ wallet }: { wallet: string }) => {
               </div>
               <div className="text-[10px] text-slate-500 mt-2">
                 ⭐ = suggested accumulate list (top 15, excludes blocked and "careful" coins). 🚫 = on your blocked list.
-                {data.missing && data.missing.length > 0 ? ` No data for: ${data.missing.join(", ")}.` : ""}
-                {data.cached ? " Cached (under 12h old)." : ""}
+                {data.pending && data.pending.length > 0 ? ` No data yet for: ${data.pending.join(", ")} — tap Refresh.` : ""}
               </div>
             </>
           )}
