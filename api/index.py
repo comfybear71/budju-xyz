@@ -98,6 +98,8 @@ from database import (
     get_copytrade_activity,
     get_dip_report,
     fetch_dip_series,
+    get_scout,
+    fetch_scout_series,
     get_coin_config,
     search_coins,
     manage_coin,
@@ -725,6 +727,16 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lim = None
                 self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
+
+            elif path == '/api/admin/scout':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                if params.get('cg'):
+                    self._send_json(200, fetch_scout_series(params.get('cg')))
+                else:
+                    self._send_json(200, get_scout())
 
             elif path == '/api/admin/dip-report':
                 wallet = params.get('wallet')

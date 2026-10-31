@@ -2302,7 +2302,7 @@ export interface DipTier { buys: number; sells: number; open: number; avgDaysToS
 export interface DipCoin {
   coin: string; days: number; buys: number; sells: number; netPct: number; change1y: number;
   maxDrawdown: number; fromHigh: number; advice: string; denied: boolean; focus: boolean;
-  yourBuys?: number; yourSells?: number;
+  perBuy: number; yourBuys?: number; yourSells?: number;
   tiers: { t1: DipTier; t2: DipTier; t3: DipTier };
 }
 export interface DipReport { coins: DipCoin[]; pending?: string[]; at?: string }
@@ -2338,8 +2338,17 @@ export async function fetchDipReport(
       onProgress?.(++done, total);
     }
   };
-  if (total) await Promise.all([worker(), worker(), worker()]);
-  return (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
+  if (total) await Promise.all([worker(), worker()]);
+  let report = (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
+  // CoinGecko sometimes says "slow down" — give the stragglers one patient second pass.
+  if (report?.pending?.length) {
+    for (const coin of report.pending) {
+      await adminGet("/api/admin/dip-report", wallet, `&coin=${encodeURIComponent(coin)}`);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    report = (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
+  }
+  return report;
 }
 
 // ── Coin list managed from the admin screen ─────────────────────────────────
@@ -2402,4 +2411,37 @@ export async function manageCoin(
   } catch {
     return { ok: false, error: "Network error" };
   }
+}
+
+
+export interface ScoutCandidate extends DipCoin { id: string; code: string; name: string; rank: number | null }
+export interface ScoutNote { coin: string; why: string }
+export interface Scout {
+  review: { considerRemoving: ScoutNote[]; keepStrong: ScoutNote[]; quiet: ScoutNote[] };
+  results: ScoutCandidate[];
+  pending: string[];
+  tested?: number;
+  swyftxChecked?: boolean;
+  error?: string;
+}
+
+/** Admin: review tracked coins and test new candidates, one short request each. */
+export async function fetchScout(
+  wallet: string,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Scout | null> {
+  const first = (await adminGet("/api/admin/scout", wallet)) as Scout | null;
+  if (!first) return null;
+  const todo = [...(first.pending ?? [])];
+  const total = todo.length;
+  let done = 0;
+  const worker = async () => {
+    while (todo.length) {
+      const id = todo.shift()!;
+      await adminGet("/api/admin/scout", wallet, `&cg=${encodeURIComponent(id)}`);
+      onProgress?.(++done, total);
+    }
+  };
+  if (total) await Promise.all([worker(), worker()]);
+  return (await adminGet("/api/admin/scout", wallet)) as Scout | null;
 }

@@ -68,6 +68,7 @@ def coin_report(closes: List[float]) -> Optional[Dict]:
         "buys": buys,
         "sells": sells,
         "netPct": round(net, 1),
+        "perBuy": round(net / buys, 1) if buys else 0.0,   # average % gained per dip bought (fair across coins)
         "change1y": round((closes[-1] / closes[0] - 1) * 100, 1),
         "maxDrawdown": round(max_dd, 1),
         "fromHigh": round((1 - closes[-1] / max(closes)) * 100, 1),
@@ -79,7 +80,7 @@ def suggest(rep: Dict) -> str:
     if rep["buys"] == 0:
         return "Quiet — rarely dips"
     stuck = sum(v["open"] for v in t.values())
-    if rep["change1y"] <= -60 or (stuck >= 3 and rep["netPct"] < 0):
+    if rep["change1y"] <= -60 or (rep["buys"] >= 5 and rep["perBuy"] < 0) or (stuck >= 3 and rep["netPct"] < 0):
         return "Careful — dips often don't come back"
     parts = [f"T{n}" for n, k in ((1, "t1"), (2, "t2"), (3, "t3")) if t[k]["buys"] >= 1 and t[k]["sells"] >= 1]
     return ("Use " + "+".join(parts)) if parts else "Dips but slow to recover"
@@ -96,12 +97,12 @@ def build_report(series: Dict[str, List[float]], denylist=None) -> Dict:
         rep["advice"] = suggest(rep)
         rep["denied"] = sym in deny
         coins.append(rep)
-    coins.sort(key=lambda r: r["netPct"], reverse=True)
+    coins.sort(key=lambda r: (r["buys"] >= 5, r["perBuy"]), reverse=True)
     rank = 0
     for r in coins:
         if r["denied"] or r["advice"].startswith(("Careful", "Quiet")):
             r["focus"] = False
         else:
             rank += 1
-            r["focus"] = rank <= 15
+            r["focus"] = rank <= 15 and r["buys"] >= 5
     return {"coins": coins}
