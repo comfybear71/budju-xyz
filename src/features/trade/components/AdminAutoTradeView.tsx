@@ -5,10 +5,8 @@ import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, loadCoinConfig, sy
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
-import DipReport from "./DipReport";
 import CoinScout from "./CoinScout";
 import CoinTierGrid from "./CoinTierGrid";
-import StarterBuys from "./StarterBuys";
 import CoinSizing from "./CoinSizing";
 
 interface Props {
@@ -359,10 +357,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
       <div className="p-4 space-y-3">
         <BotStatusBanner />
-        <DipReport wallet={adminWallet} assignments={snapshot.tierAssignments} />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
         <CoinSizing wallet={adminWallet} />
-        <StarterBuys wallet={adminWallet} />
         <CoinScout wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
