@@ -4146,3 +4146,98 @@ def get_wallet_coin_suggestions() -> Dict:
                  small=bool(mcaps.get(r["code"]) is not None and mcaps[r["code"]] < 100_000_000))
             for r in rows if r["code"] in ids]
     return {"suggestions": rows, "wallets": agg["activeWallets"], "errored": agg["erroredWallets"]}
+
+
+# ==========================================
+# Coin classes + position sizing (admin-controlled; ships OFF)
+# ==========================================
+coin_sizing_collection = db["coin_sizing"]
+DEFAULT_SIZING = {"enabled": False, "capUsd": 100.0}
+
+
+def get_sizing_settings() -> Dict:
+    d = coin_sizing_collection.find_one({"_id": "settings"}) or {}
+    return {"enabled": bool(d.get("enabled", False)), "capUsd": float(d.get("capUsd", DEFAULT_SIZING["capUsd"]))}
+
+
+def save_sizing_settings(enabled=None, cap_usd=None) -> Dict:
+    upd = {}
+    if enabled is not None:
+        upd["enabled"] = bool(enabled)
+    if cap_usd is not None:
+        cap = float(cap_usd)
+        if cap < 0 or cap > 1_000_000:
+            raise ValueError("cap out of range")
+        upd["capUsd"] = cap
+    if upd:
+        coin_sizing_collection.update_one({"_id": "settings"}, {"$set": upd}, upsert=True)
+    return get_sizing_settings()
+
+
+def refresh_coin_classes(force: bool = False) -> Dict:
+    """Market cap + volume for every traded coin (ONE CoinGecko call), turned
+    into classes. Refreshed at most every 20h unless forced."""
+    from coin_sizing import classify
+    doc = coin_sizing_collection.find_one({"_id": "classes"}) or {}
+    if not force and doc.get("at") and (datetime.utcnow() - doc["at"]) < timedelta(hours=20):
+        return doc.get("coins", {})
+    ids = dict(ASSET_CG_IDS)
+    try:
+        ids.update({d["code"]: d["cgId"] for d in coin_config_collection.find({"status": "custom"}) if d.get("cgId")})
+    except Exception:
+        pass
+    careful = set()
+    try:
+        careful = {c["coin"] for c in get_dip_report()["coins"] if str(c.get("advice", "")).startswith("Careful")}
+    except Exception:
+        pass
+    by_id = {}
+    for attempt in range(3):
+        try:
+            mk = _coingecko_get("/coins/markets?vs_currency=usd&per_page=250&ids=" + ",".join(sorted(set(ids.values()))), timeout=25)
+            by_id = {m["id"]: m for m in mk}
+            break
+        except Exception as e:
+            print(f"[sizing] markets error: {e}")
+            time.sleep(3 * (attempt + 1))
+    if not by_id:
+        return doc.get("coins", {})            # keep last good data
+    coins = {}
+    for code, cg in ids.items():
+        m = by_id.get(cg)
+        if m:
+            coins[code] = classify(m.get("market_cap"), m.get("total_volume"), code in careful)
+    coin_sizing_collection.replace_one({"_id": "classes"}, {"_id": "classes", "at": datetime.utcnow(), "coins": coins}, upsert=True)
+    return coins
+
+
+def get_sizing_runtime() -> Optional[Dict]:
+    """What the trading cron needs: settings + stored classes. Never fetches."""
+    st = get_sizing_settings()
+    if not st["enabled"]:
+        return None
+    doc = coin_sizing_collection.find_one({"_id": "classes"}) or {}
+    return {"enabled": True, "capUsd": st["capUsd"], "classes": doc.get("coins", {})}
+
+
+def get_sizing_preview(admin_wallet: str) -> Dict:
+    """Settings + what the admin wallet would do per coin right now."""
+    st = get_sizing_settings()
+    classes = refresh_coin_classes()
+    state = get_trader_state()
+    assigned = sorted(c for c, t in (state.get("autoTierAssignments") or {}).items() if t)
+    held = {}
+    try:
+        held = _get_user_swyftx_client(admin_wallet).get_holdings()
+    except Exception as e:
+        print(f"[sizing] holdings error: {e}")
+    prices = get_prices_for_coins(assigned) if assigned else {}
+    rows = []
+    for code in assigned:
+        info = classes.get(code) or {}
+        held_usd = float(held.get(code, 0.0)) * float(prices.get(code, 0.0))
+        cap = st["capUsd"]
+        rows.append({"coin": code, "cls": info.get("cls", "?"), "mult": info.get("mult"), "thin": info.get("thin", False),
+                     "careful": info.get("careful", False), "heldUsd": round(held_usd, 2),
+                     "roomUsd": round(max(0.0, cap - held_usd), 2) if cap else None})
+    return {"settings": st, "rows": rows}

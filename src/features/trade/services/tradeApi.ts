@@ -2528,3 +2528,29 @@ export async function starterBuys(
     return null;
   }
 }
+
+
+export interface SizingRow { coin: string; cls: string; mult: number | null; thin: boolean; careful: boolean; heldUsd: number; roomUsd: number | null }
+export interface SizingPreview { settings: { enabled: boolean; capUsd: number }; rows: SizingRow[] }
+
+/** Admin: coin classes, buy-size multipliers and per-coin position cap (preview + current settings). */
+export async function fetchSizing(wallet: string): Promise<SizingPreview | null> {
+  const r = await adminGet("/api/admin/coin-sizing", wallet);
+  return r && r.settings ? (r as SizingPreview) : null;
+}
+
+export async function saveSizing(
+  wallet: string,
+  change: { enabled?: boolean; capUsd?: number; refresh?: boolean },
+): Promise<boolean> {
+  try {
+    const res = await fetch("/api/admin/coin-sizing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, ...change }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}

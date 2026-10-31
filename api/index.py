@@ -105,6 +105,9 @@ from database import (
     search_coins,
     manage_coin,
     manage_coins_bulk,
+    get_sizing_preview,
+    save_sizing_settings,
+    refresh_coin_classes,
     get_copytrade_overview,
     get_copytrade_status,
     get_copytrade_progress,
@@ -730,6 +733,13 @@ class handler(BaseHTTPRequestHandler):
                     lim = None
                 self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
 
+            elif path == '/api/admin/coin-sizing':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_sizing_preview(wallet))
+
             elif path == '/api/admin/wallet-coins':
                 wallet = params.get('wallet')
                 if not wallet or not is_admin(wallet):
@@ -1216,6 +1226,19 @@ class handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     result = {"ok": False, "error": str(e)[:200]}
                 self._send_json(200, result)
+
+            elif path == '/api/admin/coin-sizing':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                try:
+                    if body.get('refresh'):
+                        refresh_coin_classes(force=True)
+                    settings = save_sizing_settings(body.get('enabled'), body.get('capUsd'))
+                    self._send_json(200, {"ok": True, "settings": settings})
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
 
             elif path == '/api/admin/coins':
                 is_valid, error = _verify_admin(body, self)
