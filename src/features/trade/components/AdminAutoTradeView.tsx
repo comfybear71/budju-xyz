@@ -10,6 +10,7 @@ import ManageCoins from "./ManageCoins";
 import CoinScout from "./CoinScout";
 import CoinTierGrid from "./CoinTierGrid";
 import WalletCoinSuggestions from "./WalletCoinSuggestions";
+import StarterBuys from "./StarterBuys";
 
 interface Props {
   prices: Record<string, number>;
@@ -362,7 +363,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         <DipReport wallet={adminWallet} />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
         <WalletCoinSuggestions wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
-        <CoinScout wallet={adminWallet} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
+        <StarterBuys wallet={adminWallet} />
+        <CoinScout wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <ManageCoins wallet={adminWallet} assignments={snapshot.tierAssignments} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (

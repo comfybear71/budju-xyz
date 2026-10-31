@@ -15,6 +15,8 @@ const WalletCoinSuggestions = ({ wallet, autoTrader, onChanged }: Props) => {
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [msg, setMsg] = useState("");
+  const [adding, setAdding] = useState<string | null>(null);
+  const [added, setAdded] = useState<string[]>([]);
 
   const load = async () => {
     setLoading(true);
@@ -32,16 +34,20 @@ const WalletCoinSuggestions = ({ wallet, autoTrader, onChanged }: Props) => {
   };
 
   const add = async (s: WalletCoinSuggestion) => {
+    setAdding(s.code);
+    setMsg("");
     const r = await manageCoin(wallet, "add", s.code, s.cgId, s.name);
     if (!r.ok) {
-      setMsg(r.error || "Failed");
+      setMsg(`⛔ ${r.error || "Failed"}`);
+      setAdding(null);
       return;
     }
     for (const t of [1, 2, 3]) autoTrader.assignCoin(s.code, t);
-    setMsg(`${s.code} added to T1 + T2 + T3 — every wallet will now trade it`);
-    setRows((cur) => (cur ? cur.filter((x) => x.code !== s.code) : cur));
+    setAdded((a) => [...a, s.code]);
+    setMsg(`✅ ${s.code} added to T1 + T2 + T3 — every wallet will now trade it`);
     await loadCoinConfig();
     onChanged();
+    setAdding(null);
   };
 
   return (
@@ -55,6 +61,7 @@ const WalletCoinSuggestions = ({ wallet, autoTrader, onChanged }: Props) => {
           <button onClick={load} disabled={loading} className="text-[11px] text-slate-400 mb-2 flex items-center gap-1">
             <FaSync size={10} className={loading ? "animate-spin" : ""} /> {loading ? "Checking every wallet…" : "Refresh"}
           </button>
+          {msg && <div className="text-xs text-slate-200 rounded-lg px-2 py-1.5 mb-2" style={{ background: "rgba(255,255,255,0.08)" }}>{msg}</div>}
           {failed && <div className="text-xs text-red-400">Couldn't load. Tap Refresh to try again.</div>}
           {rows && rows.length === 0 && (
             <div className="text-[11px] text-slate-500">Every coin your wallets hold is already being traded.</div>
@@ -70,8 +77,12 @@ const WalletCoinSuggestions = ({ wallet, autoTrader, onChanged }: Props) => {
                       {s.small ? " · ⚠️ small coin" : ""}
                     </div>
                   </div>
-                  <button onClick={() => add(s)} className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/20 text-green-400 flex-shrink-0">
-                    Add
+                  <button
+                    onClick={() => add(s)}
+                    disabled={adding === s.code || added.includes(s.code)}
+                    className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/20 text-green-400 flex-shrink-0 min-w-[64px] disabled:opacity-60"
+                  >
+                    {added.includes(s.code) ? "Added ✓" : adding === s.code ? "Adding…" : "Add"}
                   </button>
                 </div>
               ))}
@@ -81,7 +92,6 @@ const WalletCoinSuggestions = ({ wallet, autoTrader, onChanged }: Props) => {
             Coins a wallet holds that the bot doesn't trade yet (Swyftx coins only). Tap Add and the coin joins T1, T2 and T3 for all wallets — change that
             any time in Coin tiers. Dust under $20 is hidden.
           </div>
-          {msg && <div className="text-xs text-slate-300 mt-1">{msg}</div>}
         </div>
       )}
     </div>

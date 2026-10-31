@@ -104,6 +104,7 @@ from database import (
     get_coin_config,
     search_coins,
     manage_coin,
+    manage_coins_bulk,
     get_copytrade_overview,
     get_copytrade_status,
     get_copytrade_progress,
@@ -1170,12 +1171,30 @@ class handler(BaseHTTPRequestHandler):
                 result = sync_trades_from_swyftx(trades)
                 self._send_json(200, result)
 
+            elif path == '/api/admin/starter-buys':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                import starter_buys
+                try:
+                    if body.get('action') == 'execute':
+                        result = starter_buys.execute(body.get('adminWallet'), body.get('amountUsd'), list(body.get('coins') or []))
+                    else:
+                        result = starter_buys.plan(body.get('adminWallet'), body.get('amountUsd'))
+                except Exception as e:
+                    result = {"ok": False, "error": str(e)[:200]}
+                self._send_json(200, result)
+
             elif path == '/api/admin/coins':
                 is_valid, error = _verify_admin(body, self)
                 if not is_valid:
                     self._send_json(403, {"error": error})
                     return
-                result = manage_coin(body.get('action', ''), body.get('code', ''), body.get('cgId', ''), body.get('name', ''))
+                if body.get('action') == 'add_many':
+                    result = manage_coins_bulk(body.get('coins') or [])
+                else:
+                    result = manage_coin(body.get('action', ''), body.get('code', ''), body.get('cgId', ''), body.get('name', ''))
                 self._send_json(400 if result.get('error') else 200, result)
 
             elif path == '/api/admin/import-user':

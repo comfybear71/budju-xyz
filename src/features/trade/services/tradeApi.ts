@@ -2463,3 +2463,68 @@ export async function fetchWalletCoinSuggestions(wallet: string): Promise<Wallet
 export async function fetchDipReportLight(wallet: string): Promise<DipReport | null> {
   return (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
 }
+
+
+/** Tiers where this coin's last-year average gain per dip was positive. */
+export function greenTiers(c: DipCoin): number[] {
+  const out: number[] = [];
+  ([1, 2, 3] as const).forEach((t) => {
+    const tr = c.tiers[`t${t}` as "t1" | "t2" | "t3"];
+    if (tr && tr.buys > 0 && tr.netPct / tr.buys >= 0) out.push(t);
+  });
+  return out;
+}
+
+/** Admin: add several coins with a single Telegram announcement. */
+export async function addCoinsBulk(
+  wallet: string,
+  coins: { code: string; cgId: string; name: string }[],
+): Promise<{ ok: boolean; added: string[]; error?: string }> {
+  try {
+    const res = await fetch("/api/admin/coins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, action: "add_many", coins }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) return { ok: false, added: [], error: data?.error || "Failed" };
+    await loadCoinConfig();
+    return { ok: true, added: data.added ?? [] };
+  } catch {
+    return { ok: false, added: [], error: "Network error" };
+  }
+}
+
+export interface StarterPlan {
+  amountUsd: number; usdc: number; reserve: number; wanted: string[]; willBuy: string[];
+  cannotAfford: string[]; totalUsd: number; tradingEnabled: boolean; error?: string; ok?: boolean;
+}
+export interface StarterResult {
+  ok: boolean; error?: string; usdcLeft?: number; done?: boolean;
+  placed?: { coin: string; usd: number; price: number }[];
+  failed?: { coin: string; error: string }[];
+  skipped?: { coin: string; why: string }[];
+}
+
+/** Admin: starter buys. One attempt only — never retried, because it moves real money. */
+export async function starterBuys(
+  wallet: string,
+  action: "plan" | "execute",
+  amountUsd: number,
+  coins: string[] = [],
+): Promise<(StarterPlan & StarterResult) | null> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 55000);
+    const res = await fetch("/api/admin/starter-buys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, action, amountUsd, coins }),
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}

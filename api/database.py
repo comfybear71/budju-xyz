@@ -3938,7 +3938,26 @@ def search_coins(query: str) -> Dict:
     return {"results": out}
 
 
-def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict:
+def manage_coins_bulk(coins: List[Dict]) -> Dict:
+    """Add several coins at once with ONE Telegram announcement."""
+    added, errors = [], []
+    for c in (coins or [])[:40]:
+        r = manage_coin("add", c.get("code", ""), c.get("cgId", ""), c.get("name", ""), announce=False)
+        if r.get("error"):
+            errors.append({"code": c.get("code"), "error": r["error"]})
+        elif r.get("_new"):
+            added.append(c)
+    if added:
+        try:
+            import tg_notify
+            names = ", ".join(f"{c['code']}" for c in added)
+            tg_notify.send(f"🪙 <b>BUDJU now trades {len(added)} new coin{'s' if len(added) != 1 else ''}</b>\n{names}")
+        except Exception as e:
+            print(f"[coins] bulk announce error: {e}")
+    return {"ok": True, "added": [c["code"] for c in added], "errors": errors, **get_coin_config()}
+
+
+def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announce: bool = True) -> Dict:
     import re
     code = (code or "").strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
@@ -3965,10 +3984,11 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict
             coin_announcements_collection.insert_one({"code": code, "name": (name or code)[:40], "at": datetime.utcnow()})
             try:
                 import tg_notify
-                tg_notify.send(f"🪙 <b>BUDJU now trades {code}</b>\n{(name or code)[:40]} has been added to the auto-trader coin list.")
+                if announce:
+                    tg_notify.send(f"🪙 <b>BUDJU now trades {code}</b>\n{(name or code)[:40]} has been added to the auto-trader coin list.")
             except Exception as e:
                 print(f"[coins] announce error: {e}")
-        return {"ok": True, **get_coin_config()}
+        return {"ok": True, "_new": not existed, **get_coin_config()}
     if action == "retire":
         existing = coin_config_collection.find_one({"_id": code}) or {}
         coin_config_collection.update_one(
