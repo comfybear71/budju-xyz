@@ -3840,24 +3840,40 @@ def _fetch_daily_closes(coin_id: str) -> List[float]:
     return []
 
 
-def get_dip_report(force: bool = False) -> Dict:
-    from dip_report import build_report
-    if not force:
-        doc = dip_report_cache_collection.find_one({"_id": "latest"})
-        if doc and (datetime.utcnow() - doc["at"]) < timedelta(hours=_DIP_CACHE_HOURS):
-            return {**doc["report"], "cached": True, "at": doc["at"].isoformat() + "Z"}
+def _fresh_series() -> Dict[str, List[float]]:
+    cutoff = datetime.utcnow() - timedelta(hours=_DIP_CACHE_HOURS)
+    out: Dict[str, List[float]] = {}
+    for d in dip_report_cache_collection.find({"_id": {"$regex": "^series:"}, "at": {"$gte": cutoff}}):
+        out[d["_id"].split(":", 1)[1]] = d.get("closes") or []
+    return out
 
-    coins = {c: cg for c, cg in ASSET_CG_IDS.items()}
-    series: Dict[str, List[float]] = {}
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futs = {ex.submit(_fetch_daily_closes, cg): c for c, cg in coins.items()}
-        for f in as_completed(futs):
-            try:
-                series[futs[f]] = f.result()
-            except Exception:
-                series[futs[f]] = []
-    report = build_report(series, denylist={"ENA", "PEPE", "LUNA", "LUNC"})
-    report["missing"] = sorted(c for c, v in series.items() if len(v) < 60)
+
+def fetch_dip_series(code: str, force: bool = False) -> Dict:
+    """Fetch + store ONE coin's year of daily closes (one short request, so
+    the browser can walk the whole list without any call timing out)."""
+    code = (code or "").upper()
+    cg = ASSET_CG_IDS.get(code) or resolve_coingecko_id(code)
+    if not cg:
+        return {"ok": False, "error": "unknown coin"}
+    if not force and code in _fresh_series():
+        return {"ok": True, "cached": True}
+    closes = _fetch_daily_closes(cg)
+    if len(closes) < 60:
+        return {"ok": False, "error": "no price history"}
+    dip_report_cache_collection.replace_one(
+        {"_id": f"series:{code}"}, {"_id": f"series:{code}", "at": datetime.utcnow(), "closes": closes}, upsert=True)
+    return {"ok": True, "cached": False}
+
+
+def get_dip_report(force: bool = False) -> Dict:
+    """Build the report from the stored series. Also says which coins still
+    need fetching (`pending`)."""
+    from dip_report import build_report
+    codes = set(ASSET_CG_IDS.keys())
+    series = _fresh_series()
+    pending = sorted(codes) if force else sorted(c for c in codes if c not in series)
+    report = build_report({c: v for c, v in series.items() if c in codes}, denylist={"ENA", "PEPE", "LUNA", "LUNC"})
+    report["pending"] = pending
 
     # What the bot has really done so far, from the admin ledger.
     try:
@@ -3872,11 +3888,8 @@ def get_dip_report(force: bool = False) -> Dict:
             c["yourSells"] = real.get(c["coin"], {}).get("sells", 0)
     except Exception as e:
         print(f"[dip-report] ledger error: {e}")
-
-    now = datetime.utcnow()
-    if len(report["coins"]) >= 15:  # don't cache a mostly-failed run
-        dip_report_cache_collection.replace_one({"_id": "latest"}, {"_id": "latest", "at": now, "report": report}, upsert=True)
-    return {**report, "cached": False, "at": now.isoformat() + "Z"}
+    report["at"] = datetime.utcnow().isoformat() + "Z"
+    return report
 
 
 # ==========================================

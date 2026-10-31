@@ -2305,19 +2305,42 @@ export interface DipCoin {
   yourBuys?: number; yourSells?: number;
   tiers: { t1: DipTier; t2: DipTier; t3: DipTier };
 }
-export interface DipReport { coins: DipCoin[]; missing?: string[]; cached?: boolean; at?: string }
+export interface DipReport { coins: DipCoin[]; pending?: string[]; at?: string }
 
-/** Admin: replay a year of daily prices through the tier rules. */
-export async function fetchDipReport(wallet: string, force = false): Promise<DipReport | null> {
+async function adminGet(path: string, wallet: string, extra = ""): Promise<any | null> {
   try {
-    const res = await fetchWithRetry(`/api/admin/dip-report?wallet=${wallet}&admin_wallet=${wallet}${force ? "&force=1" : ""}`);
-    if (!res.ok) return null;
-    return (await res.json()) as DipReport;
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 40000);
+    const res = await fetch(`${path}?wallet=${wallet}&admin_wallet=${wallet}${extra}`, { signal: ctl.signal });
+    clearTimeout(t);
+    return res.ok ? await res.json() : null;
   } catch {
     return null;
   }
 }
 
+/** Admin: replay a year of daily prices through the tier rules. Walks the coin
+ *  list one short request at a time so nothing times out. */
+export async function fetchDipReport(
+  wallet: string,
+  force = false,
+  onProgress?: (done: number, total: number) => void,
+): Promise<DipReport | null> {
+  const first = (await adminGet("/api/admin/dip-report", wallet, force ? "&force=1" : "")) as DipReport | null;
+  if (!first) return null;
+  const todo = [...(first.pending ?? [])];
+  const total = todo.length;
+  let done = 0;
+  const worker = async () => {
+    while (todo.length) {
+      const coin = todo.shift()!;
+      await adminGet("/api/admin/dip-report", wallet, `&coin=${encodeURIComponent(coin)}${force ? "&force=1" : ""}`);
+      onProgress?.(++done, total);
+    }
+  };
+  if (total) await Promise.all([worker(), worker(), worker()]);
+  return (await adminGet("/api/admin/dip-report", wallet)) as DipReport | null;
+}
 
 // ── Coin list managed from the admin screen ─────────────────────────────────
 const retiredCoins = new Set<string>();
