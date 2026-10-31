@@ -3829,13 +3829,13 @@ _DIP_CACHE_HOURS = 12
 
 def _fetch_daily_closes(coin_id: str) -> List[float]:
     last_err = None
-    for attempt in range(2):
+    for attempt in range(3):
         try:
             data = _coingecko_get(f"/coins/{coin_id}/market_chart?vs_currency=usd&days=365&interval=daily", timeout=20)
             return [float(p[1]) for p in data.get("prices", []) if p and p[1]]
         except Exception as e:
             last_err = e
-            time.sleep(2.5)
+            time.sleep(3 * (attempt + 1))  # CoinGecko rate limits: back off and retry
     print(f"[dip-report] {coin_id}: {last_err}")
     return []
 
@@ -3971,3 +3971,77 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict
             coin_config_collection.delete_one({"_id": code})
         return {"ok": True, **get_coin_config()}
     return {"error": "Unknown action"}
+
+
+# ==========================================
+# Coin scout (admin): review tracked coins + test new candidates
+# ==========================================
+def _swyftx_codes() -> Optional[set]:
+    """Codes Swyftx lists (public endpoint). None if we couldn't check."""
+    try:
+        req = Request("https://api.swyftx.com.au/markets/assets/", headers={"Accept": "application/json"})
+        with urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode())
+        codes = {str(a.get("code", "")).upper() for a in data if isinstance(a, dict)}
+        return codes or None
+    except Exception as e:
+        print(f"[scout] swyftx list error: {e}")
+        return None
+
+
+def fetch_scout_series(cg_id: str) -> Dict:
+    import re
+    cg_id = (cg_id or "").lower()
+    if not re.fullmatch(r"[a-z0-9\-]{2,80}", cg_id):
+        return {"ok": False, "error": "bad id"}
+    key = f"series:cg:{cg_id}"
+    cutoff = datetime.utcnow() - timedelta(hours=_DIP_CACHE_HOURS)
+    if dip_report_cache_collection.find_one({"_id": key, "at": {"$gte": cutoff}}, {"_id": 1}):
+        return {"ok": True, "cached": True}
+    closes = _fetch_daily_closes(cg_id)
+    if len(closes) < 120:
+        return {"ok": False, "error": "not enough history"}
+    dip_report_cache_collection.replace_one({"_id": key}, {"_id": key, "at": datetime.utcnow(), "closes": closes}, upsert=True)
+    return {"ok": True, "cached": False}
+
+
+def get_scout() -> Dict:
+    from dip_report import build_report
+    from scout import filter_candidates, review_tracked
+    # 1) Review of coins we already track (from stored Dip Report series)
+    base = get_dip_report()
+    review = review_tracked(base["coins"])
+
+    # 2) Candidate list (cached 24h)
+    cand_doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"})
+    if cand_doc and (datetime.utcnow() - cand_doc["at"]) < timedelta(hours=24):
+        cands, swyftx_checked = cand_doc["cands"], cand_doc.get("swyftxChecked", False)
+    else:
+        try:
+            markets = _coingecko_get("/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h", timeout=25)
+        except Exception as e:
+            return {"review": review, "candidates": [], "results": [], "pending": [], "error": f"CoinGecko: {e}"}
+        tracked_codes = set(ASSET_CG_IDS.keys()) | {d["code"] for d in coin_config_collection.find({"status": "custom"})}
+        tracked_codes |= {d["code"] for d in coin_config_collection.find({"status": "retired"})}
+        tracked_ids = set(ASSET_CG_IDS.values())
+        sw = _swyftx_codes()
+        cands = filter_candidates(markets, tracked_codes, tracked_ids, sw)
+        swyftx_checked = sw is not None
+        dip_report_cache_collection.replace_one(
+            {"_id": "scout:candidates"},
+            {"_id": "scout:candidates", "at": datetime.utcnow(), "cands": cands, "swyftxChecked": swyftx_checked}, upsert=True)
+
+    # 3) Simulate every candidate that has stored history
+    fresh = _fresh_series()
+    series = {c["id"]: fresh[f"cg:{c['id']}"] for c in cands if f"cg:{c['id']}" in fresh}
+    rep = build_report(series)
+    by_id = {c["id"]: c for c in cands}
+    results = []
+    for r in rep["coins"]:
+        meta = by_id.get(r["coin"], {})
+        if r["buys"] < 5 or r["advice"].startswith(("Careful", "Quiet")) or r["perBuy"] <= 0:
+            continue
+        results.append({**r, "id": r["coin"], "code": meta.get("code"), "name": meta.get("name"), "rank": meta.get("rank")})
+    pending = [c["id"] for c in cands if f"cg:{c['id']}" not in fresh]
+    return {"review": review, "candidates": cands, "results": results[:10], "pending": pending,
+            "swyftxChecked": swyftx_checked, "tested": len(series)}

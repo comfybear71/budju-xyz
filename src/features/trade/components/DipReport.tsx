@@ -37,7 +37,7 @@ const DipReport = ({ wallet }: { wallet: string }) => {
         <div className="px-3 pb-3">
           <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
             Replays the last year of daily prices through your tier rules (T1 −5%/+12.5%, T2 −8.5%/+15%, T3 −15%/+20%).
-            Net % = profit if every dip bought 1 equal lot, including lots still open. Daily prices miss some intraday dips.
+            Avg/buy = average % gained per dip bought (open lots counted at today's price). Daily prices miss some intraday dips.
           </p>
           <button onClick={() => load(true)} disabled={loading} className="text-[11px] text-slate-400 mb-2 flex items-center gap-1">
             <FaSync size={10} className={loading ? "animate-spin" : ""} /> {loading ? (prog ? `Loading prices ${prog[0]}/${prog[1]}…` : "Working…") : "Refresh"}
@@ -53,7 +53,7 @@ const DipReport = ({ wallet }: { wallet: string }) => {
                       <th className="pr-2">Coin</th>
                       <th className="pr-2">Buys T1/T2/T3</th>
                       <th className="pr-2">Open</th>
-                      <th className="pr-2">Net</th>
+                      <th className="pr-2">Avg/buy</th>
                       <th className="pr-2">1y</th>
                       <th className="pr-2">Worst fall</th>
                       <th className="pr-2">Yours (B/S)</th>
@@ -67,7 +67,7 @@ const DipReport = ({ wallet }: { wallet: string }) => {
                         <td className="pr-2 font-bold text-slate-200">{c.focus ? "⭐ " : ""}{c.coin}{c.denied ? " 🚫" : ""}</td>
                         <td className="pr-2 font-mono text-slate-300">{c.tiers.t1.buys}/{c.tiers.t2.buys}/{c.tiers.t3.buys}</td>
                         <td className="pr-2 font-mono text-slate-400">{c.tiers.t1.open + c.tiers.t2.open + c.tiers.t3.open}</td>
-                        <td className="pr-2 font-mono font-bold" style={{ color: c.netPct >= 0 ? "#22c55e" : "#ef4444" }}>{pct(c.netPct)}</td>
+                        <td className="pr-2 font-mono font-bold" style={{ color: c.perBuy >= 0 ? "#22c55e" : "#ef4444" }}>{c.perBuy >= 0 ? "+" : ""}{c.perBuy.toFixed(1)}%</td>
                         <td className="pr-2 font-mono" style={{ color: c.change1y >= 0 ? "#22c55e" : "#ef4444" }}>{pct(c.change1y)}</td>
                         <td className="pr-2 font-mono text-slate-400">−{c.maxDrawdown.toFixed(0)}%</td>
                         <td className="pr-2 font-mono text-slate-400">{c.yourBuys ?? 0}/{c.yourSells ?? 0}</td>

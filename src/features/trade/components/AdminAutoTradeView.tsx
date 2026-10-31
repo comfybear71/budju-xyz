@@ -7,6 +7,7 @@ import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
 import DipReport from "./DipReport";
 import ManageCoins from "./ManageCoins";
+import CoinScout from "./CoinScout";
 
 interface Props {
   prices: Record<string, number>;
@@ -357,6 +358,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       <div className="p-4 space-y-3">
         <BotStatusBanner />
         <DipReport wallet={adminWallet} />
+        <CoinScout wallet={adminWallet} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <ManageCoins wallet={adminWallet} assignments={snapshot.tierAssignments} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
