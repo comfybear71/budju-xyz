@@ -2479,7 +2479,7 @@ export function greenTiers(c: DipCoin): number[] {
 export async function addCoinsBulk(
   wallet: string,
   coins: { code: string; cgId: string; name: string }[],
-): Promise<{ ok: boolean; added: string[]; error?: string }> {
+): Promise<{ ok: boolean; added: string[]; failed?: number; error?: string }> {
   try {
     const res = await fetch("/api/admin/coins", {
       method: "POST",
@@ -2489,7 +2489,7 @@ export async function addCoinsBulk(
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.error) return { ok: false, added: [], error: data?.error || "Failed" };
     await loadCoinConfig();
-    return { ok: true, added: data.added ?? [] };
+    return { ok: true, added: data.added ?? [], failed: (data.errors ?? []).length };
   } catch {
     return { ok: false, added: [], error: "Network error" };
   }

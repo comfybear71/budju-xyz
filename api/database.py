@@ -3938,11 +3938,42 @@ def search_coins(query: str) -> Dict:
     return {"results": out}
 
 
+def _trusted_cg_ids() -> set:
+    """CoinGecko ids we already got FROM CoinGecko (Scout candidates, resolved
+    wallet coins) — safe to accept even if the price check is rate limited."""
+    ids = set()
+    try:
+        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"}) or {}
+        ids |= {c["id"] for c in doc.get("cands", [])}
+        ids |= {d["cgId"] for d in dynamic_coin_registry_collection.find({"cgId": {"$ne": None}}, {"cgId": 1})}
+    except Exception:
+        pass
+    return ids
+
+
+def _verify_cg_ids(ids: List[str]) -> set:
+    """ids CoinGecko confirms have a price. Retries when rate limited; if it
+    stays busy, falls back to ids we already know came from CoinGecko."""
+    ids = [i for i in ids if i]
+    for attempt in range(3):
+        try:
+            px = _coingecko_get("/simple/price?ids=" + ",".join(ids) + "&vs_currencies=usd", timeout=15)
+            return {i for i in ids if (px.get(i) or {}).get("usd")}
+        except Exception:
+            time.sleep(3 * (attempt + 1))
+    return set(ids) & _trusted_cg_ids()
+
+
 def manage_coins_bulk(coins: List[Dict]) -> Dict:
-    """Add several coins at once with ONE Telegram announcement."""
+    """Add several coins at once: ONE price check, ONE Telegram announcement."""
+    coins = (coins or [])[:40]
+    ok_ids = _verify_cg_ids([str(c.get("cgId", "")).lower() for c in coins])
     added, errors = [], []
-    for c in (coins or [])[:40]:
-        r = manage_coin("add", c.get("code", ""), c.get("cgId", ""), c.get("name", ""), announce=False)
+    for c in coins:
+        if str(c.get("cgId", "")).lower() not in ok_ids:
+            errors.append({"code": c.get("code"), "error": "CoinGecko could not confirm this coin (busy or no price) — try again in a minute"})
+            continue
+        r = manage_coin("add", c.get("code", ""), c.get("cgId", ""), c.get("name", ""), announce=False, verify=False)
         if r.get("error"):
             errors.append({"code": c.get("code"), "error": r["error"]})
         elif r.get("_new"):
@@ -3957,7 +3988,7 @@ def manage_coins_bulk(coins: List[Dict]) -> Dict:
     return {"ok": True, "added": [c["code"] for c in added], "errors": errors, **get_coin_config()}
 
 
-def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announce: bool = True) -> Dict:
+def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announce: bool = True, verify: bool = True) -> Dict:
     import re
     code = (code or "").strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
@@ -3967,12 +3998,8 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
         if not re.fullmatch(r"[a-z0-9\-]{2,80}", cg_id):
             return {"error": "Bad CoinGecko id"}
         existed = bool(coin_config_collection.find_one({"_id": code, "status": "custom"}))
-        try:
-            px = _coingecko_get(f"/simple/price?ids={cg_id}&vs_currencies=usd", timeout=15)
-        except Exception as e:
-            return {"error": f"CoinGecko check failed: {e}"}
-        if not (px.get(cg_id) or {}).get("usd"):
-            return {"error": "CoinGecko has no price for that id"}
+        if verify and cg_id not in _verify_cg_ids([cg_id]):
+            return {"error": "CoinGecko couldn't confirm that coin (busy or no price) — try again in a minute"}
         coin_config_collection.update_one(
             {"_id": code},
             {"$set": {"code": code, "status": "custom", "cgId": cg_id, "name": (name or code)[:40], "at": datetime.utcnow()}},
