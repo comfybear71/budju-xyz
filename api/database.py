@@ -1435,6 +1435,14 @@ def _short_wallet(addr: Optional[str]) -> str:
     return addr[:4] + "..." + addr[-4:] if addr and len(addr) > 8 else (addr or "")
 
 
+def _pool_activity(skip_ids) -> List[Dict]:
+    """The admin account's own buys/sells (the `trades` ledger)."""
+    from activity_rows import pool_trade_activity
+    admin = ADMIN_WALLETS[0] if ADMIN_WALLETS else None
+    docs = trades_collection.find({"type": {"$in": ["buy", "sell"]}}).sort("timestamp", -1).limit(1500)
+    return pool_trade_activity(docs, admin, _short_wallet(admin), skip_ids)
+
+
 def get_all_transactions(wallet_address: str = None, is_admin_request: bool = False) -> List[Dict]:
     """The Activity feed — every deposit/withdrawal (live from each
     wallet's own Swyftx account, or an admin-entered manual override) plus
@@ -1500,6 +1508,7 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
                 "swyftxId": t.get("orderId", ""),
                 "isAdmin": wallet in ADMIN_WALLETS,
             })
+        transactions.extend(_pool_activity({t.get("swyftxId") for t in transactions if t.get("swyftxId")}))
 
     else:
         if not wallet_address:
@@ -1523,6 +1532,8 @@ def get_all_transactions(wallet_address: str = None, is_admin_request: bool = Fa
                 "timestamp": t["timestamp"].isoformat() if t.get("timestamp") else None,
                 "swyftxId": t.get("orderId", ""),
             })
+        if wallet_address in ADMIN_WALLETS:
+            transactions.extend(_pool_activity({t.get("swyftxId") for t in transactions if t.get("swyftxId")}))
 
     transactions.sort(key=lambda x: x.get("timestamp") or "", reverse=True)
     return transactions
