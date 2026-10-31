@@ -360,7 +360,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
       <div className="p-4 space-y-3">
         <BotStatusBanner />
-        <DipReport wallet={adminWallet} />
+        <DipReport wallet={adminWallet} assignments={snapshot.tierAssignments} />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
         <WalletCoinSuggestions wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         <StarterBuys wallet={adminWallet} />
