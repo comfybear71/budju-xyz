@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaPlus, FaSync, FaSave, FaCheck, FaChevronRight, FaChevronDown } from "react-icons/fa";
-import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
+import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, loadCoinConfig, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
 import DipReport from "./DipReport";
+import ManageCoins from "./ManageCoins";
 
 interface Props {
   prices: Record<string, number>;
@@ -19,13 +20,15 @@ interface Props {
 }
 
 // Coins available for auto-trading (exclude stables/fiat)
-const AVAILABLE_COINS = Object.keys(ASSET_CONFIG).filter(
-  (c) => c !== "USDC" && c !== "AUD" && c !== "USD" && !PERMANENT_BUY_DENYLIST.has(c)
-);
+const getAvailableCoins = () =>
+  Object.keys(ASSET_CONFIG).filter(
+    (c) => c !== "USDC" && c !== "AUD" && c !== "USD" && !PERMANENT_BUY_DENYLIST.has(c) && !isRetiredCoin(c)
+  );
 
 const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
   const [, setTick] = useState(0);
   const [addCoinTier, setAddCoinTier] = useState<number | null>(null);
+  const [, setCoinsVersion] = useState(0);
   const [countdown, setCountdown] = useState(30);
   const [startingTier, setStartingTier] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
@@ -107,7 +110,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
   // Get coins NOT assigned to a specific tier (for add-coin picker)
   const getUnassignedForTier = (tierNum: number): string[] => {
-    return AVAILABLE_COINS.filter((c) => {
+    return getAvailableCoins().filter((c) => {
       const tiers = snapshot.tierAssignments[c];
       return !tiers || !tiers.includes(tierNum);
     });
@@ -354,6 +357,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       <div className="p-4 space-y-3">
         <BotStatusBanner />
         <DipReport wallet={adminWallet} />
+        <ManageCoins wallet={adminWallet} assignments={snapshot.tierAssignments} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
           <div className="text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 text-center">

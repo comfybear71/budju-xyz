@@ -97,6 +97,9 @@ from database import (
     get_copytrade_signals,
     get_copytrade_activity,
     get_dip_report,
+    get_coin_config,
+    search_coins,
+    manage_coin,
     get_copytrade_overview,
     get_copytrade_status,
     get_copytrade_progress,
@@ -597,6 +600,16 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     limit_int = 80
                 self._send_json(200, get_copytrade_activity(limit_int))
+
+            elif path == '/api/coins':
+                self._send_json(200, get_coin_config())
+
+            elif path == '/api/admin/coins-search':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, search_coins(params.get('q', '')))
 
             elif path == '/api/copytrade/status':
                 # Public — aggregate health of the Signals pipeline, in plain English.
@@ -1132,6 +1145,14 @@ class handler(BaseHTTPRequestHandler):
 
                 result = sync_trades_from_swyftx(trades)
                 self._send_json(200, result)
+
+            elif path == '/api/admin/coins':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                result = manage_coin(body.get('action', ''), body.get('code', ''), body.get('cgId', ''), body.get('name', ''))
+                self._send_json(400 if result.get('error') else 200, result)
 
             elif path == '/api/admin/import-user':
                 # Admin-only: requires cryptographic signature verification

@@ -2317,3 +2317,66 @@ export async function fetchDipReport(wallet: string, force = false): Promise<Dip
     return null;
   }
 }
+
+
+// ── Coin list managed from the admin screen ─────────────────────────────────
+const retiredCoins = new Set<string>();
+export const isRetiredCoin = (code: string) => retiredCoins.has(code);
+
+const colorFor = (code: string) => {
+  let h = 0;
+  for (const ch of code) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h}, 65%, 60%)`;
+};
+
+/** Merge coins added/retired from the admin screen into ASSET_CONFIG. */
+export async function loadCoinConfig(): Promise<void> {
+  try {
+    const res = await fetch("/api/coins");
+    if (!res.ok) return;
+    const data = await res.json();
+    for (const c of data?.custom ?? []) {
+      if (!ASSET_CONFIG[c.code] && c.cgId) {
+        ASSET_CONFIG[c.code] = { color: colorFor(c.code), icon: c.code.charAt(0), name: c.name || c.code, coingeckoId: c.cgId };
+      }
+    }
+    retiredCoins.clear();
+    for (const code of data?.retired ?? []) retiredCoins.add(code);
+  } catch {
+    /* built-in list keeps working */
+  }
+}
+
+export interface CoinSearchResult { id: string; code: string; name: string; rank: number | null }
+
+export async function searchCoins(wallet: string, q: string): Promise<CoinSearchResult[]> {
+  try {
+    const res = await fetchWithRetry(`/api/admin/coins-search?wallet=${wallet}&admin_wallet=${wallet}&q=${encodeURIComponent(q)}`);
+    if (!res.ok) return [];
+    return ((await res.json())?.results ?? []) as CoinSearchResult[];
+  } catch {
+    return [];
+  }
+}
+
+export async function manageCoin(
+  wallet: string,
+  action: "add" | "retire" | "restore",
+  code: string,
+  cgId = "",
+  name = "",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchWithRetry("/api/admin/coins", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, action, code, cgId, name }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) return { ok: false, error: data?.error || "Failed" };
+    await loadCoinConfig();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Network error" };
+  }
+}
