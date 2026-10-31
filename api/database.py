@@ -4031,10 +4031,17 @@ def get_scout() -> Dict:
     if cand_doc and (datetime.utcnow() - cand_doc["at"]) < timedelta(hours=24):
         cands, swyftx_checked = cand_doc["cands"], cand_doc.get("swyftxChecked", False)
     else:
-        try:
-            markets = _coingecko_get("/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h", timeout=25)
-        except Exception as e:
-            return {"review": review, "candidates": [], "results": [], "pending": [], "error": f"CoinGecko: {e}"}
+        markets, last_err = None, None
+        for attempt in range(3):
+            try:
+                markets = _coingecko_get("/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h", timeout=25)
+                break
+            except Exception as e:
+                last_err = e
+                time.sleep(4 * (attempt + 1))  # rate limited: wait and retry
+        if markets is None:
+            return {"review": review, "candidates": [], "results": [], "pending": [],
+                    "error": f"CoinGecko is busy ({last_err}). Tap Refresh in a minute."}
         tracked_codes = set(ASSET_CG_IDS.keys()) | {d["code"] for d in coin_config_collection.find({"status": "custom"})}
         tracked_codes |= {d["code"] for d in coin_config_collection.find({"status": "retired"})}
         tracked_ids = set(ASSET_CG_IDS.values())
@@ -4057,7 +4064,7 @@ def get_scout() -> Dict:
             continue
         results.append({**r, "id": r["coin"], "code": meta.get("code"), "name": meta.get("name"), "rank": meta.get("rank")})
     pending = [c["id"] for c in cands if f"cg:{c['id']}" not in fresh]
-    return {"review": review, "candidates": cands, "results": results[:10], "pending": pending,
+    return {"review": review, "candidates": cands, "results": results[:15], "pending": pending,
             "swyftxChecked": swyftx_checked, "tested": len(series)}
 
 
