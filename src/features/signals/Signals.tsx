@@ -7,13 +7,15 @@ import {
   fetchSignalsFeed,
   fetchSignalsOverview,
   fetchSignalsProgress,
+  fetchSignalsStatus,
+  type SignalsStatus,
   type SignalsLeaderboard,
   type SignalPosition,
   type SignalsOverview,
   type SignalsProgress,
 } from "@features/signals/services/signalsApi";
 
-const REFRESH_MS = 60_000;
+const REFRESH_MS = 30_000;
 
 const fmtUsd = (n: number | null | undefined) =>
   `${(n ?? 0) < 0 ? "-" : ""}$${Math.abs(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -32,19 +34,22 @@ const Signals = () => {
   const [feed, setFeed] = useState<SignalPosition[]>([]);
   const [overview, setOverview] = useState<SignalsOverview | null>(null);
   const [progress, setProgress] = useState<SignalsProgress | null>(null);
+  const [status, setStatus] = useState<SignalsStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [lb, sig, ov, prog] = await Promise.all([
+    const [lb, sig, ov, prog, st] = await Promise.all([
       fetchSignalsLeaderboard(),
       fetchSignalsFeed(),
       fetchSignalsOverview(),
       fetchSignalsProgress(),
+      fetchSignalsStatus(),
     ]);
     setLeaderboard(lb);
     setFeed(sig);
     setOverview(ov);
     setProgress(prog);
+    setStatus(st);
     setLoading(false);
   }, []);
 
@@ -85,6 +90,9 @@ const Signals = () => {
           <FaSync size={13} className={`text-slate-400 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
+
+      {/* Live pipeline status — says in plain words whether Signals is working */}
+      {status && <StatusCard status={status} />}
 
       {/* Overview strip */}
       {overview && (
@@ -260,6 +268,53 @@ const Signals = () => {
     </div>
   );
 };
+
+const levelStyle = {
+  ok: { color: "#22c55e", bg: "rgba(34,197,94,0.08)", border: "rgba(34,197,94,0.3)", icon: "✅" },
+  warn: { color: "#f59e0b", bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.3)", icon: "⚠️" },
+  error: { color: "#ef4444", bg: "rgba(239,68,68,0.08)", border: "rgba(239,68,68,0.3)", icon: "⛔" },
+} as const;
+
+const ago = (iso: string | null | undefined) => {
+  if (!iso) return "never";
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.floor(mins / 60);
+  return h < 48 ? `${h} h ago` : `${Math.floor(h / 24)} days ago`;
+};
+
+const StatusCard = ({ status }: { status: SignalsStatus }) => {
+  const st = levelStyle[status.verdict.level];
+  return (
+    <div className="rounded-2xl p-4 mb-4" style={{ background: st.bg, border: `1px solid ${st.border}` }}>
+      <div className="flex items-start gap-2">
+        <span className="text-base leading-none mt-0.5">{st.icon}</span>
+        <div className="min-w-0">
+          <div className="text-sm font-bold" style={{ color: st.color }}>{status.verdict.headline}</div>
+          <div className="text-[12px] text-slate-400 mt-1 leading-relaxed">{status.verdict.detail}</div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-1.5 mt-3 pt-3 text-[11px]" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        <Fact label="Last message from Helius" value={ago(status.webhook.lastDeliveryAt)} />
+        <Fact label="Messages received" value={status.webhook.deliveriesOk.toLocaleString()} />
+        <Fact label="Swaps seen (24h)" value={String(status.events.last24h)} />
+        <Fact label="Paper trades opened (24h)" value={String(status.paperTrades.opened24h)} />
+        <Fact label="Wallets followed" value={String(status.wallets.trackedWallets)} />
+        <Fact label="Still proving themselves" value={String(status.wallets.pendingWallets)} />
+        <Fact label="Wallet list refreshed" value={ago(status.jobs.walletRefreshAt)} />
+        <Fact label="Price checker last ran" value={ago(status.jobs.pricingJobAt)} />
+      </div>
+    </div>
+  );
+};
+
+const Fact = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex justify-between gap-2">
+    <span className="text-slate-500">{label}</span>
+    <span className="font-bold text-slate-300">{value}</span>
+  </div>
+);
 
 const StatCard = ({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) => (
   <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>

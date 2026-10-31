@@ -132,3 +132,30 @@ export async function fetchSignalsProgress(limit = 30): Promise<SignalsProgress 
     return null;
   }
 }
+
+export interface SignalsStatus {
+  verdict: { level: "ok" | "warn" | "error"; headline: string; detail: string };
+  wallets: { trackedWallets: number; pendingWallets: number; activeWallets: number };
+  webhook: {
+    connected: boolean;
+    deliveriesOk: number;
+    deliveriesRejected: number;
+    lastDeliveryAt: string | null;
+    lastSyncError: string | null;
+  };
+  events: { total: number; last24h: number; lastAt: string | null };
+  paperTrades: { open: number; closed: number; opened24h: number; closed24h: number; lastOpenedAt: string | null };
+  jobs: { walletRefreshAt: string | null; pricingJobAt: string | null };
+  serverTime: string;
+}
+
+/** Plain-English health of the whole Signals pipeline (public, aggregate only). */
+export async function fetchSignalsStatus(): Promise<SignalsStatus | null> {
+  try {
+    const res = await fetchWithRetry("/api/copytrade/status");
+    if (!res.ok) return null;
+    return (await res.json()) as SignalsStatus;
+  } catch {
+    return null;
+  }
+}

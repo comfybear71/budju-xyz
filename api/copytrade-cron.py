@@ -32,7 +32,7 @@ from database import (
 )
 from copytrade_dune import fetch_dune_candidate_wallets
 from copytrade_filters import score_wallet
-from copytrade_helius import sync_helius_webhook, addresses_hash
+from copytrade_helius import sync_helius_webhook, addresses_hash, COPYTRADE_WEBHOOK_URL
 from copytrade_engine import get_dexscreener_prices, COPYTRADE_STOP_LOSS_PCT, COPYTRADE_MAX_HOLD_HOURS
 
 CRON_SECRET = os.getenv("CRON_SECRET", "")
@@ -93,7 +93,7 @@ def _refresh_wallets_if_due() -> dict:
     # its swaps flowing in via this very webhook before it can ever earn
     # enough closed trades to be scored active in the first place.
     trackable_addresses = get_trackable_copytrade_wallet_addresses()
-    new_hash = addresses_hash(trackable_addresses) if trackable_addresses else None
+    new_hash = addresses_hash(trackable_addresses, COPYTRADE_WEBHOOK_URL) if trackable_addresses else None
     webhook_result = {"skipped": "no trackable wallets or unchanged"}
     if trackable_addresses and new_hash != state.get("heliusAddressesHash"):
         webhook_result = sync_helius_webhook(trackable_addresses, state.get("heliusWebhookId"))
@@ -101,13 +101,20 @@ def _refresh_wallets_if_due() -> dict:
             save_copytrade_state({
                 "heliusWebhookId": webhook_result["webhookId"],
                 "heliusAddressesHash": new_hash,
+                "heliusWebhookUrl": COPYTRADE_WEBHOOK_URL,
+                "lastWebhookSyncAt": now,
+                "lastWebhookSyncError": None,
                 "walletsRefreshedAt": now,
             })
         else:
             # Don't hammer Dune/Helius again in 5 minutes just because the
             # webhook push failed (e.g. no HELIUS_API_KEY yet) — still mark
             # the wallet-list refresh itself as done.
-            save_copytrade_state({"walletsRefreshedAt": now})
+            save_copytrade_state({
+                "walletsRefreshedAt": now,
+                "lastWebhookSyncAt": now,
+                "lastWebhookSyncError": str(webhook_result.get("error"))[:200],
+            })
     else:
         save_copytrade_state({"walletsRefreshedAt": now})
 
@@ -122,6 +129,7 @@ def _refresh_wallets_if_due() -> dict:
 
 
 def run_copytrade_cron() -> dict:
+    save_copytrade_state({"lastCronAt": datetime.utcnow()})  # "is the job running" heartbeat for the status card
     positions_result = _price_and_manage_open_positions()
     wallets_result = _refresh_wallets_if_due()
     return {
