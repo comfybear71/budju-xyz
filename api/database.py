@@ -4241,3 +4241,31 @@ def get_sizing_preview(admin_wallet: str) -> Dict:
                      "careful": info.get("careful", False), "heldUsd": round(held_usd, 2),
                      "roomUsd": round(max(0.0, cap - held_usd), 2) if cap else None})
     return {"settings": st, "rows": rows}
+
+
+def get_health_check(admin_wallet: str) -> Dict:
+    """Admin: time each thing the Trade page depends on, so 'it is slow' turns
+    into 'THIS is slow'."""
+    import traceback
+    out: Dict = {}
+
+    def timed(name, fn):
+        t = time.time()
+        try:
+            res = fn()
+            out[name] = {"ok": True, "seconds": round(time.time() - t, 2), "detail": res}
+        except Exception as e:
+            out[name] = {"ok": False, "seconds": round(time.time() - t, 2), "error": f"{type(e).__name__}: {str(e)[:160]}"}
+
+    timed("database", lambda: client.admin.command("ping") and "ok")
+    timed("coingecko", lambda: list(_coingecko_get("/ping", timeout=10).keys()))
+    timed("adminSwyftx", lambda: f"{len(_get_user_swyftx_client(admin_wallet).get_holdings())} coins held")
+    timed("prices", lambda: f"{len(get_prices_for_coins(['BTC', 'ETH', 'SOL']))} prices")
+
+    def board():
+        lb = get_live_leaderboard()
+        return f"{len(lb.get('entries', []))} wallets, {lb.get('erroredWallets', lb.get('errored', 0))} errored"
+    timed("leaderboard", board)
+    out["wallets"] = user_exchange_keys_collection.count_documents({"encryptedApiKey": {"$exists": True}})
+    out["hasCoinGeckoKey"] = bool(COINGECKO_API_KEY)
+    return out
