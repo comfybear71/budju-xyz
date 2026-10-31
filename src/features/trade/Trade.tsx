@@ -728,16 +728,12 @@ const Trade = () => {
                           onClick: () => { setShowTriggerView(!showTriggerView); setShowTradePanel(false); setShowAutoAdmin(false); setShowHighRisk(false); } },
                         { key: "auto", label: "Auto", icon: "\u2728", active: showAutoAdmin, color: "emerald",
                           onClick: () => { setShowAutoAdmin(!showAutoAdmin); setShowTradePanel(false); setShowTriggerView(false); setShowHighRisk(false); } },
-                        { key: "perf", label: "P&L", icon: "📊", active: showPerformance, color: "green",
-                          onClick: () => setShowPerformance(true) },
                         { key: "coinstats", label: "Coin Stats", icon: "\uD83E\uDE99", active: showStats, color: "teal",
                           onClick: () => setShowStats(true) },
                         { key: "desk", label: "Desk", icon: "\u2600\uFE0F", active: false, color: "teal",
                           onClick: () => navigate("/desk") },
                         { key: "signals", label: "Signals", icon: "\uD83C\uDFAF", active: false, color: "blue",
                           onClick: () => navigate("/signals") },
-                        { key: "highrisk", label: "High Risk", icon: "\uD83D\uDD25", active: showHighRisk, color: "red",
-                          onClick: () => { setShowHighRisk(!showHighRisk); setShowTradePanel(false); setShowTriggerView(false); setShowAutoAdmin(false); } },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
                       ] as const)
@@ -844,26 +840,6 @@ const Trade = () => {
                           <span className="text-[8px] bg-blue-500/15 text-blue-300 px-1 py-0.5 rounded font-mono border border-blue-500/20 align-middle">NEW</span>
                         </div>
                         <div className="text-[10px] font-bold text-blue-400">Paper trading</div>
-                      </div>
-                    </button>
-                    {/* Live Charts + AI Predictions */}
-                    <button
-                      onClick={() => { setShowHighRisk(!showHighRisk); setShowTriggerView(false); }}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
-                      style={{
-                        background: showHighRisk ? "rgba(239,68,68,0.15)" : "rgba(239,68,68,0.08)",
-                        border: `1px solid ${showHighRisk ? "rgba(239,68,68,0.4)" : "rgba(239,68,68,0.2)"}`,
-                      }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(239,68,68,0.15)" }}>
-                        <span className="text-sm">📈</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
-                          Live Charts{" "}
-                          <span className="text-[8px] bg-blue-500/15 text-blue-400 px-1 py-0.5 rounded font-mono border border-blue-500/20 align-middle">NEW</span>
-                        </div>
-                        <div className="text-[10px] font-bold text-red-400">AI Predictions</div>
                       </div>
                     </button>
                     {/* Stats */}
