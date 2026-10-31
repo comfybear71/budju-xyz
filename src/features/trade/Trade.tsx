@@ -30,7 +30,6 @@ import {
   fetchCashBalances,
   fetchUserPosition,
   fetchTraderState,
-  fetchEnrichedPendingOrders,
   fetchLivePosition,
   fetchPersonalPricedHoldings,
   fetchLiveLeaderboard,
@@ -83,6 +82,9 @@ const Trade = () => {
   const [audBalance, setAudBalance] = useState(0);
   const [userPosition, setUserPosition] = useState<UserPosition | null>(null);
   const [livePosition, setLivePosition] = useState<LivePosition | null>(null);
+  // True while this wallet's own balance is still loading (so we can say so instead of showing $0).
+  const [positionLoading, setPositionLoading] = useState(false);
+  const livePositionLoadedRef = useRef(false);
   // This wallet's own per-coin holdings (non-admin "Mine" view) — real
   // coins from THEIR OWN Swyftx key (e.g. FLR, ARB, CC), not a slice of
   // the pooled master account scaled by a legacy allocation %.
@@ -97,7 +99,6 @@ const Trade = () => {
   const [communityCashFlows, setCommunityCashFlows] = useState<CommunityCashFlows | null>(null);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
-  const [pendingOrderCount, setPendingOrderCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<
     "connected" | "connecting" | "error"
@@ -191,10 +192,13 @@ const Trade = () => {
       setApiStatus("connecting");
       activityLog.log("Connecting to exchange and price feeds...", "info");
 
-      // Start the slow, independent reads (each one reads every connected
-      // wallet's own Swyftx account server-side) RIGHT NOW so they overlap
-      // with the first wave below instead of queueing behind it. None of
-      // them need priceData/poolVal.
+      // Start every slow read NOW (each one reads one or more wallets' own
+      // Swyftx accounts server-side), and put each result on screen the
+      // moment IT arrives — never wait for the slowest. A normal user's own
+      // balance used to sit behind the all-wallets cash-flow read, so it took
+      // ages to appear.
+      if (isConnected && !livePositionLoadedRef.current) setPositionLoading(true);
+
       const earlyTraderState = fetchTraderState();
       const earlyLivePosition = isConnected ? fetchLivePosition(walletAddress) : Promise.resolve(null);
       const earlyMyHoldings = isConnected && !isAdmin ? fetchPersonalPricedHoldings(walletAddress) : Promise.resolve([]);
@@ -202,12 +206,30 @@ const Trade = () => {
       const earlyMyCashFlows = isConnected ? fetchWalletCashFlows(walletAddress) : Promise.resolve(null);
       const earlyCommunityCashFlows = fetchCommunityCashFlows();
 
-      // Use allSettled so one failing source never kills the whole page
+      earlyTraderState.then(setTraderState).catch(() => setTraderState(null));
+      // This wallet's REAL cumulative cash + crypto, read live from their own
+      // linked Swyftx key — what "My Position" displays. Null if no active key.
+      earlyLivePosition
+        .then((v) => {
+          livePositionLoadedRef.current = !!v;
+          setLivePosition(isConnected ? v : null);
+        })
+        .catch(() => setLivePosition(null))
+        .finally(() => setPositionLoading(false));
+      // This wallet's own per-coin holdings (non-admin; the admin's own
+      // account already arrives as `assets`).
+      earlyMyHoldings.then((v) => setMyHoldings(isConnected && !isAdmin ? v : [])).catch(() => setMyHoldings([]));
+      earlyLeaderboard.then(setLiveLeaderboard).catch(() => setLiveLeaderboard(null));
+      earlyMyCashFlows.then((v) => setMyCashFlows(isConnected ? v : null)).catch(() => setMyCashFlows(null));
+      earlyCommunityCashFlows.then(setCommunityCashFlows).catch(() => setCommunityCashFlows(null));
+
+      // First wave. The admin's own Swyftx account (portfolio, cash) is only
+      // for the admin — everyone else needs just prices, which are fast.
       const results = await Promise.allSettled([
-        fetchPortfolio(),
+        isAdmin ? fetchPortfolio() : Promise.resolve([]),
         fetchPrices(),
         fetchChanges(),
-        fetchCashBalances(),
+        isAdmin ? fetchCashBalances() : Promise.resolve({ usdc: 0, aud: 0 }),
       ]);
 
       const portfolioData =
@@ -247,87 +269,21 @@ const Trade = () => {
       }
       setChanges(enrichedChanges);
 
-      // Show the page as soon as the core data (balances + prices) is in.
-      // The slower community reads below fill in as they arrive instead of
-      // keeping the whole page on a spinner until the slowest one finishes.
+      // Show the page as soon as prices (and, for the admin, balances) are in.
       setLoading(false);
 
       // Calculate pool value for MongoDB queries (crypto + cash)
       const poolVal = merged.reduce((s, a) => s + a.usdValue, 0) + cashData.usdc + cashData.aud * AUD_TO_USD;
 
-      // Second wave: trader state, pending orders, this wallet's own
-      // position/holdings/cash-flows, and the two community-wide reads
-      // (leaderboard + cash flows). These used to be awaited ONE AT A TIME
-      // in sequence — several of them (fetchLiveLeaderboard,
-      // fetchCommunityCashFlows) each read every connected wallet's own
-      // Swyftx account server-side, so stacking them serially on top of
-      // each other made the page noticeably slow to load even with only a
-      // handful of connected wallets. None of these actually depend on
-      // each other (only on priceData/poolVal from the FIRST wave above),
-      // so firing them together lets them overlap instead of queueing.
-      const [
-        traderStateResult,
-        pendingOrdersResult,
-        userPositionResult,
-        livePositionResult,
-        myHoldingsResult,
-        leaderboardResult,
-        myCashFlowsResult,
-        communityCashFlowsResult,
-      ] = await Promise.allSettled([
-        earlyTraderState,
-        fetchEnrichedPendingOrders(priceData),
-        isConnected && poolVal > 0 ? fetchUserPosition(walletAddress, poolVal) : Promise.resolve(null),
-        earlyLivePosition,
-        earlyMyHoldings,
-        earlyLeaderboard,
-        earlyMyCashFlows,
-        earlyCommunityCashFlows,
-      ]);
-
-      // Fetch trader state for insight cards (bot status, tier config)
-      setTraderState(traderStateResult.status === "fulfilled" ? traderStateResult.value : null);
-
-      // Fetch live pending order count from Swyftx (not stale MongoDB data)
-      setPendingOrderCount(pendingOrdersResult.status === "fulfilled" ? pendingOrdersResult.value.length : 0);
-
-      // Fetch this wallet's pooled-shares allocation — still needed for the
-      // legacy "Mine/Pool" holdings toggle and the admin's deposit/withdrawal
-      // tools, which track the shared legacy Swyftx account separately from
-      // each wallet's own non-custodial key below.
-      if (isConnected && poolVal > 0 && userPositionResult.status === "fulfilled") {
-        setUserPosition(userPositionResult.value);
+      // Legacy pooled-shares position, only when there is a pool value to
+      // compute it against (the admin's own account).
+      if (isConnected && poolVal > 0) {
+        fetchUserPosition(walletAddress, poolVal).then(setUserPosition).catch(() => {});
       }
 
-      // Fetch this wallet's REAL cumulative cash + crypto balance, read live
-      // from their own linked Swyftx key — this is what "Your Position"
-      // displays now, not a pooled-shares allocation. Null if no active key.
-      setLivePosition(
-        isConnected && livePositionResult.status === "fulfilled" ? livePositionResult.value : null,
-      );
-
-      // This wallet's own real per-coin holdings for the "Mine" Holdings
-      // grid (non-admin only — admin's "Mine" is already the real master
-      // account via `assets` above, nothing extra to fetch).
-      setMyHoldings(
-        isConnected && !isAdmin && myHoldingsResult.status === "fulfilled" ? myHoldingsResult.value : [],
-      );
-
-      // Combined total across every connected wallet (public) — this is now
-      // the default "Pool" figure everywhere on this page, matching what
-      // the Leaderboard shows, instead of just the admin's own account.
-      setLiveLeaderboard(leaderboardResult.status === "fulfilled" ? leaderboardResult.value : null);
-
-      // Growth/P&L history for the card's area chart — this wallet's own
-      // deposit/withdrawal history (public, any connected wallet — not
-      // admin-gated) for "Mine", and the combined timeline across every
-      // wallet for "Pool".
-      setMyCashFlows(
-        isConnected && myCashFlowsResult.status === "fulfilled" ? myCashFlowsResult.value : null,
-      );
-      setCommunityCashFlows(
-        communityCashFlowsResult.status === "fulfilled" ? communityCashFlowsResult.value : null,
-      );
+      // "Connected" as soon as this wallet's own balance is in; the slower
+      // community reads above keep filling the page in behind it.
+      await Promise.allSettled([earlyLivePosition]);
 
       activityLog.log("Connected — all data loaded", "success");
       setApiStatus("connected");
@@ -615,8 +571,13 @@ const Trade = () => {
                     ? assets
                     : viewingMine
                       ? [
-                          synth("USDC", "Cash", livePosition?.cashValue ?? 0, "#22c55e"),
-                          synth("CRYPTO", "Crypto", livePosition?.cryptoValue ?? 0, "#8b5cf6"),
+                          // Every coin this wallet holds (like the admin's own chart)…
+                          ...myHoldings.filter((a) => a.usdValue > 0),
+                          // …plus each cash currency on its own, in USD.
+                          synth("USDC", "USDC", livePosition?.cashByCurrency?.USDC ?? 0, "#22c55e"),
+                          synth("AUD", "AUD", (livePosition?.cashByCurrency?.AUD ?? 0) * AUD_TO_USD, "#f59e0b"),
+                          synth("USD", "USD", livePosition?.cashByCurrency?.USD ?? 0, "#38bdf8"),
+                          synth("USDT", "USDT", livePosition?.cashByCurrency?.USDT ?? 0, "#14b8a6"),
                         ].filter((a) => a.usdValue > 0)
                       : liveLeaderboard
                         ? liveLeaderboard.entries
@@ -685,7 +646,9 @@ const Trade = () => {
                     usdcBalance={usdcBalance}
                     label={viewingMine ? "My Position" : "Pool Total"}
                     subtitle={
-                      viewingMine && isAdmin
+                      viewingMine && !isAdmin && positionLoading
+                        ? "Loading your live Swyftx balance…"
+                        : viewingMine && isAdmin
                         ? `${assets.filter((a) => a.code !== "AUD" && a.code !== "USDC").length} assets + cash`
                         : viewingMine
                           ? "Your live Swyftx balance"
@@ -771,29 +734,10 @@ const Trade = () => {
                     className="flex gap-2 overflow-x-auto pb-1 mb-3 -mx-1 px-1 snap-x"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
                   >
-                    {/* Orders */}
-                    <button
-                      onClick={() => setShowTriggerView(!showTriggerView)}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
-                      style={{ background: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)" }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(168,85,247,0.15)" }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a855f7" strokeWidth="2">
-                          <circle cx="12" cy="12" r="10" />
-                          <polyline points="12 6 12 12 16 14" />
-                        </svg>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300">Orders</div>
-                        <div className="text-[10px] font-bold text-purple-400">
-                          {pendingOrderCount > 0 ? `${pendingOrderCount} pending` : "None"}
-                        </div>
-                      </div>
-                    </button>
                     {/* Auto Trader */}
                     <button
                       onClick={() => setShowAutoTrader(true)}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
                       style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
                     >
                       <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
@@ -811,14 +755,14 @@ const Trade = () => {
                     {/* BUDJU Desk — daily AI briefing */}
                     <button
                       onClick={() => navigate("/desk")}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
                       style={{ background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.2)" }}
                     >
                       <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(20,184,166,0.15)" }}>
                         <span className="text-sm">☀️</span>
                       </div>
                       <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                        <div className="text-[11px] font-bold text-slate-300 leading-tight">
                           Desk{" "}
                           <span className="text-[8px] bg-teal-500/15 text-teal-300 px-1 py-0.5 rounded font-mono border border-teal-500/20 align-middle">NEW</span>
                         </div>
@@ -828,14 +772,14 @@ const Trade = () => {
                     {/* Signals — copy-trading paper trading sandbox */}
                     <button
                       onClick={() => navigate("/signals")}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
                       style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
                     >
                       <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
                         <span className="text-sm">🎯</span>
                       </div>
                       <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                        <div className="text-[11px] font-bold text-slate-300 leading-tight">
                           Signals{" "}
                           <span className="text-[8px] bg-blue-500/15 text-blue-300 px-1 py-0.5 rounded font-mono border border-blue-500/20 align-middle">NEW</span>
                         </div>
@@ -845,7 +789,7 @@ const Trade = () => {
                     {/* Stats */}
                     <button
                       onClick={() => setShowStats(true)}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
                       style={{ background: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.2)" }}
                     >
                       <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(20,184,166,0.15)" }}>
@@ -868,18 +812,18 @@ const Trade = () => {
                     {hasBudjuGateAccess && (
                       <button
                         onClick={() => setShowPersonalTrading(true)}
-                        className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start"
+                        className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
                         style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)" }}
                       >
                         <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(16,185,129,0.15)" }}>
                           <span className="text-sm">🔑</span>
                         </div>
                         <div className="text-left">
-                          <div className="text-[11px] font-bold text-slate-300 whitespace-nowrap">
+                          <div className="text-[11px] font-bold text-slate-300 leading-tight">
                             My Exchange Key{" "}
                             <span className="text-[8px] bg-emerald-500/15 text-emerald-300 px-1 py-0.5 rounded font-mono border border-emerald-500/20 align-middle">NEW</span>
                           </div>
-                          <div className="text-[10px] font-bold text-emerald-400">Trade your own account</div>
+                          <div className="text-[10px] font-bold text-emerald-400 leading-tight">Trade your own account</div>
                         </div>
                       </button>
                     )}
