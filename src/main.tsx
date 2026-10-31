@@ -8,6 +8,9 @@ import { installAuthFetch } from "@lib/services/authSession";
 // Attach the wallet sign-in pass to /api calls (and ask for one when a protected action needs it)
 installAuthFetch();
 
+// Pick up coins added/retired from the admin screen
+import("@features/trade/services/tradeApi").then((m) => m.loadCoinConfig()).catch(() => {});
+
 // Add Buffer polyfill
 import { Buffer } from "buffer";
 (window as any).Buffer = Buffer;

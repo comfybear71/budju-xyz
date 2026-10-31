@@ -3877,3 +3877,80 @@ def get_dip_report(force: bool = False) -> Dict:
     if len(report["coins"]) >= 15:  # don't cache a mostly-failed run
         dip_report_cache_collection.replace_one({"_id": "latest"}, {"_id": "latest", "at": now, "report": report}, upsert=True)
     return {**report, "cached": False, "at": now.isoformat() + "Z"}
+
+
+# ==========================================
+# Coin list managed from the admin screen
+# ==========================================
+# The built-in list stays in code. This collection adds coins ("custom") and
+# hides coins from the add-picker ("retired"), so coins can be added or
+# dropped without a code change. Backend pricing already works for any coin
+# (resolve_coingecko_id); storing the CoinGecko id here pins it exactly.
+coin_config_collection = db["coin_config"]
+
+
+def get_coin_config() -> Dict:
+    custom, retired = [], []
+    for d in coin_config_collection.find({}):
+        if d.get("status") == "retired":
+            retired.append(d["code"])
+        elif d.get("status") == "custom":
+            custom.append({"code": d["code"], "name": d.get("name") or d["code"], "cgId": d.get("cgId")})
+    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired)}
+
+
+def search_coins(query: str) -> Dict:
+    q = (query or "").strip()
+    if len(q) < 2:
+        return {"results": []}
+    from urllib.parse import quote
+    try:
+        data = _coingecko_get(f"/search?query={quote(q)}", timeout=15)
+    except Exception as e:
+        return {"results": [], "error": str(e)}
+    out = []
+    for c in (data.get("coins") or [])[:8]:
+        out.append({"id": c.get("id"), "code": str(c.get("symbol", "")).upper(),
+                    "name": c.get("name"), "rank": c.get("market_cap_rank")})
+    return {"results": out}
+
+
+def manage_coin(action: str, code: str, cg_id: str = "", name: str = "") -> Dict:
+    import re
+    code = (code or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9]{2,12}", code):
+        return {"error": "Bad coin code"}
+    if action == "add":
+        cg_id = (cg_id or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9\-]{2,80}", cg_id):
+            return {"error": "Bad CoinGecko id"}
+        try:
+            px = _coingecko_get(f"/simple/price?ids={cg_id}&vs_currencies=usd", timeout=15)
+        except Exception as e:
+            return {"error": f"CoinGecko check failed: {e}"}
+        if not (px.get(cg_id) or {}).get("usd"):
+            return {"error": "CoinGecko has no price for that id"}
+        coin_config_collection.update_one(
+            {"_id": code},
+            {"$set": {"code": code, "status": "custom", "cgId": cg_id, "name": (name or code)[:40], "at": datetime.utcnow()}},
+            upsert=True,
+        )
+        dynamic_coin_registry_collection.update_one(
+            {"code": code}, {"$set": {"cgId": cg_id, "resolvedAt": datetime.utcnow()}}, upsert=True)
+        return {"ok": True, **get_coin_config()}
+    if action == "retire":
+        existing = coin_config_collection.find_one({"_id": code}) or {}
+        coin_config_collection.update_one(
+            {"_id": code},
+            {"$set": {"code": code, "status": "retired", "cgId": existing.get("cgId"), "name": existing.get("name"), "at": datetime.utcnow()}},
+            upsert=True,
+        )
+        return {"ok": True, **get_coin_config()}
+    if action == "restore":
+        existing = coin_config_collection.find_one({"_id": code}) or {}
+        if existing.get("cgId"):
+            coin_config_collection.update_one({"_id": code}, {"$set": {"status": "custom"}})
+        else:
+            coin_config_collection.delete_one({"_id": code})
+        return {"ok": True, **get_coin_config()}
+    return {"error": "Unknown action"}
