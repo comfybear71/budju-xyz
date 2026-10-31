@@ -507,8 +507,10 @@ class SwyftxClient:
                     print(f"[fill] no usable fill qty in order reply; keys={sorted(verify.keys())[:20]}"
                           f" order-keys={sorted((verify.get('order') or {}).keys())[:20] if isinstance(verify.get('order'), dict) else None}",
                           flush=True)
-            except Exception:
-                pass  # Verification failed — assume order is OK (don't block on verify failure)
+            except Exception as e:
+                # Verification failed — assume the order is OK (don't block on
+                # it), but say so: this used to be completely silent.
+                print(f"[fill] order check failed for {order_id}: {type(e).__name__}: {e}", flush=True)
             return True, order_id, None
         err = data.get("error") or data.get("message") or "No order confirmation"
         return False, None, str(err) if isinstance(err, str) else json.dumps(err)
