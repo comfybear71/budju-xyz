@@ -77,6 +77,16 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
     loadTransactions();
   }, [isOpen, loadTransactions]);
 
+  // Does this row belong to the wallet looking at it? (No wallet on the row =
+  // it came from this wallet's own feed.)
+  const isOwn = (t: TradeTransaction) => !t.wallet || !walletAddress || t.wallet === walletAddress;
+  // A feed that mixes in other wallets' rows (the admin's pool view) gets a
+  // "YOU" tag on its own rows so they stand out at a glance.
+  const mixedFeed = useMemo(
+    () => !!walletAddress && transactions.some((t) => t.wallet && t.wallet !== walletAddress),
+    [transactions, walletAddress],
+  );
+
   const filtered = useMemo(
     () =>
       filter === "all"
@@ -227,7 +237,7 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="text-xs font-bold text-white capitalize">{filter}</span>
+                            <span className={`text-xs font-bold capitalize ${cfg.color}`}>{filter}</span>
                             <span className="text-[10px] text-slate-500 font-mono">{g.coin}</span>
                             <FaChevronDown
                               size={8}
@@ -265,7 +275,10 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
                                   className="flex items-center justify-between gap-2 text-[11px] px-2 py-1.5 rounded hover:bg-slate-800/30"
                                 >
                                   <div>
-                                    <span className="text-slate-400 font-mono">{t.walletShort || "—"}</span>
+                                    <span className={`font-mono ${isOwn(t) && mixedFeed ? "text-white font-bold" : "text-slate-400"}`}>{t.walletShort || "—"}</span>
+                                    {isOwn(t) && mixedFeed && (
+                                      <span className="ml-1.5 text-[8px] font-bold px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 align-middle">YOU</span>
+                                    )}
                                     <span className="text-slate-600 ml-2">{formatDate(t.timestamp)}</span>
                                   </div>
                                   <div className="text-right font-mono">
@@ -316,9 +329,12 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-xs font-bold text-white capitalize">{tx.type}</span>
+                          <span className={`text-xs font-bold capitalize ${isOwn(tx) ? cfg.color : "text-slate-300"}`}>{tx.type}</span>
                           {tx.coin && (
                             <span className="text-[10px] text-slate-500 font-mono">{tx.coin}</span>
+                          )}
+                          {mixedFeed && isOwn(tx) && (
+                            <span className="text-[8px] font-bold px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">YOU</span>
                           )}
                         </div>
                         <div className="text-[10px] text-slate-600">
