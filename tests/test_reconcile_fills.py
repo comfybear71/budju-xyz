@@ -144,3 +144,22 @@ def test_limit_caps_how_many_orders_are_examined(env):
 def test_limit_is_capped_at_the_maximum(env):
     m, _, _ = env
     assert m.MAX_LIMIT == 300 and m.APPLY_LIMIT == 150
+
+
+def test_time_limit_stops_the_call_early_without_marking_anything(env):
+    m, db, client = env
+    lookup_table(client, {"ord_pool": reply("43.1865"), "ord_user": reply("0.0001275")})
+    m.TIME_BUDGET_S = -1            # deadline already passed
+    out = m.run(ADMIN, apply=True)
+    assert out["stoppedAtTimeLimit"] is True and out["examined"] == 0
+    db.trades_collection.update_one.assert_not_called()
+    db.user_trades_collection.update_one.assert_not_called()
+
+
+def test_parallel_lookups_still_commit_every_order(env):
+    m, db, client = env
+    lookup_table(client, {"ord_pool": reply("43.1865"), "ord_user": reply("0.0001275", total="9.8")})
+    out = m.run(ADMIN, apply=True)
+    assert out["examined"] == 2 and out["stoppedAtTimeLimit"] is False
+    assert db.trades_collection.update_one.call_count == 1
+    assert db.user_trades_collection.update_one.call_count == 1

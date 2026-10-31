@@ -17,6 +17,8 @@
 # (status 4) are touched. The original recorded value is kept in
 # `estimatedQtyBefore`.
 
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from urllib.error import HTTPError
 
@@ -32,6 +34,9 @@ from swyftx_client import SWYFTX_BASE, SwyftxClient, extract_fill_qty
 PREVIEW_LIMIT = 30
 APPLY_LIMIT = 150      # default per call; &limit=N raises it
 MAX_LIMIT = 300
+TIME_BUDGET_S = 20     # stop each call after this long, whatever is left (a request that
+                       # runs too long is dropped by the browser / server)
+LOOKUP_WORKERS = 6     # Swyftx lookups in parallel
 MIN_CHANGE = 0.0005   # ignore differences under 0.05%
 SAMPLE_CHANGES = 40
 
@@ -93,21 +98,22 @@ def run(admin_wallet, apply=False, limit=None):
     stats = {"examined": 0, "changed": 0, "unchanged": 0, "skipped": {}, "retryLater": 0}
     changes = []
 
-    def process(client, doc, kind, wallet_label):
-        nonlocal budget
-        budget -= 1
+    deadline = time.monotonic() + TIME_BUDGET_S
+    stopped = {"early": False}
+
+    def commit(doc, kind, wallet_label, reply, error):
+        """Judge one looked-up order and (if applying) save the result."""
         stats["examined"] += 1
-        order_id = doc.get("swyftxId") if kind == "pool" else doc.get("orderId")
         qty_field = "amount" if kind == "pool" else "quantity"
         recorded_qty = float(doc.get(qty_field) or 0)
         recorded_price = float(doc.get("price") or 0)
-        try:
-            verdict = _judge(_lookup(client, order_id), recorded_qty, recorded_price)
-        except Exception as e:
-            if _transient(e):
+        if error is not None:
+            if _transient(error):
                 stats["retryLater"] += 1
                 return
-            verdict = {"skip": f"lookup failed: {getattr(e, 'code', type(e).__name__)}"}
+            verdict = {"skip": f"lookup failed: {getattr(error, 'code', type(error).__name__)}"}
+        else:
+            verdict = _judge(reply, recorded_qty, recorded_price)
 
         update = {"fillCheckedAt": now}
         if "skip" in verdict:
@@ -131,30 +137,52 @@ def run(admin_wallet, apply=False, limit=None):
             coll = trades_collection if kind == "pool" else user_trades_collection
             coll.update_one({"_id": doc["_id"]}, {"$set": update})
 
+    def run_batch(client, docs, kind, wallet_label):
+        """Look the docs up in parallel; commit each as it arrives; stop at the deadline."""
+        nonlocal budget
+        if not docs or budget <= 0 or time.monotonic() > deadline:
+            stopped["early"] = stopped["early"] or (budget > 0 and time.monotonic() > deadline)
+            return
+        docs = docs[:budget]
+        budget -= len(docs)
+
+        def look(doc):
+            oid = doc.get("swyftxId") if kind == "pool" else doc.get("orderId")
+            try:
+                return doc, _lookup(client, oid), None
+            except Exception as e:  # reported per order, never aborts the batch
+                return doc, None, e
+
+        with ThreadPoolExecutor(max_workers=LOOKUP_WORKERS) as pool:
+            futures = [pool.submit(look, d) for d in docs]
+            for fut in as_completed(futures):
+                if time.monotonic() > deadline:
+                    stopped["early"] = True
+                    for f in futures:
+                        f.cancel()      # not-yet-started lookups are dropped, left unmarked
+                    break
+                doc, reply, err = fut.result()
+                commit(doc, kind, wallet_label, reply, err)
+
     # Admin / pool ledger first (the admin wallet's own key).
     admin_key = user_exchange_keys_collection.find_one({"walletAddress": admin_wallet})
     if admin_key and admin_key.get("encryptedApiKey") and budget > 0:
         client = SwyftxClient(decrypt_secret(admin_key["encryptedApiKey"]))
-        for doc in _pending_pool(budget):
-            if budget <= 0:
-                break
-            process(client, doc, "pool", "admin")
+        run_batch(client, _pending_pool(budget), "pool", "admin")
 
     # Then every wallet's own ledger, each looked up with its own key.
     for key_doc in user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}):
-        if budget <= 0:
+        if budget <= 0 or stopped["early"]:
             break
         wallet = key_doc["walletAddress"]
         client = SwyftxClient(decrypt_secret(key_doc["encryptedApiKey"]))
         label = "admin" if wallet in ADMIN_WALLETS else f"{wallet[:4]}…{wallet[-4:]}"
-        for doc in _pending_user(wallet, budget):
-            if budget <= 0:
-                break
-            process(client, doc, "user", label)
+        run_batch(client, _pending_user(wallet, budget), "user", label)
 
     return {
         "mode": "CORRECTED" if apply else "preview — nothing written",
         **stats,
+        "stoppedAtTimeLimit": stopped["early"],
         "remaining": _remaining(),
         "sampleChanges": changes,
         "next": ("open the same link again until remaining is 0" if apply
