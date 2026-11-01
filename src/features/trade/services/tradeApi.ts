@@ -2605,3 +2605,34 @@ export async function fetchHealthCheck(wallet: string): Promise<HealthCheck | nu
     return null;
   }
 }
+
+
+export interface OffloadSell { coin: string; heldUsd: number; sellUsd: number; pnlUsd: number | null }
+export interface OffloadPlan {
+  sells: OffloadSell[]; skippedSells: { coin: string; heldUsd: number; sellUsd: number }[];
+  sellTotal: number; proceeds: number; buys: { coin: string; buyUsd: number }[];
+  skippedBuys: { coin: string; why: string }[]; spent: number; staysUsdc: number;
+  pnlTotal: number | null; pnlCoinsUnknown: number;
+}
+export interface OffloadWallet { wallet: string; short: string; isAdmin: boolean; usdc: number; scenarios: Record<"50" | "75", OffloadPlan> }
+export interface OffloadPreview {
+  bad: string[]; targets: string[]; capUsd: number; wallets: OffloadWallet[];
+  totals: Record<"50" | "75", { sell: number; buy: number; pnl: number }>;
+  defaults: { bad: string[]; targets: string[] };
+}
+
+/** Admin, READ-ONLY: what every wallet would sell and buy at 50% / 75%. */
+export async function fetchOffloadPreview(
+  wallet: string,
+  bad?: string[],
+  targets?: string[],
+  fresh = false,
+): Promise<OffloadPreview | null> {
+  const q = [
+    bad ? `&bad=${encodeURIComponent(bad.join(","))}` : "",
+    targets ? `&targets=${encodeURIComponent(targets.join(","))}` : "",
+    fresh ? "&fresh=1" : "",
+  ].join("");
+  const r = await adminGet("/api/admin/offload-preview", wallet, q);
+  return r && r.wallets ? (r as OffloadPreview) : null;
+}

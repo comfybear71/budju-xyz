@@ -28,3 +28,13 @@ def test_leaderboard_served_from_snapshot_and_warmed_by_cron():
     assert "refresh_leaderboard_cache" in cron
     vj = _read("vercel.json")
     assert '"path": "/api/coin-report-cron",\n      "schedule": "*/10 * * * *"' in vj
+
+
+def test_offload_preview_is_read_only_and_wired():
+    idx = _read("api", "index.py")
+    assert "path == '/api/admin/offload-preview'" in idx
+    off = _read("api", "offload.py")
+    assert "place_market_order" not in off and "record_trade" not in off      # planning only
+    db = _read("api", "database.py")
+    seg = db[db.index("def get_offload_preview"):]
+    assert "place_market_order" not in seg

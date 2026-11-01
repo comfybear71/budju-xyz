@@ -1,0 +1,173 @@
+import { useState } from "react";
+import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
+import { fetchOffloadPreview, type OffloadPreview as Preview } from "../services/tradeApi";
+
+const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const usd2 = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** READ-ONLY. Shows, wallet by wallet, what a 50% or 75% offload would sell and buy. Nothing is sold. */
+const OffloadPreview = ({ wallet }: { wallet: string }) => {
+  const [open, setOpen] = useState(false);
+  const [data, setData] = useState<Preview | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [pct, setPct] = useState<"50" | "75">("50");
+  const [bad, setBad] = useState<string[] | null>(null);
+  const [targets, setTargets] = useState<string[] | null>(null);
+  const [openWallet, setOpenWallet] = useState<string | null>(null);
+
+  const load = async (b = bad, t = targets, fresh = false) => {
+    setLoading(true);
+    setFailed(false);
+    const r = await fetchOffloadPreview(wallet, b ?? undefined, t ?? undefined, fresh);
+    if (r) {
+      setData(r);
+      if (!b) setBad(r.bad);
+      if (!t) setTargets(r.targets);
+    } else {
+      setFailed(true);
+    }
+    setLoading(false);
+  };
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !data && !loading) void load();
+  };
+
+  const flip = (list: string[], coin: string) => (list.includes(coin) ? list.filter((c) => c !== coin) : [...list, coin]);
+
+  const tot = data?.totals[pct];
+
+  return (
+    <div className="rounded-xl" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
+      <button onClick={toggle} className="w-full flex items-center justify-between px-3 py-2.5 text-left">
+        <span className="text-sm font-bold text-slate-200">🔍 Offload preview — see before selling</span>
+        {open ? <FaChevronDown size={11} className="text-slate-500" /> : <FaChevronRight size={11} className="text-slate-500" />}
+      </button>
+      {open && (
+        <div className="px-3 pb-3">
+          <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
+            <b>Nothing is sold from here.</b> Shows what each wallet would sell of the "bad" coins at 50% or 75% and how that money would be split
+            evenly across the "good" coins <i>inside the same wallet</i>. Same percentage for everyone.
+          </p>
+          <div className="flex items-center gap-2 mb-2">
+            {(["50", "75"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPct(p)}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                style={{ background: pct === p ? "rgba(245,158,11,0.25)" : "rgba(255,255,255,0.05)", color: pct === p ? "#fbbf24" : "#94a3b8" }}
+              >
+                Sell {p}%
+              </button>
+            ))}
+            <button onClick={() => load(bad, targets, true)} disabled={loading} className="text-[11px] text-slate-400 flex items-center gap-1">
+              <FaSync size={10} className={loading ? "animate-spin" : ""} /> {loading ? "Reading every wallet…" : "Refresh"}
+            </button>
+          </div>
+          {failed && <div className="text-xs text-red-400 mb-2">Couldn't load. Tap Refresh to try again.</div>}
+
+          {data && tot && (
+            <>
+              <div className="rounded-lg px-3 py-2 mb-2" style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.25)" }}>
+                <div className="text-[11px] text-slate-300">
+                  All {data.wallets.length} wallets at <b>{pct}%</b>: sells <b className="text-amber-300">{usd(tot.sell)}</b> → buys <b className="text-green-400">{usd(tot.buy)}</b>
+                  {" "}· estimated {tot.pnl >= 0 ? "profit" : "loss"} locked in{" "}
+                  <b style={{ color: tot.pnl >= 0 ? "#4ade80" : "#f87171" }}>{usd(Math.abs(tot.pnl))}</b>
+                </div>
+                <div className="text-[10px] text-slate-500">Profit/loss only counts coins with a recorded buy price. Fees (~1%) are held back.</div>
+              </div>
+
+              <div className="space-y-1 mb-2">
+                {data.wallets.map((w) => {
+                  const p = w.scenarios[pct];
+                  const isOpen = openWallet === w.wallet;
+                  return (
+                    <div key={w.wallet} className="rounded-lg bg-white/[0.03]">
+                      <button onClick={() => setOpenWallet(isOpen ? null : w.wallet)} className="w-full flex items-center justify-between px-2.5 py-2 text-left">
+                        <span className="text-[12px] font-bold text-slate-200">{w.isAdmin ? "👑 You (admin)" : `Wallet ${w.short}`}</span>
+                        <span className="text-[11px] text-slate-400">
+                          sells <b className="text-amber-300">{usd2(p.sellTotal)}</b> → buys <b className="text-green-400">{p.buys.length}</b> coins
+                        </span>
+                      </button>
+                      {isOpen && (
+                        <div className="px-2.5 pb-2.5">
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Sells {pct}%</div>
+                          {p.sells.length === 0 && <div className="text-[11px] text-slate-500">Nothing to sell here.</div>}
+                          {p.sells.map((s) => (
+                            <div key={s.coin} className="flex justify-between text-[11px] text-slate-300">
+                              <span><b>{s.coin}</b> <span className="text-slate-500">holds {usd2(s.heldUsd)}</span></span>
+                              <span>
+                                sell {usd2(s.sellUsd)}
+                                {s.pnlUsd !== null && <span style={{ color: s.pnlUsd >= 0 ? "#4ade80" : "#f87171" }}> ({s.pnlUsd >= 0 ? "+" : "−"}{usd2(Math.abs(s.pnlUsd))})</span>}
+                              </span>
+                            </div>
+                          ))}
+                          {p.skippedSells.length > 0 && (
+                            <div className="text-[10px] text-amber-400 mt-1">
+                              Too small to sell (under Swyftx's minimum): {p.skippedSells.map((s) => `${s.coin} ${usd2(s.sellUsd)}`).join(", ")}
+                            </div>
+                          )}
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mt-2 mb-1">
+                            Buys with {usd2(p.proceeds)} (after fees)
+                          </div>
+                          {p.buys.length === 0 && <div className="text-[11px] text-slate-500">Not enough to buy anything (each buy must be at least $8).</div>}
+                          {p.buys.map((b) => (
+                            <div key={b.coin} className="flex justify-between text-[11px] text-slate-300">
+                              <b>{b.coin}</b>
+                              <span className="text-green-400">buy {usd2(b.buyUsd)}</span>
+                            </div>
+                          ))}
+                          {p.skippedBuys.length > 0 && <div className="text-[10px] text-amber-400 mt-1">At the cap: {p.skippedBuys.map((s) => s.coin).join(", ")}</div>}
+                          {p.staysUsdc > 0.5 && <div className="text-[10px] text-slate-500 mt-1">{usd2(p.staysUsdc)} stays as USDC.</div>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Coins to sell (tap to leave one out)</div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {[...new Set([...(data.defaults.bad), ...(bad ?? [])])].map((c) => {
+                  const on = (bad ?? data.bad).includes(c);
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => { const nb = flip(bad ?? data.bad, c); setBad(nb); void load(nb, targets); }}
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={{ background: on ? "rgba(239,68,68,0.2)" : "rgba(255,255,255,0.05)", color: on ? "#f87171" : "#475569" }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Coins to buy (best first; tap to leave one out)</div>
+              <div className="flex flex-wrap gap-1">
+                {[...new Set([...(data.defaults.targets), ...(targets ?? [])])].map((c) => {
+                  const on = (targets ?? data.targets).includes(c);
+                  return (
+                    <button
+                      key={c}
+                      onClick={() => { const nt = flip(targets ?? data.targets, c); setTargets(nt); void load(bad, nt); }}
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      style={{ background: on ? "rgba(34,197,94,0.2)" : "rgba(255,255,255,0.05)", color: on ? "#4ade80" : "#475569" }}
+                    >
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+              {data.capUsd > 0 && <div className="text-[10px] text-slate-500 mt-2">Position cap {usd(data.capUsd)} per coin per wallet is applied.</div>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OffloadPreview;

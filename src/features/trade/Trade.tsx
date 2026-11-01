@@ -58,6 +58,7 @@ import ActivityLog from "./components/ActivityLog";
 import WalletCoinSuggestions from "./components/WalletCoinSuggestions";
 import StarterBuys from "./components/StarterBuys";
 import HealthCheck from "./components/HealthCheck";
+import OffloadPreview from "./components/OffloadPreview";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
@@ -1055,6 +1056,11 @@ const Trade = () => {
               {isAdmin && !showHighRisk && (
                 <div className="mt-3">
                   <StarterBuys wallet={walletAddress} />
+                </div>
+              )}
+              {isAdmin && !showHighRisk && (
+                <div className="mt-3">
+                  <OffloadPreview wallet={walletAddress} />
                 </div>
               )}
               {isAdmin && !showHighRisk && (
