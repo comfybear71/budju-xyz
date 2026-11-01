@@ -4663,3 +4663,71 @@ def get_coingecko_probe() -> Dict:
                 pass
         add(f"Top traders of {sym}", f"/onchain/networks/solana/tokens/{mint}/top_traders?traders=10")
     return out
+
+
+# ==========================================
+# Hyperliquid test (admin, read-only): is the public trader data there and usable?
+# ==========================================
+_HL_LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard"
+_HL_INFO = "https://api.hyperliquid.xyz/info"
+
+
+def _hl_get(url: str, timeout: int = 25):
+    with urlopen(Request(url, headers={"Accept": "application/json", "User-Agent": "budju-probe"}), timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _hl_info(payload: Dict, timeout: int = 15):
+    req = Request(_HL_INFO, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", "User-Agent": "budju-probe"}, method="POST")
+    with urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _hl_window(row: Dict, name: str) -> Dict:
+    for w in row.get("windowPerformances") or []:
+        if isinstance(w, (list, tuple)) and len(w) == 2 and w[0] == name and isinstance(w[1], dict):
+            return w[1]
+    return {}
+
+
+def get_hyperliquid_probe() -> Dict:
+    from hl_traders import summarize_fills, pick_leaders
+    out: Dict = {"leaderboard": {}, "leaders": [], "trader": None}
+    t = time.time()
+    try:
+        raw = _hl_get(_HL_LEADERBOARD)
+        rows = raw.get("leaderboardRows") if isinstance(raw, dict) else raw
+        rows = rows if isinstance(rows, list) else []
+        out["leaderboard"] = {"ok": True, "seconds": round(time.time() - t, 2), "rows": len(rows),
+                              "fields": sorted(rows[0].keys())[:12] if rows and isinstance(rows[0], dict) else []}
+        out["leaders"] = pick_leaders(rows, _hl_window)[:8]
+    except Exception as e:
+        out["leaderboard"] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+        return out
+    if not out["leaders"]:
+        return out
+    addr = out["leaders"][0]["address"]
+    trader: Dict = {"address": addr, "positions": [], "stats": None}
+    try:
+        st = _hl_info({"type": "clearinghouseState", "user": addr})
+        for ap in (st.get("assetPositions") or [])[:8]:
+            p = ap.get("position", ap) if isinstance(ap, dict) else {}
+            try:
+                size = float(p.get("szi") or 0)
+            except (TypeError, ValueError):
+                size = 0.0
+            trader["positions"].append({
+                "coin": p.get("coin"), "side": "long" if size > 0 else "short" if size < 0 else "flat",
+                "sizeUsd": p.get("positionValue"), "entry": p.get("entryPx"), "pnl": p.get("unrealizedPnl"),
+                "leverage": (p.get("leverage") or {}).get("value") if isinstance(p.get("leverage"), dict) else None,
+            })
+        trader["accountValue"] = (st.get("marginSummary") or {}).get("accountValue")
+    except Exception as e:
+        trader["positionsError"] = f"{type(e).__name__}: {str(e)[:140]}"
+    try:
+        fills = _hl_info({"type": "userFills", "user": addr})
+        trader["stats"] = summarize_fills(fills if isinstance(fills, list) else [])
+    except Exception as e:
+        trader["fillsError"] = f"{type(e).__name__}: {str(e)[:140]}"
+    out["trader"] = trader
+    return out

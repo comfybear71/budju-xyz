@@ -58,5 +58,13 @@ def test_coingecko_probe_is_admin_only_and_read_only():
     seg = idx[idx.index("path == '/api/admin/coingecko-probe'"):][:500]
     assert "is_admin(wallet)" in seg
     db = _read("api", "database.py")
-    probe = db[db.index("def _cg_probe"):]
+    probe = db[db.index("def _cg_probe"):db.index("def get_coingecko_probe")]
     assert "method=" not in probe          # GET only
+
+
+def test_hyperliquid_probe_only_reads():
+    db = _read("api", "database.py")
+    seg = db[db.index("_HL_LEADERBOARD ="):]
+    assert "/exchange" not in seg and "api.hyperliquid.xyz/info" in seg      # public read API only, never the trading endpoint
+    idx = _read("api", "index.py")
+    assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/hyperliquid-probe'"):][:400]
