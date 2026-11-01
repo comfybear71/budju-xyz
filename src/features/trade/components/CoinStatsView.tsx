@@ -424,7 +424,7 @@ const DetailGrid = ({ r, wide, points }: { r: Row; wide?: boolean; points?: Coin
       ) : points.length === 0 ? (
         <div className="text-[10px] text-slate-600 text-center py-4">No trade points to chart.</div>
       ) : (
-        <CoinTradeChart trades={points} avgCost={r.avgCost} currentPrice={r.currentPrice} />
+        <CoinTradeChart code={r.coin} trades={points} avgCost={r.avgCost} currentPrice={r.currentPrice} />
       )}
     </div>
     <div className={`grid ${wide ? "grid-cols-3 lg:grid-cols-4" : "grid-cols-2"} gap-x-4 gap-y-1.5`}>

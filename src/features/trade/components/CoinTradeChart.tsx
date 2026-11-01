@@ -1,7 +1,9 @@
-import { useMemo } from "react";
-import type { CoinTradePoint } from "../services/tradeApi";
+import { useEffect, useMemo, useState } from "react";
+import { fetchCoinPriceHistory, type CoinTradePoint } from "../services/tradeApi";
 
 interface Props {
+  /** Coin code — lets the chart draw the price history behind the trade dots. */
+  code?: string;
   trades: CoinTradePoint[];
   avgCost: number;
   currentPrice: number;
@@ -24,7 +26,26 @@ const fmtDate = (ms: number) =>
  * average-cost line and current price overlaid. SVG draws the lines + path
  * (preserveAspectRatio none); dots are HTML so they stay perfectly round.
  */
-const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) => {
+const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: Props) => {
+  // Price history for the soft area behind the dots (best effort — chart works without it)
+  const [history, setHistory] = useState<[number, number][]>([]);
+  const firstMs = useMemo(() => {
+    const t = trades.map((tr) => new Date(tr.t).getTime()).filter((n) => !isNaN(n));
+    return t.length ? Math.min(...t) : 0;
+  }, [trades]);
+
+  useEffect(() => {
+    if (!code || !firstMs) return;
+    let alive = true;
+    const days = Math.min(365, Math.max(2, Math.ceil((Date.now() - firstMs) / 86_400_000) + 2));
+    void fetchCoinPriceHistory(code, days).then((h) => {
+      if (alive) setHistory(h.points.map((p) => [p.timestamp, p.priceUsd] as [number, number]).filter(([t, v]) => v > 0 && t >= firstMs - 86_400_000));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [code, firstMs]);
+
   const model = useMemo(() => {
     const pts = trades
       .map((tr) => ({ ...tr, ms: new Date(tr.t).getTime() }))
@@ -39,6 +60,11 @@ const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) 
     const prices = pts.map((p) => p.price);
     if (avgCost > 0) prices.push(avgCost);
     if (currentPrice > 0) prices.push(currentPrice);
+    // Let the price history widen the range, but ignore one-off spikes (middle 90% of it)
+    if (history.length > 10) {
+      const sorted = history.map((h) => h[1]).sort((a, b) => a - b);
+      prices.push(sorted[Math.floor(sorted.length * 0.05)], sorted[Math.floor(sorted.length * 0.95)]);
+    }
     let pMin = Math.min(...prices);
     let pMax = Math.max(...prices);
     const pad = (pMax - pMin) * 0.08 || pMax * 0.05 || 1;
@@ -52,9 +78,16 @@ const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) 
     const dots = pts.map((p) => ({ left: x(p.ms), top: y(p.price), side: p.side, price: p.price }));
     const path = pts.map((p) => `${x(p.ms).toFixed(2)},${y(p.price).toFixed(2)}`).join(" ");
 
+    // Soft price-history area (clipped to the chart; drawn behind everything)
+    const hist = history.filter(([t]) => t >= tMin && t <= tMax);
+    const areaLine = hist.map(([t, v]) => `${x(t).toFixed(2)},${Math.min(100, Math.max(0, y(v))).toFixed(2)}`);
+    const area = areaLine.length > 1 ? `${areaLine[0].split(",")[0]},100 ${areaLine.join(" ")} ${areaLine[areaLine.length - 1].split(",")[0]},100` : "";
+
     return {
       dots,
       path,
+      area,
+      areaLine: areaLine.join(" "),
       avgY: avgCost > 0 ? y(avgCost) : null,
       curY: currentPrice > 0 ? y(currentPrice) : null,
       tMin,
@@ -62,7 +95,7 @@ const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) 
       pMin: pMin + pad,
       pMax: pMax - pad,
     };
-  }, [trades, avgCost, currentPrice]);
+  }, [trades, avgCost, currentPrice, history]);
 
   if (!model) {
     return (
@@ -78,6 +111,7 @@ const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) 
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: "#ef4444" }} /> Sell</span>
         <span className="flex items-center gap-1"><span className="w-3 h-px" style={{ background: "#f59e0b", borderTop: "1px dashed #f59e0b" }} /> Avg cost</span>
         <span className="flex items-center gap-1"><span className="w-3 h-px" style={{ background: "#2dd4bf" }} /> Now</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm" style={{ background: "rgba(56,189,248,0.35)" }} /> Price</span>
       </div>
 
       <div className="relative w-full rounded-lg overflow-hidden" style={{ height, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
@@ -87,6 +121,14 @@ const CoinTradeChart = ({ trades, avgCost, currentPrice, height = 150 }: Props) 
 
         {/* SVG layer: price path + avg-cost + current lines */}
         <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="priceArea" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.28" />
+              <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.03" />
+            </linearGradient>
+          </defs>
+          {model.area && <polygon points={model.area} fill="url(#priceArea)" />}
+          {model.area && <polyline points={model.areaLine} fill="none" stroke="rgba(56,189,248,0.45)" strokeWidth="0.6" vectorEffect="non-scaling-stroke" />}
           <polyline points={model.path} fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
           {model.avgY != null && (
             <line x1="0" y1={model.avgY} x2="100" y2={model.avgY} stroke="#f59e0b" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />

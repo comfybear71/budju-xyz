@@ -2784,7 +2784,7 @@ def get_coin_price_history(code: str, days: int = 7) -> Dict:
     call fails, so the frontend can show a simple "not enough data"
     message instead of needing its own error-shape handling."""
     code = code.upper()
-    days = max(1, min(int(days), 90))
+    days = max(1, min(int(days), 365))
     cache_key = (code, days)
 
     now = time.time()
