@@ -47,7 +47,7 @@ def review_tracked(coins: List[Dict]) -> Dict:
             continue
         adv = c.get("advice", "")
         if adv.startswith("Careful"):
-            consider_removing.append({"coin": c["coin"], "why": f"{c['perBuy']:+.1f}% per buy, 1y {c['change1y']:+.0f}%, {sum(t['open'] for t in c['tiers'].values())} lots still open"})
+            consider_removing.append({"coin": c["coin"], "perBuy": c["perBuy"], "change1y": c["change1y"], "why": f"{c['perBuy']:+.1f}% per buy, 1y {c['change1y']:+.0f}%, {sum(t['open'] for t in c['tiers'].values())} lots still open"})
         elif adv.startswith("Quiet"):
             quiet.append({"coin": c["coin"], "why": "rarely dips — little to accumulate"})
         elif c.get("focus"):

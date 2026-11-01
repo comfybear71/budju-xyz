@@ -3874,7 +3874,8 @@ def get_copytrade_overview() -> Dict:
 # Dip Report (admin) — see api/dip_report.py
 # ==========================================
 dip_report_cache_collection = db["dip_report_cache"]
-_DIP_CACHE_HOURS = 12
+_DIP_CACHE_HOURS = 12        # a coin's price history counts as 'just fetched' for this long
+_REPORT_MAX_AGE_HOURS = 96   # the report/scout still use history up to this old (it is a one-year view)
 
 
 def _fetch_daily_closes(coin_id: str) -> List[float]:
@@ -3890,8 +3891,8 @@ def _fetch_daily_closes(coin_id: str) -> List[float]:
     return []
 
 
-def _fresh_series() -> Dict[str, List[float]]:
-    cutoff = datetime.utcnow() - timedelta(hours=_DIP_CACHE_HOURS)
+def _fresh_series(max_age_hours: float = _DIP_CACHE_HOURS) -> Dict[str, List[float]]:
+    cutoff = datetime.utcnow() - timedelta(hours=max_age_hours)
     out: Dict[str, List[float]] = {}
     for d in dip_report_cache_collection.find({"_id": {"$regex": "^series:"}, "at": {"$gte": cutoff}}):
         out[d["_id"].split(":", 1)[1]] = d.get("closes") or []
@@ -3924,7 +3925,7 @@ def get_dip_report(force: bool = False) -> Dict:
         codes |= {d["code"] for d in coin_config_collection.find({"status": "custom"})}
     except Exception:
         pass
-    series = _fresh_series()
+    series = _fresh_series(_REPORT_MAX_AGE_HOURS)
     pending = sorted(codes) if force else sorted(c for c in codes if c not in series)
     report = build_report({c: v for c, v in series.items() if c in codes}, denylist={"ENA", "PEPE", "LUNA", "LUNC"})
     report["pending"] = pending
@@ -4157,7 +4158,7 @@ def get_scout() -> Dict:
             {"_id": "scout:candidates", "at": datetime.utcnow(), "cands": cands, "swyftxChecked": swyftx_checked}, upsert=True)
 
     # 3) Simulate every candidate that has stored history
-    fresh = _fresh_series()
+    fresh = _fresh_series(_REPORT_MAX_AGE_HOURS)
     series = {c["id"]: fresh[f"cg:{c['id']}"] for c in cands if f"cg:{c['id']}" in fresh}
     rep = build_report(series)
     by_id = {c["id"]: c for c in cands}
