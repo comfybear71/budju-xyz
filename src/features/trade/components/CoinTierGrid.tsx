@@ -35,7 +35,7 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
   const coins = useMemo(
     () =>
       Object.keys(ASSET_CONFIG)
-        .filter((c) => !["USDC", "AUD", "USD"].includes(c) && !PERMANENT_BUY_DENYLIST.has(c) && (!isRetiredCoin(c) || (assignments[c] || []).length > 0))
+        .filter((c) => !["USDC", "AUD", "USD"].includes(c) && !PERMANENT_BUY_DENYLIST.has(c) && !isNotOnSwyftx(c) && (!isRetiredCoin(c) || (assignments[c] || []).length > 0))
         .filter((c) => c.toLowerCase().includes(q.trim().toLowerCase()))
         .filter((c) => (show === "all" ? true : show === "in" ? (assignments[c] || []).length > 0 : (assignments[c] || []).length === 0))
         .sort(),
@@ -105,7 +105,6 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
                 <div key={c} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
                   <div className="w-16 min-w-0">
                     <div className="text-xs font-bold truncate" style={{ color }}>{c}</div>
-                    {isNotOnSwyftx(c) && <div className="text-[9px] font-bold text-red-400">⛔ not on Swyftx</div>}
                     {perf[c] && (
                       <div className="text-[9px] font-mono" style={{ color: perf[c].perBuy >= 0 ? "#22c55e" : "#ef4444" }}>
                         {perf[c].perBuy >= 0 ? "+" : ""}{perf[c].perBuy.toFixed(1)}%/buy

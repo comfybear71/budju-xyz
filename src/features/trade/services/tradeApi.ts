@@ -2403,8 +2403,9 @@ async function loadCoinConfigNow(): Promise<void> {
     const res = await fetch("/api/coins");
     if (!res.ok) return;
     const data = await res.json();
+    const unlisted = new Set<string>(data?.notOnSwyftx ?? []);
     for (const c of data?.custom ?? []) {
-      if (!ASSET_CONFIG[c.code] && c.cgId) {
+      if (!ASSET_CONFIG[c.code] && c.cgId && !unlisted.has(c.code)) {   // coins Swyftx doesn't list never enter the app's list
         ASSET_CONFIG[c.code] = { color: colorFor(c.code), icon: c.code.charAt(0), name: c.name || c.code, coingeckoId: c.cgId };
       }
     }
