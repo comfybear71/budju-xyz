@@ -15,6 +15,8 @@ interface Props {
   assetsMine?: PortfolioAsset[];
   /** Combined holdings of every wallet, for the "Everyone" view. */
   assetsEveryone?: PortfolioAsset[];
+  /** How many connected wallets hold each coin (public count, no identities). */
+  holdersByCoin?: Record<string, number>;
 }
 
 type SortKey = "coin" | "trades" | "avgCost" | "current" | "realized" | "unrealized" | "pnl" | "held";
@@ -55,7 +57,7 @@ const fmtQty = (n: number) => {
 
 const pnlColor = (n: number) => (n > 0 ? "#22c55e" : n < 0 ? "#ef4444" : "#64748b");
 
-const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMine, assetsEveryone }: Props) => {
+const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMine, assetsEveryone, holdersByCoin }: Props) => {
   const [data, setData] = useState<CoinStatsResponse | null>(null);
   // Mine / Everyone only when a wallet is connected; otherwise the original public view.
   const [scope, setScope] = useState<CoinStatsScope>("mine");
@@ -302,6 +304,13 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMin
                                 <span className="text-[9px] text-slate-500">{r.totalTrades} trades</span>
                                 {r.costBasisPartial && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>PARTIAL</span>}
                               </div>
+                              {holdersByCoin && holdersByCoin[r.coin] !== undefined && (
+                                <div className="flex-1 text-center px-1">
+                                  <span className="text-[10px] font-bold" style={{ color: holdersByCoin[r.coin] > 0 ? "#2dd4bf" : "#475569" }}>
+                                    👥 {holdersByCoin[r.coin]} {holdersByCoin[r.coin] === 1 ? "holder" : "holders"}
+                                  </span>
+                                </div>
+                              )}
                               <div className="text-right">
                                 <div className="text-[12px] font-bold font-mono" style={{ color: pnlColor(r.totalPnL) }}>{fmtUsd(r.totalPnL)}</div>
                                 <div className="text-[9px] font-mono text-slate-500">{fmtUsd(r.marketValue)} held</div>

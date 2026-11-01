@@ -1238,6 +1238,7 @@ export async function fetchPersonalPricedHoldings(wallet: string): Promise<Portf
 }
 
 interface RawPricedAsset {
+  holders?: number;
   code: string;
   balance: number;
   priceUsd: number;

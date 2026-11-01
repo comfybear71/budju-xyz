@@ -1165,6 +1165,7 @@ const Trade = () => {
         wallet={isConnected ? walletAddress : undefined}
         assetsMine={isAdmin ? assets : myHoldings}
         assetsEveryone={poolAssetsFromLeaderboard(liveLeaderboard)}
+        holdersByCoin={Object.fromEntries((liveLeaderboard?.coinTotals ?? []).map((c) => [c.code, c.holders ?? 0]))}
       />
       <PoolPerformanceView
         isOpen={showPerformance}

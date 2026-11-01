@@ -2877,6 +2877,7 @@ def get_live_leaderboard() -> Dict:
     # etc. from wallets other than the admin's own) when viewing "Pool",
     # not just whatever the admin's own account happens to hold.
     coin_totals: Dict[str, float] = {}
+    coin_holders: Dict[str, int] = {}   # how many wallets hold a meaningful amount (>= $1) of each coin
     for doc in docs:
         wallet = doc.get("walletAddress")
         holdings = wallet_holdings.get(wallet)
@@ -2900,6 +2901,8 @@ def get_live_leaderboard() -> Dict:
             else:
                 crypto_value += amount * prices.get(code, 0.0)
                 coin_totals[code] = coin_totals.get(code, 0.0) + amount
+                if amount * prices.get(code, 0.0) >= 1.0:
+                    coin_holders[code] = coin_holders.get(code, 0) + 1
 
         for k in combined_cash_by_currency:
             combined_cash_by_currency[k] += cash_by_currency[k]
@@ -2929,6 +2932,7 @@ def get_live_leaderboard() -> Dict:
             "priceUsd": prices.get(code, 0.0),
             "usdValue": round(balance * prices.get(code, 0.0), 2),
             "change24h": round(coin_changes.get(code, 0.0), 2),
+            "holders": coin_holders.get(code, 0),
         }
         for code, balance in coin_totals.items()
     ]
