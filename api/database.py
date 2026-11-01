@@ -2682,10 +2682,27 @@ def get_prices_for_coins(codes: List[str]) -> Dict[str, float]:
         return {code: _price_cache[code][0] for code in requested}
 
     code_to_cgid: Dict[str, str] = {}
+    # Known ids come from the built-in list and ONE bulk database read — not one
+    # database round trip per coin (60 coins x ~0.3s was ~19s of the leaderboard).
+    unknown = []
     for code in requested:
-        cg_id = resolve_coingecko_id(code)
-        if cg_id:
-            code_to_cgid[code] = cg_id
+        if code in ASSET_CG_IDS:
+            code_to_cgid[code] = ASSET_CG_IDS[code]
+        else:
+            unknown.append(code)
+    if unknown:
+        try:
+            for d in dynamic_coin_registry_collection.find({"code": {"$in": unknown}}, {"code": 1, "cgId": 1}):
+                if d.get("cgId"):
+                    code_to_cgid[d["code"]] = d["cgId"]
+        except Exception as e:
+            print(f"[prices] registry bulk read error: {e}")
+        still = [c for c in unknown if c not in code_to_cgid]
+        if still:  # genuinely new / previously-unresolved coins: resolve a few at a time
+            with ThreadPoolExecutor(max_workers=min(6, len(still))) as pool:
+                for code, cg_id in zip(still, pool.map(resolve_coingecko_id, still)):
+                    if cg_id:
+                        code_to_cgid[code] = cg_id
 
     if not code_to_cgid:
         return {}
@@ -3950,8 +3967,14 @@ def get_coin_config() -> Dict:
         elif d.get("status") == "custom":
             custom.append({"code": d["code"], "name": d.get("name") or d["code"], "cgId": d.get("cgId")})
     since = datetime.utcnow() - timedelta(days=7)
-    recent = [{"code": a["code"], "name": a.get("name") or a["code"]}
-              for a in coin_announcements_collection.find({"at": {"$gte": since}}).sort("at", -1).limit(10)]
+    recent, seen = [], set()
+    for a in coin_announcements_collection.find({"at": {"$gte": since}}).sort("at", -1).limit(60):
+        if a["code"] in seen:
+            continue                     # the same coin announced twice (double tap) shows once
+        seen.add(a["code"])
+        recent.append({"code": a["code"], "name": a.get("name") or a["code"]})
+        if len(recent) >= 12:
+            break
     return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent}
 
 
@@ -4041,7 +4064,8 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
         dynamic_coin_registry_collection.update_one(
             {"code": code}, {"$set": {"cgId": cg_id, "resolvedAt": datetime.utcnow()}}, upsert=True)
         if not existed:
-            coin_announcements_collection.insert_one({"code": code, "name": (name or code)[:40], "at": datetime.utcnow()})
+            coin_announcements_collection.update_one(
+                {"code": code}, {"$set": {"code": code, "name": (name or code)[:40], "at": datetime.utcnow()}}, upsert=True)
             try:
                 import tg_notify
                 if announce:

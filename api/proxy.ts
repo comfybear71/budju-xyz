@@ -127,6 +127,21 @@ async function getServerToken(apiKey: string): Promise<string> {
   return _cachedToken;
 }
 
+// Forget a token Swyftx has stopped accepting (here AND in the shared cache the
+// Python side also reads), so the next call signs in fresh.
+async function invalidateServerToken(apiKey: string): Promise<void> {
+  _cachedToken = null;
+  _tokenExpiry = 0;
+  const coll = await getTokenCacheCollection();
+  if (!coll) return;
+  try {
+    const keyHash = crypto.createHash("sha256").update(apiKey).digest("hex");
+    await coll.deleteOne({ _id: keyHash as any });
+  } catch {
+    // never blocks the request
+  }
+}
+
 function authHeaders(token: string) {
   return {
     Authorization: `Bearer ${token}`,
@@ -226,14 +241,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // ── PORTFOLIO — auth + balance + asset info in one call ──
     if (endpoint === "/portfolio/") {
-      const token = await getServerToken(apiKey);
-      const headers = authHeaders(token);
-
-      // Fetch balances and asset list in parallel
-      const [portfolioRes, assetsRes] = await Promise.all([
-        fetch(BASE_URL + "/user/balance/", { method: "GET", headers }),
-        fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
-      ]);
+      // Fetch balances and asset list in parallel. If Swyftx no longer accepts the
+      // cached token (401/403), drop it and sign in fresh ONCE — a stale shared
+      // token must never leave the Holdings screen empty.
+      const fetchBoth = async () => {
+        const token = await getServerToken(apiKey);
+        const headers = authHeaders(token);
+        return Promise.all([
+          fetch(BASE_URL + "/user/balance/", { method: "GET", headers }),
+          fetch(BASE_URL + "/markets/assets/", { method: "GET", headers }),
+        ]);
+      };
+      let [portfolioRes, assetsRes] = await fetchBoth();
+      if (portfolioRes.status === 401 || portfolioRes.status === 403) {
+        console.warn("[portfolio] Swyftx rejected the cached token — signing in fresh");
+        await invalidateServerToken(apiKey);
+        [portfolioRes, assetsRes] = await fetchBoth();
+      }
 
       // Swyftx sometimes answers with a plain-text/HTML error (rate limit, outage).
       // Say WHAT it said instead of an opaque 500.
