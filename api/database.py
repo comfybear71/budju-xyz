@@ -3984,7 +3984,13 @@ def get_coin_config() -> Dict:
     not_listed = []
     if listed is not None:
         not_listed = sorted(c for c in (set(ASSET_CG_IDS) | {x["code"] for x in custom}) if c not in listed and c not in ("LUNC", "LUNA"))
-    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent, "notOnSwyftx": not_listed}
+    ranks = {}
+    try:
+        cdoc = coin_sizing_collection.find_one({"_id": "classes"}) or {}
+        ranks = {c: v["rank"] for c, v in (cdoc.get("coins") or {}).items() if isinstance(v, dict) and v.get("rank")}
+    except Exception:
+        pass
+    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent, "notOnSwyftx": not_listed, "ranks": ranks}
 
 
 def search_coins(query: str) -> Dict:
@@ -4261,11 +4267,15 @@ def refresh_coin_classes(force: bool = False) -> Dict:
     into classes. Refreshed at most every 20h unless forced."""
     from coin_sizing import classify
     doc = coin_sizing_collection.find_one({"_id": "classes"}) or {}
-    if not force and doc.get("at") and (datetime.utcnow() - doc["at"]) < timedelta(hours=20):
+    has_ranks = any(isinstance(v, dict) and "rank" in v for v in (doc.get("coins") or {}).values())
+    if not force and has_ranks and doc.get("at") and (datetime.utcnow() - doc["at"]) < timedelta(hours=20):
         return doc.get("coins", {})
     ids = dict(ASSET_CG_IDS)
     try:
         ids.update({d["code"]: d["cgId"] for d in coin_config_collection.find({"status": "custom"}) if d.get("cgId")})
+        # every coin any wallet has ever held (so the Holdings groups can rank them too)
+        for d in dynamic_coin_registry_collection.find({"cgId": {"$ne": None}}, {"code": 1, "cgId": 1}).limit(150):
+            ids.setdefault(d["code"], d["cgId"])
     except Exception:
         pass
     careful = set()
@@ -4288,7 +4298,7 @@ def refresh_coin_classes(force: bool = False) -> Dict:
     for code, cg in ids.items():
         m = by_id.get(cg)
         if m:
-            coins[code] = classify(m.get("market_cap"), m.get("total_volume"), code in careful)
+            coins[code] = {**classify(m.get("market_cap"), m.get("total_volume"), code in careful), "rank": m.get("market_cap_rank")}
     coin_sizing_collection.replace_one({"_id": "classes"}, {"_id": "classes", "at": datetime.utcnow(), "coins": coins}, upsert=True)
     return coins
 

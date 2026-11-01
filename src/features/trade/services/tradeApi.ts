@@ -2376,6 +2376,9 @@ const retiredCoins = new Set<string>();
 export const isRetiredCoin = (code: string) => retiredCoins.has(code);
 let recentCoins: { code: string; name: string }[] = [];
 const notOnSwyftx = new Set<string>();
+let coinRanks: Record<string, number> = {};
+/** CoinGecko market-cap rank (1 = biggest), or undefined if unknown. */
+export const getCoinRank = (code: string): number | undefined => coinRanks[code];
 /** True when Swyftx does not list this coin, so the bot cannot trade it. */
 export const isNotOnSwyftx = (code: string) => notOnSwyftx.has(code);
 export const getRecentCoins = () => recentCoins;
@@ -2410,6 +2413,7 @@ async function loadCoinConfigNow(): Promise<void> {
       }
     }
     recentCoins = Array.isArray(data?.recent) ? data.recent : [];
+    coinRanks = (data?.ranks && typeof data.ranks === "object") ? data.ranks : {};
     notOnSwyftx.clear();
     for (const code of data?.notOnSwyftx ?? []) notOnSwyftx.add(code);
     retiredCoins.clear();
