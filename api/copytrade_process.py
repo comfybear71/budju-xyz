@@ -141,22 +141,44 @@ def handle_delivery(payload, max_age_s=None, max_record_age_s=None) -> dict:
 
 
 
+CONVERGENCE_TELEGRAM = os.getenv("COPYTRADE_CONVERGENCE_TELEGRAM", "true").lower() != "false"
+_conv_rejected: dict = {}          # mint -> time it failed the safety checks (don't re-check for 30 min)
+
+
+def convergence_text(n: int, hours: int, mint: str, decision: dict) -> str:
+    sym = decision.get("symbol") or "a new, unnamed token"
+    price = decision.get("priceUsd")
+    liq = decision.get("liquidityUsd") or 0
+    price_txt = f"${price:.6g}" if isinstance(price, (int, float)) and price else "n/a"
+    return (
+        f"🔥 <b>Signals: convergence</b>\n"
+        f"{n} different tracked wallets bought <b>{sym}</b> in the last {hours}h.\n"
+        f"💵 {price_txt} · 💧 liquidity ${liq:,.0f} · passed our liquidity and rug checks\n"
+        f"Address: <code>{mint}</code>\n"
+        f'🔎 <a href="https://dexscreener.com/solana/{mint}">DexScreener</a> · <a href="https://solscan.io/token/{mint}">Solscan</a>\n'
+        f"📝 Watching only — paper trading, not advice. Many new tokens are pump-and-dumps; do your own checking."
+    )
+
+
 def _check_convergence(event: dict, mint: str, label: str) -> None:
     """Several different tracked wallets buying the same token close together is the strongest
-    signal we can see for free. Mark the swap and tell Telegram (once per token per window)."""
+    signal we can see for free. Mark the swap; tell Telegram only if the token passes our safety
+    checks (and at most once per token per window)."""
     try:
         n = count_copytrade_buyers(mint, CONVERGENCE_WINDOW_HOURS)
         if n < CONVERGENCE_MIN_WALLETS:
             return
         set_copytrade_event_convergence(event["signature"], n)
+        if not CONVERGENCE_TELEGRAM:
+            return
+        if time.time() - _conv_rejected.get(mint, 0) < 1800:
+            return
+        decision = evaluate_entry(mint)
+        if not decision.get("approved"):
+            _conv_rejected[mint] = time.time()
+            return
         if claim_convergence_alert(mint, CONVERGENCE_WINDOW_HOURS):
-            prices = get_dexscreener_prices([mint])
-            sym = (prices.get(mint) or {}).get("symbol") or mint[:6]
-            send_telegram(
-                f"🔥 <b>Signals: convergence</b>\n"
-                f"{n} different tracked wallets bought <b>{sym}</b> in the last {CONVERGENCE_WINDOW_HOURS}h.\n"
-                f"📝 Watching only — paper trading, not advice. Tokens like this can be pumps; check before acting."
-            )
+            send_telegram(convergence_text(n, CONVERGENCE_WINDOW_HOURS, mint, decision))
     except Exception as e:
         print(f"[copytrade] convergence check error: {e}")
 

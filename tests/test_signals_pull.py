@@ -47,14 +47,27 @@ def test_recent_swap_is_copied_and_old_one_is_only_seen():
     assert any(c.args[1] == "late" for c in db.set_copytrade_event_outcome.call_args_list)
 
 
-def test_convergence_flags_event_and_alerts_once():
+def test_convergence_flags_event_and_alerts_once_with_the_coin_name_and_address():
     mod, db, eng = load(["W1", "W2", "W3"])
     db.count_copytrade_buyers.return_value = 3
     db.claim_convergence_alert.side_effect = [True, False]
-    mod.handle_delivery([swap("a", "W1", "MINTC")])
-    mod.handle_delivery([swap("b", "W2", "MINTC")])
+    mod.handle_delivery([swap("a", "W1", "MINTCADDRESS")])
+    mod.handle_delivery([swap("b", "W2", "MINTCADDRESS")])
     assert db.set_copytrade_event_convergence.call_count == 2
-    assert mod.send_telegram.call_args_list and sum("convergence" in c.args[0] for c in mod.send_telegram.call_args_list) == 1
+    msgs = [c.args[0] for c in mod.send_telegram.call_args_list if "convergence" in c.args[0]]
+    assert len(msgs) == 1
+    assert "ABC" in msgs[0] and "<code>MINTCADDRESS</code>" in msgs[0] and "dexscreener.com/solana/MINTCADDRESS" in msgs[0]
+    assert "liquidity" in msgs[0]
+
+
+def test_convergence_on_a_token_that_fails_the_safety_checks_is_not_posted():
+    mod, db, eng = load(["W1", "W2", "W3"])
+    db.count_copytrade_buyers.return_value = 3
+    eng.evaluate_entry.return_value = {"approved": False, "reason": "RugCheck flagged", "symbol": None, "priceUsd": 1.0, "liquidityUsd": 100}
+    mod.handle_delivery([swap("a", "W1", "BADMINT")])
+    assert db.set_copytrade_event_convergence.call_count == 1       # still flagged in the feed
+    assert not any("convergence" in c.args[0] for c in mod.send_telegram.call_args_list)
+    assert db.claim_convergence_alert.call_count == 0               # and the one-per-window slot isn't wasted
 
 
 def test_status_says_backup_checker_is_working_when_webhook_silent():
