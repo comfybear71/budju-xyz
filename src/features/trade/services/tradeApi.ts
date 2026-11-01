@@ -286,6 +286,21 @@ function updateAudToUsd(data: Record<string, any>) {
 
 // ── Public API ─────────────────────────────────────────────
 
+/** The admin's own coins. Asks the server's Holdings route AND the wallet's own
+ *  priced-holdings route at the same time and uses whichever answers with coins
+ *  first — so one slow or failing route can't leave "Mine" empty. */
+export function fetchAdminAssets(wallet: string): Promise<PortfolioAsset[]> {
+  return new Promise((resolve) => {
+    let empties = 0;
+    const done = (v: PortfolioAsset[]) => {
+      if (v.length > 0) resolve(v);
+      else if (++empties === 2) resolve([]);
+    };
+    fetchPortfolio().then(done).catch(() => done([]));
+    fetchPersonalPricedHoldings(wallet).then(done).catch(() => done([]));
+  });
+}
+
 /** Fetch portfolio from Swyftx via /api/proxy */
 export async function fetchPortfolio(): Promise<PortfolioAsset[]> {
   return cached("portfolio", 30_000, async () => {
