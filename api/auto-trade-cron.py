@@ -97,6 +97,9 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 # wallets never had before this merge.
 MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
 MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
+# Most one wallet may BUY in any rolling 24 hours (USDC). Protects every wallet in a crash.
+# Change it in Vercel (MAX_DAILY_SPEND_USDC); 0 switches the limit off.
+MAX_DAILY_SPEND_USDC = float(os.getenv("MAX_DAILY_SPEND_USDC", "1000"))
 MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "1000"))
 
 # Targets are NEVER discarded because of age. A target only changes after a
@@ -253,6 +256,7 @@ def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
     cutoff_ms = int(time.time() * 1000) - (24 * 3_600_000)
     recent_trades = 0
     daily_sell_total = 0.0
+    daily_buy_total = 0.0
     for entry in trade_log:
         ts = entry.get("timestamp") or entry.get("time") or ""
         try:
@@ -262,11 +266,20 @@ def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
             continue
         if entry_ms > cutoff_ms:
             recent_trades += 1
+            value = float(entry.get("qty", entry.get("quantity", 0)) or 0) * float(entry.get("price", 0) or 0)
             if str(entry.get("side", "")).lower() == "sell":
-                daily_sell_total += float(entry.get("qty", entry.get("quantity", 0)) or 0) * float(entry.get("price", 0) or 0)
+                daily_sell_total += value
+            elif str(entry.get("side", "")).lower() == "buy":
+                daily_buy_total += value
 
     if recent_trades >= MAX_DAILY_TRADES:
         reason = f"Hit MAX_DAILY_TRADES limit ({MAX_DAILY_TRADES} trades in 24h)"
+        log.append(f"{code}: BLOCKED — {reason}")
+        return False, reason
+
+    if side == "buy" and MAX_DAILY_SPEND_USDC > 0 and (daily_buy_total + amount_usdc) > MAX_DAILY_SPEND_USDC:
+        reason = (f"Daily buying limit: ${daily_buy_total:.0f} already bought in 24h, this ${amount_usdc:.0f} would pass "
+                  f"MAX_DAILY_SPEND_USDC (${MAX_DAILY_SPEND_USDC:.0f})")
         log.append(f"{code}: BLOCKED — {reason}")
         return False, reason
 
@@ -808,6 +821,23 @@ def run_auto_trade_check():
         "log": log,
     }
 
+def _send_failure_alerts(log_lines):
+    """One Telegram message per NEW problem (not repeated for 6 hours). Never raises."""
+    try:
+        from alerts import find_problems, select_new, format_alert
+        problems = find_problems(log_lines or [])
+        if not problems:
+            return
+        state = get_trader_state()
+        now_ms = int(time.time() * 1000)
+        texts, sent = select_new(problems, state.get("autoAlertsSent") or {}, now_ms)
+        if texts:
+            save_trader_state({"autoAlertsSent": sent})
+            send_telegram(format_alert(texts))
+    except Exception as e:
+        print(f"[alerts] could not send: {e}", flush=True)
+
+
 # ── Vercel Handler ────────────────────────────────────────────
 
 class handler(BaseHTTPRequestHandler):
@@ -822,10 +852,12 @@ class handler(BaseHTTPRequestHandler):
         try:
             result = run_auto_trade_check()
             record_cron_status(save_trader_state, result)
+            _send_failure_alerts(result.get("log") if isinstance(result, dict) else None)
             self._send_json(200, result)
         except Exception as e:
             print(f"Auto-trade cron error: {e}")
             record_cron_status(save_trader_state, {"error": str(e)})
+            _send_failure_alerts([f"cron: unexpected error — {str(e)[:150]}"])
             self._send_json(500, {"error": str(e)})
 
     def _send_json(self, status, data):

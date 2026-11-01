@@ -5,6 +5,7 @@
 # ==========================================
 import json
 import os
+import time
 import sys
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler
@@ -29,6 +30,20 @@ def run() -> dict:
         leaderboard_ok = True
     except Exception as e:
         print(f"[coin-report-cron] leaderboard snapshot error: {e}")
+
+    # Is the trading cron itself alive? (every run; one alert per 6 hours at most)
+    try:
+        from database import get_trader_state, save_trader_state
+        from alerts import stale_heartbeat, select_new, format_alert
+        st = get_trader_state()
+        problem = stale_heartbeat(st.get("autoCronStatus") or {}, int(time.time() * 1000))
+        if problem:
+            texts, sent = select_new([("cron:heartbeat", "⛔ " + problem)], st.get("autoAlertsSent") or {}, int(time.time() * 1000))
+            if texts:
+                save_trader_state({"autoAlertsSent": sent})
+                tg_notify.send(format_alert(texts))
+    except Exception as e:
+        print(f"[coin-report-cron] heartbeat alert error: {e}")
 
     # The CoinGecko-heavy jobs below run about twice an hour, not every 10 minutes.
     if (datetime.utcnow().minute % 30) >= 10:
