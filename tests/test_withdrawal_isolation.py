@@ -109,8 +109,9 @@ class TestRecordWithdrawalCode:
         assert result["userShares"] == pytest.approx(ADMIN_SHARES - expected_burn)
 
         # Pool total shares decremented by exactly the burned amount
-        pool_call = db_module.pool_state_collection.update_one.call_args
-        assert pool_call.args[1]["$inc"]["totalShares"] == pytest.approx(-expected_burn)
+        inc_calls = [c for c in db_module.pool_state_collection.update_one.call_args_list if "$inc" in c.args[1]]
+        assert len(inc_calls) == 1
+        assert inc_calls[0].args[1]["$inc"]["totalShares"] == pytest.approx(-expected_burn)
 
         # The only user-share write targets the admin wallet
         user_call = db_module.users_collection.update_one.call_args

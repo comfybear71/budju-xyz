@@ -28,36 +28,36 @@ from trade_guards import (  # noqa: E402
 class TestRebuyBlocklist:
     """{asset: blocked_until_iso} — buys skipped until expiry, then allowed."""
 
-    BL = {"LUNA": "2026-08-30T00:00:00Z", "ENA": "2026-08-30T00:00:00Z"}
+    BL = {"FOO": "2026-08-30T00:00:00Z", "BAR": "2026-08-30T00:00:00Z"}
 
     def test_blocked_before_early_lift(self):
         # Before the 16 Aug early-lift date, legacy Aug-30 blocks still apply
         now = datetime(2026, 7, 16)
-        assert is_rebuy_blocked(self.BL, "LUNA", now) is True
+        assert is_rebuy_blocked(self.BL, "FOO", now) is True
 
     def test_allowed_after_early_lift(self):
         # Operator released restrictions on 2026-08-16 — Aug-30 entries no longer block
         now = datetime(2026, 8, 16)
-        assert is_rebuy_blocked(self.BL, "LUNA", now) is False
+        assert is_rebuy_blocked(self.BL, "FOO", now) is False
 
     def test_allowed_after_original_expiry(self):
         now = datetime(2026, 9, 1)
-        assert is_rebuy_blocked(self.BL, "LUNA", now) is False
+        assert is_rebuy_blocked(self.BL, "FOO", now) is False
 
     def test_not_blocked_at_exact_legacy_expiry(self):
         now = datetime(2026, 8, 30)
-        assert is_rebuy_blocked(self.BL, "LUNA", now) is False
+        assert is_rebuy_blocked(self.BL, "FOO", now) is False
 
     def test_coin_not_on_list_allowed(self):
         now = datetime(2026, 7, 16)
         assert is_rebuy_blocked(self.BL, "SOL", now) is False
 
     def test_empty_blocklist_allows(self):
-        assert is_rebuy_blocked({}, "LUNA", datetime(2026, 7, 16)) is False
-        assert is_rebuy_blocked(None, "LUNA", datetime(2026, 7, 16)) is False
+        assert is_rebuy_blocked({}, "FOO", datetime(2026, 7, 16)) is False
+        assert is_rebuy_blocked(None, "FOO", datetime(2026, 7, 16)) is False
 
     def test_malformed_date_allows(self):
-        assert is_rebuy_blocked({"LUNA": "not-a-date"}, "LUNA", datetime(2026, 7, 16)) is False
+        assert is_rebuy_blocked({"FOO": "not-a-date"}, "FOO", datetime(2026, 7, 16)) is False
 
     def test_default_blocklist_is_empty_after_lift(self):
         assert DEFAULT_REBUY_BLOCKLIST == {}
@@ -105,7 +105,7 @@ class TestEvaluateOrder:
     """
 
     NOW = datetime(2026, 7, 16)
-    BL = {"LUNA": "2026-08-30T00:00:00Z"}
+    BL = {"FOO": "2026-08-30T00:00:00Z"}
     MIN = 30.0
 
     def _eval(self, coin, side, amt, source, confirm=False):
@@ -114,13 +114,13 @@ class TestEvaluateOrder:
 
     # ── Bot orders are hard-blocked unconditionally ──────────
     def test_bot_buy_blocklisted_hard_blocked(self):
-        d = self._eval("LUNA", "buy", 100.0, "bot")
+        d = self._eval("FOO", "buy", 100.0, "bot")
         assert d["allow"] is False and d["block"] is True
         assert d["requiresConfirm"] is False
         assert d["reason"] == "bot_execution_retired"
 
     def test_unknown_source_treated_as_bot(self):
-        d = self._eval("LUNA", "buy", 100.0, None)
+        d = self._eval("FOO", "buy", 100.0, None)
         assert d["allow"] is False and d["block"] is True
 
     def test_bot_buy_large_amount_still_hard_blocked(self):
@@ -151,13 +151,13 @@ class TestEvaluateOrder:
 
     # ── Manual orders are unaffected ─────────────────────────
     def test_manual_buy_blocklisted_requires_confirm(self):
-        d = self._eval("LUNA", "buy", 100.0, "manual")
+        d = self._eval("FOO", "buy", 100.0, "manual")
         assert d["allow"] is False and d["block"] is False
         assert d["requiresConfirm"] is True
         assert "blocklist" in d["warning"]
 
     def test_manual_buy_blocklisted_confirm_allows(self):
-        d = self._eval("LUNA", "buy", 100.0, "manual", confirm=True)
+        d = self._eval("FOO", "buy", 100.0, "manual", confirm=True)
         assert d["allow"] is True
         assert "overridden" in d["warning"]
 
