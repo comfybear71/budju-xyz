@@ -129,7 +129,7 @@ _ADMIN_POST_EXACT = {
     "/api/state", "/api/trade", "/api/trade/sync", "/api/deposit", "/api/withdrawal",
     "/api/pool/initialize", "/api/user/sync",
 }
-_OWNER_POST_EXACT = {"/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade"}
+_OWNER_POST_EXACT = {"/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission"}
 
 
 def classify(method: str, path: str, params: dict, body: dict):

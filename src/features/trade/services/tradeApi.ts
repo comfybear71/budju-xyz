@@ -2677,3 +2677,40 @@ export async function offloadRun(
     return null;
   }
 }
+
+
+// ── Trading permission + trade history download ─────────────────────────────
+export interface TradingPermission { agreed: boolean; version: number; at: string | null }
+
+export async function fetchTradingPermission(wallet: string): Promise<TradingPermission | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/permission?wallet=${encodeURIComponent(wallet)}`);
+    return res.ok ? ((await res.json()) as TradingPermission) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function agreeTradingPermission(wallet: string): Promise<TradingPermission | null> {
+  try {
+    const res = await fetch("/api/user/permission", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress: wallet, requesterWallet: wallet }),
+    });
+    return res.ok ? ((await res.json()) as TradingPermission) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The wallet's own buys and sells as CSV text (for tax records), or null if it couldn't be fetched. */
+export async function fetchTradesCsv(wallet: string): Promise<string | null> {
+  try {
+    const res = await fetchWithRetry(`/api/user/trades-csv?wallet=${encodeURIComponent(wallet)}`, undefined, 1, 30000);
+    if (!res.ok) return null;
+    return ((await res.json()) as { csv?: string }).csv ?? null;
+  } catch {
+    return null;
+  }
+}

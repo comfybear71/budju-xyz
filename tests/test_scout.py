@@ -40,3 +40,17 @@ def test_wallet_coin_suggestions():
     out = wallet_coin_suggestions(per, {"BTC"}, {"AAVE": 100.0, "DUST": 0.5}, {"AAVE": 5e9})
     assert [r["code"] for r in out] == ["AAVE"]
     assert out[0]["wallets"] == 2 and out[0]["usdValue"] == 500.0 and out[0]["small"] is False
+
+
+def test_weekly_review_text():
+    from scout import weekly_review_text
+    t = weekly_review_text({"buys": 12, "sells": 3, "boughtUsd": 900.0, "soldUsd": 300.0, "topCoins": [("SUI", 4)], "wallets": 4},
+                           {"keepStrong": [{"coin": "TRX"}], "considerRemoving": [{"coin": "ADA"}]}, [{"bad": "ADA", "good": "GRASS"}])
+    assert "12" in t and "SUI (4)" in t and "TRX" in t and "ADA→GRASS" in t and "not financial advice" in t
+
+
+def test_weekly_review_monthly_line():
+    from scout import weekly_review_text
+    base = {"buys": 1, "sells": 0, "boughtUsd": 10.0, "soldUsd": 0.0, "topCoins": [], "wallets": 1}
+    assert "Monthly check" in weekly_review_text(base, {}, [], True)
+    assert "Monthly check" not in weekly_review_text(base, {}, [], False)

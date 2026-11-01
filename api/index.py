@@ -107,6 +107,9 @@ from database import (
     manage_coins_bulk,
     get_sizing_preview,
     get_health_check,
+    get_trading_permission,
+    record_trading_permission,
+    get_trade_export_csv,
     get_offload_preview,
     get_live_leaderboard_cached,
     save_sizing_settings,
@@ -514,6 +517,20 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Members only — hold 10M BUDJU and connect a Swyftx key to see this"})
                     return
                 self._send_json(200, get_community_aggregate_holdings())
+
+            elif path == '/api/user/permission':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_trading_permission(wallet))
+
+            elif path == '/api/user/trades-csv':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, {"csv": get_trade_export_csv(wallet)})
 
             elif path == '/api/user/auto-trade':
                 wallet = params.get('wallet')
@@ -1730,6 +1747,13 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     self._send_json(403, {"error": str(e)})
                     return
+
+            elif path == '/api/user/permission':
+                wallet = body.get('walletAddress')
+                if not wallet or body.get('requesterWallet') not in (None, wallet):
+                    self._send_json(400, {"error": "walletAddress required (own wallet only)"})
+                    return
+                self._send_json(200, record_trading_permission(wallet))
 
             elif path == '/api/user/auto-trade':
                 # A wallet can toggle its own bot. An admin can ALSO toggle

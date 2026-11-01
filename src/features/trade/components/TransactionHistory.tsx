@@ -1,3 +1,4 @@
+import { fetchTradesCsv } from "../services/tradeApi";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -164,6 +165,23 @@ const TransactionHistory = ({ isOpen, onClose, walletAddress, isAdmin }: Props) 
               <h2 className="text-base font-bold text-white">Activity</h2>
             </div>
             <div className="flex items-center gap-2">
+              {walletAddress && (
+                <button
+                  onClick={async () => {
+                    const csv = await fetchTradesCsv(walletAddress);
+                    if (!csv) { window.alert("Couldn't download your history — please try again."); return; }
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `budju-trades-${new Date().toISOString().slice(0, 10)}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(a.href);
+                  }}
+                  className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold bg-white/10 text-slate-300"
+                >
+                  ⬇ CSV
+                </button>
+              )}
               <button
                 onClick={loadTransactions}
                 disabled={loading}
