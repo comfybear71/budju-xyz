@@ -1248,6 +1248,31 @@ class handler(BaseHTTPRequestHandler):
                     result = {"ok": False, "error": str(e)[:200]}
                 self._send_json(200, result)
 
+            elif path == '/api/admin/offload-run':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                import offload_run
+                action = body.get('action')
+                try:
+                    if action == 'start':
+                        pct = int(body.get('pct') or 0)
+                        if body.get('confirm') != f"OFFLOAD {pct}":
+                            self._send_json(400, {"ok": False, "error": f"Type OFFLOAD {pct} to confirm"})
+                            return
+                        bad = body.get('bad')
+                        targets = body.get('targets')
+                        self._send_json(200, offload_run.start_job(pct, bad if isinstance(bad, list) else None, targets if isinstance(targets, list) else None))
+                    elif action == 'sells':
+                        self._send_json(200, offload_run.run_sells(str(body.get('jobId', ''))))
+                    elif action == 'buys':
+                        self._send_json(200, offload_run.run_buys(str(body.get('jobId', ''))))
+                    else:
+                        self._send_json(200, offload_run.summary(body.get('jobId') or None))
+                except Exception as e:
+                    self._send_json(200, {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"})
+
             elif path == '/api/admin/coin-sizing':
                 is_valid, error = _verify_admin(body, self)
                 if not is_valid:
