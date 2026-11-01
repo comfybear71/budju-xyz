@@ -2448,7 +2448,7 @@ export async function manageCoin(
 
 
 export interface ScoutCandidate extends DipCoin { id: string; code: string; name: string; rank: number | null }
-export interface ScoutNote { coin: string; why: string }
+export interface ScoutNote { coin: string; why: string; perBuy?: number; change1y?: number }
 export interface Scout {
   review: { considerRemoving: ScoutNote[]; keepStrong: ScoutNote[]; quiet: ScoutNote[] };
   results: ScoutCandidate[];

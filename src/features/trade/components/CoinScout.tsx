@@ -69,6 +69,32 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
     setAdding(null);
   };
 
+  // Pair the worst coins that are still being bought with the best coins not added yet.
+  const swapPairs = () => {
+    if (!data) return [] as { bad: { coin: string; perBuy?: number }; good: ScoutCandidate }[];
+    const traded = autoTrader.tierAssignments || {};
+    const bad = [...data.review.considerRemoving].filter((n) => (traded[n.coin] || []).length > 0).sort((a, b) => (a.perBuy ?? 0) - (b.perBuy ?? 0));
+    const good = data.results.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
+    return bad.slice(0, Math.min(bad.length, good.length, 6)).map((b, i) => ({ bad: b, good: good[i] }));
+  };
+
+  const swap = async (bad: string, good: ScoutCandidate) => {
+    if (!window.confirm(`Swap ${bad} for ${good.code}?\n\n• ${bad} is taken out of all tiers — the bot stops buying it (and won't sell what you already hold).\n• ${good.code} is added and switched on for ${tiersLabel(greenTiers(good))}.`)) return;
+    setAdding(good.code);
+    setMsg("");
+    const r = await manageCoin(wallet, "add", good.code, good.id, good.name);
+    if (r.ok) {
+      autoTrader.unassignCoin(bad);
+      greenTiers(good).forEach((t) => autoTrader.assignCoin(good.code, t));
+      setMsg(`✅ Swapped ${bad} → ${good.code}`);
+      await loadCoinConfig();
+      onChanged();
+    } else {
+      setMsg(`⛔ ${r.error || "Failed"}`);
+    }
+    setAdding(null);
+  };
+
   const addAllGreen = async () => {
     const todo = (data?.results ?? []).filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
     if (!todo.length) return;
@@ -107,6 +133,29 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
               <Section title="Consider removing" color="#ef4444" count={data.review.considerRemoving.length}><Notes items={data.review.considerRemoving} /></Section>
               <Section title="Working well — accumulate" color="#22c55e" count={data.review.keepStrong.length}><Notes items={data.review.keepStrong} /></Section>
               <Section title="Quiet" color="#94a3b8" count={data.review.quiet.length}><Notes items={data.review.quiet} /></Section>
+
+              {swapPairs().length > 0 && (
+                <Section title="Suggested swaps — bad for good" color="#f59e0b" count={swapPairs().length} defaultOpen>
+                  <div className="space-y-1">
+                    {swapPairs().map(({ bad, good }) => (
+                      <div key={bad.coin} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
+                        <div className="text-[11px] text-slate-300 min-w-0">
+                          <span className="text-red-400 font-bold">{bad.coin}</span> {bad.perBuy !== undefined ? `(${bad.perBuy.toFixed(1)}%)` : ""}
+                          {" → "}
+                          <span className="text-green-400 font-bold">{good.code}</span> (+{good.perBuy.toFixed(1)}%)
+                        </div>
+                        <button
+                          onClick={() => swap(bad.coin, good)}
+                          disabled={!!adding || bulk}
+                          className="text-[11px] font-bold px-2 py-1 rounded bg-amber-500/20 text-amber-400 disabled:opacity-50 flex-shrink-0"
+                        >
+                          {adding === good.code ? "Swapping…" : "Swap"}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </Section>
+              )}
 
               <div className="flex items-center justify-between mt-3 mb-1">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">New opportunities</div>
