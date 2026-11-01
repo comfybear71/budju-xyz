@@ -34,12 +34,15 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
   const [msg, setMsg] = useState("");
   const [adding, setAdding] = useState<string | null>(null);
   const [bulk, setBulk] = useState(false);
+  const [hideAdded, setHideAdded] = useState<Set<string>>(new Set());
 
   const load = async () => {
     setLoading(true);
     setFailed(false);
     const r = await fetchScout(wallet, (d, t) => setProg([d, t]));
     setProg(null);
+    // Coins already added before this view loaded are left out; ones added during this visit keep their "Added ✓" until the next refresh
+    setHideAdded(new Set((r?.results ?? []).filter((c) => !!ASSET_CONFIG[c.code]).map((c) => c.code)));
     setData(r);
     setFailed(!r);
     setLoading(false);
@@ -70,11 +73,13 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
   };
 
   // Pair the worst coins that are still being bought with the best coins not added yet.
+  const visible = (data?.results ?? []).filter((c) => !hideAdded.has(c.code));
+
   const swapPairs = () => {
     if (!data) return [] as { bad: { coin: string; perBuy?: number }; good: ScoutCandidate }[];
     const traded = autoTrader.tierAssignments || {};
     const bad = [...data.review.considerRemoving].filter((n) => (traded[n.coin] || []).length > 0).sort((a, b) => (a.perBuy ?? 0) - (b.perBuy ?? 0));
-    const good = data.results.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
+    const good = visible.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
     return bad.slice(0, Math.min(bad.length, good.length, 6)).map((b, i) => ({ bad: b, good: good[i] }));
   };
 
@@ -96,7 +101,7 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
   };
 
   const addAllGreen = async () => {
-    const todo = (data?.results ?? []).filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
+    const todo = visible.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0);
     if (!todo.length) return;
     setBulk(true);
     setMsg("");
@@ -159,19 +164,19 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
 
               <div className="flex items-center justify-between mt-3 mb-1">
                 <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold">New opportunities</div>
-                {data.results.some((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0) && (
+                {visible.some((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0) && (
                   <button onClick={addAllGreen} disabled={bulk || !!adding} className="text-[11px] font-bold px-2 py-1 rounded bg-green-500/25 text-green-400 disabled:opacity-40">
-                    {bulk ? "Adding…" : `Add all green (${data.results.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0).length})`}
+                    {bulk ? "Adding…" : `Add all green (${visible.filter((c) => !ASSET_CONFIG[c.code] && greenTiers(c).length > 0).length})`}
                   </button>
                 )}
               </div>
-              {data.results.length === 0 ? (
+              {visible.length === 0 ? (
                 <div className="text-[11px] text-slate-500">
                   {data.pending.length ? "Still testing — tap Refresh." : "Nothing new passes the test right now."}
                 </div>
               ) : (
                 <div className="space-y-1">
-                  {data.results.map((c) => (
+                  {visible.map((c) => (
                     <div key={c.id} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
                       <div className="min-w-0 text-[11px] text-slate-300">
                         <b>{c.code}</b> · {c.name} {c.rank ? <span className="text-slate-500">#{c.rank}</span> : null}
