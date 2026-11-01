@@ -97,7 +97,7 @@ def run() -> dict:
                 greens = [c for c in scout.get("results", [])]
                 bad = [n["coin"] for n in scout.get("review", {}).get("considerRemoving", [])]
                 swaps = [{"bad": b, "good": g["code"]} for b, g in zip(bad, greens)]
-                weekly_sent = tg_notify.send(weekly_review_text(get_weekly_trade_stats(), scout.get("review", {}), swaps))
+                weekly_sent = tg_notify.send(weekly_review_text(get_weekly_trade_stats(), scout.get("review", {}), swaps, now.day <= 7))
                 if weekly_sent:
                     dip_report_cache_collection.replace_one({"_id": "weekly-report-state"}, {"_id": "weekly-report-state", "lastSent": wk}, upsert=True)
             except Exception as e:

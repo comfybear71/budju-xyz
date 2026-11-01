@@ -102,7 +102,7 @@ def wallet_coin_suggestions(per_wallet: List[Dict], tracked: Set[str], prices: D
     return out
 
 
-def weekly_review_text(stats: Dict, review: Dict, swaps: List[Dict]) -> str:
+def weekly_review_text(stats: Dict, review: Dict, swaps: List[Dict], first_week_of_month: bool = False) -> str:
     """Sunday-night summary. stats: {"buys","sells","boughtUsd","soldUsd","topCoins":[(coin,n)],"wallets"}."""
     lines = ["🗓 <b>BUDJU weekly review</b>"]
     lines.append(f"This week the bot made <b>{stats['buys']}</b> buys (≈${stats['boughtUsd']:,.0f}) and "
@@ -117,5 +117,7 @@ def weekly_review_text(stats: Dict, review: Dict, swaps: List[Dict]) -> str:
         lines.append("👀 Under review: " + ", ".join(drop))
     if swaps:
         lines.append("🔁 Possible swaps: " + ", ".join(f"{s['bad']}→{s['good']}" for s in swaps[:4]))
+    if first_week_of_month:
+        lines.append("📅 <b>Monthly check:</b> a good week to look at the Offload preview (Trade page, bottom) and decide whether to rebalance.")
     lines.append("<i>Based on a year of daily prices. Analysis only, not financial advice.</i>")
     return "\n".join(lines)
