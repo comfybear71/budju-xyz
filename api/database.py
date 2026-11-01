@@ -4690,24 +4690,9 @@ def _hl_window(row: Dict, name: str) -> Dict:
     return {}
 
 
-def get_hyperliquid_probe() -> Dict:
-    from hl_traders import summarize_fills, pick_leaders
-    out: Dict = {"leaderboard": {}, "leaders": [], "trader": None}
-    t = time.time()
-    try:
-        raw = _hl_get(_HL_LEADERBOARD)
-        rows = raw.get("leaderboardRows") if isinstance(raw, dict) else raw
-        rows = rows if isinstance(rows, list) else []
-        out["leaderboard"] = {"ok": True, "seconds": round(time.time() - t, 2), "rows": len(rows),
-                              "fields": sorted(rows[0].keys())[:12] if rows and isinstance(rows[0], dict) else []}
-        out["leaders"] = pick_leaders(rows, _hl_window)[:8]
-    except Exception as e:
-        out["leaderboard"] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
-        return out
-    if not out["leaders"]:
-        return out
-    addr = out["leaders"][0]["address"]
-    trader: Dict = {"address": addr, "positions": [], "stats": None}
+def _hl_trader_card(addr: str) -> Dict:
+    """Live positions + fill statistics for one trader. Never raises."""
+    card: Dict = {"address": addr, "positions": [], "stats": None}
     try:
         st = _hl_info({"type": "clearinghouseState", "user": addr})
         for ap in (st.get("assetPositions") or [])[:8]:
@@ -4716,18 +4701,48 @@ def get_hyperliquid_probe() -> Dict:
                 size = float(p.get("szi") or 0)
             except (TypeError, ValueError):
                 size = 0.0
-            trader["positions"].append({
+            card["positions"].append({
                 "coin": p.get("coin"), "side": "long" if size > 0 else "short" if size < 0 else "flat",
                 "sizeUsd": p.get("positionValue"), "entry": p.get("entryPx"), "pnl": p.get("unrealizedPnl"),
                 "leverage": (p.get("leverage") or {}).get("value") if isinstance(p.get("leverage"), dict) else None,
             })
-        trader["accountValue"] = (st.get("marginSummary") or {}).get("accountValue")
+        card["accountValue"] = (st.get("marginSummary") or {}).get("accountValue")
     except Exception as e:
-        trader["positionsError"] = f"{type(e).__name__}: {str(e)[:140]}"
+        card["positionsError"] = f"{type(e).__name__}: {str(e)[:120]}"
     try:
+        from hl_traders import summarize_fills
         fills = _hl_info({"type": "userFills", "user": addr})
-        trader["stats"] = summarize_fills(fills if isinstance(fills, list) else [])
+        card["stats"] = summarize_fills(fills if isinstance(fills, list) else [])
     except Exception as e:
-        trader["fillsError"] = f"{type(e).__name__}: {str(e)[:140]}"
-    out["trader"] = trader
+        card["fillsError"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return card
+
+
+def get_hyperliquid_probe() -> Dict:
+    from hl_traders import pick_leaders, passes_live_check
+    out: Dict = {"leaderboard": {}, "candidates": 0, "checked": 0, "traders": []}
+    t = time.time()
+    try:
+        raw = _hl_get(_HL_LEADERBOARD)
+        rows = raw.get("leaderboardRows") if isinstance(raw, dict) else raw
+        rows = rows if isinstance(rows, list) else []
+        out["leaderboard"] = {"ok": True, "seconds": round(time.time() - t, 2), "rows": len(rows)}
+        cands = pick_leaders(rows, _hl_window)
+    except Exception as e:
+        out["leaderboard"] = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"}
+        return out
+    out["candidates"] = len(cands)
+    top = cands[:14]
+    out["checked"] = len(top)
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        cards = list(pool.map(lambda c: _hl_trader_card(c["address"]), top))
+    for cand, card in zip(top, cards):
+        try:
+            acct = float(card.get("accountValue") or 0)
+        except (TypeError, ValueError):
+            acct = 0.0
+        if passes_live_check(acct, card.get("stats")):
+            out["traders"].append({**cand, **card, "liveAccount": round(acct, 0)})
+    out["traders"].sort(key=lambda x: -((x["stats"] or {}).get("winRate") or 0))
+    out["traders"] = out["traders"][:5]
     return out
