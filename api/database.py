@@ -3720,6 +3720,11 @@ def get_copytrade_status_facts() -> Dict:
         "pullSwaps": state.get("lastPullSwaps", 0),
         "pullError": state.get("lastPullError"),
         "convergence24h": copytrade_events_collection.count_documents({"createdAt": {"$gte": cutoff}, "convergence": {"$gte": 1}}),
+        "finderLastAt": state.get("lastFinderAt"),
+        "finderAddedTotal": state.get("finderTotalAdded", 0),
+        "finderLastAdded": state.get("finderLastAdded", 0),
+        "finderPools": state.get("finderPools", 0),
+        "finderError": state.get("finderError"),
     }
 
 
@@ -3751,6 +3756,8 @@ def get_copytrade_status() -> Dict:
         "pull": {"lastAt": iso(facts.get("lastPullAt")), "wallets": facts.get("pullWallets", 0),
                  "swaps": facts.get("pullSwaps", 0), "error": facts.get("pullError")},
         "convergence24h": facts.get("convergence24h", 0),
+        "finder": {"lastAt": iso(facts.get("finderLastAt")), "totalAdded": facts.get("finderAddedTotal", 0),
+                   "lastAdded": facts.get("finderLastAdded", 0), "pools": facts.get("finderPools", 0), "error": facts.get("finderError")},
         "serverTime": iso(now),
     }
 
