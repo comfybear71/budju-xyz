@@ -4340,3 +4340,82 @@ def get_health_check(admin_wallet: str) -> Dict:
     out["wallets"] = user_exchange_keys_collection.count_documents({"encryptedApiKey": {"$exists": True}})
     out["hasCoinGeckoKey"] = bool(COINGECKO_API_KEY)
     return out
+
+
+# ==========================================
+# Offload preview (admin, READ-ONLY): what every wallet would sell/buy at X%
+# ==========================================
+_offload_snap: Dict = {"at": 0.0, "data": None}
+
+
+def _wallet_holdings_snapshot(fresh: bool = False) -> List[Dict]:
+    if not fresh and _offload_snap["data"] is not None and time.time() - _offload_snap["at"] < 120:
+        return _offload_snap["data"]
+    agg = get_community_aggregate_holdings()
+    _offload_snap.update({"at": time.time(), "data": agg["perWallet"]})
+    return agg["perWallet"]
+
+
+def get_offload_preview(bad=None, targets=None, fresh: bool = False) -> Dict:
+    from offload import plan_wallet
+    rep = get_dip_report()
+    coins = rep.get("coins", [])
+    default_bad = [c["coin"] for c in coins if str(c.get("advice", "")).startswith("Careful") and not c.get("denied")]
+    default_targets = [c["coin"] for c in coins if c.get("focus") and not c.get("denied")]
+    bad = [c for c in (bad if bad is not None else default_bad)]
+    targets = [c for c in (targets if targets is not None else default_targets) if c not in bad]
+
+    per_wallet = _wallet_holdings_snapshot(fresh)
+    universe = sorted(set(bad) | set(targets))
+    prices = get_prices_for_coins(universe) if universe else {}
+
+    # Average buy price per wallet/coin in two bulk queries (not one per coin)
+    wallets = [w["walletAddress"] for w in per_wallet]
+    avg: Dict[str, Dict[str, float]] = {w: {} for w in wallets}
+    try:
+        for r in user_trades_collection.aggregate([
+            {"$match": {"walletAddress": {"$in": wallets}, "coin": {"$in": bad}, "side": "buy"}},
+            {"$group": {"_id": {"w": "$walletAddress", "c": "$coin"},
+                        "spent": {"$sum": {"$multiply": ["$quantity", "$price"]}}, "qty": {"$sum": "$quantity"}}},
+        ]):
+            if r["qty"] > 0:
+                avg.setdefault(r["_id"]["w"], {})[r["_id"]["c"]] = r["spent"] / r["qty"]
+        admin_avg = {}
+        for r in trades_collection.aggregate([
+            {"$match": {"type": "buy", "coin": {"$in": bad}}},
+            {"$group": {"_id": "$coin", "spent": {"$sum": {"$multiply": ["$amount", "$price"]}}, "qty": {"$sum": "$amount"}}},
+        ]):
+            if r["qty"] > 0:
+                admin_avg[r["_id"]] = r["spent"] / r["qty"]
+        for w in wallets:
+            if w in ADMIN_WALLETS:
+                avg[w] = {**avg.get(w, {}), **admin_avg}
+    except Exception as e:
+        print(f"[offload] avg cost error: {e}")
+
+    sizing = get_sizing_settings()
+    cap = sizing["capUsd"] if sizing["enabled"] else 0.0
+
+    out_wallets = []
+    totals = {"50": {"sell": 0.0, "buy": 0.0, "pnl": 0.0}, "75": {"sell": 0.0, "buy": 0.0, "pnl": 0.0}}
+    for w in per_wallet:
+        addr = w["walletAddress"]
+        hold = w.get("holdings") or {}
+        scen = {}
+        for pct in (50, 75):
+            plan = plan_wallet(hold, prices, avg.get(addr, {}), bad, targets, pct, cap)
+            scen[str(pct)] = plan
+            t = totals[str(pct)]
+            t["sell"] += plan["sellTotal"]
+            t["buy"] += plan["spent"]
+            t["pnl"] += plan["pnlTotal"] or 0.0
+        out_wallets.append({
+            "wallet": addr, "short": _short_wallet(addr), "isAdmin": addr in ADMIN_WALLETS,
+            "usdc": round(float(hold.get("USDC", 0.0)), 2), "scenarios": scen,
+        })
+    out_wallets.sort(key=lambda x: -x["scenarios"]["50"]["sellTotal"])
+    return {
+        "bad": bad, "targets": targets, "capUsd": cap, "wallets": out_wallets,
+        "totals": {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in totals.items()},
+        "defaults": {"bad": default_bad, "targets": default_targets},
+    }

@@ -107,6 +107,7 @@ from database import (
     manage_coins_bulk,
     get_sizing_preview,
     get_health_check,
+    get_offload_preview,
     get_live_leaderboard_cached,
     save_sizing_settings,
     refresh_coin_classes,
@@ -735,6 +736,16 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError:
                     lim = None
                 self._send_json(200, reconcile_fills.run(admin_wallet, apply=params.get('apply') == '1', limit=lim))
+
+            elif path == '/api/admin/offload-preview':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                def _csv(name):
+                    v = params.get(name)
+                    return None if v is None else [x.strip().upper() for x in v.split(',') if x.strip()]
+                self._send_json(200, get_offload_preview(_csv('bad'), _csv('targets'), params.get('fresh') == '1'))
 
             elif path == '/api/admin/health':
                 wallet = params.get('wallet')
