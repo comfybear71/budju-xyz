@@ -4746,3 +4746,28 @@ def get_hyperliquid_probe() -> Dict:
     out["traders"].sort(key=lambda x: -((x["stats"] or {}).get("winRate") or 0))
     out["traders"] = out["traders"][:5]
     return out
+
+
+# ==========================================
+# Scorecard (admin): is the bot beating "just buy and hold"?
+# ==========================================
+def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
+    """scope "all": the admin account plus every other wallet's bot trades; "mine": the admin account only."""
+    from scorecard import coin_scorecard
+    rows = []
+    for d in trades_collection.find({"type": {"$in": ["buy", "sell"]}}, {"coin": 1, "type": 1, "amount": 1, "price": 1, "timestamp": 1}):
+        rows.append({"coin": d.get("coin"), "side": d.get("type"), "qty": d.get("amount"), "price": d.get("price"), "ts": d.get("timestamp")})
+    wallets = 1 if rows else 0
+    if scope == "all":
+        seen = set()
+        for d in user_trades_collection.find({}, {"coin": 1, "side": 1, "quantity": 1, "price": 1, "timestamp": 1, "walletAddress": 1}):
+            rows.append({"coin": d.get("coin"), "side": d.get("side"), "qty": d.get("quantity"), "price": d.get("price"), "ts": d.get("timestamp")})
+            seen.add(d.get("walletAddress"))
+        wallets += len(seen)
+    codes = sorted({r["coin"] for r in rows if r.get("coin")})
+    prices = get_prices_for_coins(codes) if codes else {}
+    result = coin_scorecard(rows, prices)
+    result["scope"] = scope
+    result["wallets"] = wallets
+    result["trades"] = len(rows)
+    return result

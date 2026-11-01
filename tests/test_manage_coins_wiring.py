@@ -68,3 +68,8 @@ def test_hyperliquid_probe_only_reads():
     assert "/exchange" not in seg and "api.hyperliquid.xyz/info" in seg      # public read API only, never the trading endpoint
     idx = _read("api", "index.py")
     assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/hyperliquid-probe'"):][:400]
+
+
+def test_scorecard_is_admin_only():
+    idx = _read("api", "index.py")
+    assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/scorecard'"):][:400]
