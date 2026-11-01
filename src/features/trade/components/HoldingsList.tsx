@@ -6,7 +6,7 @@ import {
   FaArrowDown,
   FaChevronDown,
 } from "react-icons/fa";
-import { ASSET_CONFIG, fetchCommunityAggregateHoldings } from "../services/tradeApi";
+import { ASSET_CONFIG, fetchCommunityAggregateHoldings, getCoinRank, loadCoinConfig } from "../services/tradeApi";
 import type { PortfolioAsset, CommunityAggregateHoldings } from "../services/tradeApi";
 import CoinExpandPanel from "./CoinExpandPanel";
 
@@ -25,8 +25,8 @@ interface HoldingsListProps {
   adminWallet?: string;
 }
 
-// ── Tier categorization ─────────────────────────────────
-type HoldingsTier = "top10" | "innovation" | "wildcards";
+// ── Groups: by market-cap rank (with the hand-picked "Innovation" theme) ──
+type HoldingsTier = "top10" | "innovation" | "top50" | "top200" | "smaller";
 
 interface TierConfig {
   id: HoldingsTier;
@@ -37,44 +37,32 @@ interface TierConfig {
 }
 
 const TIER_CONFIGS: TierConfig[] = [
-  {
-    id: "top10",
-    label: "Top 10",
-    description: "Major coins by market cap",
-    accent: "from-blue-400 to-cyan-400",
-    accentHex: "#60a5fa",
-  },
-  {
-    id: "innovation",
-    label: "Innovation",
-    description: "AI, compute & next-gen projects",
-    accent: "from-purple-400 to-pink-400",
-    accentHex: "#c084fc",
-  },
-  {
-    id: "wildcards",
-    label: "Wildcards",
-    description: "Alts, commodities & high conviction",
-    accent: "from-amber-400 to-orange-400",
-    accentHex: "#fbbf24",
-  },
+  { id: "top10", label: "Top 10", description: "The 10 biggest coins by market cap", accent: "from-blue-400 to-cyan-400", accentHex: "#60a5fa" },
+  { id: "innovation", label: "Innovation", description: "AI, compute & next-gen projects", accent: "from-purple-400 to-pink-400", accentHex: "#c084fc" },
+  { id: "top50", label: "Top 50", description: "Ranked 11–50 by market cap", accent: "from-emerald-400 to-teal-400", accentHex: "#34d399" },
+  { id: "top200", label: "Top 200", description: "Ranked 51–200 by market cap", accent: "from-amber-400 to-orange-400", accentHex: "#fbbf24" },
+  { id: "smaller", label: "Smaller", description: "Outside the top 200", accent: "from-rose-400 to-red-400", accentHex: "#fb7185" },
 ];
 
-// Top 10 by market cap
-const TOP_10_COINS = new Set([
-  "BTC", "ETH", "XRP", "BNB", "SOL", "DOGE", "ADA", "LINK", "AVAX",
-]);
+// Used only until market-cap ranks have loaded
+const TOP_10_FALLBACK = new Set(["BTC", "ETH", "XRP", "BNB", "SOL", "DOGE", "ADA", "LINK", "AVAX"]);
 
-// AI, compute, next-gen L1s
-const INNOVATION_COINS = new Set([
-  "SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT", "UNI",
-]);
+// AI, compute, next-gen L1s (a theme, not a size)
+const INNOVATION_COINS = new Set(["SUI", "NEAR", "RENDER", "FET", "TAO", "HYPE", "DOT", "UNI"]);
 
 function getTier(code: string): HoldingsTier {
-  if (TOP_10_COINS.has(code)) return "top10";
+  const rank = getCoinRank(code);
+  if ((rank !== undefined && rank <= 10) || (rank === undefined && TOP_10_FALLBACK.has(code))) return "top10";
   if (INNOVATION_COINS.has(code)) return "innovation";
-  return "wildcards";
+  if (rank === undefined) return "smaller";
+  if (rank <= 50) return "top50";
+  if (rank <= 200) return "top200";
+  return "smaller";
 }
+
+const emptyGroups = <T,>(make: () => T): Record<HoldingsTier, T> => ({
+  top10: make(), innovation: make(), top50: make(), top200: make(), smaller: make(),
+});
 
 /* ── Animated number that "spins up" when value changes ── */
 const SpinNumber = ({
@@ -237,7 +225,7 @@ const TierTabs = ({
   return (
     <div
       ref={tabsRef}
-      className="relative inline-flex rounded-xl p-1 bg-white/[0.04] border border-white/[0.06]"
+      className="relative inline-flex max-w-full overflow-x-auto rounded-xl p-1 bg-white/[0.04] border border-white/[0.06]"
     >
       {/* Sliding indicator */}
       <motion.div
@@ -325,6 +313,11 @@ const HoldingsList = ({
   const [sortAsc, setSortAsc] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [activeTierIndex, setActiveTierIndex] = useState(0);
+  // Market-cap ranks arrive from the server a moment after the page; regroup when they do
+  const [rankVersion, setRankVersion] = useState(0);
+  useEffect(() => {
+    void loadCoinConfig().then(() => setRankVersion((v) => v + 1));
+  }, []);
   const dragX = useMotionValue(0);
 
   // Which card's dropdown (price chart + holders) is open — only one at a
@@ -387,23 +380,15 @@ const HoldingsList = ({
 
   // Group assets by tier
   const assetsByTier = useMemo(() => {
-    const grouped: Record<HoldingsTier, PortfolioAsset[]> = {
-      top10: [],
-      innovation: [],
-      wildcards: [],
-    };
+    const grouped = emptyGroups<PortfolioAsset[]>(() => []);
     for (const a of assets) {
       grouped[getTier(a.code)].push(a);
     }
     return grouped;
-  }, [assets]);
+  }, [assets, rankVersion]);
 
   // Count per tier
-  const countByTier: Record<HoldingsTier, number> = {
-    top10: assetsByTier.top10.length,
-    innovation: assetsByTier.innovation.length,
-    wildcards: assetsByTier.wildcards.length,
-  };
+  const countByTier = Object.fromEntries(TIER_CONFIGS.map((t) => [t.id, assetsByTier[t.id].length])) as Record<HoldingsTier, number>;
 
   // Only show tiers that have holdings
   const activeTiers = TIER_CONFIGS.filter((t) => assetsByTier[t.id].length > 0);
