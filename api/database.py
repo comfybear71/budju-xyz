@@ -4570,3 +4570,71 @@ def mark_wallets_pulled(addresses: List[str]) -> None:
         copytrade_wallets_collection.update_many({"address": {"$in": addresses}}, {"$set": {"lastPulledAt": datetime.utcnow()}})
     except Exception as e:
         print(f"[copytrade] mark pulled error: {e}")
+
+
+# ==========================================
+# CoinGecko on-chain explorer (admin): which endpoints does OUR plan reach?
+# ==========================================
+_PROBE_TOKENS = {
+    "JUP": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+    "WIF": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+}
+
+
+def _cg_probe(path: str) -> Dict:
+    """One CoinGecko call that never raises: status, a short message, item count and sample field names."""
+    headers = {"Accept": "application/json"}
+    if COINGECKO_API_KEY:
+        headers["x-cg-pro-api-key"] = COINGECKO_API_KEY
+    t = time.time()
+    try:
+        with urlopen(Request(f"{COINGECKO_BASE_URL}{path}", headers=headers), timeout=20) as resp:
+            body = json.loads(resp.read().decode())
+        data = body.get("data") if isinstance(body, dict) else body
+        items = data if isinstance(data, list) else ([data] if data else [])
+        sample = items[0] if items else {}
+        attrs = sample.get("attributes", sample) if isinstance(sample, dict) else {}
+        return {"ok": True, "status": 200, "seconds": round(time.time() - t, 2), "count": len(items),
+                "fields": sorted(attrs.keys())[:14] if isinstance(attrs, dict) else [], "body": body}
+    except Exception as e:
+        code = getattr(e, "code", None)
+        msg = ""
+        try:
+            msg = e.read().decode(errors="ignore")[:160]
+        except Exception:
+            msg = str(e)[:160]
+        return {"ok": False, "status": code, "seconds": round(time.time() - t, 2), "message": msg}
+
+
+def get_coingecko_probe() -> Dict:
+    out: Dict = {"hasKey": bool(COINGECKO_API_KEY), "results": [], "bigHolders": []}
+
+    def add(name: str, path: str, keep_body: bool = False):
+        r = _cg_probe(path)
+        body = r.pop("body", None)
+        out["results"].append({"name": name, "path": path.split("?")[0], **r})
+        return body if keep_body else None
+
+    trending = add("Trending Solana pools", "/onchain/networks/solana/trending_pools?page=1", keep_body=True)
+    add("Newest Solana pools", "/onchain/networks/solana/new_pools?page=1")
+    add("Top Solana pools", "/onchain/networks/solana/pools?page=1")
+    pool_addr = None
+    try:
+        pool_addr = (trending.get("data") or [{}])[0].get("attributes", {}).get("address")
+    except Exception:
+        pass
+    if pool_addr:
+        add("Recent trades in a pool", f"/onchain/networks/solana/pools/{pool_addr}/trades")
+    for sym, mint in _PROBE_TOKENS.items():
+        holders = _cg_probe(f"/onchain/networks/solana/tokens/{mint}/top_holders?holders=10")
+        body = holders.pop("body", None)
+        out["results"].append({"name": f"Top holders of {sym}", "path": "/onchain/networks/solana/tokens/{token}/top_holders", **holders})
+        if holders["ok"]:
+            try:
+                rows = (body.get("data", {}).get("attributes", {}).get("holders") or [])[:10]
+                out["bigHolders"].append({"token": sym, "holders": [
+                    {"address": r.get("address"), "label": r.get("label"), "percent": r.get("percentage"), "value": r.get("value")} for r in rows]})
+            except Exception:
+                pass
+        add(f"Top traders of {sym}", f"/onchain/networks/solana/tokens/{mint}/top_traders?traders=10")
+    return out
