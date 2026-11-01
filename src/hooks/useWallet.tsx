@@ -202,8 +202,9 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
         if (qrWallet) {
           // Create a read-only wallet session — no signing capability
           // but enough to show as "connected" for admin views
-          const readOnlyWallet: ExtendedWallet = {
+          const readOnlyWallet = {
             name: "phantom" as WalletName,
+            address: qrWallet,          // the rest of the app reads wallet.address — without it the QR login crashed
             publicKey: qrWallet,
             signTransaction: async () => {
               throw new Error("QR session is read-only. Sign on your phone.");
@@ -211,7 +212,7 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({
             sendTransaction: async () => {
               throw new Error("QR session is read-only. Sign on your phone.");
             },
-          };
+          } as unknown as ExtendedWallet;
           setConnection({
             connected: true,
             wallet: readOnlyWallet,
