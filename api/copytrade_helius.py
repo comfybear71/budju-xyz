@@ -259,10 +259,19 @@ def parse_helius_swap(tx: Dict, tracked: Set[str]) -> Optional[Dict]:
             except (TypeError, ValueError):
                 amount_usd = None
 
+    sol_lamports = 0.0
+    try:
+        leg = native_input if side == "buy" else native_output
+        if leg.get("account") == wallet:
+            sol_lamports = float(leg.get("amount") or 0)
+    except (TypeError, ValueError):
+        sol_lamports = 0.0
+
     return {
         "walletAddress": wallet,
         "signature": signature,
         "side": side,
+        "solAmount": sol_lamports / 1e9 if sol_lamports else None,
         "tokenMint": token_mint,
         "amountUsd": amount_usd,
         "slot": tx.get("slot"),

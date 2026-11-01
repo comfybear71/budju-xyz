@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "")
 PULL_BATCH = int(os.getenv("COPYTRADE_PULL_BATCH", "12"))       # wallets per run
 MAX_COPY_AGE_S = int(os.getenv("COPYTRADE_MAX_COPY_AGE_S", "1200"))  # copy only swaps newer than 20 min
+MAX_RECORD_AGE_S = int(os.getenv("COPYTRADE_MAX_RECORD_AGE_S", str(3 * 86400)))  # older swaps are history, not signals
 HOSTS = ["https://api-mainnet.helius-rpc.com", "https://api.helius.xyz"]
 
 
@@ -45,15 +46,20 @@ def run_pull(batch: int = PULL_BATCH) -> dict:
     if not wallets:
         return {"ok": True, "wallets": 0, "swaps": 0}
     txs, errors = [], []
+    latest = {}
     with ThreadPoolExecutor(max_workers=4) as pool:
         futs = {w: pool.submit(fetch_wallet_swaps, w) for w in wallets}
         for w, f in futs.items():
             try:
-                txs.extend(f.result())
+                got = f.result()
+                txs.extend(got)
+                stamps = [t.get("timestamp") for t in got if isinstance(t, dict) and t.get("timestamp")]
+                latest[w] = max(stamps) if stamps else 0     # 0 = this wallet has no swaps at all
             except Exception as e:
                 errors.append(str(e))
-    mark_wallets_pulled(wallets)
-    result = handle_delivery(txs, max_age_s=MAX_COPY_AGE_S) if txs else {"ok": True, "received": 0}
+    mark_wallets_pulled(wallets, latest)
+    result = (handle_delivery(txs, max_age_s=MAX_COPY_AGE_S, max_record_age_s=MAX_RECORD_AGE_S)
+              if txs else {"ok": True, "received": 0})
     save_copytrade_state({
         "lastPullAt": datetime.utcnow(), "lastPullWallets": len(wallets), "lastPullSwaps": len(txs),
         "lastPullError": (errors[0] if errors and len(errors) == len(wallets) else None),

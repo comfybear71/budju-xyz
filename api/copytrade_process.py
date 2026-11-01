@@ -51,12 +51,12 @@ def _short(addr: str) -> str:
     return f"{addr[:4]}...{addr[-4:]}" if addr and len(addr) > 8 else (addr or "?")
 
 
-def handle_delivery(payload, max_age_s=None) -> dict:
+def handle_delivery(payload, max_age_s=None, max_record_age_s=None) -> dict:
     txs = payload if isinstance(payload, list) else [payload]
     # "pending" wallets must be included here too — see
     # get_trackable_copytrade_wallet_addresses()'s docstring.
     tracked = set(get_trackable_copytrade_wallet_addresses())
-    opened, closed, ignored = 0, 0, 0
+    opened, closed, ignored, stale = 0, 0, 0, 0
 
     for tx in txs:
         if not isinstance(tx, dict):
@@ -65,6 +65,16 @@ def handle_delivery(payload, max_age_s=None) -> dict:
         if not event:
             ignored += 1
             continue
+
+        # Old swaps (a wallet's history, not news) are not signals: don't record them at all.
+        if max_record_age_s and event.get("blockTime") and (time.time() - float(event["blockTime"])) > max_record_age_s:
+            stale += 1
+            continue
+
+        if event.get("amountUsd") is None and event.get("solAmount"):
+            sol_price = _sol_price()
+            if sol_price:
+                event["amountUsd"] = round(float(event["solAmount"]) * sol_price, 2)
 
         is_new = record_copytrade_event(event)
         if not is_new:
@@ -126,7 +136,7 @@ def handle_delivery(payload, max_age_s=None) -> dict:
                 f"P&L: <b>{'+' if pnl >= 0 else ''}{pnl:.2f}</b> ({result['pnlPct']:+.1f}%)"
             )
 
-    return {"ok": True, "received": len(txs), "opened": opened, "closed": closed, "ignored": ignored}
+    return {"ok": True, "received": len(txs), "opened": opened, "closed": closed, "ignored": ignored, "stale": stale}
 
 
 
@@ -149,3 +159,20 @@ def _check_convergence(event: dict, mint: str, label: str) -> None:
             )
     except Exception as e:
         print(f"[copytrade] convergence check error: {e}")
+
+
+_sol_cache = {"at": 0.0, "price": 0.0}
+
+
+def _sol_price() -> float:
+    """SOL in USD (cached 5 min) so swaps made in SOL get a dollar value."""
+    if time.time() - _sol_cache["at"] < 300 and _sol_cache["price"]:
+        return _sol_cache["price"]
+    try:
+        from database import get_prices_for_coins
+        price = float(get_prices_for_coins(["SOL"]).get("SOL") or 0)
+        if price:
+            _sol_cache.update({"at": time.time(), "price": price})
+        return price
+    except Exception:
+        return _sol_cache["price"]
