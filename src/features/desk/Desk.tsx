@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useWallet } from "@hooks/useWallet";
 import { fetchDeskBrief, registerWallet, type DeskBrief } from "@features/trade/services/tradeApi";
 import DipReport from "@features/trade/components/DipReport";
+import { getSessionToken, clearSession } from "@lib/services/authSession";
 
 const dirColor = (d: string) => (d === "long" ? "#22c55e" : d === "short" ? "#ef4444" : "#94a3b8");
 const dirIcon = (d: string) => (d === "long" ? "🟢" : d === "short" ? "🔴" : "⚪️");
@@ -82,9 +83,24 @@ const Desk = () => {
           <div className="w-8 h-8 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
         </div>
       ) : !active ? (
-        <div className="text-center py-16 text-slate-500 text-sm">
-          No brief yet. The first one lands each morning (~6am AEST). Check back soon. ☕
-        </div>
+        walletAddress && !getSessionToken(walletAddress) ? (
+          <div className="text-center py-16 px-4 text-slate-400 text-sm leading-relaxed">
+            🔒 This device hasn't got your sign-in pass, so the Desk can't open your briefing here.
+            <div className="text-[12px] text-slate-500 mt-2">Sign in again by scanning the QR code with your phone (the pass lasts 12 hours).</div>
+            {typeof window !== "undefined" && localStorage.getItem("budju_qr_wallet") && (
+              <button
+                onClick={() => { clearSession(); localStorage.removeItem("budju_qr_wallet"); window.location.reload(); }}
+                className="mt-4 px-4 py-2 rounded-lg text-xs font-bold bg-teal-500/20 text-teal-300"
+              >
+                Sign in again
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-16 text-slate-500 text-sm">
+            No brief yet. The first one lands each morning (~6am AEST). Check back soon. ☕
+          </div>
+        )
       ) : (
         <>
           {/* Date / history selector */}
