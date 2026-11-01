@@ -25,6 +25,7 @@ import PersonalTradingView from "./components/PersonalTradingView";
 import GrowthAreaChart from "./components/GrowthAreaChart";
 import {
   fetchPortfolio,
+  fetchAdminAssets,
   fetchPrices,
   fetchChanges,
   fetchCashBalances,
@@ -231,7 +232,7 @@ const Trade = () => {
       // First wave. The admin's own Swyftx account (portfolio, cash) is only
       // for the admin — everyone else needs just prices, which are fast.
       const results = await Promise.allSettled([
-        isAdmin ? fetchPortfolio() : Promise.resolve([]),
+        isAdmin ? fetchAdminAssets(walletAddress) : Promise.resolve([]),
         fetchPrices(),
         fetchChanges(),
         isAdmin ? fetchCashBalances() : Promise.resolve({ usdc: 0, aud: 0 }),
@@ -378,7 +379,7 @@ const Trade = () => {
   // views genuinely refresh every 90s, same cycle, same promise.
   useEffect(() => {
     const interval = setInterval(() => {
-      fetchPortfolio()
+      (isAdmin ? fetchAdminAssets(walletAddress) : fetchPortfolio())
         .then((portfolioData) => {
           setAssets((prev) =>
             portfolioData.map((a) => {
