@@ -4187,8 +4187,11 @@ def get_scout() -> Dict:
     rep = build_report(series)
     by_id = {c["id"]: c for c in cands}
     results = []
+    already = set(ASSET_CG_IDS) | {d["code"] for d in coin_config_collection.find({"status": {"$in": ["custom", "retired"]}})}
     for r in rep["coins"]:
         meta = by_id.get(r["coin"], {})
+        if meta.get("code") in already:
+            continue            # added since the candidate list was cached
         if r["buys"] < 5 or r["advice"].startswith(("Careful", "Quiet")) or r["perBuy"] <= 0:
             continue
         results.append({**r, "id": r["coin"], "code": meta.get("code"), "name": meta.get("name"), "rank": meta.get("rank")})
