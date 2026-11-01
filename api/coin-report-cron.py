@@ -84,7 +84,26 @@ def run() -> dict:
                 if sent:
                     dip_report_cache_collection.replace_one(
                         {"_id": "daily-report-state"}, {"_id": "daily-report-state", "lastSent": today}, upsert=True)
-    return {"leaderboardSnapshot": leaderboard_ok, "refreshed": refreshed, "warmed": warmed, "reportSent": sent}
+    # Weekly review: Sunday ~23:00 UTC (Monday 10am Sydney), once per week
+    weekly_sent = False
+    if now.weekday() == 6 and now.hour == REPORT_UTC_HOUR and now.minute < 30:
+        wk = now.strftime("%G-W%V")
+        st2 = dip_report_cache_collection.find_one({"_id": "weekly-report-state"}) or {}
+        if st2.get("lastSent") != wk:
+            try:
+                from database import get_weekly_trade_stats
+                from scout import weekly_review_text
+                scout = get_scout()
+                greens = [c for c in scout.get("results", [])]
+                bad = [n["coin"] for n in scout.get("review", {}).get("considerRemoving", [])]
+                swaps = [{"bad": b, "good": g["code"]} for b, g in zip(bad, greens)]
+                weekly_sent = tg_notify.send(weekly_review_text(get_weekly_trade_stats(), scout.get("review", {}), swaps))
+                if weekly_sent:
+                    dip_report_cache_collection.replace_one({"_id": "weekly-report-state"}, {"_id": "weekly-report-state", "lastSent": wk}, upsert=True)
+            except Exception as e:
+                print(f"[coin-report-cron] weekly review error: {e}")
+
+    return {"leaderboardSnapshot": leaderboard_ok, "refreshed": refreshed, "warmed": warmed, "reportSent": sent, "weeklySent": weekly_sent}
 
 
 class handler(BaseHTTPRequestHandler):

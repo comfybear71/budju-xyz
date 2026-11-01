@@ -100,3 +100,22 @@ def wallet_coin_suggestions(per_wallet: List[Dict], tracked: Set[str], prices: D
                     "small": bool(mc is not None and mc < SMALL_CAP_USD)})
     out.sort(key=lambda r: r["usdValue"], reverse=True)
     return out
+
+
+def weekly_review_text(stats: Dict, review: Dict, swaps: List[Dict]) -> str:
+    """Sunday-night summary. stats: {"buys","sells","boughtUsd","soldUsd","topCoins":[(coin,n)],"wallets"}."""
+    lines = ["🗓 <b>BUDJU weekly review</b>"]
+    lines.append(f"This week the bot made <b>{stats['buys']}</b> buys (≈${stats['boughtUsd']:,.0f}) and "
+                 f"<b>{stats['sells']}</b> sells (≈${stats['soldUsd']:,.0f}) across {stats['wallets']} wallets.")
+    if stats.get("topCoins"):
+        lines.append("Most active coins: " + ", ".join(f"{c} ({n})" for c, n in stats["topCoins"][:5]))
+    keep = [n["coin"] for n in review.get("keepStrong", [])][:5]
+    drop = [n["coin"] for n in review.get("considerRemoving", [])][:8]
+    if keep:
+        lines.append("⭐ Working well: " + ", ".join(keep))
+    if drop:
+        lines.append("👀 Under review: " + ", ".join(drop))
+    if swaps:
+        lines.append("🔁 Possible swaps: " + ", ".join(f"{s['bad']}→{s['good']}" for s in swaps[:4]))
+    lines.append("<i>Based on a year of daily prices. Analysis only, not financial advice.</i>")
+    return "\n".join(lines)

@@ -4452,3 +4452,62 @@ def get_offload_preview(bad=None, targets=None, fresh: bool = False) -> Dict:
         "totals": {k: {kk: round(vv, 2) for kk, vv in v.items()} for k, v in totals.items()},
         "defaults": {"bad": default_bad, "targets": default_targets},
     }
+
+
+# ==========================================
+# Trading permission (one-time agreement) + trade export
+# ==========================================
+trading_permissions_collection = db["trading_permissions"]
+PERMISSION_VERSION = 1
+
+
+def get_trading_permission(wallet: str) -> Dict:
+    d = trading_permissions_collection.find_one({"_id": wallet}) or {}
+    return {"agreed": bool(d.get("version") == PERMISSION_VERSION), "version": PERMISSION_VERSION,
+            "at": d["at"].isoformat() + "Z" if d.get("at") else None}
+
+
+def record_trading_permission(wallet: str) -> Dict:
+    trading_permissions_collection.update_one(
+        {"_id": wallet}, {"$set": {"walletAddress": wallet, "version": PERMISSION_VERSION, "at": datetime.utcnow()}}, upsert=True)
+    return get_trading_permission(wallet)
+
+
+def get_trade_export_csv(wallet: str) -> str:
+    from trade_export import normalise, rows_to_csv
+    if wallet in ADMIN_WALLETS:
+        docs = list(trades_collection.find({"type": {"$in": ["buy", "sell"]}}).sort("timestamp", 1))
+        rows = normalise(docs, admin_ledger=True)
+        seen = {r["orderId"] for r in rows if r["orderId"]}
+        extra = [d for d in user_trades_collection.find({"walletAddress": wallet}).sort("timestamp", 1) if d.get("orderId") not in seen]
+        rows = sorted(rows + normalise(extra), key=lambda r: r["date"])
+    else:
+        rows = normalise(user_trades_collection.find({"walletAddress": wallet}).sort("timestamp", 1))
+    return rows_to_csv(rows)
+
+
+def get_weekly_trade_stats() -> Dict:
+    since = datetime.utcnow() - timedelta(days=7)
+    buys = sells = 0
+    bought = sold = 0.0
+    coins: Dict[str, int] = {}
+    wallets = set()
+    for d in user_trades_collection.find({"timestamp": {"$gte": since}}):
+        v = float(d.get("quantity") or 0) * float(d.get("price") or 0)
+        wallets.add(d.get("walletAddress"))
+        coins[d.get("coin")] = coins.get(d.get("coin"), 0) + 1
+        if d.get("side") == "buy":
+            buys += 1; bought += v
+        elif d.get("side") == "sell":
+            sells += 1; sold += v
+    for d in trades_collection.find({"timestamp": {"$gte": since}, "type": {"$in": ["buy", "sell"]}}):
+        v = float(d.get("amount") or 0) * float(d.get("price") or 0)
+        coins[d.get("coin")] = coins.get(d.get("coin"), 0) + 1
+        if ADMIN_WALLETS:
+            wallets.add(ADMIN_WALLETS[0])
+        if d.get("type") == "buy":
+            buys += 1; bought += v
+        else:
+            sells += 1; sold += v
+    top = sorted(((c, n) for c, n in coins.items() if c), key=lambda x: -x[1])[:5]
+    return {"buys": buys, "sells": sells, "boughtUsd": bought, "soldUsd": sold, "topCoins": top, "wallets": len(wallets)}

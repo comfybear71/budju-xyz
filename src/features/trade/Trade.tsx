@@ -58,6 +58,7 @@ import ActivityLog from "./components/ActivityLog";
 import WalletCoinSuggestions from "./components/WalletCoinSuggestions";
 import StarterBuys from "./components/StarterBuys";
 import HealthCheck from "./components/HealthCheck";
+import TradingPermission from "./components/TradingPermission";
 import OffloadPreview from "./components/OffloadPreview";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
@@ -506,6 +507,7 @@ const Trade = () => {
     <main className="min-h-screen">
       <div className="max-w-2xl mx-auto min-h-screen flex flex-col px-4 pt-20 pb-4">
         <NewCoinMarquee />
+        {isConnected && walletAddress && <TradingPermission wallet={walletAddress} />}
         {/* ─── Header ─────────────────────────────── */}
         <div className="flex items-center justify-between py-3">
           <div className="flex items-center gap-2.5">

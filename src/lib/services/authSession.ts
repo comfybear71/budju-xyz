@@ -131,7 +131,7 @@ const ADMIN_POST = new Set([
   "/api/pool/initialize",
   "/api/user/sync",
 ]);
-const OWNER_POST = new Set(["/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade"]);
+const OWNER_POST = new Set(["/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission"]);
 
 function needsPass(method: string, url: URL, body: unknown): boolean {
   const p = url.pathname;
