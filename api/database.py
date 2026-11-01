@@ -3528,6 +3528,7 @@ def get_copytrade_activity(limit: int = 80) -> Dict:
             "tokenSymbol": d.get("tokenSymbol") or "",
             "amountUsd": d.get("amountUsd") or 0,
             "outcome": d.get("outcome") or "seen",
+            "convergence": d.get("convergence") or 0,
             "reason": d.get("reason") or "",
             "time": datetime.utcfromtimestamp(bt).isoformat() + "Z" if isinstance(bt, (int, float)) else d["createdAt"].isoformat() + "Z",
         })
@@ -3713,6 +3714,11 @@ def get_copytrade_status_facts() -> Dict:
         "opened24h": copytrade_positions_collection.count_documents({"entryAt": {"$gte": cutoff}}),
         "closed24h": copytrade_positions_collection.count_documents({"exitAt": {"$gte": cutoff}}),
         "lastOpenedAt": (last_open or {}).get("entryAt"),
+        "lastPullAt": state.get("lastPullAt"),
+        "pullWallets": state.get("lastPullWallets", 0),
+        "pullSwaps": state.get("lastPullSwaps", 0),
+        "pullError": state.get("lastPullError"),
+        "convergence24h": copytrade_events_collection.count_documents({"createdAt": {"$gte": cutoff}, "convergence": {"$gte": 1}}),
     }
 
 
@@ -3741,6 +3747,9 @@ def get_copytrade_status() -> Dict:
             "lastOpenedAt": iso(facts["lastOpenedAt"]),
         },
         "jobs": {"walletRefreshAt": iso(facts["walletsRefreshedAt"]), "pricingJobAt": iso(facts["lastCronAt"])},
+        "pull": {"lastAt": iso(facts.get("lastPullAt")), "wallets": facts.get("pullWallets", 0),
+                 "swaps": facts.get("pullSwaps", 0), "error": facts.get("pullError")},
+        "convergence24h": facts.get("convergence24h", 0),
         "serverTime": iso(now),
     }
 
@@ -4515,3 +4524,49 @@ def get_weekly_trade_stats() -> Dict:
             sells += 1; sold += v
     top = sorted(((c, n) for c, n in coins.items() if c), key=lambda x: -x[1])[:5]
     return {"buys": buys, "sells": sells, "boughtUsd": bought, "soldUsd": sold, "topCoins": top, "wallets": len(wallets)}
+
+
+# ==========================================
+# Signals: convergence + backup wallet puller helpers
+# ==========================================
+def count_copytrade_buyers(mint: str, hours: int = 6) -> int:
+    since = datetime.utcnow() - timedelta(hours=hours)
+    return len(copytrade_events_collection.distinct("walletAddress", {"tokenMint": mint, "side": "buy", "createdAt": {"$gte": since}}))
+
+
+def set_copytrade_event_convergence(signature: str, n: int) -> None:
+    try:
+        copytrade_events_collection.update_one({"signature": signature}, {"$set": {"convergence": int(n)}})
+    except Exception as e:
+        print(f"[copytrade] convergence save error: {e}")
+
+
+def claim_convergence_alert(mint: str, hours: int = 6) -> bool:
+    """True the first time a token's convergence is reported within the window (atomic, so concurrent
+    deliveries can't both send)."""
+    now = datetime.utcnow()
+    since = now - timedelta(hours=hours)
+    try:
+        r = copytrade_state_collection.update_one(
+            {"_id": COPYTRADE_STATE_ID, f"convergence.{mint}": {"$not": {"$gte": since}}},
+            {"$set": {f"convergence.{mint}": now}},
+        )
+        return r.modified_count == 1
+    except Exception:
+        return False
+
+
+def get_wallets_for_pull(n: int) -> List[str]:
+    """The n tracked wallets checked longest ago (never-checked first)."""
+    docs = copytrade_wallets_collection.find({"status": {"$ne": "excluded"}}, {"address": 1, "lastPulledAt": 1})
+    ranked = sorted(docs, key=lambda d: d.get("lastPulledAt") or datetime(2000, 1, 1))
+    return [d["address"] for d in ranked[:n]]
+
+
+def mark_wallets_pulled(addresses: List[str]) -> None:
+    if not addresses:
+        return
+    try:
+        copytrade_wallets_collection.update_many({"address": {"$in": addresses}}, {"$set": {"lastPulledAt": datetime.utcnow()}})
+    except Exception as e:
+        print(f"[copytrade] mark pulled error: {e}")

@@ -146,6 +146,8 @@ export interface SignalsStatus {
   events: { total: number; last24h: number; lastAt: string | null };
   paperTrades: { open: number; closed: number; opened24h: number; closed24h: number; lastOpenedAt: string | null };
   jobs: { walletRefreshAt: string | null; pricingJobAt: string | null };
+  pull?: { lastAt: string | null; wallets: number; swaps: number; error: string | null };
+  convergence24h?: number;
   serverTime: string;
 }
 
@@ -167,7 +169,8 @@ export interface SignalActivity {
   tokenMint: string;
   tokenSymbol: string;
   amountUsd: number;
-  outcome: "copied" | "skipped" | "closed" | "ignored" | "seen";
+  outcome: "copied" | "skipped" | "closed" | "ignored" | "seen" | "late";
+  convergence?: number;
   reason: string;
   time: string;
 }
