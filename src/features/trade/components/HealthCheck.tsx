@@ -18,9 +18,30 @@ const HealthCheck = ({ wallet }: { wallet: string }) => {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
+  const [holdings, setHoldings] = useState<string | null>(null);
+
+  // The Holdings screen's own path: browser -> /api/proxy -> Swyftx. Say exactly what comes back.
+  const testHoldings = async () => {
+    const t = Date.now();
+    try {
+      const res = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: "/portfolio/" }),
+      });
+      const secs = ((Date.now() - t) / 1000).toFixed(1);
+      const body = await res.json().catch(() => ({}));
+      setHoldings(res.ok ? `✅ Holdings request OK — ${(body.assets ?? []).length} assets · ${secs}s` : `⛔ Holdings request failed — HTTP ${res.status}: ${body?.error ?? "no message"} · ${secs}s`);
+    } catch (e) {
+      setHoldings(`⛔ Holdings request failed — ${String(e)}`);
+    }
+  };
+
   const run = async () => {
     setBusy(true);
     setFailed(false);
+    setHoldings(null);
+    void testHoldings();
     const r = await fetchHealthCheck(wallet);
     setData(r);
     setFailed(!r);
@@ -49,6 +70,7 @@ const HealthCheck = ({ wallet }: { wallet: string }) => {
             </button>
             {data && <button onClick={copy} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 text-slate-400">Copy details</button>}
           </div>
+          {holdings && <div className="text-[11px] text-slate-200 mb-1">{holdings}</div>}
           {failed && <div className="text-xs text-red-400">No answer from the server within a minute — that itself means it is overloaded. Try again shortly.</div>}
           {data && (
             <div className="space-y-1">
