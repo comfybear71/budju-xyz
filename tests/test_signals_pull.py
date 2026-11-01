@@ -33,6 +33,7 @@ def load(tracked):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         mod.send_telegram = MagicMock()
+        mod._sol_price = lambda: 100.0          # never reach the real database/network from a test
         return mod, db, eng
 
 
@@ -63,3 +64,19 @@ def test_status_says_backup_checker_is_working_when_webhook_silent():
     assert v["level"] == "ok" and "backup checker" in v["headline"]
     facts["lastPullAt"] = NOW - timedelta(hours=3)                         # puller stalled -> old error message returns
     assert compute_verdict(facts, NOW)["level"] == "error"
+
+
+def test_stale_swaps_are_not_recorded_and_sol_swaps_get_a_dollar_value():
+    mod, db, eng = load(["W1"])
+    db.count_copytrade_buyers.return_value = 1
+    r = mod.handle_delivery([swap("old", "W1", "MINTA", 41 * 86400)], max_age_s=1200, max_record_age_s=3 * 86400)
+    assert r["stale"] == 1 and db.record_copytrade_event.call_count == 0
+    mod.handle_delivery([swap("new", "W1", "MINTB", 120)], max_age_s=1200, max_record_age_s=3 * 86400)
+    recorded = db.record_copytrade_event.call_args.args[0]
+    assert recorded["amountUsd"] == 100.0           # 1 SOL (1,000,000,000 lamports) x the stubbed $100 SOL price
+
+
+def test_convergence_counts_by_swap_time_not_by_when_we_saw_it():
+    src = open(os.path.join(os.path.dirname(__file__), "..", "api", "database.py")).read()
+    seg = src[src.index("def count_copytrade_buyers"):][:600]
+    assert "blockTime" in seg and "createdAt" not in seg

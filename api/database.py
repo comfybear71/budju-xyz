@@ -3517,7 +3517,8 @@ def get_copytrade_activity(limit: int = 80) -> Dict:
     """Public — newest swaps by tracked wallets (copied or not)."""
     names = {d["address"]: d.get("label") for d in copytrade_wallets_collection.find({}, {"address": 1, "label": 1})}
     out = []
-    for d in copytrade_events_collection.find({}).sort("createdAt", -1).limit(limit):
+    min_ts = time.time() - 7 * 86400
+    for d in copytrade_events_collection.find({"$or": [{"blockTime": {"$gte": min_ts}}, {"blockTime": {"$exists": False}}]}).sort("createdAt", -1).limit(limit):
         w = d.get("walletAddress", "")
         bt = d.get("blockTime")
         out.append({
@@ -4530,8 +4531,10 @@ def get_weekly_trade_stats() -> Dict:
 # Signals: convergence + backup wallet puller helpers
 # ==========================================
 def count_copytrade_buyers(mint: str, hours: int = 6) -> int:
-    since = datetime.utcnow() - timedelta(hours=hours)
-    return len(copytrade_events_collection.distinct("walletAddress", {"tokenMint": mint, "side": "buy", "createdAt": {"$gte": since}}))
+    """Distinct wallets that BOUGHT this token within the window, by when the swap happened on-chain
+    (not when we first saw it, which could be much later for a backup-pulled swap)."""
+    since_ts = time.time() - hours * 3600
+    return len(copytrade_events_collection.distinct("walletAddress", {"tokenMint": mint, "side": "buy", "blockTime": {"$gte": since_ts}}))
 
 
 def set_copytrade_event_convergence(signature: str, n: int) -> None:
@@ -4556,18 +4559,33 @@ def claim_convergence_alert(mint: str, hours: int = 6) -> bool:
         return False
 
 
+DORMANT_AFTER_S = 14 * 86400      # no swap for 14 days = dormant
+DORMANT_RECHECK_S = 3 * 86400     # dormant wallets are looked at every 3 days, not every hour
+
+
 def get_wallets_for_pull(n: int) -> List[str]:
-    """The n tracked wallets checked longest ago (never-checked first)."""
-    docs = copytrade_wallets_collection.find({"status": {"$ne": "excluded"}}, {"address": 1, "lastPulledAt": 1})
-    ranked = sorted(docs, key=lambda d: d.get("lastPulledAt") or datetime(2000, 1, 1))
-    return [d["address"] for d in ranked[:n]]
+    """The n tracked wallets due for a check: active ones whose last check is oldest first; dormant ones
+    only once their longer re-check time has passed."""
+    now = datetime.utcnow()
+    due = []
+    for d in copytrade_wallets_collection.find({"status": {"$ne": "excluded"}}, {"address": 1, "lastPulledAt": 1, "lastSwapTs": 1}):
+        last_pull = d.get("lastPulledAt") or datetime(2000, 1, 1)
+        last_swap = d.get("lastSwapTs")
+        dormant = last_swap is not None and (time.time() - float(last_swap)) > DORMANT_AFTER_S
+        if dormant and (now - last_pull).total_seconds() < DORMANT_RECHECK_S:
+            continue
+        due.append((last_pull, d["address"]))
+    due.sort()
+    return [a for _, a in due[:n]]
 
 
-def mark_wallets_pulled(addresses: List[str]) -> None:
+def mark_wallets_pulled(addresses: List[str], latest_swap_ts: Optional[Dict[str, float]] = None) -> None:
     if not addresses:
         return
     try:
         copytrade_wallets_collection.update_many({"address": {"$in": addresses}}, {"$set": {"lastPulledAt": datetime.utcnow()}})
+        for addr, ts in (latest_swap_ts or {}).items():
+            copytrade_wallets_collection.update_one({"address": addr}, {"$set": {"lastSwapTs": float(ts or 0)}})
     except Exception as e:
         print(f"[copytrade] mark pulled error: {e}")
 
