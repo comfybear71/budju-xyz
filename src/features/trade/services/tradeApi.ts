@@ -2375,6 +2375,9 @@ export async function fetchDipReport(
 const retiredCoins = new Set<string>();
 export const isRetiredCoin = (code: string) => retiredCoins.has(code);
 let recentCoins: { code: string; name: string }[] = [];
+const notOnSwyftx = new Set<string>();
+/** True when Swyftx does not list this coin, so the bot cannot trade it. */
+export const isNotOnSwyftx = (code: string) => notOnSwyftx.has(code);
 export const getRecentCoins = () => recentCoins;
 
 const colorFor = (code: string) => {
@@ -2400,12 +2403,15 @@ async function loadCoinConfigNow(): Promise<void> {
     const res = await fetch("/api/coins");
     if (!res.ok) return;
     const data = await res.json();
+    const unlisted = new Set<string>(data?.notOnSwyftx ?? []);
     for (const c of data?.custom ?? []) {
-      if (!ASSET_CONFIG[c.code] && c.cgId) {
+      if (!ASSET_CONFIG[c.code] && c.cgId && !unlisted.has(c.code)) {   // coins Swyftx doesn't list never enter the app's list
         ASSET_CONFIG[c.code] = { color: colorFor(c.code), icon: c.code.charAt(0), name: c.name || c.code, coingeckoId: c.cgId };
       }
     }
     recentCoins = Array.isArray(data?.recent) ? data.recent : [];
+    notOnSwyftx.clear();
+    for (const code of data?.notOnSwyftx ?? []) notOnSwyftx.add(code);
     retiredCoins.clear();
     for (const code of data?.retired ?? []) retiredCoins.add(code);
   } catch {

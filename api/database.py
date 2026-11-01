@@ -3980,7 +3980,11 @@ def get_coin_config() -> Dict:
         recent.append({"code": a["code"], "name": a.get("name") or a["code"]})
         if len(recent) >= 12:
             break
-    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent}
+    listed = _swyftx_codes()
+    not_listed = []
+    if listed is not None:
+        not_listed = sorted(c for c in (set(ASSET_CG_IDS) | {x["code"] for x in custom}) if c not in listed and c not in ("LUNC", "LUNA"))
+    return {"custom": sorted(custom, key=lambda c: c["code"]), "retired": sorted(retired), "recent": recent, "notOnSwyftx": not_listed}
 
 
 def search_coins(query: str) -> Dict:
@@ -4059,6 +4063,9 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
         if not re.fullmatch(r"[a-z0-9\-]{2,80}", cg_id):
             return {"error": "Bad CoinGecko id"}
         existed = bool(coin_config_collection.find_one({"_id": code, "status": "custom"}))
+        listed = _swyftx_codes()
+        if listed is not None and code not in listed:
+            return {"error": f"{code} is not listed on Swyftx, so the bot could not trade it"}
         if verify and cg_id not in _verify_cg_ids([cg_id]):
             return {"error": "CoinGecko couldn't confirm that coin (busy or no price) — try again in a minute"}
         coin_config_collection.update_one(
@@ -4099,8 +4106,21 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
 # ==========================================
 # Coin scout (admin): review tracked coins + test new candidates
 # ==========================================
+_swyftx_codes_cache: Dict = {"at": 0.0, "codes": None}
+
+
 def _swyftx_codes() -> Optional[set]:
-    """Codes Swyftx lists (public endpoint). None if we couldn't check."""
+    """Codes Swyftx lists (public endpoint), cached 6 hours. None if we couldn't check."""
+    if _swyftx_codes_cache["codes"] and time.time() - _swyftx_codes_cache["at"] < 6 * 3600:
+        return _swyftx_codes_cache["codes"]
+    codes = _swyftx_codes_fetch()
+    if codes:
+        _swyftx_codes_cache.update({"at": time.time(), "codes": codes})
+        return codes
+    return _swyftx_codes_cache["codes"]      # keep the last good list if the fetch failed
+
+
+def _swyftx_codes_fetch() -> Optional[set]:
     try:
         req = Request("https://api.swyftx.com.au/markets/assets/", headers={"Accept": "application/json"})
         with urlopen(req, timeout=15) as resp:
