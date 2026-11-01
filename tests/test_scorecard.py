@@ -15,7 +15,8 @@ def test_dip_buys_and_a_sale_beat_holding():
     assert c["spent"] == 180 and c["received"] == 120 and c["heldValue"] == 110
     assert c["botPnl"] == 50.0                       # 120 + 110 - 180
     assert c["holdPnl"] == 18.0 and c["edge"] == 32.0        # the same $180 put in at the first price (100) is worth 198 -> +18
-    assert "Ahead of holding" in s["totals"]["verdict"]
+    assert c["keepPnl"] == 40.0 and c["sellEffect"] == 10.0          # never selling: 2 coins x 110 - 180 = +40; the sale at 120 added +10
+    assert "selling added" in s["totals"]["verdict"]
 
 
 def test_bot_that_buys_the_top_loses_to_holding():

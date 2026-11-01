@@ -49,11 +49,13 @@ def coin_scorecard(rows: Iterable[Dict], prices: Dict[str, float]) -> Dict:
         first_price = buys[0]["price"]
         hold_value = spent / first_price * now if now else spent
         hold_pnl = hold_value - spent
+        # Same buys, same moments, but never sold: isolates what the SELLING did (the fairer test).
+        keep_pnl = qty_bought * now - spent if now else 0.0
         coins.append({
             "coin": coin, "buys": len(buys), "sells": len(sells),
             "spent": round(spent, 2), "received": round(received, 2), "heldValue": round(held_value, 2),
             "avgCost": avg_cost, "price": now, "botPnl": round(bot_pnl, 2), "holdPnl": round(hold_pnl, 2),
-            "edge": round(bot_pnl - hold_pnl, 2), "returnPct": round(100 * bot_pnl / spent, 1) if spent else 0.0,
+            "edge": round(bot_pnl - hold_pnl, 2), "keepPnl": round(keep_pnl, 2), "sellEffect": round(bot_pnl - keep_pnl, 2), "returnPct": round(100 * bot_pnl / spent, 1) if spent else 0.0,
             "holdReturnPct": round(100 * hold_pnl / spent, 1) if spent else 0.0, "priced": bool(now),
         })
     coins.sort(key=lambda c: -c["spent"])
@@ -67,6 +69,8 @@ def coin_scorecard(rows: Iterable[Dict], prices: Dict[str, float]) -> Dict:
         "coins": len(priced), "spent": round(spent, 2), "received": round(sum(c["received"] for c in priced), 2),
         "heldValue": round(sum(c["heldValue"] for c in priced), 2),
         "botPnl": round(bot, 2), "holdPnl": round(hold, 2), "edge": round(bot - hold, 2),
+        "keepPnl": round(sum(c["keepPnl"] for c in priced), 2), "sellEffect": round(sum(c["sellEffect"] for c in priced), 2),
+        "coinsSellsHelped": sum(1 for c in priced if c["sellEffect"] > 0),
         "botReturnPct": round(100 * bot / spent, 1) if spent else 0.0, "holdReturnPct": round(100 * hold / spent, 1) if spent else 0.0,
         "coinsBeatHold": beat, "coinsLosing": sum(1 for c in priced if c["botPnl"] < 0),
     }
@@ -77,9 +81,11 @@ def coin_scorecard(rows: Iterable[Dict], prices: Dict[str, float]) -> Dict:
 def verdict(t: Dict) -> str:
     if not t.get("coins") or not t.get("spent"):
         return "Not enough trades yet to judge."
-    edge, bot, hold = t["edge"], t["botReturnPct"], t["holdReturnPct"]
-    if abs(edge) < 0.01 * t["spent"]:
-        return f"About level with holding (bot {bot:+.1f}% vs hold {hold:+.1f}%) — no clear edge yet."
-    if edge > 0:
-        return f"Ahead of holding: bot {bot:+.1f}% vs hold {hold:+.1f}% on the same dollars (${edge:,.0f} better)."
-    return f"Behind holding: bot {bot:+.1f}% vs hold {hold:+.1f}% on the same dollars (${-edge:,.0f} worse)."
+    se = t["sellEffect"]
+    near = abs(se) < 0.01 * t["spent"]
+    sell_txt = ("the selling made little difference" if near
+                else f"the selling {'added' if se > 0 else 'cost'} about ${abs(se):,.0f} compared with never selling")
+    lump = t["edge"]
+    lump_txt = (f"on the stricter test (all the money in on day one) the bot is ${abs(lump):,.0f} {'ahead' if lump > 0 else 'behind'}"
+                if abs(lump) >= 0.01 * t["spent"] else "against a day-one lump sum it is about level")
+    return f"Same buys, never sold: {sell_txt}. Also, {lump_txt}."

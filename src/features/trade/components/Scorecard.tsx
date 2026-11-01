@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
 
-interface CoinRow { coin: string; buys: number; sells: number; spent: number; heldValue: number; botPnl: number; holdPnl: number; edge: number; returnPct: number; holdReturnPct: number; priced: boolean }
-interface Totals { coins: number; spent: number; heldValue: number; botPnl: number; holdPnl: number; edge: number; botReturnPct: number; holdReturnPct: number; coinsBeatHold: number; coinsLosing: number; verdict: string }
+interface CoinRow { coin: string; buys: number; sells: number; spent: number; heldValue: number; botPnl: number; holdPnl: number; edge: number; keepPnl: number; sellEffect: number; returnPct: number; holdReturnPct: number; priced: boolean }
+interface Totals { coins: number; spent: number; heldValue: number; botPnl: number; holdPnl: number; edge: number; keepPnl: number; sellEffect: number; coinsSellsHelped: number; botReturnPct: number; holdReturnPct: number; coinsBeatHold: number; coinsLosing: number; verdict: string }
 interface Card { coins: CoinRow[]; totals: Totals; scope: string; wallets: number; trades: number }
 
 const usd = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -15,7 +15,7 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
   const [data, setData] = useState<Card | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
-  const [sort, setSort] = useState<"spent" | "edge" | "botPnl">("edge");
+  const [sort, setSort] = useState<"spent" | "sellEffect" | "botPnl">("sellEffect");
 
   const load = async (sc = scope) => {
     setBusy(true);
@@ -36,7 +36,7 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
     if (next && !data && !busy) void load();
   };
 
-  const rows = [...(data?.coins ?? [])].filter((c) => c.priced).sort((a, b) => (sort === "spent" ? b.spent - a.spent : sort === "botPnl" ? b.botPnl - a.botPnl : a.edge - b.edge));
+  const rows = [...(data?.coins ?? [])].filter((c) => c.priced).sort((a, b) => (sort === "spent" ? b.spent - a.spent : sort === "botPnl" ? b.botPnl - a.botPnl : a.sellEffect - b.sellEffect));
   const t = data?.totals;
 
   return (
@@ -67,13 +67,14 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
                 <div className="text-[12px] font-bold text-slate-100">{t.verdict}</div>
                 <div className="text-[11px] text-slate-400 mt-1">
                   {t.coins} coins · {data.trades.toLocaleString()} trades · {data.wallets} wallet{data.wallets === 1 ? "" : "s"}. Put in <b>{usd(t.spent)}</b>; now holding <b>{usd(t.heldValue)}</b>.
-                  Bot P&amp;L <b style={{ color: col(t.botPnl) }}>{usd(t.botPnl)}</b> vs holding <b style={{ color: col(t.holdPnl) }}>{usd(t.holdPnl)}</b>.
-                  Bot beat holding on <b>{t.coinsBeatHold}</b> of {t.coins} coins; <b>{t.coinsLosing}</b> are in the red.
+                  Bot P&amp;L <b style={{ color: col(t.botPnl) }}>{usd(t.botPnl)}</b>. The same buys <i>never sold</i> would be <b style={{ color: col(t.keepPnl) }}>{usd(t.keepPnl)}</b>;
+                  all the money in on day one would be <b style={{ color: col(t.holdPnl) }}>{usd(t.holdPnl)}</b>.
+                  Selling helped on <b>{t.coinsSellsHelped}</b> of {t.coins} coins; <b>{t.coinsLosing}</b> are in the red.
                 </div>
               </div>
               <div className="flex gap-1.5 mb-1 text-[10px]">
                 <span className="text-slate-500">Sort:</span>
-                {([["edge", "worst edge"], ["botPnl", "best P&L"], ["spent", "biggest"]] as const).map(([k, l]) => (
+                {([["sellEffect", "selling hurt most"], ["botPnl", "best P&L"], ["spent", "biggest"]] as const).map(([k, l]) => (
                   <button key={k} onClick={() => setSort(k)} style={{ color: sort === k ? "#e2e8f0" : "#64748b", fontWeight: sort === k ? 700 : 400 }}>{l}</button>
                 ))}
               </div>
@@ -82,7 +83,7 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
                   <thead>
                     <tr className="text-slate-500 text-left">
                       <th className="py-1 px-1">Coin</th><th className="px-1 text-right">Put in</th><th className="px-1 text-right">Bot P&amp;L</th>
-                      <th className="px-1 text-right">Hold P&amp;L</th><th className="px-1 text-right">Edge</th><th className="px-1 text-right">B/S</th>
+                      <th className="px-1 text-right">No-sell P&amp;L</th><th className="px-1 text-right">Selling effect</th><th className="px-1 text-right">Day-one P&amp;L</th><th className="px-1 text-right">B/S</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -91,8 +92,9 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
                         <td className="px-1 font-bold text-slate-200">{c.coin}</td>
                         <td className="px-1 text-right font-mono text-slate-400">{usd(c.spent)}</td>
                         <td className="px-1 text-right font-mono" style={{ color: col(c.botPnl) }}>{usd(c.botPnl)}</td>
-                        <td className="px-1 text-right font-mono" style={{ color: col(c.holdPnl) }}>{usd(c.holdPnl)}</td>
-                        <td className="px-1 text-right font-mono font-bold" style={{ color: col(c.edge) }}>{c.edge >= 0 ? "+" : ""}{usd(c.edge)}</td>
+                        <td className="px-1 text-right font-mono" style={{ color: col(c.keepPnl) }}>{usd(c.keepPnl)}</td>
+                        <td className="px-1 text-right font-mono font-bold" style={{ color: col(c.sellEffect) }}>{c.sellEffect >= 0 ? "+" : ""}{usd(c.sellEffect)}</td>
+                        <td className="px-1 text-right font-mono text-slate-500">{usd(c.holdPnl)}</td>
                         <td className="px-1 text-right font-mono text-slate-500">{c.buys}/{c.sells}</td>
                       </tr>
                     ))}
@@ -100,8 +102,9 @@ const Scorecard = ({ wallet }: { wallet: string }) => {
                 </table>
               </div>
               <div className="text-[10px] text-slate-500 mt-2 leading-relaxed">
-                <b>Hold P&amp;L</b> = what the same total dollars would have made if put in all at once at the price of the first buy. <b>Edge</b> = Bot − Hold; green means the bot's timing
-                (buying dips, taking profits) beat simply holding. Uses the recorded fill prices; older admin trades are estimates, so small gaps are noise. Not financial advice.
+                <b>No-sell P&amp;L</b> = the exact buys the bot made, at the same moments, but never sold. <b>Selling effect</b> = Bot − No-sell: green means taking profits helped, red means selling
+                early cost you (the coin kept rising). <b>Day-one P&amp;L</b> = all the money in at once at the first buy price — a harsher test, because that much cash was never available at once.
+                "Put in" counts recycled money more than once. Withdrawals are not trades, so they are not in this table. Uses recorded fill prices (older admin trades are estimates). Not financial advice.
               </div>
             </>
           )}
