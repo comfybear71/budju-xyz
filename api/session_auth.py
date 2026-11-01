@@ -157,6 +157,9 @@ def classify(method: str, path: str, params: dict, body: dict):
             return "member", params.get("admin_wallet") or params.get("wallet")
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
+        # A wallet's own deposit/withdrawal history: that wallet (or an admin) only.
+        if path == "/api/user/cash-flows":
+            return "owner", params.get("wallet")
         if path == "/api/transactions" and params.get("admin") == "true":
             return "admin", params.get("wallet")
         return None, None

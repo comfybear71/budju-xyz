@@ -236,3 +236,9 @@ class TestMemberAndCoinStatsRoutes:
         assert self.check("GET", "/api/community/aggregate-holdings", params=p)[1] == 401
         assert self.check("GET", "/api/community/aggregate-holdings", hdr(self.MEMBER), params=p, is_member=lambda w: True)[0] is True
         assert self.check("GET", "/api/community/aggregate-holdings", hdr(USERW), params={"admin_wallet": USERW}, is_member=lambda w: False)[1] == 403
+
+
+def test_user_cash_flows_is_owner_only():
+    import session_auth
+    kind, acting = session_auth.classify("GET", "/api/user/cash-flows", {"wallet": "WALLETX"}, {})
+    assert kind == "owner" and acting == "WALLETX"

@@ -25,6 +25,7 @@ from database import (
     save_desk_brief,
     is_admin,
 )
+import session_auth
 
 CRON_SECRET = os.getenv("CRON_SECRET", "")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -261,12 +262,15 @@ def run_brief():
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Auth: CRON_SECRET bearer (scheduler), ?key=<CRON_SECRET>, or ?admin_wallet=<admin>
+        # Auth: CRON_SECRET bearer (scheduler), ?key=<CRON_SECRET>, or a wallet-signed admin pass
         qs = parse_qs(urlparse(self.path).query)
         admin_wallet = (qs.get("admin_wallet") or [""])[0].strip()
         key = (qs.get("key") or [""])[0].strip()
         auth = self.headers.get("Authorization", "")
-        wallet_is_admin = bool(admin_wallet and is_admin(admin_wallet))
+        # A typed wallet address is public information, so it proves nothing. The admin
+        # route needs the wallet-signed pass (same one the app sends automatically).
+        pass_wallet = session_auth.verify_token(session_auth.bearer(auth))
+        wallet_is_admin = bool(pass_wallet and is_admin(pass_wallet))
         authorized = (
             (bool(CRON_SECRET) and auth == f"Bearer {CRON_SECRET}")
             or (bool(CRON_SECRET) and key == CRON_SECRET)
@@ -280,7 +284,7 @@ class handler(BaseHTTPRequestHandler):
                 "error": "unauthorized",
                 "admin_wallet_received": admin_wallet or None,
                 "recognized_as_admin": wallet_is_admin,
-                "hint": "Use the exact wallet you connect with, or ?key=<CRON_SECRET>.",
+                "hint": "Sign in with your admin wallet (the app does this automatically), or use ?key=<CRON_SECRET>.",
             }).encode())
             return
         try:
