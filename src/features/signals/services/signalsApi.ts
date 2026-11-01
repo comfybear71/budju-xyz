@@ -148,6 +148,7 @@ export interface SignalsStatus {
   jobs: { walletRefreshAt: string | null; pricingJobAt: string | null };
   pull?: { lastAt: string | null; wallets: number; swaps: number; error: string | null };
   convergence24h?: number;
+  finder?: { lastAt: string | null; totalAdded: number; lastAdded: number; pools: number; error: string | null };
   serverTime: string;
 }
 

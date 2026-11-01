@@ -353,6 +353,7 @@ const StatusCard = ({ status }: { status: SignalsStatus }) => {
         <Fact label="Still proving themselves" value={String(status.wallets.pendingWallets)} />
         <Fact label="Backup wallet check" value={status.pull?.lastAt ? `${ago(status.pull.lastAt)} · ${status.pull.wallets} wallets` : "not yet"} />
         <Fact label="Convergence signals (24h)" value={String(status.convergence24h ?? 0)} />
+        <Fact label="Active wallets found" value={status.finder?.lastAt ? `${status.finder.totalAdded} (last scan ${ago(status.finder.lastAt)})` : "not yet"} />
         <Fact label="Wallet list refreshed" value={ago(status.jobs.walletRefreshAt)} />
         <Fact label="Price checker last ran" value={ago(status.jobs.pricingJobAt)} />
       </div>

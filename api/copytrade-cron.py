@@ -133,6 +133,11 @@ def run_copytrade_cron() -> dict:
     positions_result = _price_and_manage_open_positions()
     wallets_result = _refresh_wallets_if_due()
     try:
+        from copytrade_finder import run_finder
+        finder_result = run_finder()
+    except Exception as e:
+        finder_result = {"ok": False, "error": str(e)[:150]}
+    try:
         from copytrade_pull import run_pull
         pull_result = run_pull()
     except Exception as e:
@@ -143,6 +148,7 @@ def run_copytrade_cron() -> dict:
         "positions": positions_result,
         "wallets": wallets_result,
         "pull": pull_result,
+        "finder": finder_result,
     }
 
 
