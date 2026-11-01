@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, Suspense } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, Suspense } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -98,7 +98,38 @@ const Trade = () => {
   const [myHoldings, setMyHoldings] = useState<PortfolioAsset[]>([]);
   // Non-custodial combined total across every connected wallet (replaces
   // the legacy pool total as the default "Pool" view everyone sees).
-  const [liveLeaderboard, setLiveLeaderboard] = useState<LiveLeaderboard | null>(null);
+  const [liveLeaderboardRaw, setLiveLeaderboard] = useState<LiveLeaderboard | null>(null);
+
+  // Pool numbers re-priced with the live (WebSocket) prices: the server snapshot supplies every wallet's
+  // cash and coin balances; the crypto part is revalued here as prices move, so the doughnut ticks live
+  // at no server cost. Balances themselves refresh with each snapshot / trade.
+  const liveLeaderboard = useMemo<LiveLeaderboard | null>(() => {
+    const raw = liveLeaderboardRaw;
+    if (!raw) return null;
+    let snap = 0;
+    let live = 0;
+    const coinTotals = raw.coinTotals.map((c) => {
+      const p = prices[c.code];
+      const priceUsd = p && p > 0 ? p : c.priceUsd;
+      snap += c.balance * c.priceUsd;
+      live += c.balance * priceUsd;
+      return { ...c, priceUsd, usdValue: Math.round(c.balance * priceUsd * 100) / 100 };
+    });
+    if (snap <= 0 || live <= 0) return raw;
+    const ratio = live / snap;
+    const entries = raw.entries.map((e) => {
+      const cryptoValue = e.cryptoValue * ratio;
+      const totalValue = e.cashValue + cryptoValue;
+      return {
+        ...e,
+        cryptoValue: Math.round(cryptoValue * 100) / 100,
+        totalValue: Math.round(totalValue * 100) / 100,
+        pctCash: totalValue > 0 ? Math.round((e.cashValue / totalValue) * 1000) / 10 : 0,
+        pctCrypto: totalValue > 0 ? Math.round((cryptoValue / totalValue) * 1000) / 10 : 0,
+      };
+    });
+    return { ...raw, coinTotals, entries, combinedValue: Math.round(entries.reduce((a, e) => a + e.totalValue, 0) * 100) / 100 };
+  }, [liveLeaderboardRaw, prices]);
   // Growth/P&L area chart data for the Pool Total / My Position card — same
   // chart component, just a different data source per view (this wallet's
   // own deposit history vs. the combined timeline across every wallet).

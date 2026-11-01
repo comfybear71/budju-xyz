@@ -1077,7 +1077,7 @@ const WalletConnect = ({
                     <span
                       className={`font-mono text-[11px] truncate max-w-[160px] ${subtextColor}`}
                     >
-                      {connection.wallet?.address.substring(0, 16)}...
+                      {(connection.wallet?.address ?? "").substring(0, 16)}...
                     </span>
                     <div className="flex gap-1">
                       <button
