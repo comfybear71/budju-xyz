@@ -30,6 +30,7 @@ const Swap = lazy(() => import("@features/swap/Swap")); // Added SwapTool
 const Balance = lazy(() => import("@features/balance/Balance"));
 const Trade = lazy(() => import("@features/trade/Trade"));
 const Desk = lazy(() => import("@features/desk/Desk"));
+const HowItWorks = lazy(() => import("@features/about/HowItWorks"));
 const Signals = lazy(() => import("@features/signals/Signals"));
 const Spot = lazy(() => import("@features/spot/Spot"));
 const Marketing = lazy(() => import("@features/marketing/Marketing"));
@@ -96,6 +97,7 @@ const App = () => {
                 <Route path="/balance" element={<Balance />} />
                 <Route path="/trade" element={<Trade />} />
                 <Route path="/desk" element={<Desk />} />
+                <Route path="/how-it-works" element={<HowItWorks />} />
                 <Route path="/signals" element={<Signals />} />
                 <Route path="/spot" element={<Spot />} />
                 <Route path="/marketing" element={<Marketing />} />
