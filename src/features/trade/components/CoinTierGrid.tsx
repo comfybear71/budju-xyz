@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
-import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, fetchDipReportLight, type DipCoin } from "../services/tradeApi";
+import { ASSET_CONFIG, PERMANENT_BUY_DENYLIST, isRetiredCoin, isNotOnSwyftx, fetchDipReportLight, type DipCoin } from "../services/tradeApi";
 import { TIER_CONFIG, type AutoTrader } from "../services/autoTrader";
 
 interface Props {
@@ -44,13 +44,13 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
 
   const toggle = (coin: string, tier: number) => {
     if ((assignments[coin] || []).includes(tier)) autoTrader.unassignCoin(coin, tier);
-    else autoTrader.assignCoin(coin, tier);
+    else if (!isNotOnSwyftx(coin)) autoTrader.assignCoin(coin, tier);   // never switch ON a coin Swyftx doesn't list
   };
 
   const setAll = (coin: string, on: boolean) => {
     for (const t of [1, 2, 3]) {
       const has = (assignments[coin] || []).includes(t);
-      if (on && !has) autoTrader.assignCoin(coin, t);
+      if (on && !has && !isNotOnSwyftx(coin)) autoTrader.assignCoin(coin, t);
       if (!on && has) autoTrader.unassignCoin(coin, t);
     }
   };
@@ -63,6 +63,22 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
       </button>
       {open && (
         <div className="px-3 pb-3">
+          {(() => {
+            const stuck = Object.keys(assignments).filter((c) => (assignments[c] || []).length > 0 && isNotOnSwyftx(c));
+            return stuck.length > 0 ? (
+              <div className="rounded-lg px-3 py-2 mb-2 flex items-center justify-between gap-2" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.35)" }}>
+                <span className="text-[11px] text-red-200">
+                  ⛔ {stuck.join(", ")} {stuck.length === 1 ? "is" : "are"} in your tiers but Swyftx doesn't list {stuck.length === 1 ? "it" : "them"}, so orders fail.
+                </span>
+                <button
+                  onClick={() => stuck.forEach((c) => autoTrader.unassignCoin(c))}
+                  className="text-[11px] font-bold px-2 py-1 rounded bg-red-500/30 text-red-100 flex-shrink-0"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : null;
+          })()}
           <div className="flex gap-2 mb-2">
             <input
               value={q}
@@ -89,6 +105,7 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
                 <div key={c} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
                   <div className="w-16 min-w-0">
                     <div className="text-xs font-bold truncate" style={{ color }}>{c}</div>
+                    {isNotOnSwyftx(c) && <div className="text-[9px] font-bold text-red-400">⛔ not on Swyftx</div>}
                     {perf[c] && (
                       <div className="text-[9px] font-mono" style={{ color: perf[c].perBuy >= 0 ? "#22c55e" : "#ef4444" }}>
                         {perf[c].perBuy >= 0 ? "+" : ""}{perf[c].perBuy.toFixed(1)}%/buy

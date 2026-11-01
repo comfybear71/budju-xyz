@@ -2375,6 +2375,9 @@ export async function fetchDipReport(
 const retiredCoins = new Set<string>();
 export const isRetiredCoin = (code: string) => retiredCoins.has(code);
 let recentCoins: { code: string; name: string }[] = [];
+const notOnSwyftx = new Set<string>();
+/** True when Swyftx does not list this coin, so the bot cannot trade it. */
+export const isNotOnSwyftx = (code: string) => notOnSwyftx.has(code);
 export const getRecentCoins = () => recentCoins;
 
 const colorFor = (code: string) => {
@@ -2406,6 +2409,8 @@ async function loadCoinConfigNow(): Promise<void> {
       }
     }
     recentCoins = Array.isArray(data?.recent) ? data.recent : [];
+    notOnSwyftx.clear();
+    for (const code of data?.notOnSwyftx ?? []) notOnSwyftx.add(code);
     retiredCoins.clear();
     for (const code of data?.retired ?? []) retiredCoins.add(code);
   } catch {
