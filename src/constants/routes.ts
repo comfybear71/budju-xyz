@@ -12,6 +12,7 @@ export const ROUTES = {
   BALANCE: "/balance",       // Check BUDJU balance
   TRADE: "/trade",           // Trading Board
   DESK: "/desk",             // BUDJU Desk — daily AI briefing
+  HOW_IT_WORKS: "/how-it-works", // Plain-language explainer
   SIGNALS: "/signals",       // Signals — copy-trading paper trading sandbox
   SPOT: "/spot",             // VPS Spot Trading
   MARKETING: "/marketing",   // Marketing materials

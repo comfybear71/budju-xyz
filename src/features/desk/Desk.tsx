@@ -64,6 +64,15 @@ const Desk = () => {
             </p>
           </div>
         </div>
+        <div className="flex items-center flex-shrink-0">
+        <button
+          onClick={() => navigate("/how-it-works")}
+          aria-label="How BUDJU works"
+          className="h-9 px-3 mr-2 rounded-xl flex items-center justify-center flex-shrink-0 text-[11px] font-bold text-teal-300"
+          style={{ background: "rgba(20,184,166,0.12)", border: "1px solid rgba(20,184,166,0.3)" }}
+        >
+          ℹ️ How it works
+        </button>
         <button
           onClick={load}
           aria-label="Refresh"
@@ -72,6 +81,7 @@ const Desk = () => {
         >
           <FaSync size={13} className={`text-slate-400 ${loading ? "animate-spin" : ""}`} />
         </button>
+        </div>
       </div>
 
       {isAdmin && walletAddress && (
