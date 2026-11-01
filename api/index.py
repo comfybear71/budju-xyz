@@ -109,6 +109,7 @@ from database import (
     get_health_check,
     get_coingecko_probe,
     get_scorecard,
+    get_strategy_lab,
     get_hyperliquid_probe,
     get_trading_permission,
     record_trading_permission,
@@ -773,6 +774,17 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
                 self._send_json(200, get_hyperliquid_probe())
+
+            elif path == '/api/admin/strategy-lab':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                try:
+                    fee_pct = float(params.get('fee', '0.5'))
+                except (TypeError, ValueError):
+                    fee_pct = 0.5
+                self._send_json(200, get_strategy_lab(fee_pct))
 
             elif path == '/api/admin/scorecard':
                 wallet = params.get('wallet')

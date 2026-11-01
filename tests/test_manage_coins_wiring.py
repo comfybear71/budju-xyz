@@ -73,3 +73,10 @@ def test_hyperliquid_probe_only_reads():
 def test_scorecard_is_admin_only():
     idx = _read("api", "index.py")
     assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/scorecard'"):][:400]
+
+
+def test_strategy_lab_is_admin_only_and_read_only():
+    idx = _read("api", "index.py")
+    assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/strategy-lab'"):][:400]
+    lab = _read("api", "strategy_lab.py")
+    assert "place_market_order" not in lab and "import database" not in lab and "from database" not in lab

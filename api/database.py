@@ -4771,3 +4771,19 @@ def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
     result["wallets"] = wallets
     result["trades"] = len(rows)
     return result
+
+
+def get_strategy_lab(fee_pct: float = 0.5) -> Dict:
+    """Replay the bot's rules (and alternatives) on the stored year of daily prices. Read-only."""
+    from strategy_lab import run_lab
+    fee = max(0.0, min(3.0, float(fee_pct))) / 100.0
+    stored = _fresh_series(_REPORT_MAX_AGE_HOURS)
+    tradable = set(ASSET_CG_IDS.keys())
+    try:
+        tradable |= {d["code"] for d in coin_config_collection.find({"status": "custom"})}
+    except Exception:
+        pass
+    series = {c: v for c, v in stored.items() if c in tradable and c not in ("ENA", "PEPE", "LUNA", "LUNC")}
+    out = run_lab(series, fee)
+    out["feePct"] = round(fee * 100, 2)
+    return out
