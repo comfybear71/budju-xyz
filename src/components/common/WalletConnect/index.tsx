@@ -405,13 +405,33 @@ const WalletConnect = ({
 
   // ── QR Code Login ─────────────────────────────────────
 
+  const [qrError, setQrError] = useState("");
+
   const startQrLogin = async () => {
     setShowQrLogin(true);
     setQrStatus("loading");
     setQrWallet(null);
+    setQrError("");
     try {
-      const resp = await fetch("/api/wallet-qr");
-      const data = await resp.json();
+      // The server sometimes needs a second try on a cold start — try up to 3 times and say what went wrong
+      let data: any = null;
+      let lastErr = "";
+      for (let attempt = 0; attempt < 3 && !data?.challengeId; attempt++) {
+        try {
+          const resp = await fetch(`/api/wallet-qr?t=${Date.now()}`, { cache: "no-store" });
+          const body = await resp.json().catch(() => null);
+          if (resp.ok && body?.challengeId) data = body;
+          else lastErr = `HTTP ${resp.status}${body?.error ? ` — ${body.error}` : ""}`;
+        } catch (e) {
+          lastErr = String(e);
+        }
+        if (!data?.challengeId) await new Promise((r) => setTimeout(r, 800));
+      }
+      if (!data?.challengeId) {
+        setQrError(lastErr || "No answer from the server");
+        setQrStatus("expired");
+        return;
+      }
       setQrChallengeId(data.challengeId);
       setQrStatus("ready");
 
@@ -442,7 +462,8 @@ const WalletConnect = ({
           }
         } catch { /* ignore poll errors */ }
       }, 2000);
-    } catch {
+    } catch (e) {
+      setQrError(String(e));
       setQrStatus("expired");
     }
   };
@@ -997,7 +1018,8 @@ const WalletConnect = ({
                               )}
                               {qrStatus === "expired" && (
                                 <div className="py-4">
-                                  <p className={`text-xs font-bold text-amber-400 mb-2`}>QR Code Expired</p>
+                                  <p className={`text-xs font-bold text-amber-400 mb-2`}>{qrError ? "Couldn't create a QR code" : "QR Code Expired"}</p>
+                                  {qrError && <p className={`text-[10px] mb-2 ${subtextColor}`}>{qrError}</p>}
                                   <button
                                     onClick={startQrLogin}
                                     className="text-[10px] px-3 py-1.5 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-500/30"
