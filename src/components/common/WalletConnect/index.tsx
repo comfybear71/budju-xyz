@@ -421,7 +421,7 @@ const WalletConnect = ({
           const resp = await fetch(`/api/wallet-qr?t=${Date.now()}`, { cache: "no-store" });
           const body = await resp.json().catch(() => null);
           if (resp.ok && body?.challengeId) data = body;
-          else lastErr = `HTTP ${resp.status}${body?.error ? ` — ${body.error}` : ""}`;
+          else lastErr = `HTTP ${resp.status}${body?.detail ? ` — ${body.detail}` : body?.error ? ` — ${body.error}` : ""}`;
         } catch (e) {
           lastErr = String(e);
         }
