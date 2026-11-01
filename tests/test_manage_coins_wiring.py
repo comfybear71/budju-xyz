@@ -51,3 +51,12 @@ def test_api_typescript_relative_imports_have_js_extension():
     for f in glob.glob(os.path.join(ROOT, "api", "*.ts")):
         for m in re.finditer(r'from "(\.[^"]+)"', open(f).read()):
             assert m.group(1).endswith(".js"), f"{os.path.basename(f)} imports {m.group(1)} without .js"
+
+
+def test_coingecko_probe_is_admin_only_and_read_only():
+    idx = _read("api", "index.py")
+    seg = idx[idx.index("path == '/api/admin/coingecko-probe'"):][:500]
+    assert "is_admin(wallet)" in seg
+    db = _read("api", "database.py")
+    probe = db[db.index("def _cg_probe"):]
+    assert "method=" not in probe          # GET only

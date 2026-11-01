@@ -107,6 +107,7 @@ from database import (
     manage_coins_bulk,
     get_sizing_preview,
     get_health_check,
+    get_coingecko_probe,
     get_trading_permission,
     record_trading_permission,
     get_trade_export_csv,
@@ -763,6 +764,13 @@ class handler(BaseHTTPRequestHandler):
                     v = params.get(name)
                     return None if v is None else [x.strip().upper() for x in v.split(',') if x.strip()]
                 self._send_json(200, get_offload_preview(_csv('bad'), _csv('targets'), params.get('fresh') == '1'))
+
+            elif path == '/api/admin/coingecko-probe':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_coingecko_probe())
 
             elif path == '/api/admin/health':
                 wallet = params.get('wallet')

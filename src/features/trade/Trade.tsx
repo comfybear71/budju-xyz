@@ -60,6 +60,7 @@ import StarterBuys from "./components/StarterBuys";
 import HealthCheck from "./components/HealthCheck";
 import TradingPermission from "./components/TradingPermission";
 import OffloadPreview from "./components/OffloadPreview";
+import CoinGeckoExplorer from "./components/CoinGeckoExplorer";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
@@ -1099,6 +1100,11 @@ const Trade = () => {
               {isAdmin && !showHighRisk && (
                 <div className="mt-3">
                   <HealthCheck wallet={walletAddress} />
+                </div>
+              )}
+              {isAdmin && !showHighRisk && (
+                <div className="mt-3">
+                  <CoinGeckoExplorer wallet={walletAddress} />
                 </div>
               )}
 
