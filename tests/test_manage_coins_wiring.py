@@ -41,3 +41,13 @@ def test_offload_planning_has_no_order_code_and_run_needs_confirmation():
 
     run_route = idx[idx.index("path == '/api/admin/offload-run'"):][:2500]
     assert 'f"OFFLOAD {pct}"' in run_route            # a typed confirmation is required to start
+
+
+def test_api_typescript_relative_imports_have_js_extension():
+    """package.json is "type": "module": a relative import without .js crashes the whole function at load (plain HTTP 500)."""
+    import glob, re
+    pkg = _read("package.json")
+    assert '"type": "module"' in pkg
+    for f in glob.glob(os.path.join(ROOT, "api", "*.ts")):
+        for m in re.finditer(r'from "(\.[^"]+)"', open(f).read()):
+            assert m.group(1).endswith(".js"), f"{os.path.basename(f)} imports {m.group(1)} without .js"
