@@ -13,7 +13,7 @@ import time
 import urllib.request
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Tuple
-from pymongo import MongoClient
+from pymongo import MongoClient, UpdateOne
 from pymongo.errors import DuplicateKeyError
 import base58
 from nacl.signing import VerifyKey
@@ -2568,13 +2568,17 @@ def _store_fresh_prices(prices: Dict[str, float]) -> None:
     now = time.time()
     for code, price in prices.items():
         _price_cache[code] = (price, now)
+    if not prices:
+        return
     try:
-        for code, price in prices.items():
-            coingecko_price_cache_collection.update_one(
-                {"_id": code},
-                {"$set": {"price": price, "updatedAt": datetime.utcnow()}},
-                upsert=True,
-            )
+        # ONE batched write for every coin (it used to be one database round trip per coin —
+        # about 0.2s each, ~13s for 60 coins).
+        stamp = datetime.utcnow()
+        coingecko_price_cache_collection.bulk_write(
+            [UpdateOne({"_id": code}, {"$set": {"price": price, "updatedAt": stamp}}, upsert=True)
+             for code, price in prices.items()],
+            ordered=False,
+        )
     except Exception:
         pass  # Shared cache write failing never blocks the caller
 
