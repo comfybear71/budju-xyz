@@ -132,11 +132,17 @@ def run_copytrade_cron() -> dict:
     save_copytrade_state({"lastCronAt": datetime.utcnow()})  # "is the job running" heartbeat for the status card
     positions_result = _price_and_manage_open_positions()
     wallets_result = _refresh_wallets_if_due()
+    try:
+        from copytrade_pull import run_pull
+        pull_result = run_pull()
+    except Exception as e:
+        pull_result = {"ok": False, "error": str(e)[:150]}
     return {
         "ok": True,
         "timestamp": datetime.utcnow().isoformat(),
         "positions": positions_result,
         "wallets": wallets_result,
+        "pull": pull_result,
     }
 
 

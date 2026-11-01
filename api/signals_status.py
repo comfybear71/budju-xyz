@@ -41,6 +41,17 @@ def compute_verdict(f: dict, now: datetime = None) -> dict:
                 "detail": "The list of wallets to copy has not been loaded. It is refreshed hourly from Dune, "
                           "so this means the Dune connection (DUNE_API_KEY / query) isn't working."}
 
+    # The backup checker (BUDJU asks Helius itself) keeps Signals alive even when the webhook is silent.
+    pull_at = f.get("lastPullAt")
+    pull_recent = bool(pull_at and now - pull_at < timedelta(minutes=30) and not f.get("pullError"))
+    if pull_recent and pings_ok == 0:
+        return {"level": "warn" if f.get("events24h", 0) == 0 else "ok",
+                "headline": (f"Working on the backup checker — {f.get('events24h', 0)} swaps seen in 24h"
+                             if f.get("events24h", 0) else "Backup checker running — no swaps found yet"),
+                "detail": f"Helius isn't pushing swaps to BUDJU, so BUDJU checks {f.get('pullWallets', 0)} wallets itself "
+                          f"every 5 minutes (last check {_ago(now, pull_at)}); the whole list is covered about every hour. "
+                          f"{f.get('opened24h', 0)} paper trades opened in 24h."}
+
     if not f.get("webhookId"):
         return {"level": "error", "headline": "Not connected to Helius yet",
                 "detail": f"{tracked} wallets are listed, but the Helius webhook that reports their swaps "

@@ -237,6 +237,7 @@ const Signals = () => {
                   : a.outcome === "closed" ? `💰 We closed our copy (${a.reason})`
                   : a.outcome === "skipped" ? `⏭ Skipped${a.reason ? ` — ${a.reason}` : ""}`
                   : a.outcome === "ignored" ? "Not one we were following"
+                  : a.outcome === "late" ? "Seen too late to copy (older than 20 min)"
                   : "Seen";
                 return (
                   <div key={`${a.time}-${i}`} className="rounded-xl px-3 py-2.5" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -251,6 +252,7 @@ const Signals = () => {
                     </div>
                     <div className="text-[10px] text-slate-500 mt-0.5">
                       {a.walletLabel || shortAddr(a.wallet)} · {ago(a.time)}
+                      {a.convergence && a.convergence >= 2 ? <span className="ml-1 font-bold text-orange-400">🔥 {a.convergence} wallets bought this</span> : null}
                     </div>
                     <div className="text-[10px] text-slate-400 mt-0.5">{outcomeText}</div>
                   </div>
@@ -349,6 +351,8 @@ const StatusCard = ({ status }: { status: SignalsStatus }) => {
         <Fact label="Paper trades opened (24h)" value={String(status.paperTrades.opened24h)} />
         <Fact label="Wallets followed" value={String(status.wallets.trackedWallets)} />
         <Fact label="Still proving themselves" value={String(status.wallets.pendingWallets)} />
+        <Fact label="Backup wallet check" value={status.pull?.lastAt ? `${ago(status.pull.lastAt)} · ${status.pull.wallets} wallets` : "not yet"} />
+        <Fact label="Convergence signals (24h)" value={String(status.convergence24h ?? 0)} />
         <Fact label="Wallet list refreshed" value={ago(status.jobs.walletRefreshAt)} />
         <Fact label="Price checker last ran" value={ago(status.jobs.pricingJobAt)} />
       </div>
