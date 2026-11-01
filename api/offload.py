@@ -35,24 +35,7 @@ def plan_wallet(holdings: Dict[str, float], prices: Dict[str, float], avg_cost: 
     sell_total = sum(s["sellUsd"] for s in sells)
     proceeds = sell_total * FEE_ALLOWANCE
 
-    # how many coins can each get at least the minimum order?
-    pool = [t for t in targets if t not in bad]
-    n = min(len(pool), int(proceeds // min_order))
-    buys, skipped_buys = [], []
-    if n > 0:
-        share = proceeds / n
-        for t in pool[:n]:
-            held_usd = float(holdings.get(t, 0) or 0) * float(prices.get(t, 0) or 0)
-            amt = share
-            if cap_usd and cap_usd > 0:
-                room = cap_usd - held_usd
-                if room < min_order:
-                    skipped_buys.append({"coin": t, "why": "at the cap"})
-                    continue
-                amt = min(share, room)
-            if amt < min_order:
-                continue
-            buys.append({"coin": t, "buyUsd": round(amt, 2)})
+    buys, skipped_buys = plan_buys(proceeds, holdings, prices, bad, targets, cap_usd, min_order)
     spent = sum(b["buyUsd"] for b in buys)
     pnl_known = [s["pnlUsd"] for s in sells if s["pnlUsd"] is not None]
     return {
@@ -63,3 +46,28 @@ def plan_wallet(holdings: Dict[str, float], prices: Dict[str, float], avg_cost: 
         "pnlTotal": round(sum(pnl_known), 2) if pnl_known else None,
         "pnlCoinsUnknown": len(sells) - len(pnl_known),
     }
+
+
+def plan_buys(proceeds: float, holdings: Dict[str, float], prices: Dict[str, float], bad: List[str],
+              targets: List[str], cap_usd: float = 0.0, min_order: float = MIN_ORDER):
+    """Split `proceeds` evenly across as many target coins as can each get at least
+    the minimum order (best coins first); respect the per-coin cap. -> (buys, skipped)."""
+    pool = [t for t in targets if t not in bad]
+    n = min(len(pool), int(proceeds // min_order))
+    buys, skipped = [], []
+    if n <= 0:
+        return buys, skipped
+    share = proceeds / n
+    for t in pool[:n]:
+        held_usd = float(holdings.get(t, 0) or 0) * float(prices.get(t, 0) or 0)
+        amt = share
+        if cap_usd and cap_usd > 0:
+            room = cap_usd - held_usd
+            if room < min_order:
+                skipped.append({"coin": t, "why": "at the cap"})
+                continue
+            amt = min(share, room)
+        if amt < min_order:
+            continue
+        buys.append({"coin": t, "buyUsd": round(amt, 2)})
+    return buys, skipped

@@ -2636,3 +2636,34 @@ export async function fetchOffloadPreview(
   const r = await adminGet("/api/admin/offload-preview", wallet, q);
   return r && r.wallets ? (r as OffloadPreview) : null;
 }
+
+
+export interface OffloadJobWallet {
+  short: string; isAdmin: boolean; status: "sell_pending" | "sold" | "done";
+  sellsDone: number; sellsTotal: number; sellsFailed: { coin: string; error: string }[]; soldUsd: number;
+  buysDone: number; buysTotal: number; buysFailed: { coin: string; error: string }[]; boughtUsd: number; buysReadyIn: number;
+}
+export interface OffloadJob { id: string; pct: number; status: "running" | "finished"; dryRun: boolean; wallets: OffloadJobWallet[] }
+export interface OffloadRunReply { ok?: boolean; error?: string; jobId?: string; job: OffloadJob | null }
+
+/** Admin: runs the real offload. One attempt per call, never retried (it moves real money). */
+export async function offloadRun(
+  wallet: string,
+  action: "start" | "sells" | "buys" | "status",
+  extra: { pct?: number; confirm?: string; bad?: string[]; targets?: string[]; jobId?: string } = {},
+): Promise<OffloadRunReply | null> {
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 58000);
+    const res = await fetch("/api/admin/offload-run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, action, ...extra }),
+      signal: ctl.signal,
+    });
+    clearTimeout(t);
+    return res.ok ? ((await res.json()) as OffloadRunReply) : ((await res.json().catch(() => null)) as OffloadRunReply | null);
+  } catch {
+    return null;
+  }
+}

@@ -30,7 +30,7 @@ def test_leaderboard_served_from_snapshot_and_warmed_by_cron():
     assert '"path": "/api/coin-report-cron",\n      "schedule": "*/10 * * * *"' in vj
 
 
-def test_offload_preview_is_read_only_and_wired():
+def test_offload_planning_has_no_order_code_and_run_needs_confirmation():
     idx = _read("api", "index.py")
     assert "path == '/api/admin/offload-preview'" in idx
     off = _read("api", "offload.py")
@@ -38,3 +38,6 @@ def test_offload_preview_is_read_only_and_wired():
     db = _read("api", "database.py")
     seg = db[db.index("def get_offload_preview"):]
     assert "place_market_order" not in seg
+
+    run_route = idx[idx.index("path == '/api/admin/offload-run'"):][:2500]
+    assert 'f"OFFLOAD {pct}"' in run_route            # a typed confirmation is required to start

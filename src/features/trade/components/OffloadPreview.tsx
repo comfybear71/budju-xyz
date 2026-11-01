@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
-import { fetchOffloadPreview, type OffloadPreview as Preview } from "../services/tradeApi";
+import { fetchOffloadPreview, offloadRun, type OffloadJob, type OffloadPreview as Preview } from "../services/tradeApi";
 
 const usd = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 const usd2 = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** READ-ONLY. Shows, wallet by wallet, what a 50% or 75% offload would sell and buy. Nothing is sold. */
+/** Shows, wallet by wallet, what a 50% or 75% offload would sell and buy; the red box runs it (typed confirmation). */
 const OffloadPreview = ({ wallet }: { wallet: string }) => {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Preview | null>(null);
@@ -15,6 +15,53 @@ const OffloadPreview = ({ wallet }: { wallet: string }) => {
   const [bad, setBad] = useState<string[] | null>(null);
   const [targets, setTargets] = useState<string[] | null>(null);
   const [openWallet, setOpenWallet] = useState<string | null>(null);
+
+  // ── Running the offload for real ──
+  const [confirmText, setConfirmText] = useState("");
+  const [job, setJob] = useState<OffloadJob | null>(null);
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState("");
+
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /** Sells now; waits for Swyftx balances to settle; then buys. Safe to resume: every order is saved as it is placed. */
+  const drive = async (jobId: string) => {
+    setRunning(true);
+    try {
+      for (let i = 0; i < 40; i++) {
+        const r = await offloadRun(wallet, "sells", { jobId });
+        if (!r || r.ok === false) { setRunMsg(`⛔ ${r?.error ?? "No answer from the server — tap Resume to check"}`); return; }
+        setJob(r.job);
+        if (!r.job || r.job.wallets.every((w) => w.status !== "sell_pending")) break;
+      }
+      for (let i = 0; i < 60; i++) {
+        const r = await offloadRun(wallet, "buys", { jobId });
+        if (!r || r.ok === false) { setRunMsg(`⛔ ${r?.error ?? "No answer from the server — tap Resume to check"}`); return; }
+        setJob(r.job);
+        if (!r.job || r.job.status === "finished") { setRunMsg("✅ Offload finished — see Activity for every trade."); return; }
+        const waiting = Math.max(0, ...r.job.wallets.filter((w) => w.status === "sold").map((w) => w.buysReadyIn));
+        setRunMsg(waiting > 0 ? `Sells done. Waiting ${waiting}s for Swyftx balances to settle before buying…` : "Buying…");
+        await wait(waiting > 0 ? Math.min(waiting, 15) * 1000 : 1500);
+      }
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const startRun = async () => {
+    setRunMsg("");
+    const r = await offloadRun(wallet, "start", { pct: Number(pct), confirm: confirmText.trim(), bad: bad ?? undefined, targets: targets ?? undefined });
+    if (!r || r.ok === false || !r.jobId) { setRunMsg(`⛔ ${r?.error ?? "Couldn't start"}`); return; }
+    setJob(r.job);
+    setConfirmText("");
+    void drive(r.jobId);
+  };
+
+  const resume = async () => {
+    const r = await offloadRun(wallet, "status");
+    if (r?.job && r.job.status === "running") { setJob(r.job); void drive(r.job.id); }
+    else setRunMsg(r?.job ? "That offload is finished." : "No offload is running.");
+  };
 
   const load = async (b = bad, t = targets, fresh = false) => {
     setLoading(true);
@@ -49,7 +96,7 @@ const OffloadPreview = ({ wallet }: { wallet: string }) => {
       {open && (
         <div className="px-3 pb-3">
           <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
-            <b>Nothing is sold from here.</b> Shows what each wallet would sell of the "bad" coins at 50% or 75% and how that money would be split
+            <b>The numbers below are a preview — nothing sells until you run it in the red box.</b> Shows what each wallet would sell of the "bad" coins at 50% or 75% and how that money would be split
             evenly across the "good" coins <i>inside the same wallet</i>. Same percentage for everyone.
           </p>
           <div className="flex items-center gap-2 mb-2">
@@ -127,6 +174,46 @@ const OffloadPreview = ({ wallet }: { wallet: string }) => {
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="rounded-lg px-3 py-2 mb-3" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.3)" }}>
+                <div className="text-[11px] font-bold text-red-300 mb-1">Run it for real — sells {pct}% in every wallet above</div>
+                <div className="text-[10px] text-slate-400 leading-relaxed mb-2">
+                  Uses real money. Sells first, waits about 2 minutes for balances to settle, then buys. Keep this screen open until it says finished.
+                  The amounts are re-checked at the moment it runs, so they can differ a little from the preview. To go ahead, type <b>OFFLOAD {pct}</b>.
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    value={confirmText}
+                    onChange={(e) => setConfirmText(e.target.value)}
+                    placeholder={`OFFLOAD ${pct}`}
+                    disabled={running}
+                    className="flex-1 min-w-0 rounded-lg px-2 py-1.5 text-xs bg-white/5 border border-white/10 text-slate-200 outline-none"
+                  />
+                  <button
+                    onClick={startRun}
+                    disabled={running || confirmText.trim() !== `OFFLOAD ${pct}`}
+                    className="px-3 rounded-lg text-xs font-bold bg-red-500/30 text-red-200 disabled:opacity-40"
+                  >
+                    {running ? "Running…" : "Start"}
+                  </button>
+                </div>
+                <button onClick={resume} disabled={running} className="mt-2 text-[11px] text-slate-400 underline disabled:opacity-40">Resume / check an offload in progress</button>
+                {runMsg && <div className="text-[11px] text-slate-200 mt-2">{runMsg}</div>}
+                {job && (
+                  <div className="mt-2 space-y-0.5">
+                    {job.dryRun && <div className="text-[10px] text-amber-400">DRY RUN is on at the server — no orders are placed.</div>}
+                    {job.wallets.map((w) => (
+                      <div key={w.short} className="text-[11px] text-slate-300">
+                        {w.isAdmin ? "👑 You" : w.short}: sold {w.sellsDone}/{w.sellsTotal} (${w.soldUsd.toLocaleString()}) · bought {w.buysDone}/{w.buysTotal} (${w.boughtUsd.toLocaleString()})
+                        {w.status === "done" ? " ✅" : ""}
+                        {[...w.sellsFailed, ...w.buysFailed].length > 0 && (
+                          <span className="text-amber-400"> · issues: {[...w.sellsFailed, ...w.buysFailed].map((f) => `${f.coin} (${f.error})`).join(", ")}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Coins to sell (tap to leave one out)</div>
