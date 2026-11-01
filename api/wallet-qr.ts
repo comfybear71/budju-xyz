@@ -21,9 +21,17 @@ function getCorsOrigin(req: VercelRequest): string {
 
 let _client: MongoClient | null = null;
 async function getDb() {
+  if (!MONGODB_URI) throw new Error("MONGODB_URI is not set on the server");
   if (!_client) {
-    _client = new MongoClient(MONGODB_URI);
-    await _client.connect();
+    const c = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000, connectTimeoutMS: 8000 });
+    try {
+      await c.connect();
+    } catch (e) {
+      // never keep a half-open client around: the next request must start clean
+      c.close().catch(() => {});
+      throw e;
+    }
+    _client = c;
   }
   const db = _client.db(DB_NAME);
   const coll = db.collection("wallet_qr_challenges");
@@ -55,7 +63,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   } catch (err: any) {
     console.error("[wallet-qr] Error:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    // A wrong cached connection must not stick: drop it so the next try reconnects.
+    if (_client) {
+      _client.close().catch(() => {});
+      _client = null;
+    }
+    // Say what failed (connection strings and secrets are stripped) so it can be fixed, not guessed at.
+    const detail = `${err?.name || "Error"}: ${String(err?.message || err)}`
+      .replace(/mongodb(\+srv)?:\/\/[^\s"']+/gi, "[db-url]")
+      .slice(0, 160);
+    return res.status(500).json({ error: "Internal server error", detail });
   }
 }
 
