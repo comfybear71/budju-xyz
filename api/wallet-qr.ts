@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "crypto";
 import { MongoClient } from "mongodb";
-import { mintSession } from "./_session";
+import { mintSession } from "./_session.js";
 
 // ── Config ──────────────────────────────────────────────────
 

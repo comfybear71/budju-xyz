@@ -8,7 +8,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import crypto from "crypto";
 import { MongoClient } from "mongodb";
-import { authMode, verifySession, bearerToken, adminWallets } from "./_session";
+import { authMode, verifySession, bearerToken, adminWallets } from "./_session.js";
 
 const BASE_URL = "https://api.swyftx.com.au";
 const SITE_URL = "https://www.budju.xyz";
