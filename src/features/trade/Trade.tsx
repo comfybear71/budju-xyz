@@ -60,8 +60,7 @@ import StarterBuys from "./components/StarterBuys";
 import HealthCheck from "./components/HealthCheck";
 import TradingPermission from "./components/TradingPermission";
 import OffloadPreview from "./components/OffloadPreview";
-import CoinGeckoExplorer from "./components/CoinGeckoExplorer";
-import HyperliquidTest from "./components/HyperliquidTest";
+import AdminTools from "./components/AdminTools";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
@@ -1082,35 +1081,15 @@ const Trade = () => {
               {/* ─── Activity Log (visible to ALL users, hidden on perp page) ──────────── */}
               {!showHighRisk && <ActivityLog />}
 
-              {/* ─── Admin: coins held by wallets that the bot doesn't trade yet ─── */}
+              {/* ─── Admin tools (one collapsed card) ─── */}
               {isAdmin && !showHighRisk && (
                 <div className="mt-4">
-                  <WalletCoinSuggestions wallet={walletAddress} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig(); }} />
-                </div>
-              )}
-              {isAdmin && !showHighRisk && (
-                <div className="mt-3">
-                  <StarterBuys wallet={walletAddress} />
-                </div>
-              )}
-              {isAdmin && !showHighRisk && (
-                <div className="mt-3">
-                  <OffloadPreview wallet={walletAddress} />
-                </div>
-              )}
-              {isAdmin && !showHighRisk && (
-                <div className="mt-3">
-                  <HealthCheck wallet={walletAddress} />
-                </div>
-              )}
-              {isAdmin && !showHighRisk && (
-                <div className="mt-3">
-                  <CoinGeckoExplorer wallet={walletAddress} />
-                </div>
-              )}
-              {isAdmin && !showHighRisk && (
-                <div className="mt-3">
-                  <HyperliquidTest wallet={walletAddress} />
+                  <AdminTools>
+                    <WalletCoinSuggestions wallet={walletAddress} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig(); }} />
+                    <StarterBuys wallet={walletAddress} />
+                    <OffloadPreview wallet={walletAddress} />
+                    <HealthCheck wallet={walletAddress} />
+                  </AdminTools>
                 </div>
               )}
 
