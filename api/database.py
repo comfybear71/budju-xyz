@@ -4734,3 +4734,42 @@ def get_paper_test() -> Dict:
     return {"started": started, "ends": state.get("endsAt"), "week": week, "weeks": 4, "complete": bool(state.get("endsAt") and datetime.utcnow().strftime("%Y-%m-%d") > state["endsAt"]),
             "lastReviewAt": state.get("lastReviewAt"), "off": list((state.get("off") or {}).keys()), "on": list((state.get("on") or {}).keys()),
             "log": state.get("log") or [], "coins": coins, "snapshots": len({d["date"] for d in snaps})}
+
+
+# ==========================================
+# Trailing take-profit settings + after-sale tracker (admin)
+# ==========================================
+def get_trailing_overview() -> Dict:
+    from trailing import clean_config
+    st = get_trader_state()
+    armed = st.get("autoTrail") or {}
+    return {"config": clean_config(st.get("autoTrailingConfig")),
+            "armed": [{"signal": k, "high": v.get("high"), "since": v.get("at")} for k, v in armed.items()]}
+
+
+def save_trailing_config(enabled=None, pullback=None, cap=None) -> Dict:
+    from trailing import clean_config
+    cur = clean_config(get_trader_state().get("autoTrailingConfig"))
+    if enabled is not None:
+        cur["enabled"] = bool(enabled)
+    if pullback is not None:
+        cur["pullbackPct"] = float(pullback)
+    if cap is not None:
+        cur["capPct"] = float(cap)
+    cur = clean_config(cur)
+    save_trader_state({"autoTrailingConfig": cur})
+    return get_trailing_overview()
+
+
+def get_after_sales(days: int = 60) -> Dict:
+    from after_sales import after_sales
+    since = datetime.utcnow() - timedelta(days=max(1, min(int(days), 365)))
+    sells = []
+    for d in trades_collection.find({"type": "sell", "timestamp": {"$gte": since}}, {"coin": 1, "amount": 1, "price": 1, "timestamp": 1}):
+        sells.append({"coin": d.get("coin"), "qty": d.get("amount"), "price": d.get("price"), "ts": d.get("timestamp")})
+    for d in user_trades_collection.find({"side": "sell", "timestamp": {"$gte": since}}, {"coin": 1, "quantity": 1, "price": 1, "timestamp": 1}):
+        sells.append({"coin": d.get("coin"), "qty": d.get("quantity"), "price": d.get("price"), "ts": d.get("timestamp")})
+    series = _fresh_series(_REPORT_MAX_AGE_HOURS)
+    out = after_sales(sells, series, time.time())
+    out["days"] = days
+    return out

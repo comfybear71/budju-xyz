@@ -71,5 +71,12 @@ def test_paper_test_is_admin_only_and_never_changes_trading():
     idx = _read("api", "index.py")
     assert "is_admin(wallet)" in idx[idx.index("path == '/api/admin/paper-test'"):][:400]
     db = _read("api", "database.py")
-    seg = db[db.index("def take_paper_snapshot"):]
+    seg = db[db.index("def take_paper_snapshot"):db.index("# Trailing take-profit settings")]
     assert "save_trader_state" not in seg and "place_market_order" not in seg and "coin_config_collection.update" not in seg
+
+
+def test_trailing_and_after_sales_routes_are_admin_only():
+    idx = _read("api", "index.py")
+    for path in ("/api/admin/after-sales",):
+        assert "is_admin(wallet)" in idx[idx.index(f"path == '{path}'"):][:400]
+    assert "_verify_admin(body, self)" in idx[idx.index("path == '/api/admin/trailing'", idx.index("path == '/api/admin/trailing'") + 10):][:300]

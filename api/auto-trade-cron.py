@@ -43,6 +43,7 @@ import json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
+from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
 from database import (
     user_exchange_keys_collection,
     decrypt_secret,
@@ -491,6 +492,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
 
             # ── SELL ──
             elif current_price >= sell_target:
+                trail = ctx.get("trailDecisions")
+                if trail is not None and trail.get(ck) != "sell":
+                    continue        # trailing take-profit: past its sell level, letting it run until it pulls back
                 avg_cost, position_cap = _sell_guard_inputs(ctx, code, pool_avg_cost_map)
                 if avg_cost > 0 and current_price < avg_cost:
                     log.append(f"{short}: {code} hit sell target but price ${current_price:.2f} < avg cost ${avg_cost:.2f} — SELL BLOCKED")
@@ -769,7 +773,19 @@ def run_auto_trade_check():
         sizing = None
         print(f"[sizing] unavailable: {e}", flush=True)
 
+    # Trailing take-profit (admin switch, ships OFF): decided ONCE per cycle for each signal, shared by every wallet.
+    trail_cfg = _trail_cfg(shared_state.get("autoTrailingConfig"))
+    trail_decisions, trail_state_new = None, {}
+    old_trail_state = dict(shared_state.get("autoTrail") or {})
+    if trail_cfg["enabled"]:
+        try:
+            trail_decisions, trail_state_new = _trail_decide(active_pairs, prices, shared_targets, old_trail_state, trail_cfg, now_ms)
+        except Exception as e:
+            trail_decisions, trail_state_new = None, {}
+            print(f"[trailing] unavailable this cycle: {e}", flush=True)
+
     for ctx in wallet_contexts:
+        ctx["trailDecisions"] = trail_decisions
         ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
         ctx["sharedTargets"] = shared_targets
@@ -814,6 +830,10 @@ def run_auto_trade_check():
     shared_cooldowns = {k: v for k, v in shared_cooldowns.items()
                         if not (isinstance(v, (int, float)) and v <= now_ms)}
 
+    for _ck in fired:
+        trail_state_new.pop(_ck, None)
+    trail_update = trail_state_new if (trail_cfg["enabled"] or old_trail_state) else None
+
     new_pauses = set()
     for _ctx in wallet_contexts:
         new_pauses |= set(_ctx.get("newPauses") or ())
@@ -828,6 +848,8 @@ def run_auto_trade_check():
         "autoActive": {**auto_active, "targets": shared_targets},
         "autoCooldowns": shared_cooldowns,
     }
+    if trail_update is not None:
+        save_update["autoTrail"] = trail_update
     if pauses_update is not None:
         save_update["autoPausedAssets"] = pauses_update
     if catchup_active:

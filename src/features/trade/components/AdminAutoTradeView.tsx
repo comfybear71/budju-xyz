@@ -8,6 +8,7 @@ import BotStatusBanner from "./BotStatusBanner";
 import CoinScout from "./CoinScout";
 import CoinTierGrid from "./CoinTierGrid";
 import CoinSizing from "./CoinSizing";
+import TrailingTakeProfit from "./TrailingTakeProfit";
 
 interface Props {
   prices: Record<string, number>;
@@ -334,6 +335,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         <BotStatusBanner />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
         <CoinSizing wallet={adminWallet} />
+        <TrailingTakeProfit wallet={adminWallet} />
         <CoinScout wallet={adminWallet} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
