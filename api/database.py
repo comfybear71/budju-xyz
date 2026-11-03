@@ -4600,19 +4600,21 @@ def mark_wallets_pulled(addresses: List[str], latest_swap_ts: Optional[Dict[str,
 # ==========================================
 # Scorecard (admin): is the bot beating "just buy and hold"?
 # ==========================================
+def _ledger_rows(scope: str = "all") -> List[Dict]:
+    rows = []
+    for d in trades_collection.find({"type": {"$in": ["buy", "sell"]}}, {"coin": 1, "type": 1, "amount": 1, "price": 1, "timestamp": 1}):
+        rows.append({"coin": d.get("coin"), "side": d.get("type"), "qty": d.get("amount"), "price": d.get("price"), "ts": d.get("timestamp"), "w": "admin"})
+    if scope == "all":
+        for d in user_trades_collection.find({}, {"coin": 1, "side": 1, "quantity": 1, "price": 1, "timestamp": 1, "walletAddress": 1}):
+            rows.append({"coin": d.get("coin"), "side": d.get("side"), "qty": d.get("quantity"), "price": d.get("price"), "ts": d.get("timestamp"), "w": d.get("walletAddress")})
+    return rows
+
+
 def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
     """scope "all": the admin account plus every other wallet's bot trades; "mine": the admin account only."""
     from scorecard import coin_scorecard
-    rows = []
-    for d in trades_collection.find({"type": {"$in": ["buy", "sell"]}}, {"coin": 1, "type": 1, "amount": 1, "price": 1, "timestamp": 1}):
-        rows.append({"coin": d.get("coin"), "side": d.get("type"), "qty": d.get("amount"), "price": d.get("price"), "ts": d.get("timestamp")})
-    wallets = 1 if rows else 0
-    if scope == "all":
-        seen = set()
-        for d in user_trades_collection.find({}, {"coin": 1, "side": 1, "quantity": 1, "price": 1, "timestamp": 1, "walletAddress": 1}):
-            rows.append({"coin": d.get("coin"), "side": d.get("side"), "qty": d.get("quantity"), "price": d.get("price"), "ts": d.get("timestamp")})
-            seen.add(d.get("walletAddress"))
-        wallets += len(seen)
+    rows = _ledger_rows(scope)
+    wallets = len({r["w"] for r in rows})
     codes = sorted({r["coin"] for r in rows if r.get("coin")})
     prices = get_prices_for_coins(codes) if codes else {}
     result = coin_scorecard(rows, prices)
@@ -4636,3 +4638,99 @@ def get_strategy_lab(fee_pct: float = 0.5) -> Dict:
     out = run_lab(series, fee)
     out["feePct"] = round(fee * 100, 2)
     return out
+
+
+# ==========================================
+# Four-week paper test of dynamic coin management (changes nothing live)
+# ==========================================
+paper_snapshots_collection = db["paper_test_snapshots"]
+paper_state_collection = db["paper_test_state"]
+
+
+def take_paper_snapshot(force: bool = False) -> Dict:
+    """Once a day: store every coin's numbers; weekly: decide which coins the rules WOULD switch off/on."""
+    from paper_test import CORE_COINS, TEST_WEEKS, coin_status, paper_call, what_if_off, weekly_review
+    from dip_report import coin_report
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    state = paper_state_collection.find_one({"_id": "state"}) or {"_id": "state"}
+    if not force and state.get("lastSnapDate") == today:
+        return {"skipped": True}
+
+    rep = get_dip_report()
+    series = _fresh_series(_REPORT_MAX_AGE_HOURS)
+    card = get_scorecard("all")
+    score = {c["coin"]: c for c in card["coins"]}
+    ledger = _ledger_rows("all")
+    buys_by_coin: Dict[str, List[Dict]] = {}
+    for r in ledger:
+        if r.get("side") == "buy" and r.get("coin") and r.get("ts"):
+            buys_by_coin.setdefault(r["coin"], []).append({"qty": r["qty"], "price": r["price"], "ts": r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else str(r["ts"])})
+    assign = (get_trader_state().get("autoTierAssignments") or {})
+    in_tiers = [c for c, t in assign.items() if t]
+
+    metrics: Dict[str, Dict] = {}
+    for c in rep.get("coins", []):
+        coin = c["coin"]
+        closes = series.get(coin) or []
+        r90 = coin_report(closes[-90:]) if len(closes) >= 90 else None
+        per90 = r90["perBuy"] if r90 else None
+        tiers = {}
+        for k in ("t1", "t2", "t3"):
+            t = c["tiers"][k]
+            tiers[k] = round(t["netPct"] / t["buys"], 1) if t["buys"] else None
+        metrics[coin] = {"yearPerBuy": c["perBuy"], "per90": per90, "dips": c["buys"], "tiers": tiers, "price": (closes[-1] if closes else 0.0)}
+    statuses = {coin: coin_status(m["yearPerBuy"], m["per90"], m["dips"], coin in CORE_COINS) for coin, m in metrics.items()}
+
+    if not state.get("startedAt"):
+        state["startedAt"] = today
+        state["endsAt"] = (datetime.utcnow() + timedelta(weeks=TEST_WEEKS)).strftime("%Y-%m-%d")
+    last_review = state.get("lastReviewAt")
+    due = (not last_review) or (datetime.utcnow() - datetime.strptime(last_review, "%Y-%m-%d")).days >= 7
+    if due:
+        upd = weekly_review(statuses, in_tiers, state, today)
+        state.update(upd)
+        state["lastReviewAt"] = today
+    state["lastSnapDate"] = today
+
+    docs = []
+    for coin, m in metrics.items():
+        sc = score.get(coin) or {}
+        call = paper_call(coin, statuses[coin], state)
+        wi = None
+        if call == "off":
+            wi = what_if_off(buys_by_coin.get(coin, []), (state.get("off") or {}).get(coin, {}).get("since", today), m["price"])
+        docs.append({"_id": f"{today}|{coin}", "date": today, "coin": coin, "price": m["price"], "yearPerBuy": m["yearPerBuy"], "per90": m["per90"],
+                     "dips": m["dips"], "tiers": m["tiers"], "status": statuses[coin], "call": call,
+                     "botPnl": sc.get("botPnl"), "keepPnl": sc.get("keepPnl"), "spent": sc.get("spent"), "heldValue": sc.get("heldValue"),
+                     "whatIfOff": wi, "inTiers": coin in in_tiers})
+    for d in docs:
+        paper_snapshots_collection.replace_one({"_id": d["_id"]}, d, upsert=True)
+    paper_state_collection.replace_one({"_id": "state"}, state, upsert=True)
+    return {"ok": True, "coins": len(docs), "reviewed": due}
+
+
+def get_paper_test() -> Dict:
+    state = paper_state_collection.find_one({"_id": "state"}) or {}
+    snaps = list(paper_snapshots_collection.find({}).sort("date", 1))
+    by_coin: Dict[str, List[Dict]] = {}
+    for d in snaps:
+        by_coin.setdefault(d["coin"], []).append(d)
+    series = _fresh_series(_REPORT_MAX_AGE_HOURS)
+    coins = {}
+    for coin, lst in by_coin.items():
+        last = lst[-1]
+        coins[coin] = {
+            "status": last.get("status"), "call": last.get("call"), "yearPerBuy": last.get("yearPerBuy"), "per90": last.get("per90"),
+            "tiers": last.get("tiers"), "botPnl": last.get("botPnl"), "keepPnl": last.get("keepPnl"), "spent": last.get("spent"),
+            "heldValue": last.get("heldValue"), "whatIfOff": last.get("whatIfOff"), "inTiers": last.get("inTiers"),
+            "pnlSeries": [(x["date"], x.get("botPnl")) for x in lst if x.get("botPnl") is not None],
+            "priceSeries": [round(v, 6) for v in (series.get(coin) or [])[-90:]],
+            "weeksWeak": ((state.get("streaks") or {}).get(coin) or {}).get("weak", 0),
+        }
+    started = state.get("startedAt")
+    week = 0
+    if started:
+        week = min(4, (datetime.utcnow() - datetime.strptime(started, "%Y-%m-%d")).days // 7 + 1)
+    return {"started": started, "ends": state.get("endsAt"), "week": week, "weeks": 4, "complete": bool(state.get("endsAt") and datetime.utcnow().strftime("%Y-%m-%d") > state["endsAt"]),
+            "lastReviewAt": state.get("lastReviewAt"), "off": list((state.get("off") or {}).keys()), "on": list((state.get("on") or {}).keys()),
+            "log": state.get("log") or [], "coins": coins, "snapshots": len({d["date"] for d in snaps})}

@@ -2714,3 +2714,21 @@ export async function fetchTradesCsv(wallet: string): Promise<string | null> {
     return null;
   }
 }
+
+
+export interface PaperCoin {
+  status: string; call: "core" | "keep" | "off" | "on"; yearPerBuy: number | null; per90: number | null;
+  tiers: { t1: number | null; t2: number | null; t3: number | null } | null;
+  botPnl: number | null; keepPnl: number | null; spent: number | null; heldValue: number | null; whatIfOff: number | null; inTiers: boolean;
+  pnlSeries: [string, number][]; priceSeries: number[]; weeksWeak: number;
+}
+export interface PaperTest {
+  started: string | null; ends: string | null; week: number; weeks: number; complete: boolean; lastReviewAt: string | null;
+  off: string[]; on: string[]; log: { date: string; off: string[]; on: string[]; back: string[] }[]; coins: Record<string, PaperCoin>; snapshots: number;
+}
+
+/** Admin: the four-week paper test (what the dynamic rules WOULD do). snapshot=true takes a snapshot now. */
+export async function fetchPaperTest(wallet: string, snapshot = false): Promise<PaperTest | null> {
+  const r = await adminGet("/api/admin/paper-test", wallet, snapshot ? "&snapshot=1" : "");
+  return r && r.coins ? (r as PaperTest) : null;
+}

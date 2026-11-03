@@ -45,6 +45,13 @@ def run() -> dict:
     except Exception as e:
         print(f"[coin-report-cron] heartbeat alert error: {e}")
 
+    # Four-week paper test: one snapshot of every coin per day (no-op the rest of the time)
+    try:
+        from database import take_paper_snapshot
+        take_paper_snapshot()
+    except Exception as e:
+        print(f"[coin-report-cron] paper snapshot error: {e}")
+
     # The CoinGecko-heavy jobs below run about twice an hour, not every 10 minutes.
     if (datetime.utcnow().minute % 30) >= 10:
         return {"leaderboardSnapshot": leaderboard_ok, "heavyJobs": "skipped this run"}
