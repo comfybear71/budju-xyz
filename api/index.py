@@ -109,6 +109,8 @@ from database import (
     get_health_check,
     get_scorecard,
     get_strategy_lab,
+    take_paper_snapshot,
+    get_paper_test,
     get_trading_permission,
     record_trading_permission,
     get_trade_export_csv,
@@ -765,6 +767,17 @@ class handler(BaseHTTPRequestHandler):
                     v = params.get(name)
                     return None if v is None else [x.strip().upper() for x in v.split(',') if x.strip()]
                 self._send_json(200, get_offload_preview(_csv('bad'), _csv('targets'), params.get('fresh') == '1'))
+
+            elif path == '/api/admin/paper-test':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                if params.get('snapshot') == '1':
+                    take_paper_snapshot(force=True)
+                else:
+                    take_paper_snapshot()
+                self._send_json(200, get_paper_test())
 
             elif path == '/api/admin/strategy-lab':
                 wallet = params.get('wallet')
