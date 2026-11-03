@@ -14,6 +14,9 @@ _PATTERNS = [
     (re.compile(r"^(?P<w>\S+): auth failed — (?P<d>.*)$"), "key", "🔑 {w}: Swyftx rejected this wallet's API key — {d}"),
     (re.compile(r"^(?P<w>\S+): holdings fetch failed — (?P<d>.*)$"), "balance", "⚠️ {w}: couldn't read the balance — {d}"),
     (re.compile(r"^(?P<w>\S+): unexpected error — (?P<d>.*)$"), "crash", "⛔ {w}: unexpected error — {d}"),
+    (re.compile(r"^(?P<c>[A-Z0-9]+): paused for (?P<h>\S+)h — Swyftx says it is not tradable right now$"), "paused",
+     "⏸ {c} is switched off on Swyftx right now (\"not presently tradable\"). The bot has paused it for {h} hours and will try again automatically — nothing to do."),
+    (re.compile(r"^(?P<w>\S+): (?P<s>BUY|SELL) (?P<c>[A-Z0-9]+) failed — .*(?:not presently tradable|AssetError).*$"), "untradable", None),
     (re.compile(r"^(?P<w>\S+): (?P<s>BUY|SELL) (?P<c>[A-Z0-9]+) failed — (?P<d>.*)$"), "order", "⛔ {w}: {s} {c} failed — {d}"),
     (re.compile(r"^(?P<w>\S+): asset ID map failed — (?P<d>.*)$"), "assets", "⚠️ {w}: Swyftx asset list failed — {d}"),
 ]
@@ -28,8 +31,10 @@ def find_problems(log_lines: List[str]) -> List[Tuple[str, str]]:
             m = rx.match(line)
             if not m:
                 continue
+            if tmpl is None:
+                break                       # covered by the friendlier "paused" message
             g = m.groupdict()
-            key = f"{g['w']}:{kind}:{g.get('c', '')}"
+            key = f"{g.get('w', '-')}:{kind}:{g.get('c', '')}"
             if key not in seen:
                 seen.add(key)
                 out.append((key, tmpl.format(**{k: (v or "") for k, v in g.items()})[:300]))
