@@ -2732,3 +2732,30 @@ export async function fetchPaperTest(wallet: string, snapshot = false): Promise<
   const r = await adminGet("/api/admin/paper-test", wallet, snapshot ? "&snapshot=1" : "");
   return r && r.coins ? (r as PaperTest) : null;
 }
+
+
+export interface TrailingOverview { config: { enabled: boolean; pullbackPct: number; capPct: number }; armed: { signal: string; high: number; since: number }[] }
+export async function fetchTrailing(wallet: string): Promise<TrailingOverview | null> {
+  const r = await adminGet("/api/admin/trailing", wallet);
+  return r && r.config ? (r as TrailingOverview) : null;
+}
+export async function saveTrailing(wallet: string, change: { enabled?: boolean; pullbackPct?: number; capPct?: number }): Promise<TrailingOverview | null> {
+  try {
+    const res = await fetch("/api/admin/trailing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, ...change }),
+    });
+    return res.ok ? ((await res.json()) as TrailingOverview) : null;
+  } catch {
+    return null;
+  }
+}
+
+export interface AfterSaleRow { coin: string; ts: number; qty: number; price: number; daysAgo: number; after: Record<string, number>; maxAfterPct: number | null; nowPct: number }
+export interface AfterSaleAgg { sales: number; n7: number; avg7: number | null; higher7: number; worth7: number; n14: number; avg14: number | null; higher14: number; worth14: number }
+export interface AfterSales { overall: AfterSaleAgg; coins: ({ coin: string } & AfterSaleAgg)[]; recent: AfterSaleRow[]; days: number }
+export async function fetchAfterSales(wallet: string, days = 60): Promise<AfterSales | null> {
+  const r = await adminGet("/api/admin/after-sales", wallet, `&days=${days}`);
+  return r && r.overall ? (r as AfterSales) : null;
+}
