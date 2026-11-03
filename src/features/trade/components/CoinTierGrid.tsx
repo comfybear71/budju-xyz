@@ -159,14 +159,14 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
           <div className="overflow-x-auto -mx-3 px-3 pb-1">
           <div className="space-y-1" style={{ minWidth: 1180 }}>
             <div className="flex items-center gap-2 px-2 text-[9px] uppercase tracking-wider text-slate-500 font-bold">
-              <div style={{ width: 306 }} className="sticky left-0 z-10 bg-[#0f172a]">Coin · tiers</div>
-              <div style={{ width: 150 }}>Paper call</div>
-              <div style={{ width: 70 }} className="text-right">Year /dip</div>
-              <div style={{ width: 70 }} className="text-right">90d /dip</div>
-              <div style={{ width: 70 }} className="text-right">Bot P&amp;L</div>
-              <div style={{ width: 80 }} className="text-right">If switched off</div>
-              <div style={{ width: 100 }}>Price 90d</div>
-              <div style={{ width: 100 }}>P&amp;L since start</div>
+              <div style={{ width: 306 }} className="flex-none sticky left-0 z-20 bg-[#0f172a]">Coin · tiers</div>
+              <div style={{ width: 150, flexShrink: 0 }}>Paper call</div>
+              <div style={{ width: 70, flexShrink: 0 }} className="text-right">Year /dip</div>
+              <div style={{ width: 70, flexShrink: 0 }} className="text-right">90d /dip</div>
+              <div style={{ width: 70, flexShrink: 0 }} className="text-right">Bot P&amp;L</div>
+              <div style={{ width: 80, flexShrink: 0 }} className="text-right">If switched off</div>
+              <div style={{ width: 100, flexShrink: 0 }}>Price 90d</div>
+              <div style={{ width: 100, flexShrink: 0 }}>P&amp;L since start</div>
             </div>
             {coins.map((c) => {
               const mine = assignments[c] || [];
@@ -175,8 +175,8 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
               const cs = pt ? CALL_STYLE[pt.call] : null;
               return (
                 <div key={c} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
-                  <div style={{ width: 306 }} className="sticky left-0 z-10 flex items-center justify-between gap-2 bg-[#141c2e] rounded-lg pr-1">
-                  <div className="w-16 min-w-0">
+                  <div style={{ width: 306 }} className="flex-none sticky left-0 z-20 flex items-center justify-between gap-2 bg-[#141c2e] rounded-lg pr-1 overflow-hidden">
+                  <div className="w-16 min-w-0 flex-none">
                     <div className="text-xs font-bold truncate" style={{ color }}>{c}</div>
                     {perf[c] && (
                       <div className="text-[9px] font-mono" style={{ color: perf[c].perBuy >= 0 ? "#22c55e" : "#ef4444" }}>
@@ -184,7 +184,7 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-none">
                     {[1, 2, 3].map((t) => {
                       const on = mine.includes(t);
                       return (
@@ -218,20 +218,20 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
                     </button>
                   </div>
                   </div>
-                  <div style={{ width: 150 }}>
+                  <div style={{ width: 150, flexShrink: 0 }}>
                     {cs ? (
                       <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold" style={{ color: cs.color, background: cs.bg }}>{cs.label}</span>
                     ) : <span className="text-[10px] text-slate-600">—</span>}
                     {pt && pt.weeksWeak > 0 && pt.call !== "off" && <div className="text-[9px] text-amber-400">weak {pt.weeksWeak} wk</div>}
                   </div>
-                  <div style={{ width: 70 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.yearPerBuy) }}>{pc(pt?.yearPerBuy)}</span></div>
-                  <div style={{ width: 70 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.per90) }}>{pc(pt?.per90)}</span></div>
-                  <div style={{ width: 70 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.botPnl) }}>{usd(pt?.botPnl)}</span></div>
-                  <div style={{ width: 80 }} className="text-right font-mono text-[11px]">
+                  <div style={{ width: 70, flexShrink: 0 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.yearPerBuy) }}>{pc(pt?.yearPerBuy)}</span></div>
+                  <div style={{ width: 70, flexShrink: 0 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.per90) }}>{pc(pt?.per90)}</span></div>
+                  <div style={{ width: 70, flexShrink: 0 }} className="text-right font-mono text-[11px]"><span style={{ color: col(pt?.botPnl) }}>{usd(pt?.botPnl)}</span></div>
+                  <div style={{ width: 80, flexShrink: 0 }} className="text-right font-mono text-[11px]">
                     <span style={{ color: pt?.whatIfOff == null ? "#64748b" : pt.whatIfOff <= 0 ? "#4ade80" : "#f87171" }}>{usd(pt?.whatIfOff)}</span>
                   </div>
-                  <div style={{ width: 100 }}>{pt ? <Spark values={pt.priceSeries} /> : null}</div>
-                  <div style={{ width: 100 }}>{pt ? <Spark values={pt.pnlSeries.map((x) => x[1])} /> : null}</div>
+                  <div style={{ width: 100, flexShrink: 0 }}>{pt ? <Spark values={pt.priceSeries} /> : null}</div>
+                  <div style={{ width: 100, flexShrink: 0 }}>{pt ? <Spark values={pt.pnlSeries.map((x) => x[1])} /> : null}</div>
                 </div>
               );
             })}
