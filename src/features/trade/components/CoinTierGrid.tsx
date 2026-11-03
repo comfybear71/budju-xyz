@@ -156,10 +156,10 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
               </button>
             ))}
           </div>
-          <div className="overflow-x-auto -mx-3 px-3 pb-1">
+          <div className="overflow-x-auto pb-2">
           <div className="space-y-1" style={{ minWidth: 1180 }}>
-            <div className="flex items-center gap-2 px-2 text-[9px] uppercase tracking-wider text-slate-500 font-bold">
-              <div style={{ width: 306 }} className="flex-none sticky left-0 z-20 bg-[#0f172a]">Coin · tiers</div>
+            <div className="flex items-center gap-2 px-2 text-[9px] uppercase tracking-wider text-slate-500 font-bold whitespace-nowrap">
+              <div style={{ width: 306 }} className="flex-none whitespace-nowrap">Coin · tiers</div>
               <div style={{ width: 150, flexShrink: 0 }}>Paper call</div>
               <div style={{ width: 70, flexShrink: 0 }} className="text-right">Year /dip</div>
               <div style={{ width: 70, flexShrink: 0 }} className="text-right">90d /dip</div>
@@ -175,7 +175,7 @@ const CoinTierGrid = ({ wallet, autoTrader, assignments }: Props) => {
               const cs = pt ? CALL_STYLE[pt.call] : null;
               return (
                 <div key={c} className="flex items-center gap-2 rounded-lg px-2 py-1.5 bg-white/[0.03]">
-                  <div style={{ width: 306 }} className="flex-none sticky left-0 z-20 flex items-center justify-between gap-2 bg-[#141c2e] rounded-lg pr-1 overflow-hidden">
+                  <div style={{ width: 306 }} className="flex-none flex items-center justify-between gap-2">
                   <div className="w-16 min-w-0 flex-none">
                     <div className="text-xs font-bold truncate" style={{ color }}>{c}</div>
                     {perf[c] && (
