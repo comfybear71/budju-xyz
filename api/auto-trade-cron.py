@@ -243,6 +243,15 @@ def _load_rebuy_blocklist(shared_state, log):
         rebuy_blocklist = {}
     return rebuy_blocklist, seed_blocklist
 
+PAUSE_UNTRADABLE_HOURS = float(os.getenv("PAUSE_UNTRADABLE_HOURS", "6"))
+
+
+def _is_untradable(err) -> bool:
+    """Swyftx says a coin is switched off right now (maintenance, network work, delisting review)."""
+    t = str(err or "").lower()
+    return "not presently tradable" in t or "asseterror" in t or "asset not tradable" in t
+
+
 # ── Circuit Breakers ─────────────────────────────────────────
 
 def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
@@ -368,6 +377,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     trades_this_wallet = []
 
     for code, tier_num in active_pairs:
+        if code in ctx.get("newPauses", ()):
+            continue        # Swyftx just refused this coin: don't hit it again for its other tiers this cycle
         try:
             ck = f"{code}:{tier_num}"
             cooldown_expiry = cooldowns.get(ck, cooldowns.get(code, 0))
@@ -475,6 +486,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     })
                 else:
                     log.append(f"{short}: BUY {code} failed — {err}")
+                    if _is_untradable(err):
+                        ctx.setdefault("newPauses", set()).add(code)
 
             # ── SELL ──
             elif current_price >= sell_target:
@@ -540,6 +553,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     })
                 else:
                     log.append(f"{short}: SELL {code} failed — {err}")
+                    if _is_untradable(err):
+                        ctx.setdefault("newPauses", set()).add(code)
         except Exception as e:
             # A single coin's unexpected failure here (bad API reply, timeout,
             # malformed response, etc.) must never cost every OTHER coin's
@@ -605,6 +620,11 @@ def run_auto_trade_check():
     auto_tiers = shared_state.get("autoTiers", shared_state.get("autoTierAssets", {}))
     tier_assignments = shared_state.get("autoTierAssignments", {})
     active_pairs = _build_active_pairs(tier_assignments, tier_active)
+    _now_ms = int(time.time() * 1000)
+    paused = {c: u for c, u in (shared_state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > _now_ms}
+    if paused:
+        active_pairs = [(c, t) for c, t in active_pairs if c not in paused]
+        log.append(f"Paused (Swyftx says not tradable right now): {', '.join(sorted(paused))}")
     if not active_pairs:
         print(f"[DIAG] EXIT: no active pairs -- tier_assignments keys={list(tier_assignments.keys())}, tierActive={tier_active!r}", flush=True)
         return {"skipped": True, "reason": "No coins assigned to an active tier", "log": log}
@@ -794,10 +814,22 @@ def run_auto_trade_check():
     shared_cooldowns = {k: v for k, v in shared_cooldowns.items()
                         if not (isinstance(v, (int, float)) and v <= now_ms)}
 
+    new_pauses = set()
+    for _ctx in wallet_contexts:
+        new_pauses |= set(_ctx.get("newPauses") or ())
+    pauses_update = None
+    if new_pauses or len(paused) != len(shared_state.get("autoPausedAssets") or {}):
+        until = now_ms + int(PAUSE_UNTRADABLE_HOURS * 3_600_000)
+        pauses_update = {**paused, **{c: until for c in new_pauses}}
+        for c in new_pauses:
+            log.append(f"{c}: paused for {PAUSE_UNTRADABLE_HOURS:g}h — Swyftx says it is not tradable right now")
+
     save_update = {
         "autoActive": {**auto_active, "targets": shared_targets},
         "autoCooldowns": shared_cooldowns,
     }
+    if pauses_update is not None:
+        save_update["autoPausedAssets"] = pauses_update
     if catchup_active:
         save_update["autoCatchUp"] = {**catchup, "done": catchup_done_map}
     save_trader_state(save_update)

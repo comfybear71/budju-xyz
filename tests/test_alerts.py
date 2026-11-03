@@ -32,3 +32,12 @@ def test_heartbeat():
     assert stale_heartbeat({"ranAt": 1_000_000, "outcome": "ok"}, 1_000_000 + 60_000) == ""
     assert "hasn't run" in stale_heartbeat({"ranAt": 1_000_000, "outcome": "ok"}, 1_000_000 + 3_600_000)
     assert "failed" in stale_heartbeat({"ranAt": 1_000_000, "outcome": "error", "reason": "x"}, 1_000_000 + 1000)
+
+
+def test_untradable_coin_gives_one_friendly_pause_message_not_a_scary_failure():
+    log = [
+        'pool: BUY DASH failed — HTTP 400: {"error":{"error":"AssetError","message":"Asset not presently tradable. Please try again later."}}',
+        "DASH: paused for 6h — Swyftx says it is not tradable right now",
+    ]
+    p = find_problems(log)
+    assert len(p) == 1 and "switched off on Swyftx" in p[0][1] and "DASH" in p[0][1] and "nothing to do" in p[0][1]
