@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useTrailing, trailStop } from "../hooks_useTrailing";
 import { fetchCoinPriceHistory, type CoinTradePoint } from "../services/tradeApi";
 
 interface Props {
@@ -27,6 +28,11 @@ const fmtDate = (ms: number) =>
  * (preserveAspectRatio none); dots are HTML so they stay perfectly round.
  */
 const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: Props) => {
+  const trailing = useTrailing();
+  const trailHigh = code && trailing.enabled
+    ? Math.max(0, ...Object.entries(trailing.armed).filter(([k]) => k.startsWith(`${code}:`)).map(([, v]) => Number(v.high) || 0))
+    : 0;
+  const trailStopPx = trailHigh > 0 ? trailStop(trailHigh, trailing.pullbackPct) : 0;
   // Price history for the soft area behind the dots (best effort — chart works without it)
   const [history, setHistory] = useState<[number, number][]>([]);
   const firstMs = useMemo(() => {
@@ -59,6 +65,7 @@ const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: P
 
     const prices = pts.map((p) => p.price);
     if (avgCost > 0) prices.push(avgCost);
+    if (trailHigh > 0) prices.push(trailHigh, trailStopPx);
     if (currentPrice > 0) prices.push(currentPrice);
     // Let the price history widen the range, but ignore one-off spikes (middle 90% of it)
     if (history.length > 10) {
@@ -90,12 +97,14 @@ const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: P
       areaLine: areaLine.join(" "),
       avgY: avgCost > 0 ? y(avgCost) : null,
       curY: currentPrice > 0 ? y(currentPrice) : null,
+      highY: trailHigh > 0 ? y(trailHigh) : null,
+      stopY: trailHigh > 0 ? y(trailStopPx) : null,
       tMin,
       tMax,
       pMin: pMin + pad,
       pMax: pMax - pad,
     };
-  }, [trades, avgCost, currentPrice, history]);
+  }, [trades, avgCost, currentPrice, history, trailHigh, trailStopPx]);
 
   if (!model) {
     return (
@@ -112,6 +121,7 @@ const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: P
         <span className="flex items-center gap-1"><span className="w-3 h-px" style={{ background: "#f59e0b", borderTop: "1px dashed #f59e0b" }} /> Avg cost</span>
         <span className="flex items-center gap-1"><span className="w-3 h-px" style={{ background: "#2dd4bf" }} /> Now</span>
         <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm" style={{ background: "rgba(56,189,248,0.35)" }} /> Price</span>
+        {trailHigh > 0 && <span className="flex items-center gap-1"><span className="w-3 h-px" style={{ borderTop: "1px dashed #a855f7" }} /> Trail stop</span>}
       </div>
 
       <div className="relative w-full rounded-lg overflow-hidden" style={{ height, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
@@ -132,6 +142,12 @@ const CoinTradeChart = ({ code, trades, avgCost, currentPrice, height = 150 }: P
           <polyline points={model.path} fill="none" stroke="rgba(148,163,184,0.35)" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />
           {model.avgY != null && (
             <line x1="0" y1={model.avgY} x2="100" y2={model.avgY} stroke="#f59e0b" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+          )}
+          {model.highY != null && (
+            <line x1="0" y1={model.highY} x2="100" y2={model.highY} stroke="#a855f7" strokeWidth="0.5" strokeDasharray="1 2" vectorEffect="non-scaling-stroke" />
+          )}
+          {model.stopY != null && (
+            <line x1="0" y1={model.stopY} x2="100" y2={model.stopY} stroke="#a855f7" strokeWidth="0.9" strokeDasharray="4 2" vectorEffect="non-scaling-stroke" />
           )}
           {model.curY != null && (
             <line x1="0" y1={model.curY} x2="100" y2={model.curY} stroke="#2dd4bf" strokeWidth="0.6" strokeDasharray="1 1" vectorEffect="non-scaling-stroke" />
