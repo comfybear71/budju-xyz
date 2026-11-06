@@ -917,32 +917,6 @@ const Trade = () => {
                         </span>
                       </div>
 
-                      {/* USDC headlined — what you actually trade with */}
-                      <div className="rounded-lg bg-slate-900/50 border border-green-500/20 px-3 py-2 mb-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-bold text-green-400">USDC</span>
-                          <span className="text-lg font-bold text-green-400 font-mono">
-                            ${fmt2(byCurrency.USDC)}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* AUD / USD / USDT — each in its own native units */}
-                      <div className="grid grid-cols-3 gap-2 mb-2.5">
-                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
-                          <div className="text-[9px] text-slate-500 font-semibold">AUD</div>
-                          <div className="text-[11px] font-bold text-amber-400 font-mono">${fmt2(byCurrency.AUD)}</div>
-                        </div>
-                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
-                          <div className="text-[9px] text-slate-500 font-semibold">USD</div>
-                          <div className="text-[11px] font-bold text-slate-300 font-mono">${fmt2(byCurrency.USD)}</div>
-                        </div>
-                        <div className="rounded-lg bg-slate-900/40 border border-white/[0.04] py-1.5 text-center">
-                          <div className="text-[9px] text-slate-500 font-semibold">USDT</div>
-                          <div className="text-[11px] font-bold text-teal-400 font-mono">${fmt2(byCurrency.USDT)}</div>
-                        </div>
-                      </div>
-
                       {/* Ratio meter */}
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
@@ -976,6 +950,10 @@ const Trade = () => {
                           <span className="text-[9px] text-slate-500 font-mono">
                             ${Math.round(combinedCash).toLocaleString()}
                           </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-1.5">
+                          Ready to trade (USDC):{" "}
+                          <span className="font-mono font-bold text-green-400">${fmt2(byCurrency.USDC)}</span>
                         </div>
                       </div>
                     </div>
