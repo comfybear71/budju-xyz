@@ -349,7 +349,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     holdings = ctx["holdings"]
     state = ctx["state"]
 
-    usdc_balance = sum(v for k, v in holdings.items() if k in CASH_CODES)
+    # Buys are paid from USDC only (swyftx_client.place_market_order), so the $30 reserve and the
+    # buy sizing must look at USDC alone — AUD/USD/USDT can't fund an order.
+    usdc_balance = float(holdings.get("USDC", 0.0) or 0.0)
     # ONE set of targets and cooldowns for every wallet — the ones on the
     # admin Auto Trade screen. Read-only here: a trade is recorded in
     # ctx["fired"] and the shared target is ratcheted ONCE after every wallet
@@ -439,6 +441,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                             _blocklist_logged.add(note)
                         continue
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
+                    note = f"{short}:lowusdc"
+                    if note not in _blocklist_logged:
+                        log.append(f"{short}: BUY {code} skipped — USDC ${usdc_balance:.2f} would drop below the ${MIN_USDC_RESERVE:.0f} reserve")
+                        _blocklist_logged.add(note)
                     continue
 
                 cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
