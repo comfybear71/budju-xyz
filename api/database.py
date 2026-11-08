@@ -4171,17 +4171,28 @@ def _swyftx_codes_fetch() -> Optional[set]:
 
 
 def retire_unlisted_coins() -> List[str]:
-    """Retire any added coin that Swyftx does not list, so the bot never tries to trade it."""
+    """Retire every coin (added or built-in) that Swyftx does not list, so the bot never looks at it again.
+    A suspiciously short list (a failed/partial fetch) is ignored so a hiccup can never retire real coins."""
     sw = _swyftx_codes()
-    if not sw:
+    if not sw or len(sw) < 100:
         return []
+    retired = {d.get("code") or d.get("_id") for d in coin_config_collection.find({"status": "retired"})}
     out = []
-    for d in coin_config_collection.find({"status": "custom"}):
-        c = d.get("code") or d.get("_id")
-        if c and c not in sw and c not in ("LUNC", "LUNA"):
-            coin_config_collection.update_one({"_id": d["_id"]}, {"$set": {"status": "retired", "at": datetime.utcnow()}})
-            out.append(c)
+    custom = {d.get("code") or d.get("_id"): d for d in coin_config_collection.find({"status": "custom"})}
+    for c in sorted(set(ASSET_CG_IDS) | set(custom)):
+        if c in sw or c in ("LUNC", "LUNA") or c in retired:
+            continue
+        base = custom.get(c) or {}
+        coin_config_collection.update_one(
+            {"_id": c},
+            {"$set": {"code": c, "status": "retired", "cgId": base.get("cgId") or ASSET_CG_IDS.get(c), "name": base.get("name"), "at": datetime.utcnow()}},
+            upsert=True)
+        out.append(c)
     return out
+
+
+def retired_coin_codes() -> set:
+    return {d.get("code") or d.get("_id") for d in coin_config_collection.find({"status": "retired"})}
 
 
 def fetch_scout_series(cg_id: str) -> Dict:
