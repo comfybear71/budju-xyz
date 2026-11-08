@@ -62,7 +62,10 @@ def _context(admin_wallet):
     # Only coins Swyftx really lists for this account (the same list orders resolve against).
     listed = set((client.get_code_to_id_map() or {}).keys())
     assigned = [c for c in assigned if c in listed]
-    return client, holdings, assigned, prices, set(PERMANENT_BUY_DENYLIST), set(cfg.get("retired", []))
+    # Skip coins Swyftx has switched off right now (the bot's 6h pause list).
+    now_ms = int(time.time() * 1000)
+    paused = {c for c, u in (state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
+    return client, holdings, assigned, prices, set(PERMANENT_BUY_DENYLIST) | paused, set(cfg.get("retired", []))
 
 
 def plan(admin_wallet: str, amount) -> Dict:
@@ -105,6 +108,14 @@ def execute(admin_wallet: str, amount, coins: List[str]) -> Dict:
         ok, order_id, err = client.place_market_order(code, "buy", amount, code_map, expected_qty=est_qty)
         if not ok:
             failed.append({"coin": code, "error": str(err)[:120]})
+            if any(t in str(err).lower() for t in ("not presently tradable", "asseterror", "asset not tradable")):
+                try:                      # remember it, so the next plan skips this coin for 6h
+                    from database import get_trader_state, save_trader_state
+                    cur = dict(get_trader_state().get("autoPausedAssets") or {})
+                    cur[code] = int(time.time() * 1000) + 6 * 3_600_000
+                    save_trader_state({"autoPausedAssets": cur})
+                except Exception as e:
+                    print(f"[starter-buys] pause save error: {e}")
             continue
         fill = getattr(client, "last_fill", None)
         qty = round(float(fill["qty"]), 8) if isinstance(fill, dict) and fill.get("qty", 0) > 0 else est_qty

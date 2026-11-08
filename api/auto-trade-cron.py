@@ -635,6 +635,16 @@ def run_auto_trade_check():
     if paused:
         active_pairs = [(c, t) for c, t in active_pairs if c not in paused]
         log.append(f"Paused (Swyftx says not tradable right now): {', '.join(sorted(paused))}")
+    # Coins Swyftx doesn't list are never looked at: retire them (list is cached), then skip every retired coin.
+    try:
+        from database import retire_unlisted_coins, retired_coin_codes
+        gone = retire_unlisted_coins()
+        if gone:
+            log.append(f"Switched off (not on Swyftx): {', '.join(gone)}")
+        dead = retired_coin_codes()
+        active_pairs = [(c, t) for c, t in active_pairs if c not in dead]
+    except Exception as e:
+        print(f"[cron] unlisted-coin purge error: {e}", flush=True)
     if not active_pairs:
         print(f"[DIAG] EXIT: no active pairs -- tier_assignments keys={list(tier_assignments.keys())}, tierActive={tier_active!r}", flush=True)
         return {"skipped": True, "reason": "No coins assigned to an active tier", "log": log}
