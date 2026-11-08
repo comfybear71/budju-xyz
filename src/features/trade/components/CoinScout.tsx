@@ -130,6 +130,12 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
             {loading ? (prog ? `Testing new coins ${prog[0]}/${prog[1]}…` : "Working…") : "Refresh"}
           </button>
           {msg && <div className="text-xs text-slate-200 rounded-lg px-2 py-1.5 mb-2" style={{ background: "rgba(255,255,255,0.08)" }}>{msg}</div>}
+          {data && (data.swyftxCount ?? 0) > 0 && (
+            <div className="text-[11px] text-slate-400">
+              Swyftx lists <span className="font-bold text-slate-200">{data.swyftxCount}</span> coins on your account.
+              {data.retiredNow && data.retiredNow.length > 0 && <> Just switched off (not on Swyftx): <span className="text-amber-400 font-bold">{data.retiredNow.join(", ")}</span>.</>}
+            </div>
+          )}
           {failed && <div className="text-xs text-red-400">Couldn't load the scout. Tap Refresh to try again.</div>}
           {data?.error && <div className="text-xs text-amber-400 mb-2">{data.error}</div>}
           {data && (

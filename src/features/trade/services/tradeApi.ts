@@ -2466,6 +2466,8 @@ export interface Scout {
   pending: string[];
   tested?: number;
   swyftxChecked?: boolean;
+  swyftxCount?: number;
+  retiredNow?: string[];
   error?: string;
 }
 

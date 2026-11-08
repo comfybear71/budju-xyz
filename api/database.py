@@ -4206,10 +4206,12 @@ def get_scout() -> Dict:
     # 1) Review of coins we already track (from stored Dip Report series)
     base = get_dip_report()
     review = review_tracked(base["coins"])
+    retired_now = []
     try:
-        retire_unlisted_coins()
+        retired_now = retire_unlisted_coins()
     except Exception as e:
         print(f"[scout] retire unlisted error: {e}")
+    sw_count = len(_swyftx_codes() or [])
 
     # 2) Candidate list (cached 24h)
     cand_doc = dip_report_cache_collection.find_one({"_id": "scout:candidates:v2"})
@@ -4256,7 +4258,8 @@ def get_scout() -> Dict:
         results.append({**r, "id": r["coin"], "code": meta.get("code"), "name": meta.get("name"), "rank": meta.get("rank")})
     pending = [c["id"] for c in cands if f"cg:{c['id']}" not in fresh]
     return {"review": review, "candidates": cands, "results": results[:15], "pending": pending,
-            "swyftxChecked": swyftx_checked, "tested": len(series)}
+            "swyftxChecked": swyftx_checked, "tested": len(series),
+            "swyftxCount": sw_count, "retiredNow": retired_now}
 
 
 def get_wallet_coin_suggestions() -> Dict:
