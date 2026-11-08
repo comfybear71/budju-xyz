@@ -1,3 +1,4 @@
+import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaSync, FaSave, FaCheck } from "react-icons/fa";
@@ -21,6 +22,7 @@ interface Props {
 }
 
 const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader, assets = [], className = "" }: Props) => {
+  const trailing = useTrailing();
   const [, setTick] = useState(0);
   const [, setCoinsVersion] = useState(0);
   const [countdown, setCountdown] = useState(30);
@@ -724,7 +726,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                                 border: `1px solid ${nearestSide === "buy" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
                               }}
                             >
-                              {isCritical ? (nearestSide === "buy" ? "BUY IMMINENT" : "SELL IMMINENT")
+                              {nearestSide === "sell" && trailing.enabled && trailing.armed[`${item.coin}:${item.tierNum}`] ? `TRAILING ↗ stop $${(trailing.armed[`${item.coin}:${item.tierNum}`].high * (1 - trailing.pullbackPct / 100)).toPrecision(4)}`
+                                : isCritical ? (nearestSide === "buy" ? "BUY IMMINENT" : "SELL IMMINENT")
                                 : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
                                 : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
                             </span>
