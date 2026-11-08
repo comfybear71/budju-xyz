@@ -59,6 +59,9 @@ def _context(admin_wallet):
     assigned = [c for c, t in (state.get("autoTierAssignments") or {}).items() if t]
     prices = get_prices_for_coins(sorted(set(assigned)))
     cfg = get_coin_config()
+    # Only coins Swyftx really lists for this account (the same list orders resolve against).
+    listed = set((client.get_code_to_id_map() or {}).keys())
+    assigned = [c for c in assigned if c in listed]
     return client, holdings, assigned, prices, set(PERMANENT_BUY_DENYLIST), set(cfg.get("retired", []))
 
 

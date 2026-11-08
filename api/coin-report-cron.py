@@ -79,7 +79,7 @@ def run() -> dict:
     warmed = []
     try:
         from database import fetch_scout_series
-        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"}) or {}
+        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates:v2"}) or {}
         have = {d["_id"] for d in dip_report_cache_collection.find(
             {"_id": {"$regex": "^series:cg:"}, "at": {"$gte": datetime.utcnow() - timedelta(hours=20)}}, {"_id": 1})}
         todo = [c["id"] for c in doc.get("cands", []) if f"series:cg:{c['id']}" not in have][:2]

@@ -4035,7 +4035,7 @@ def _trusted_cg_ids() -> set:
     wallet coins) — safe to accept even if the price check is rate limited."""
     ids = set()
     try:
-        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"}) or {}
+        doc = dip_report_cache_collection.find_one({"_id": "scout:candidates:v2"}) or {}
         ids |= {c["id"] for c in doc.get("cands", [])}
         ids |= {d["cgId"] for d in dynamic_coin_registry_collection.find({"cgId": {"$ne": None}}, {"cgId": 1})}
     except Exception:
@@ -4091,7 +4091,9 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
             return {"error": "Bad CoinGecko id"}
         existed = bool(coin_config_collection.find_one({"_id": code, "status": "custom"}))
         listed = _swyftx_codes()
-        if listed is not None and code not in listed:
+        if listed is None:
+            return {"error": "Couldn't check Swyftx's coin list just now — try again in a minute"}
+        if code not in listed:
             return {"error": f"{code} is not listed on Swyftx, so the bot could not trade it"}
         if verify and cg_id not in _verify_cg_ids([cg_id]):
             return {"error": "CoinGecko couldn't confirm that coin (busy or no price) — try again in a minute"}
@@ -4148,6 +4150,15 @@ def _swyftx_codes() -> Optional[set]:
 
 
 def _swyftx_codes_fetch() -> Optional[set]:
+    """Codes Swyftx really lets us trade. The admin's own authenticated asset list is the truth
+    (it is the same list orders resolve against); the public list is only a fallback."""
+    try:
+        client = _get_user_swyftx_client(ADMIN_WALLETS[0])
+        codes = set((client.get_code_to_id_map() or {}).keys())
+        if codes:
+            return codes
+    except Exception as e:
+        print(f"[scout] swyftx authed list error: {e}")
     try:
         req = Request("https://api.swyftx.com.au/markets/assets/", headers={"Accept": "application/json"})
         with urlopen(req, timeout=15) as resp:
@@ -4157,6 +4168,20 @@ def _swyftx_codes_fetch() -> Optional[set]:
     except Exception as e:
         print(f"[scout] swyftx list error: {e}")
         return None
+
+
+def retire_unlisted_coins() -> List[str]:
+    """Retire any added coin that Swyftx does not list, so the bot never tries to trade it."""
+    sw = _swyftx_codes()
+    if not sw:
+        return []
+    out = []
+    for d in coin_config_collection.find({"status": "custom"}):
+        c = d.get("code") or d.get("_id")
+        if c and c not in sw and c not in ("LUNC", "LUNA"):
+            coin_config_collection.update_one({"_id": d["_id"]}, {"$set": {"status": "retired", "at": datetime.utcnow()}})
+            out.append(c)
+    return out
 
 
 def fetch_scout_series(cg_id: str) -> Dict:
@@ -4181,11 +4206,17 @@ def get_scout() -> Dict:
     # 1) Review of coins we already track (from stored Dip Report series)
     base = get_dip_report()
     review = review_tracked(base["coins"])
+    retired_now = []
+    try:
+        retired_now = retire_unlisted_coins()
+    except Exception as e:
+        print(f"[scout] retire unlisted error: {e}")
+    sw_count = len(_swyftx_codes() or [])
 
     # 2) Candidate list (cached 24h)
-    cand_doc = dip_report_cache_collection.find_one({"_id": "scout:candidates"})
-    if cand_doc and (datetime.utcnow() - cand_doc["at"]) < timedelta(hours=24):
-        cands, swyftx_checked = cand_doc["cands"], cand_doc.get("swyftxChecked", False)
+    cand_doc = dip_report_cache_collection.find_one({"_id": "scout:candidates:v2"})
+    if cand_doc and cand_doc.get("swyftxChecked") and (datetime.utcnow() - cand_doc["at"]) < timedelta(hours=24):
+        cands, swyftx_checked = cand_doc["cands"], True
     else:
         markets, last_err = None, None
         for attempt in range(3):
@@ -4202,11 +4233,14 @@ def get_scout() -> Dict:
         tracked_codes |= {d["code"] for d in coin_config_collection.find({"status": "retired"})}
         tracked_ids = set(ASSET_CG_IDS.values())
         sw = _swyftx_codes()
+        if sw is None:
+            return {"review": review, "candidates": [], "results": [], "pending": [],
+                    "error": "Couldn't check Swyftx's coin list just now. Tap Refresh in a minute."}
         cands = filter_candidates(markets, tracked_codes, tracked_ids, sw)
         swyftx_checked = sw is not None
         dip_report_cache_collection.replace_one(
-            {"_id": "scout:candidates"},
-            {"_id": "scout:candidates", "at": datetime.utcnow(), "cands": cands, "swyftxChecked": swyftx_checked}, upsert=True)
+            {"_id": "scout:candidates:v2"},
+            {"_id": "scout:candidates:v2", "at": datetime.utcnow(), "cands": cands, "swyftxChecked": swyftx_checked}, upsert=True)
 
     # 3) Simulate every candidate that has stored history
     fresh = _fresh_series(_REPORT_MAX_AGE_HOURS)
@@ -4224,7 +4258,8 @@ def get_scout() -> Dict:
         results.append({**r, "id": r["coin"], "code": meta.get("code"), "name": meta.get("name"), "rank": meta.get("rank")})
     pending = [c["id"] for c in cands if f"cg:{c['id']}" not in fresh]
     return {"review": review, "candidates": cands, "results": results[:15], "pending": pending,
-            "swyftxChecked": swyftx_checked, "tested": len(series)}
+            "swyftxChecked": swyftx_checked, "tested": len(series),
+            "swyftxCount": sw_count, "retiredNow": retired_now}
 
 
 def get_wallet_coin_suggestions() -> Dict:
