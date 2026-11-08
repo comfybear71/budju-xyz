@@ -71,10 +71,6 @@
     {
       "path": "/api/coin-report-cron",
       "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/copytrade-cron",
-      "schedule": "*/5 * * * *"
     }
   ],
   "build": {

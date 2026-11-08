@@ -13,7 +13,6 @@ export const ROUTES = {
   TRADE: "/trade",           // Trading Board
   DESK: "/desk",             // BUDJU Desk — daily AI briefing
   HOW_IT_WORKS: "/how-it-works", // Plain-language explainer
-  SIGNALS: "/signals",       // Signals — copy-trading paper trading sandbox
   SPOT: "/spot",             // VPS Spot Trading
   MARKETING: "/marketing",   // Marketing materials
   TERMS: "/terms",           // Terms of Service
@@ -34,7 +33,6 @@ export const ROUTE_NAMES = {
   [ROUTES.BURN]: "Burn",              // Name for Burn
   [ROUTES.TRADE]: "Trade",            // Name for Trade
   [ROUTES.DESK]: "Desk",              // Name for Desk
-  [ROUTES.SIGNALS]: "Signals",        // Name for Signals
   [ROUTES.SPOT]: "Spot",              // Name for Spot
   [ROUTES.MARKETING]: "Marketing",    // Name for Marketing
   [ROUTES.TERMS]: "Terms",

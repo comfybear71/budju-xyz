@@ -74,8 +74,6 @@ const HowItWorks = () => {
           found="Too much risk for everyone: custody, legal and tax. Replaced by one account per person." />
         <Row what="Fast (1-minute) paper trading with leverage" verdict="Dropped" tone="bad"
           found="Across all markets and strategies, nothing was profitable once fees were counted. 1-minute moves are mostly noise." />
-        <Row what="Copying wallets on-chain (Signals)" verdict="Experimental" tone="warn"
-          found="Paper-trading only, optional. Many 'top' wallets turned out to be inactive, so we now look for wallets that are trading right now. Still unproven." />
         <Row what="Copying 'profitable traders' on leveraged markets" verdict="Parked" tone="warn"
           found="The biggest profit tables are dominated by market makers and hedged accounts (100% win rates, all one-sided positions, $10M+). Not copyable, and spot accounts can't mirror shorts or leverage." />
         <Row what="Smarter sell rules (trailing, wider, 'hold winners', volatility-scaled)" verdict="No clear winner" tone="warn"

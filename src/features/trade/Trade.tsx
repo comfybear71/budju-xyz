@@ -737,8 +737,6 @@ const Trade = () => {
                           onClick: () => setShowStats(true) },
                         { key: "desk", label: "Desk", icon: "\u2600\uFE0F", active: false, color: "teal",
                           onClick: () => navigate("/desk") },
-                        { key: "signals", label: "Signals", icon: "\uD83C\uDFAF", active: false, color: "blue",
-                          onClick: () => navigate("/signals") },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
                       ] as const)
@@ -809,23 +807,6 @@ const Trade = () => {
                           <span className="text-[8px] bg-teal-500/15 text-teal-300 px-1 py-0.5 rounded font-mono border border-teal-500/20 align-middle">NEW</span>
                         </div>
                         <div className="text-[10px] font-bold text-teal-400">Daily brief</div>
-                      </div>
-                    </button>
-                    {/* Signals — copy-trading paper trading sandbox */}
-                    <button
-                      onClick={() => navigate("/signals")}
-                      className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
-                      style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}
-                    >
-                      <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(59,130,246,0.15)" }}>
-                        <span className="text-sm">🎯</span>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-[11px] font-bold text-slate-300 leading-tight">
-                          Signals{" "}
-                          <span className="text-[8px] bg-blue-500/15 text-blue-300 px-1 py-0.5 rounded font-mono border border-blue-500/20 align-middle">NEW</span>
-                        </div>
-                        <div className="text-[10px] font-bold text-blue-400">Paper trading</div>
                       </div>
                     </button>
                     {/* Stats */}
