@@ -3,13 +3,15 @@ import { FaChevronDown, FaChevronRight, FaSync } from "react-icons/fa";
 import { fetchScout, manageCoin, addCoinsBulk, greenTiers, ASSET_CONFIG, loadCoinConfig, type Scout, type ScoutCandidate } from "../services/tradeApi";
 import type { AutoTrader } from "../services/autoTrader";
 
-const Section = ({ title, color, count, defaultOpen = false, children }: { title: string; color: string; count: number; defaultOpen?: boolean; children: React.ReactNode }) => {
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+const Section = ({ title, color, count, total, defaultOpen = false, children }: { title: string; color: string; count: number; total?: number; defaultOpen?: boolean; children: React.ReactNode }) => {
   const [open, setOpen] = useState(defaultOpen);
   if (count === 0) return null;
   return (
     <div className="mb-2 rounded-lg" style={{ background: "rgba(255,255,255,0.025)" }}>
       <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-2 py-1.5">
-        <span className="text-[11px] uppercase tracking-wider font-bold" style={{ color }}>{title} <span className="text-slate-500">({count})</span></span>
+        <span className="text-[11px] uppercase tracking-wider font-bold" style={{ color }}>{title} <span className="text-slate-500">({count})</span>{total !== undefined && <span className="ml-2 normal-case tracking-normal font-mono" style={{ color }}>{money(total)} held</span>}</span>
         {open ? <FaChevronDown size={9} className="text-slate-500" /> : <FaChevronRight size={9} className="text-slate-500" />}
       </button>
       {open && <div className="px-2 pb-2">{children}</div>}
@@ -17,15 +19,18 @@ const Section = ({ title, color, count, defaultOpen = false, children }: { title
   );
 };
 
-const Notes = ({ items }: { items: { coin: string; why: string }[] }) => (
+const Notes = ({ items, values }: { items: { coin: string; why: string }[]; values?: Record<string, number> }) => (
   <>
     {items.map((n) => (
-      <div key={n.coin} className="text-[11px] text-slate-300"><b>{n.coin}</b> — <span className="text-slate-400">{n.why}</span></div>
+      <div key={n.coin} className="text-[11px] text-slate-300"><b>{n.coin}</b>{values ? <span className="font-mono text-slate-200"> {money(values[n.coin] || 0)}</span> : null} — <span className="text-slate-400">{n.why}</span></div>
     ))}
   </>
 );
 
-const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrader: AutoTrader; onChanged: () => void }) => {
+const CoinScout = ({ wallet, autoTrader, onChanged, assets = [] }: { wallet: string; autoTrader: AutoTrader; onChanged: () => void; assets?: { code: string; usdValue: number }[] }) => {
+  const held: Record<string, number> = {};
+  for (const a of assets) held[a.code] = (held[a.code] || 0) + (Number(a.usdValue) || 0);
+  const sumOf = (items: { coin: string }[]) => items.reduce((t, n) => t + (held[n.coin] || 0), 0);
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Scout | null>(null);
   const [loading, setLoading] = useState(false);
@@ -141,8 +146,8 @@ const CoinScout = ({ wallet, autoTrader, onChanged }: { wallet: string; autoTrad
           {data && (
             <>
               <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1">Your current coins</div>
-              <Section title="Consider removing" color="#ef4444" count={data.review.considerRemoving.length}><Notes items={data.review.considerRemoving} /></Section>
-              <Section title="Working well — accumulate" color="#22c55e" count={data.review.keepStrong.length}><Notes items={data.review.keepStrong} /></Section>
+              <Section title="Consider removing" color="#ef4444" count={data.review.considerRemoving.length} total={sumOf(data.review.considerRemoving)}><Notes items={data.review.considerRemoving} values={held} /></Section>
+              <Section title="Working well — accumulate" color="#22c55e" count={data.review.keepStrong.length} total={sumOf(data.review.keepStrong)}><Notes items={data.review.keepStrong} values={held} /></Section>
               <Section title="Quiet" color="#94a3b8" count={data.review.quiet.length}><Notes items={data.review.quiet} /></Section>
 
               {swapPairs().length > 0 && (
