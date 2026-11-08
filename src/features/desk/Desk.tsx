@@ -1,3 +1,4 @@
+import PredictionMarketsCard from "./PredictionMarketsCard";
 import { useEffect, useState, useCallback } from "react";
 import { motion } from "motion/react";
 import { FaSync, FaArrowLeft } from "react-icons/fa";
@@ -97,6 +98,12 @@ const Desk = () => {
           <div className="mt-3">
             <AfterSalesCard wallet={walletAddress} />
           </div>
+        </div>
+      )}
+
+      {walletAddress && (
+        <div className="mb-4">
+          <PredictionMarketsCard />
         </div>
       )}
 
