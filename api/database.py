@@ -4710,6 +4710,28 @@ def get_accum_lab(params: Dict, coin: str = "ALL") -> Dict:
     return out
 
 
+lab_trial_collection = db["lab_trial"]
+
+
+def get_lab_trial(start: bool = False, start_cash: float = 10000.0, topup: float = 1000.0) -> Dict:
+    """Forward paper trial of the whole account (shared cash pool). Replays from the saved start date on the stored daily closes. Nothing live changes."""
+    from accum_lab import run_trial, clamp, TRIAL_DAYS
+    state = lab_trial_collection.find_one({"_id": "state"})
+    if start:
+        state = {"_id": "state", "startedAt": datetime.utcnow().strftime("%Y-%m-%d"),
+                 "startCash": clamp(start_cash, 100, 1_000_000, 10000.0), "topup": clamp(topup, 0, 100_000, 1000.0)}
+        lab_trial_collection.replace_one({"_id": "state"}, state, upsert=True)
+    if not state:
+        return {"started": False, "defaults": {"startCash": 10000, "topup": 1000}}
+    days = (datetime.utcnow() - datetime.strptime(state["startedAt"], "%Y-%m-%d")).days
+    out = {"started": True, "startedAt": state["startedAt"], "days": days, "trialDays": TRIAL_DAYS, "startCash": state["startCash"], "topup": state["topup"]}
+    if days < 1:
+        out["result"] = None
+        return out
+    out["result"] = run_trial(_lab_series(), days, state["startCash"], state["topup"])
+    return out
+
+
 # ==========================================
 # Four-week paper test of dynamic coin management (changes nothing live)
 # ==========================================

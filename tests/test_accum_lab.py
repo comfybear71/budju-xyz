@@ -67,3 +67,19 @@ def test_error_responses_still_list_coins():
     from accum_lab import run_custom
     out = run_custom({"AAA": wave()}, {"tiers": []}, "ALL")
     assert "error" in out and out["coins"] == ["AAA"]
+
+
+def test_trial_hold_is_the_benchmark_and_cash_is_shared():
+    from accum_lab import run_trial
+    ser = {f"C{i}": wave(drift=-0.001 if i % 2 else 0.001) for i in range(6)}
+    out = run_trial(ser, 60)
+    assert out["arms"]["hold"]["valueVsHold"] == 0 and out["arms"]["hold"]["coinsVsHold"] == 0
+    assert out["arms"]["hold"]["trades"] == 0 and out["arms"]["bot"]["trades"] > 0
+    assert len(out["arms"]["bot"]["equity"]) == 61
+
+
+def test_trial_too_early_and_missing_history():
+    from accum_lab import run_trial
+    ser = {"A": wave(), "B": wave()}
+    assert "too early" in run_trial(ser, 5)["verdict"]
+    assert "error" in run_trial({"A": wave(50)}, 60)
