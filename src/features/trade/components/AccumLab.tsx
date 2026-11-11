@@ -93,6 +93,7 @@ const AccumLab = ({ wallet }: { wallet: string }) => {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [info, setInfo] = useState(true);
+  const [coinList, setCoinList] = useState<string[]>([]);
   const seq = useRef(0);
 
   const query = useMemo(() => {
@@ -110,7 +111,10 @@ const AccumLab = ({ wallet }: { wallet: string }) => {
         const res = await fetch(`/api/admin/lab?${query}`);
         if (!res.ok) throw new Error(String(res.status));
         const j = (await res.json()) as Resp;
-        if (mine === seq.current) setData(j);
+        if (mine === seq.current) {
+          setData(j);
+          if (Array.isArray(j.coins) && j.coins.length) setCoinList(j.coins);
+        }
       } catch {
         if (mine === seq.current) setFailed(true);
       }
@@ -185,8 +189,8 @@ const AccumLab = ({ wallet }: { wallet: string }) => {
               </div>
               <label className="block text-[11px] text-slate-400">Test on
                 <select value={coin} onChange={(e) => setCoin(e.target.value)} className="ml-2 rounded bg-slate-800 text-slate-100 text-[12px] px-2 py-1">
-                  <option value="ALL">All {data?.coins.length ?? ""} coins (average)</option>
-                  {(data?.coins ?? []).map((c) => <option key={c} value={c}>{c} only (see the chart)</option>)}
+                  <option value="ALL">All {coinList.length || ""} coins (average)</option>
+                  {coinList.map((c) => <option key={c} value={c}>{c} only (see the chart)</option>)}
                 </select>
               </label>
             </div>

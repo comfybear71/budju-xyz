@@ -248,9 +248,9 @@ def run_custom(series: Dict[str, List[float]], params: Dict, coin: str = "ALL") 
     fee = clamp(params.get("fee"), 0, 3, 0.5) / 100
     start = clamp(params.get("start"), 0, 1_000_000, START_CASH)
     sc = build_scenario(params)
-    if not sc["tiers"] and sc["base"] <= 0:
-        return {"error": "Switch on at least one tier or some base buying."}
     usable = {c: s for c, s in series.items() if len(s) >= 200}
+    if not sc["tiers"] and sc["base"] <= 0:
+        return {"error": "Switch on at least one tier or some base buying.", "coins": sorted(usable)}
     out: Dict = {"coins": sorted(usable), "scenario": {"tiers": sc["tiers"], "sell": sc["sell"], "trail": sc["trail"], "base": sc["base"]}}
     if coin != "ALL" and coin in usable:
         r = simulate(usable[coin], sc, weekly, fee, start, trace=True)
