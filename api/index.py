@@ -818,7 +818,8 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(403, {"error": "Admin access required"})
                     return
                 tiers = []
-                for part in (params.get('tiers') or '').split(',')[:3]:
+                from urllib.parse import unquote
+                for part in unquote(params.get('tiers') or '').split(',')[:3]:
                     try:
                         tiers.append([float(x) for x in part.split(':')])
                     except ValueError:
