@@ -282,3 +282,119 @@ def run_custom(series: Dict[str, List[float]], params: Dict, coin: str = "ALL") 
                   "beatDca": beat, "costVsDca": round(100 * _avg(cost_ratio), 2), "idlePct": round(100 * _avg(idle), 1),
                   "avgTrades": round(_avg(trades), 1), "ret": round(100 * _avg(ret), 2), "dcaRet": round(100 * _avg(dret), 2)}
     return out
+
+
+# ==========================================
+# Paper trial — the whole account at once (ONE shared cash pool, every coin), forward from a start date
+# ==========================================
+# Three virtual accounts get the same cash on the same days:
+#   bot    = today's rules (dip tiers, sells refill the cash pool)
+#   hybrid = half of every top-up is spread over the coins at once, the rest waits for dips; bigger dip buys
+#   hold   = every top-up spread over the coins at once and kept (the benchmark the bot must beat)
+# Nothing live is touched. Daily closes only, so read it as a ranking.
+
+TRIAL_ARMS = {
+    "bot": {"label": "Today's bot", "tiers": TODAY, "base": 0.0, "sell": "fixed"},
+    "hybrid": {"label": "Hybrid (half bought at once + bigger dips)", "tiers": [(5.0, 12.5, 10.0, 1), (8.5, 15.0, 15.0, 1), (15.0, 20.0, 25.0, 1)], "base": 0.5, "sell": "fixed"},
+    "hold": {"label": "Just hold (buy everything as the money arrives)", "tiers": [], "base": 1.0, "sell": "never"},
+}
+TRIAL_DAYS = 90
+
+
+def portfolio_simulate(series: Dict[str, List[float]], days: int, arm: Dict, start_cash: float, topup: float, topup_every: int = 30, fee: float = 0.005) -> Dict:
+    coins = sorted(c for c, s in series.items() if len(s) >= days + 1 and all(v > 0 for v in s[-(days + 1):]))
+    if not coins or days < 1:
+        return {"error": "not enough price history"}
+    px = {c: series[c][-(days + 1):] for c in coins}
+    n = len(coins)
+    tcfg = [{"dev": d / 100, "sdev": s / 100, "alloc": a / 100, "cd": cd} for d, s, a, cd in arm["tiers"]]
+    base, mode = arm.get("base", 0.0), arm.get("sell", "fixed")
+    cash = 0.0
+    deposited = 0.0
+    qty = {c: 0.0 for c in coins}
+    cost = {c: 0.0 for c in coins}
+    tiers = {c: [{"buy": px[c][0] * (1 - t["dev"]), "sell": px[c][0] * (1 + t["sdev"]), "cool": 0} for t in tcfg] for c in coins}
+    trades = 0
+    equity: List[float] = []
+
+    def deposit(amount: float, i: int):
+        nonlocal cash, deposited
+        deposited += amount
+        put = amount * base
+        each = put / n
+        if each >= 1.0:
+            for c in coins:
+                qty[c] += each * (1 - fee) / px[c][i]
+                cost[c] += each
+            cash += amount - put
+        else:
+            cash += amount
+
+    deposit(start_cash, 0)
+    for i in range(0, days + 1):
+        if i > 0 and i % topup_every == 0:
+            deposit(topup, i)
+        if i > 0:
+            for c in coins:
+                p = px[c][i]
+                for t, cfg in zip(tiers[c], tcfg):
+                    if i < t["cool"]:
+                        continue
+                    avg = cost[c] / qty[c] if qty[c] > 1e-12 else 0.0
+                    if p <= t["buy"]:
+                        amount = cfg["alloc"] * cash
+                        if amount >= MIN_ORDER:
+                            cash -= amount
+                            qty[c] += amount * (1 - fee) / p
+                            cost[c] += amount
+                            trades += 1
+                            t["buy"] = p * (1 - cfg["dev"])
+                            t["sell"] = max(t["sell"], p * (1 + cfg["sdev"]))
+                            t["cool"] = i + cfg["cd"]
+                        continue
+                    if mode != "never" and p >= t["sell"] and qty[c] > 1e-12 and p >= avg:
+                        sq = min(qty[c], qty[c] * cfg["alloc"] * SELL_RATIO)
+                        proceeds = sq * p
+                        if proceeds >= MIN_ORDER:
+                            cash += proceeds * (1 - fee)
+                            cost[c] -= avg * sq
+                            qty[c] -= sq
+                            trades += 1
+                            t["buy"] = p * (1 - cfg["dev"])
+                            t["sell"] = p * (1 + cfg["sdev"])
+                            t["cool"] = i + cfg["cd"]
+        equity.append(round(cash + sum(qty[c] * px[c][i] for c in coins), 2))
+    value = equity[-1]
+    return {"value": value, "deposited": deposited, "ret": value / deposited - 1 if deposited else 0.0, "cashPct": cash / value if value else 0.0,
+            "trades": trades, "equity": equity, "qty": qty, "coins": coins}
+
+
+def run_trial(series: Dict[str, List[float]], days: int, start_cash: float = 10000.0, topup: float = 1000.0, topup_every: int = 30, fee: float = 0.005) -> Dict:
+    days = max(1, min(365, int(days)))
+    res = {k: portfolio_simulate(series, days, arm, start_cash, topup, topup_every, fee) for k, arm in TRIAL_ARMS.items()}
+    if any("error" in r for r in res.values()):
+        return {"error": "Not enough price history yet.", "days": days}
+    hold = res["hold"]
+    arms = {}
+    for k, r in res.items():
+        ratios = [r["qty"][c] / hold["qty"][c] - 1 for c in r["coins"] if hold["qty"].get(c, 0) > 1e-12]
+        arms[k] = {"label": TRIAL_ARMS[k]["label"], "value": round(r["value"], 2), "deposited": round(r["deposited"], 2),
+                   "valueVsHold": round(100 * (r["value"] / hold["value"] - 1), 2) if hold["value"] else 0.0,
+                   "coinsVsHold": round(100 * _avg(ratios), 2), "cashPct": round(100 * r["cashPct"], 1), "trades": r["trades"], "equity": r["equity"]}
+    return {"days": days, "coins": len(hold["coins"]), "arms": arms, "verdict": trial_verdict(arms, days)}
+
+
+def trial_verdict(arms: Dict[str, Dict], days: int) -> str:
+    if days < 14:
+        return f"Day {days} — far too early to read anything. Check back in a few weeks."
+    bot, hyb = arms["bot"], arms["hybrid"]
+    lead = max((("Today's bot", bot), ("Hybrid", hyb)), key=lambda x: x[1]["coinsVsHold"])
+    word = "more" if lead[1]["coinsVsHold"] >= 0 else "fewer"
+    text = f"After {days} days the best of the two dip setups holds {abs(lead[1]['coinsVsHold']):.1f}% {word} coins than just holding ({lead[0]})."
+    if days < TRIAL_DAYS:
+        text += f" The pass mark is read at day {TRIAL_DAYS}; until then this can still swing either way."
+    elif lead[1]["coinsVsHold"] < 0:
+        text += " Neither beat simply holding — time to rethink the dip rules, or hold more of each top-up straight away."
+    else:
+        text += " That beats just holding on coins — worth trialling with real money in a small slice."
+    return text
