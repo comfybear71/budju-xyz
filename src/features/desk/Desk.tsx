@@ -8,6 +8,7 @@ import { fetchDeskBrief, registerWallet, type DeskBrief } from "@features/trade/
 import DipReport from "@features/trade/components/DipReport";
 import Scorecard from "@features/trade/components/Scorecard";
 import StrategyLab from "@features/trade/components/StrategyLab";
+import AccumLab from "@features/trade/components/AccumLab";
 import AfterSalesCard from "@features/trade/components/AfterSales";
 import { getSessionToken, clearSession } from "@lib/services/authSession";
 
@@ -91,6 +92,9 @@ const Desk = () => {
           <DipReport wallet={walletAddress} />
           <div className="mt-3">
             <Scorecard wallet={walletAddress} />
+          </div>
+          <div className="mt-3">
+            <AccumLab wallet={walletAddress} />
           </div>
           <div className="mt-3">
             <StrategyLab wallet={walletAddress} />
