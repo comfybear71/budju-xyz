@@ -4686,6 +4686,24 @@ def get_strategy_lab(fee_pct: float = 0.5) -> Dict:
     return out
 
 
+def get_accum_lab(weekly: float = 25.0, fee_pct: float = 0.5) -> Dict:
+    """Accumulation Lab v1: which setup gathers the most coins, with weekly top-ups. Read-only."""
+    from accum_lab import run_lab
+    weekly = max(0.0, min(500.0, float(weekly)))
+    fee = max(0.0, min(3.0, float(fee_pct))) / 100.0
+    stored = _fresh_series(_REPORT_MAX_AGE_HOURS)
+    tradable = set(ASSET_CG_IDS.keys())
+    try:
+        tradable |= {d["code"] for d in coin_config_collection.find({"status": "custom"})}
+        tradable -= {d["code"] for d in coin_config_collection.find({"status": "retired"})}
+    except Exception:
+        pass
+    series = {c: v for c, v in stored.items() if c in tradable and c not in ("ENA", "PEPE", "LUNA", "LUNC")}
+    out = run_lab(series, weekly, fee)
+    out["feePct"] = round(fee * 100, 2)
+    return out
+
+
 # ==========================================
 # Four-week paper test of dynamic coin management (changes nothing live)
 # ==========================================
