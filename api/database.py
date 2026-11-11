@@ -4710,6 +4710,12 @@ def get_accum_lab(params: Dict, coin: str = "ALL") -> Dict:
     return out
 
 
+def get_lab_search(weekly: float = 25.0, fee_pct: float = 0.5, start: float = 1000.0) -> Dict:
+    """Try a grid of setups on every coin and rank them. Read-only."""
+    from accum_lab import search_best, clamp
+    return search_best(_lab_series(), clamp(weekly, 0, 1000, 25), clamp(fee_pct, 0, 3, 0.5) / 100, clamp(start, 0, 1_000_000, 1000))
+
+
 lab_trial_collection = db["lab_trial"]
 
 
