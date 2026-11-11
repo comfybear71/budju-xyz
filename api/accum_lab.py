@@ -398,3 +398,66 @@ def trial_verdict(arms: Dict[str, Dict], days: int) -> str:
     else:
         text += " That beats just holding on coins — worth trialling with real money in a small slice."
     return text
+
+
+# ==========================================
+# Find the best setup — try a grid of combinations on every coin and rank them
+# ==========================================
+def _grid():
+    for base in (0.0, 0.25, 0.5, 0.75):
+        for dip_scale in (0.6, 1.0, 1.5):
+            for alloc_scale in (1, 2, 3):
+                for sell, sell_scale in (("fixed", 1.0), ("fixed", 2.0), ("never", 1.0), ("trail", 1.0)):
+                    yield base, dip_scale, alloc_scale, sell, sell_scale
+
+
+def _grid_setup(base, dip_scale, alloc_scale, sell, sell_scale):
+    tiers = [(round(d * dip_scale, 1), round(s * sell_scale, 1), min(40.0, a * alloc_scale), c) for d, s, a, c in TODAY]
+    return {"group": "search", "label": "", "tiers": tiers, "sell": sell, "trail": 0.05, "base": base}
+
+
+def _score(series, sc, weekly, fee, start, halves=False):
+    full, h1, h2, idle, cost = [], [], [], [], []
+    for s in series.values():
+        r = simulate(s, sc, weekly, fee, start)
+        if r is None:
+            continue
+        full.append(r["qtyVsDca"])
+        idle.append(r["idlePct"])
+        if r["costPerCoin"] is not None:
+            cost.append(r["costPerCoin"] / r["dcaCostPerCoin"] - 1)
+        if halves:
+            mid = len(s) // 2
+            a, b = simulate(s[:mid], sc, weekly, fee, start), simulate(s[mid:], sc, weekly, fee, start)
+            if a:
+                h1.append(a["qtyVsDca"])
+            if b:
+                h2.append(b["qtyVsDca"])
+    return {"coinsVsDca": round(100 * _avg(full), 2), "h1": round(100 * _avg(h1), 2), "h2": round(100 * _avg(h2), 2),
+            "idlePct": round(100 * _avg(idle), 1), "costVsDca": round(100 * _avg(cost), 2)}
+
+
+def search_best(series: Dict[str, List[float]], weekly: float = 25.0, fee: float = 0.005, start: float = START_CASH, top: int = 8) -> Dict:
+    usable = {c: s for c, s in series.items() if len(s) >= 200}
+    if not usable:
+        return {"error": "Not enough price history yet."}
+    first = []
+    for combo in _grid():
+        sc = _grid_setup(*combo)
+        first.append((_score(usable, sc, weekly, fee, start)["coinsVsDca"], combo))
+    first.sort(key=lambda x: -x[0])
+    rows = []
+    for _, combo in first[:max(top * 2, 12)]:
+        sc = _grid_setup(*combo)
+        res = _score(usable, sc, weekly, fee, start, halves=True)
+        base, dip_scale, alloc_scale, sell, sell_scale = combo
+        rows.append({**res, "wins": res["coinsVsDca"] > 0 and res["h1"] > 0 and res["h2"] > 0,
+                     "setup": {"tiers": [{"on": True, "dip": d, "sell": s, "spend": a} for d, s, a, _ in sc["tiers"]], "sell": sell, "trail": 5, "base": int(base * 100)},
+                     "plain": f"{int(base * 100)}% of each top-up bought at once · dips at {int(round(5 * dip_scale))}/{round(8.5 * dip_scale, 1):g}/{round(15 * dip_scale, 1):g}% · "
+                              f"spend {int(5 * alloc_scale)}/{int(10 * alloc_scale)}/{min(40, int(15 * alloc_scale))}% of cash per dip · "
+                              + {"never": "never sell", "trail": "trailing sell"}.get(sell, f"sell at +{12.5 * sell_scale:g}/{15 * sell_scale:g}/{20 * sell_scale:g}%")})
+    rows.sort(key=lambda r: (not r["wins"], -r["coinsVsDca"]))
+    winners = [r for r in rows if r["wins"]]
+    return {"tried": len(first), "coins": len(usable), "winners": len(winners), "best": rows[:top],
+            "text": (f"Tried {len(first)} setups on {len(usable)} coins. {len(winners)} beat buying every week in BOTH halves of the year."
+                     if winners else f"Tried {len(first)} setups on {len(usable)} coins. None beat buying every week in both halves of this year — the table shows the closest.")}

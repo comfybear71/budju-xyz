@@ -111,6 +111,7 @@ from database import (
     get_strategy_lab,
     get_accum_lab,
     get_lab_trial,
+    get_lab_search,
     take_paper_snapshot,
     get_paper_test,
     get_trailing_overview,
@@ -812,6 +813,17 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     fee_pct = 0.5
                 self._send_json(200, get_strategy_lab(fee_pct))
+
+            elif path == '/api/admin/lab-search':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                try:
+                    w, f, st = float(params.get('weekly', '25')), float(params.get('fee', '0.5')), float(params.get('start', '1000'))
+                except (TypeError, ValueError):
+                    w, f, st = 25.0, 0.5, 1000.0
+                self._send_json(200, get_lab_search(w, f, st))
 
             elif path == '/api/admin/lab-trial':
                 wallet = params.get('wallet')

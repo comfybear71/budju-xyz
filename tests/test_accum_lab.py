@@ -83,3 +83,13 @@ def test_trial_too_early_and_missing_history():
     ser = {"A": wave(), "B": wave()}
     assert "too early" in run_trial(ser, 5)["verdict"]
     assert "error" in run_trial({"A": wave(50)}, 60)
+
+
+def test_search_ranks_and_flags_winners():
+    from accum_lab import search_best
+    ser = {f"C{i}": wave(drift=-0.001 if i % 2 else 0.001) for i in range(4)}
+    out = search_best(ser, top=5)
+    assert out["tried"] == 144 and len(out["best"]) == 5
+    assert all("setup" in r and "plain" in r for r in out["best"])
+    flags = [r["wins"] for r in out["best"]]
+    assert flags == sorted(flags, reverse=True)

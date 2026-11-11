@@ -11,6 +11,8 @@ interface Single {
   trace: { events: [number, "buy" | "sell", number][]; equity: number[]; dcaEquity: number[]; avgCost: number[] };
 }
 interface Preset { key: string; label: string; group: string; coinsVsDca: number; h1: number; h2: number }
+interface Found { coinsVsDca: number; h1: number; h2: number; idlePct: number; costVsDca: number; wins: boolean; plain: string; setup: Setup }
+interface Search { tried?: number; coins?: number; winners?: number; best?: Found[]; text?: string; error?: string }
 interface Resp { coins: string[]; all?: AllStats; single?: Single; presets?: Preset[]; verdict?: string; error?: string }
 
 const TODAY: Setup = {
@@ -95,6 +97,18 @@ const AccumLab = ({ wallet }: { wallet: string }) => {
   const [info, setInfo] = useState(true);
   const [coinList, setCoinList] = useState<string[]>([]);
   const seq = useRef(0);
+  const [search, setSearch] = useState<Search | null>(null);
+  const [searching, setSearching] = useState(false);
+  const findBest = async () => {
+    setSearching(true);
+    try {
+      const res = await fetch(`/api/admin/lab-search?wallet=${wallet}&admin_wallet=${wallet}&weekly=${setup.weekly}&start=${setup.start}&fee=${setup.fee}`);
+      setSearch(res.ok ? ((await res.json()) as Search) : { error: "Search failed — try again." });
+    } catch {
+      setSearch({ error: "Search failed — try again." });
+    }
+    setSearching(false);
+  };
 
   const query = useMemo(() => {
     const on = setup.tiers.filter((t) => t.on).map((t) => `${t.dip}:${t.sell}:${t.spend}:1`).join(",");
@@ -152,6 +166,23 @@ const AccumLab = ({ wallet }: { wallet: string }) => {
               <b>Tiers 2 and 3</b> do the same with deeper dips, so a crash buys three times at lower prices.
             </div>
           )}
+
+          <div className="rounded-lg p-2" style={{ background: "rgba(250,204,21,0.06)", border: "1px solid rgba(250,204,21,0.25)" }}>
+            <button onClick={findBest} disabled={searching} className="px-3 py-1.5 rounded-lg text-xs font-bold text-yellow-200" style={{ background: "rgba(250,204,21,0.18)", border: "1px solid rgba(250,204,21,0.4)" }}>
+              {searching ? "Trying 144 setups… (about 10 seconds)" : "🔍 Find the best setup for me"}
+            </button>
+            {search?.error && <div className="text-xs text-red-400 mt-1">{search.error}</div>}
+            {search?.text && <div className="text-[11px] text-slate-200 mt-2 leading-relaxed">{search.text}</div>}
+            {search?.best?.map((r, i) => (
+              <div key={i} className="mt-2 rounded-lg p-2 text-[11px]" style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${r.wins ? "rgba(34,197,94,0.5)" : "rgba(255,255,255,0.08)"}` }}>
+                <div className="text-slate-200 leading-snug">{r.wins ? "✅ " : ""}{r.plain}</div>
+                <div className="mt-1 font-mono">
+                  Coins vs buying weekly: <b style={{ color: col(r.coinsVsDca) }}>{pct(r.coinsVsDca)}</b> · 1st half <span style={{ color: col(r.h1) }}>{pct(r.h1)}</span> · 2nd half <span style={{ color: col(r.h2) }}>{pct(r.h2)}</span> · idle cash {r.idlePct.toFixed(0)}%
+                </div>
+                <button onClick={() => { setSetup(r.setup); setCoin("ALL"); }} className="mt-1 text-[11px] font-bold text-teal-300 underline">Load this into the sliders</button>
+              </div>
+            ))}
+          </div>
 
           <div className="flex flex-wrap gap-1.5">
             {IDEAS.map((i) => (
