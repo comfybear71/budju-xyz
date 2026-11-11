@@ -817,12 +817,15 @@ class handler(BaseHTTPRequestHandler):
                 if not wallet or not is_admin(wallet):
                     self._send_json(403, {"error": "Admin access required"})
                     return
-                try:
-                    weekly = float(params.get('weekly', '25'))
-                    fee_pct = float(params.get('fee', '0.5'))
-                except (TypeError, ValueError):
-                    weekly, fee_pct = 25.0, 0.5
-                self._send_json(200, get_accum_lab(weekly, fee_pct))
+                tiers = []
+                for part in (params.get('tiers') or '').split(',')[:3]:
+                    try:
+                        tiers.append([float(x) for x in part.split(':')])
+                    except ValueError:
+                        continue
+                lab_params = {"tiers": tiers, "sell": params.get('sell'), "trail": params.get('trail'), "base": params.get('base'),
+                              "weekly": params.get('weekly'), "fee": params.get('fee'), "start": params.get('start')}
+                self._send_json(200, get_accum_lab(lab_params, (params.get('coin') or 'ALL').upper()))
 
             elif path == '/api/admin/scorecard':
                 wallet = params.get('wallet')

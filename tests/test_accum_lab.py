@@ -43,3 +43,21 @@ def test_verdict_requires_both_halves():
 
 def test_too_short_series_returns_none():
     assert simulate([1.0] * 10, SCENARIOS["today"]) is None
+
+
+def test_custom_single_coin_trace_and_validation():
+    from accum_lab import run_custom
+    ser = {"AAA": wave(), "BBB": wave(drift=-0.002)}
+    one = run_custom(ser, {"tiers": [[5, 12.5, 5, 1]], "sell": "trail", "trail": 5, "weekly": 25}, "AAA")
+    assert one["single"]["coin"] == "AAA" and len(one["single"]["trace"]["equity"]) == len(ser["AAA"]) - 1
+    assert all(e[1] in ("buy", "sell") for e in one["single"]["trace"]["events"])
+    allc = run_custom(ser, {"tiers": [[5, 12.5, 5, 1]]}, "ALL")
+    assert allc["all"]["coinsTested"] == 2
+    assert "error" in run_custom(ser, {"tiers": []}, "ALL")
+
+
+def test_custom_params_are_clamped():
+    from accum_lab import build_scenario
+    sc = build_scenario({"tiers": [[999, -5, 500, 99]], "sell": "bogus", "trail": 999, "base": 500})
+    assert sc["tiers"][0][0] == 40 and sc["tiers"][0][1] == 2 and sc["tiers"][0][2] == 60 and sc["tiers"][0][3] == 14
+    assert sc["sell"] == "fixed" and sc["trail"] == 0.30 and sc["base"] == 1.0

@@ -4686,11 +4686,7 @@ def get_strategy_lab(fee_pct: float = 0.5) -> Dict:
     return out
 
 
-def get_accum_lab(weekly: float = 25.0, fee_pct: float = 0.5) -> Dict:
-    """Accumulation Lab v1: which setup gathers the most coins, with weekly top-ups. Read-only."""
-    from accum_lab import run_lab
-    weekly = max(0.0, min(500.0, float(weekly)))
-    fee = max(0.0, min(3.0, float(fee_pct))) / 100.0
+def _lab_series() -> Dict[str, List[float]]:
     stored = _fresh_series(_REPORT_MAX_AGE_HOURS)
     tradable = set(ASSET_CG_IDS.keys())
     try:
@@ -4698,9 +4694,19 @@ def get_accum_lab(weekly: float = 25.0, fee_pct: float = 0.5) -> Dict:
         tradable -= {d["code"] for d in coin_config_collection.find({"status": "retired"})}
     except Exception:
         pass
-    series = {c: v for c, v in stored.items() if c in tradable and c not in ("ENA", "PEPE", "LUNA", "LUNC")}
-    out = run_lab(series, weekly, fee)
-    out["feePct"] = round(fee * 100, 2)
+    return {c: v for c, v in stored.items() if c in tradable and c not in ("ENA", "PEPE", "LUNA", "LUNC")}
+
+
+def get_accum_lab(params: Dict, coin: str = "ALL") -> Dict:
+    """Accumulation Lab: YOUR setup (all coins averaged, or one coin with its trades) plus the preset ideas as a comparison. Read-only."""
+    from accum_lab import run_custom, run_lab, clamp
+    series = _lab_series()
+    out = run_custom(series, params, coin)
+    if not out.get("error"):
+        weekly, fee, start = clamp(params.get("weekly"), 0, 1000, 25), clamp(params.get("fee"), 0, 3, 0.5) / 100, clamp(params.get("start"), 0, 1_000_000, 1000)
+        presets = run_lab(series, weekly, fee, 200, start)
+        out["presets"] = [{"key": k, "label": v["label"], "group": v["group"], "coinsVsDca": v["coinsVsDca"], "h1": v["h1"], "h2": v["h2"]} for k, v in presets["scenarios"].items()]
+        out["verdict"] = presets["verdict"]["text"]
     return out
 
 

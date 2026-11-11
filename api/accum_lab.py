@@ -53,7 +53,7 @@ SCENARIOS = {
 GROUPS = [("baseline", "Where we are"), ("selling", "When to sell"), ("tiers", "How many tiers / how deep"), ("size", "How much per dip"), ("base", "Always buying a little")]
 
 
-def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0.005, start_cash: float = START_CASH) -> Optional[Dict]:
+def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0.005, start_cash: float = START_CASH, trace: bool = False) -> Optional[Dict]:
     if len(closes) < 30 or closes[0] <= 0:
         return None
     tcfg = [{"dev": d / 100, "sdev": s / 100, "alloc": a / 100, "cd": c} for d, s, a, c in sc["tiers"]]
@@ -67,6 +67,10 @@ def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0
     buys = sells = 0
     idle_sum = 0.0
     days = 0
+    events: List[List] = []
+    equity: List[float] = []
+    dca_equity: List[float] = []
+    avg_line: List[float] = []
 
     def deposit(amount: float, p: float):
         nonlocal cash, qty, cost, deposited, dca_qty
@@ -98,6 +102,8 @@ def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0
                     qty += amount * (1 - fee) / p
                     cost += amount
                     buys += 1
+                    if trace:
+                        events.append([i, "buy", round(p, 8)])
                     t["buy"] = p * (1 - cfg["dev"])
                     t["sell"] = max(t["sell"], p * (1 + cfg["sdev"]))
                     t["cool"] = i + cfg["cd"]
@@ -123,6 +129,8 @@ def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0
                     cost -= avg * sq
                     qty -= sq
                     sells += 1
+                    if trace:
+                        events.append([i, "sell", round(p, 8)])
                     t["buy"] = p * (1 - cfg["dev"])
                     t["sell"] = p * (1 + cfg["sdev"])
                     t["cool"] = i + cfg["cd"]
@@ -131,13 +139,19 @@ def simulate(closes: List[float], sc: Dict, weekly: float = 25.0, fee: float = 0
         value = cash + qty * p
         idle_sum += cash / value if value > 0 else 0.0
         days += 1
+        if trace:
+            equity.append(round(value, 2))
+            dca_equity.append(round(dca_qty * p, 2))
+            avg_line.append(round(cost / qty, 8) if qty > 1e-12 else 0.0)
 
     pe = closes[-1]
     final = cash + qty * pe
     dca_final = dca_qty * pe
     if dca_qty <= 1e-12 or deposited <= 0:
         return None
+    extra = {"trace": {"events": events, "equity": equity, "dcaEquity": dca_equity, "avgCost": avg_line}} if trace else {}
     return {
+        **extra,
         "qty": qty, "dcaQty": dca_qty, "qtyVsDca": qty / dca_qty - 1,
         "ret": final / deposited - 1, "dcaRet": dca_final / deposited - 1,
         "costPerCoin": (deposited - cash) / qty if qty > 1e-12 else None, "dcaCostPerCoin": deposited / dca_qty,
@@ -149,18 +163,18 @@ def _avg(xs: List[float]) -> float:
     return sum(xs) / len(xs) if xs else 0.0
 
 
-def run_lab(series: Dict[str, List[float]], weekly: float = 25.0, fee: float = 0.005, min_days: int = 200) -> Dict:
+def run_lab(series: Dict[str, List[float]], weekly: float = 25.0, fee: float = 0.005, min_days: int = 200, start: float = START_CASH) -> Dict:
     usable = {c: s for c, s in series.items() if len(s) >= min_days}
     out: Dict[str, Dict] = {}
     for key, sc in SCENARIOS.items():
         full, h1, h2, ret, dret, idle, trades, cost_ratio = [], [], [], [], [], [], [], []
         beat = 0
         for coin, s in usable.items():
-            r = simulate(s, sc, weekly, fee)
+            r = simulate(s, sc, weekly, fee, start)
             if r is None:
                 continue
             mid = len(s) // 2
-            a, b = simulate(s[:mid], sc, weekly, fee), simulate(s[mid:], sc, weekly, fee)
+            a, b = simulate(s[:mid], sc, weekly, fee, start), simulate(s[mid:], sc, weekly, fee, start)
             full.append(r["qtyVsDca"])
             if a:
                 h1.append(a["qtyVsDca"])
@@ -206,3 +220,65 @@ def verdict(sc: Dict[str, Dict]) -> Dict:
     if losing_to_dca:
         parts.append("Waiting for dips cost coins versus buying straight away, because cash sat idle while prices rose.")
     return {"text": " ".join(parts), "winners": winners}
+
+
+def clamp(v, lo, hi, default):
+    try:
+        return min(hi, max(lo, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def build_scenario(params: Dict) -> Dict:
+    """Turn the Lab's sliders into a scenario. tiers: [[dip %, sell +%, spend % of cash, cooldown days], ...] (any 1-3 of them)."""
+    tiers = []
+    for t in (params.get("tiers") or [])[:3]:
+        try:
+            tiers.append((clamp(t[0], 1, 40, 5), clamp(t[1], 2, 300, 12.5), clamp(t[2], 1, 60, 5), int(clamp(t[3] if len(t) > 3 else 1, 0, 14, 1))))
+        except (TypeError, IndexError):
+            continue
+    mode = params.get("sell") if params.get("sell") in ("fixed", "trail", "never") else "fixed"
+    return {"group": "custom", "label": "Your setup", "tiers": tiers, "sell": mode, "trail": clamp(params.get("trail"), 1, 30, 5) / 100,
+            "base": clamp(params.get("base"), 0, 100, 0) / 100}
+
+
+def run_custom(series: Dict[str, List[float]], params: Dict, coin: str = "ALL") -> Dict:
+    """Your own setup: ALL coins averaged, or one coin with its trades and account-value line for the chart."""
+    weekly = clamp(params.get("weekly"), 0, 1000, 25)
+    fee = clamp(params.get("fee"), 0, 3, 0.5) / 100
+    start = clamp(params.get("start"), 0, 1_000_000, START_CASH)
+    sc = build_scenario(params)
+    if not sc["tiers"] and sc["base"] <= 0:
+        return {"error": "Switch on at least one tier or some base buying."}
+    usable = {c: s for c, s in series.items() if len(s) >= 200}
+    out: Dict = {"coins": sorted(usable), "scenario": {"tiers": sc["tiers"], "sell": sc["sell"], "trail": sc["trail"], "base": sc["base"]}}
+    if coin != "ALL" and coin in usable:
+        r = simulate(usable[coin], sc, weekly, fee, start, trace=True)
+        if r is None:
+            return {**out, "error": "Not enough history for that coin."}
+        r["coin"] = coin
+        r["prices"] = [round(x, 8) for x in usable[coin]]
+        r["days"] = len(usable[coin])
+        out["single"] = r
+        return out
+    full, h1, h2, idle, trades, cost_ratio, ret, dret = [], [], [], [], [], [], [], []
+    beat = 0
+    for c, s in usable.items():
+        r = simulate(s, sc, weekly, fee, start)
+        if r is None:
+            continue
+        mid = len(s) // 2
+        a, b = simulate(s[:mid], sc, weekly, fee, start), simulate(s[mid:], sc, weekly, fee, start)
+        full.append(r["qtyVsDca"])
+        if a:
+            h1.append(a["qtyVsDca"])
+        if b:
+            h2.append(b["qtyVsDca"])
+        idle.append(r["idlePct"]); trades.append(r["trades"]); ret.append(r["ret"]); dret.append(r["dcaRet"])
+        if r["costPerCoin"] is not None:
+            cost_ratio.append(r["costPerCoin"] / r["dcaCostPerCoin"] - 1)
+        beat += 1 if r["qtyVsDca"] > 0 else 0
+    out["all"] = {"coinsTested": len(full), "coinsVsDca": round(100 * _avg(full), 2), "h1": round(100 * _avg(h1), 2), "h2": round(100 * _avg(h2), 2),
+                  "beatDca": beat, "costVsDca": round(100 * _avg(cost_ratio), 2), "idlePct": round(100 * _avg(idle), 1),
+                  "avgTrades": round(_avg(trades), 1), "ret": round(100 * _avg(ret), 2), "dcaRet": round(100 * _avg(dret), 2)}
+    return out
