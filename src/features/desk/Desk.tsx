@@ -6,11 +6,7 @@ import { useNavigate } from "react-router";
 import { useWallet } from "@hooks/useWallet";
 import { fetchDeskBrief, registerWallet, type DeskBrief } from "@features/trade/services/tradeApi";
 import DipReport from "@features/trade/components/DipReport";
-import Scorecard from "@features/trade/components/Scorecard";
-import StrategyLab from "@features/trade/components/StrategyLab";
-import AccumLab from "@features/trade/components/AccumLab";
 import PaperTrial from "@features/trade/components/PaperTrial";
-import AfterSalesCard from "@features/trade/components/AfterSales";
 import { getSessionToken, clearSession } from "@lib/services/authSession";
 
 const dirColor = (d: string) => (d === "long" ? "#22c55e" : d === "short" ? "#ef4444" : "#94a3b8");
@@ -92,19 +88,7 @@ const Desk = () => {
         <div className="mb-4">
           <DipReport wallet={walletAddress} />
           <div className="mt-3">
-            <Scorecard wallet={walletAddress} />
-          </div>
-          <div className="mt-3">
             <PaperTrial wallet={walletAddress} />
-          </div>
-          <div className="mt-3">
-            <AccumLab wallet={walletAddress} />
-          </div>
-          <div className="mt-3">
-            <StrategyLab wallet={walletAddress} />
-          </div>
-          <div className="mt-3">
-            <AfterSalesCard wallet={walletAddress} />
           </div>
         </div>
       )}
