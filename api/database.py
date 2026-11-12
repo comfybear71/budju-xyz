@@ -4670,6 +4670,40 @@ def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
     return result
 
 
+def digest_details(coins: List[str], pool_holdings: Dict[str, float], wallet_holdings: List[Dict[str, float]], prices: Dict[str, float]) -> Dict:
+    """Extra facts for the Telegram trade message: pool balance, and for each traded coin what the wallets / pool hold, how many trades, and the P&L."""
+    from scorecard import coin_scorecard
+    try:
+        aud = float(get_aud_to_usd_rate() or 0)
+    except Exception:
+        aud = 0.0
+
+    def balance(h: Dict[str, float]) -> float:
+        total = 0.0
+        for code, q in (h or {}).items():
+            if code in ("USDC", "USD", "USDT"):
+                total += q
+            elif code == "AUD":
+                total += q * aud
+            else:
+                total += q * float(prices.get(code) or 0)
+        return total
+
+    rows = _ledger_rows("all")
+    sc = {c["coin"]: c for c in coin_scorecard(rows, prices)["coins"]}
+    out = {"poolBalance": round(balance(pool_holdings), 2), "coins": {}}
+    for coin in coins:
+        px = float(prices.get(coin) or 0)
+        all_q = sum(h.get(coin, 0.0) for h in wallet_holdings)
+        pool_q = (pool_holdings or {}).get(coin, 0.0)
+        c = sc.get(coin) or {}
+        out["coins"][coin] = {
+            "allQty": all_q, "allUsd": round(all_q * px, 2), "poolQty": pool_q, "poolUsd": round(pool_q * px, 2),
+            "buys": c.get("buys", 0), "sells": c.get("sells", 0), "pnl": c.get("botPnl"), "spent": c.get("spent"),
+        }
+    return out
+
+
 def get_strategy_lab(fee_pct: float = 0.5) -> Dict:
     """Replay the bot's rules (and alternatives) on the stored year of daily prices. Read-only."""
     from strategy_lab import run_lab

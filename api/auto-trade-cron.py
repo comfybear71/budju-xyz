@@ -878,7 +878,21 @@ def run_auto_trade_check():
         save_trader_state({"autoRebuyBlocklist": rebuy_blocklist})
 
     if all_trades:
-        send_telegram(format_digest(all_trades))
+        details = None
+        try:
+            from database import digest_details
+            pool_h = next((c["holdings"] for c in wallet_contexts if c.get("isPool")), {})
+            details = digest_details(sorted({t["coin"] for t in all_trades}), pool_h, [c["holdings"] for c in wallet_contexts], prices)
+        except Exception as e:
+            print(f"[cron] digest details error: {e}", flush=True)     # the plain digest still goes out
+        if not isinstance(details, dict):
+            details = None
+        try:
+            message = format_digest(all_trades, details)
+        except Exception as e:
+            print(f"[cron] digest details format error: {e}", flush=True)
+            message = format_digest(all_trades)
+        send_telegram(message)
 
     log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
 
