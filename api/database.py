@@ -895,6 +895,22 @@ def record_trade(coin: str, trade_type: str, amount: float, price: float,
 FUNDING_ASSETS = {"USDC", "USD", "AUD", "AUDT", "USDT", "USDC.E"}
 
 
+def attach_server_prices(result: Dict) -> Dict:
+    """Give every coin in a Coin Stats reply a server-side price, so the screen never shows $0.00 just because the browser's own price feed missed a coin."""
+    try:
+        coins = (result or {}).get("coins") or []
+        codes = [c["coin"] for c in coins if c.get("coin")]
+        if codes:
+            prices = get_prices_for_coins(codes)
+            for c in coins:
+                px = prices.get(str(c.get("coin", "")).upper())
+                if px:
+                    c["serverPrice"] = px
+    except Exception as e:
+        print(f"[coin-stats] server price attach error: {e}")
+    return result
+
+
 def get_coin_stats() -> Dict:
     """Read-only per-coin trading analytics aggregated from the trades collection.
 
@@ -2961,11 +2977,42 @@ leaderboard_cache_collection = db["leaderboard_cache"]
 LEADERBOARD_MAX_AGE_S = 15 * 60
 
 
+value_history_collection = db["wallet_value_history"]
+
+
+def _record_value_snapshots(data: Dict) -> None:
+    """Keep ONE real value reading per wallet per hour (and for the whole pool), so the Home chart can show what the account was truly
+    worth over time instead of a straight line. Best-effort: never blocks the leaderboard."""
+    from pymongo import UpdateOne
+    now = datetime.utcnow()
+    hour = now.strftime("%Y%m%d%H")
+    ops = []
+    for e in data.get("entries") or []:
+        w = e.get("walletAddress")
+        if w and e.get("totalValue") is not None:
+            ops.append(UpdateOne({"_id": f"{w}:{hour}"}, {"$set": {"wallet": w, "at": now, "v": e["totalValue"], "cash": e.get("cashValue"), "crypto": e.get("cryptoValue")}}, upsert=True))
+    if data.get("combinedValue") is not None:
+        ops.append(UpdateOne({"_id": f"POOL:{hour}"}, {"$set": {"wallet": "POOL", "at": now, "v": data["combinedValue"]}}, upsert=True))
+    if ops:
+        value_history_collection.bulk_write(ops, ordered=False)
+
+
+def get_value_history(wallet: str, days: int = 90) -> List[Dict]:
+    """Recorded value readings for one wallet (or "POOL"), oldest first."""
+    since = datetime.utcnow() - timedelta(days=max(1, min(400, int(days))))
+    docs = value_history_collection.find({"wallet": wallet, "at": {"$gte": since}}, {"at": 1, "v": 1}).sort("at", 1)
+    return [{"t": d["at"].isoformat() + "Z", "v": d["v"]} for d in docs]
+
+
 def refresh_leaderboard_cache() -> Dict:
     """Compute the leaderboard now and store it (called by the cron, and on demand)."""
     data = get_live_leaderboard()
     leaderboard_cache_collection.replace_one(
         {"_id": "latest"}, {"_id": "latest", "at": datetime.utcnow(), "data": data}, upsert=True)
+    try:
+        _record_value_snapshots(data)
+    except Exception as e:
+        print(f"[value-history] snapshot error: {e}")
     return data
 
 

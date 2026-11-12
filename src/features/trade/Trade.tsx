@@ -23,6 +23,7 @@ import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
 import GrowthAreaChart from "./components/GrowthAreaChart";
+import CashFlowStats from "./components/CashFlowStats";
 import {
   fetchPortfolio,
   fetchAdminAssets,
@@ -36,6 +37,8 @@ import {
   fetchLiveLeaderboard,
   poolAssetsFromLeaderboard,
   fetchWalletCashFlows,
+  fetchValueHistory,
+  buildSnapshotHistory,
   fetchCommunityCashFlows,
   buildLiveCashFlowHistory,
   buildCommunityCashFlowHistory,
@@ -137,6 +140,18 @@ const Trade = () => {
   // own deposit history vs. the combined timeline across every wallet).
   const [myCashFlows, setMyCashFlows] = useState<WalletCashFlows | null>(null);
   const [communityCashFlows, setCommunityCashFlows] = useState<CommunityCashFlows | null>(null);
+  const [mineReadings, setMineReadings] = useState<{ t: string; v: number }[]>([]);
+  const [poolReadings, setPoolReadings] = useState<{ t: string; v: number }[]>([]);
+  useEffect(() => {
+    const load = () => {
+      void fetchValueHistory("POOL").then(setPoolReadings);
+      if (walletAddress) void fetchValueHistory(walletAddress).then(setMineReadings);
+      else setMineReadings([]);
+    };
+    load();
+    const id = setInterval(load, 5 * 60_000);
+    return () => clearInterval(id);
+  }, [walletAddress]);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -645,9 +660,16 @@ const Trade = () => {
                 // layout for both views, just a different data source:
                 // this wallet's own deposit/withdrawal history for "Mine",
                 // the combined timeline across every wallet for "Pool".
-                const growthHistory = viewingMine
-                  ? (myCashFlows ? buildLiveCashFlowHistory(myCashFlows.flows, myLiveValue) : [])
-                  : (communityCashFlows ? buildCommunityCashFlowHistory(communityCashFlows.timeline, combinedTotalValue) : []);
+                const mineEvents = myCashFlows ? myCashFlows.flows.map((f) => ({ timestamp: f.timestamp, type: f.type, amountUsd: f.amountUsd })) : [];
+                const poolEvents = communityCashFlows ? communityCashFlows.timeline.map((e) => ({ timestamp: e.timestamp, type: e.type, amountUsd: e.amountUsd })) : [];
+                const readings = viewingMine ? mineReadings : poolReadings;
+                const liveForChart = viewingMine ? myLiveValue : combinedTotalValue;
+                // Real recorded value readings once there are enough of them; until then the older deposit-only line.
+                const growthHistory = readings.length >= 2
+                  ? buildSnapshotHistory(readings, viewingMine ? mineEvents : poolEvents, liveForChart)
+                  : viewingMine
+                    ? (myCashFlows ? buildLiveCashFlowHistory(myCashFlows.flows, myLiveValue) : [])
+                    : (communityCashFlows ? buildCommunityCashFlowHistory(communityCashFlows.timeline, combinedTotalValue) : []);
 
                 return (
                 <div className="relative rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
@@ -707,7 +729,16 @@ const Trade = () => {
                   {/* Growth / P&L — slim area chart, same for Mine and Pool */}
                   <div className="mt-3 pt-3 border-t border-white/[0.04]">
                     <GrowthAreaChart points={growthHistory} />
+                    {readings.length < 2 && (
+                      <div className="text-[10px] text-slate-500 mt-1 leading-snug">Real value tracking started recently, so this line stays flat until readings build up (one per hour).</div>
+                    )}
                   </div>
+                  <CashFlowStats
+                    events={viewingMine ? mineEvents : poolEvents}
+                    totalDeposited={viewingMine ? (myCashFlows?.totalDepositedUsd ?? 0) : (communityCashFlows?.totalDepositedUsd ?? 0)}
+                    totalWithdrawn={viewingMine ? (myCashFlows?.totalWithdrawnUsd ?? 0) : (communityCashFlows?.totalWithdrawnUsd ?? 0)}
+                    valueNow={liveForChart}
+                  />
                 </div>
                 );
               })()}
