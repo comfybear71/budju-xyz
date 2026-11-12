@@ -122,7 +122,7 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMin
     const balMap: Record<string, { balance: number; usdValue: number }> = {};
     for (const a of holdings) if (a.balance > 0) balMap[a.code] = { balance: a.balance, usdValue: a.usdValue };
     const enriched = data.coins.map((c) => {
-      const currentPrice = Number(prices[c.coin]) || 0;
+      const currentPrice = Number(prices[c.coin]) || Number((c as { serverPrice?: number }).serverPrice) || 0;
       const bal = balMap[c.coin];
       // Held qty/value come from the actual balance when available, not buys−sells.
       const realQty = bal ? bal.balance : c.qtyHeld;

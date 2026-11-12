@@ -1656,6 +1656,45 @@ export function buildLiveCashFlowHistory(
   return points;
 }
 
+/** Real recorded value readings (hourly, kept since tracking began) for one wallet, or the whole pool with "POOL". */
+export async function fetchValueHistory(wallet: string, days = 90): Promise<{ t: string; v: number }[]> {
+  try {
+    const res = await fetchWithRetry(`/api/value-history?wallet=${encodeURIComponent(wallet)}&days=${days}`);
+    if (!res.ok) return [];
+    const j = await res.json();
+    return Array.isArray(j?.points) ? j.points : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The account's real value over time: recorded readings, each paired with the cumulative deposits/withdrawals made up to that moment,
+ *  ending with today's live total. The caller falls back to the older deposit-only line until at least two readings exist. */
+export function buildSnapshotHistory(
+  readings: { t: string; v: number }[],
+  events: { timestamp: string; type: "deposit" | "withdrawal"; amountUsd: number }[],
+  liveTotalValue: number,
+): PositionHistoryPoint[] {
+  const ev = [...events].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const at = (ts: number) => {
+    let dep = 0;
+    let wd = 0;
+    for (const e of ev) {
+      if (new Date(e.timestamp).getTime() > ts) break;
+      if (e.type === "deposit") dep += e.amountUsd;
+      else wd += e.amountUsd;
+    }
+    return { dep, wd };
+  };
+  const pts: PositionHistoryPoint[] = readings.map((r) => {
+    const { dep, wd } = at(new Date(r.t).getTime());
+    return { timestamp: r.t, type: "now", cumulativeShares: 0, cumulativeDeposited: dep, cumulativeWithdrawn: wd, value: r.v };
+  });
+  const { dep, wd } = at(Date.now());
+  pts.push({ timestamp: new Date().toISOString(), type: "now", cumulativeShares: 0, cumulativeDeposited: dep, cumulativeWithdrawn: wd, value: liveTotalValue });
+  return pts;
+}
+
 /** Same idea as buildLiveCashFlowHistory() above, but for the combined
  *  "Pool" view — built from fetchCommunityCashFlows()'s already-aggregated
  *  timeline (summed across every connected wallet) instead of one wallet's

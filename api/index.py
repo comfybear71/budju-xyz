@@ -112,6 +112,8 @@ from database import (
     get_accum_lab,
     get_lab_trial,
     get_lab_search,
+    attach_server_prices,
+    get_value_history,
     take_paper_snapshot,
     get_paper_test,
     get_trailing_overview,
@@ -337,9 +339,9 @@ class handler(BaseHTTPRequestHandler):
                 # one wallet's bot trades; scope=everyone is every wallet combined.
                 scope = params.get('scope')
                 if scope in ('mine', 'everyone'):
-                    self._send_json(200, get_coin_stats_scoped(scope, params.get('wallet')))
+                    self._send_json(200, attach_server_prices(get_coin_stats_scoped(scope, params.get('wallet'))))
                 else:
-                    self._send_json(200, get_coin_stats())
+                    self._send_json(200, attach_server_prices(get_coin_stats()))
 
             elif path == '/api/coin-trades':
                 # Public, read-only individual buy/sell points for one coin (detail chart).
@@ -605,6 +607,18 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "wallet parameter required"})
                     return
                 self._send_json(200, get_wallet_cash_flows(wallet))
+
+            elif path == '/api/value-history':
+                # Real recorded account-value readings (hourly) for one wallet, or the whole pool with wallet=POOL.
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                try:
+                    days = int(params.get('days', '90'))
+                except ValueError:
+                    days = 90
+                self._send_json(200, {"points": get_value_history(wallet, days)})
 
             elif path == '/api/community/cash-flows':
                 # Public — aggregate deposited/withdrawn across every wallet
