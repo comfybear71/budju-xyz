@@ -2,7 +2,7 @@
 # Telegram digest for the auto-trade cron
 # ==========================================
 # One message per cycle, grouped by wallet (admin first), each line tagged
-# with its tier, followed by a "Pool total" that adds every wallet together
+# with its tier, followed by a "This run" line that adds every wallet's trades together
 # by coin. Telegram rejects messages over 4096 characters, so split_message()
 # breaks an oversized digest at line boundaries instead of losing it.
 
@@ -59,14 +59,16 @@ def _usd(n):
 def _details(coins, details):
     lines = []
     if details.get("poolBalance") is not None:
-        lines.append(f"\n💰 <b>Pool balance</b>: {_usd(details['poolBalance'])}")
+        n = details.get("walletCount")
+        lines.append(f"\n💰 <b>Pool balance</b>: {_usd(details['poolBalance'])}" + (f" ({n} wallets combined)" if n else ""))
     for coin in coins:
         d = (details.get("coins") or {}).get(coin)
         if not d:
             continue
         lines.append(f"\n📊 <b>{coin}</b>")
-        lines.append(f"• All wallets hold: {_qty(d['allQty'])} ({_usd(d['allUsd'])})")
-        lines.append(f"• Pool holds: {_qty(d['poolQty'])} ({_usd(d['poolUsd'])})")
+        lines.append(f"• Pool holds (all wallets): {_qty(d['allQty'])} ({_usd(d['allUsd'])})")
+        held = f"Held by {d['holders']} of {details['walletCount']} wallets · " if d.get("holders") is not None and details.get("walletCount") else ""
+        lines.append(f"• {held}Admin wallet: {_qty(d['adminQty'])} ({_usd(d['adminUsd'])})")
         n = d.get("buys", 0) + d.get("sells", 0)
         lines.append(f"• Trades so far: {n} ({d.get('buys', 0)} buys, {d.get('sells', 0)} sells)")
         if d.get("pnl") is not None:
@@ -90,7 +92,7 @@ def format_digest(all_trades, details=None):
             lines.append(_line(t))
         lines.append(f"<i>{_totals(trades)}</i>")
 
-    lines.append(f"\n🏦 <b>Pool total</b> (all wallets) — {_totals(all_trades)}")
+    lines.append(f"\n🏦 <b>This run</b> (all wallets) — {_totals(all_trades)}")
     for side, icon, label in (("BUY", "🟢", "Bought"), ("SELL", "🔴", "Sold")):
         agg = _by_coin(all_trades, side)
         if agg:
