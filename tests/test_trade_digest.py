@@ -49,7 +49,7 @@ def test_per_wallet_totals():
 
 def test_pool_total_adds_all_wallets_by_coin():
     text = format_digest(TRADES)
-    assert "🏦 <b>Pool total</b> (all wallets) — Bought $129.12 · Sold $30.00" in text
+    assert "🏦 <b>This run</b> (all wallets) — Bought $129.12 · Sold $30.00" in text
     assert "ETH 0.039400 ($87.93)" in text           # both ETH buys combined
     assert "🔴 Sold: HYPE 0.332300 ($30.00)" in text
 
@@ -67,16 +67,17 @@ def test_split_breaks_only_at_line_boundaries_and_respects_limit():
 
 
 def test_details_section_shows_pool_balance_holdings_trades_and_pnl():
-    details = {"poolBalance": 12345.6, "coins": {
-        "BTC": {"allQty": 0.0123, "allUsd": 940.0, "poolQty": 0.01, "poolUsd": 764.4, "buys": 7, "sells": 2, "pnl": -12.5, "spent": 500.0},
-        "ETH": {"allQty": 1.0, "allUsd": 2231.0, "poolQty": 0.5, "poolUsd": 1115.0, "buys": 3, "sells": 0, "pnl": 41.0, "spent": 400.0}}}
+    details = {"poolBalance": 22147.0, "walletCount": 4, "coins": {
+        "BTC": {"allQty": 0.0123, "allUsd": 940.0, "holders": 3, "adminQty": 0.01, "adminUsd": 764.4, "buys": 7, "sells": 2, "pnl": -12.5, "spent": 500.0},
+        "ETH": {"allQty": 1.0, "allUsd": 2231.0, "holders": 4, "adminQty": 0.5, "adminUsd": 1115.0, "buys": 3, "sells": 0, "pnl": 41.0, "spent": 400.0}}}
     text = format_digest(TRADES, details)
-    assert "Pool balance</b>: $12,345.60" in text
-    assert "📊 <b>BTC</b>" in text and "All wallets hold: 0.012300 ($940.00)" in text
-    assert "Pool holds: 0.010000 ($764.40)" in text
+    assert "Pool balance</b>: $22,147.00 (4 wallets combined)" in text
+    assert "📊 <b>BTC</b>" in text and "Pool holds (all wallets): 0.012300 ($940.00)" in text
+    assert "Held by 3 of 4 wallets · Admin wallet: 0.010000 ($764.40)" in text
     assert "Trades so far: 9 (7 buys, 2 sells)" in text
     assert "🔴 -$12.50 (-2.5%)" in text and "🟢 $41.00 (+10.2%)" in text
 
 
 def test_digest_without_details_is_unchanged():
     assert "Pool balance" not in format_digest(TRADES)
+

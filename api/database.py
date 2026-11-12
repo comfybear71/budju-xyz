@@ -4671,34 +4671,42 @@ def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
 
 
 def digest_details(coins: List[str], pool_holdings: Dict[str, float], wallet_holdings: List[Dict[str, float]], prices: Dict[str, float]) -> Dict:
-    """Extra facts for the Telegram trade message: pool balance, and for each traded coin what the wallets / pool hold, how many trades, and the P&L."""
+    """Extra facts for the Telegram trade message. "Pool" = every connected wallet combined, the same figure the Home screen shows
+    (from the leaderboard snapshot). Falls back to this run's wallets if the snapshot isn't available."""
     from scorecard import coin_scorecard
+    pool = None
     try:
-        aud = float(get_aud_to_usd_rate() or 0)
-    except Exception:
-        aud = 0.0
-
-    def balance(h: Dict[str, float]) -> float:
-        total = 0.0
-        for code, q in (h or {}).items():
-            if code in ("USDC", "USD", "USDT"):
-                total += q
-            elif code == "AUD":
-                total += q * aud
-            else:
-                total += q * float(prices.get(code) or 0)
-        return total
+        pool = get_live_leaderboard_cached()
+    except Exception as e:
+        print(f"[digest] leaderboard snapshot unavailable: {e}")
+    totals = {c.get("code"): c for c in ((pool or {}).get("coinTotals") or [])}
+    wallets_n = int((pool or {}).get("walletCount") or len(wallet_holdings))
+    if pool and pool.get("combinedValue") is not None:
+        pool_balance = float(pool["combinedValue"])
+    else:
+        try:
+            aud = float(get_aud_to_usd_rate() or 0)
+        except Exception:
+            aud = 0.0
+        pool_balance = 0.0
+        for h in wallet_holdings:
+            for code, q in (h or {}).items():
+                pool_balance += q if code in ("USDC", "USD", "USDT") else q * aud if code == "AUD" else q * float(prices.get(code) or 0)
 
     rows = _ledger_rows("all")
     sc = {c["coin"]: c for c in coin_scorecard(rows, prices)["coins"]}
-    out = {"poolBalance": round(balance(pool_holdings), 2), "coins": {}}
+    out = {"poolBalance": round(pool_balance, 2), "walletCount": wallets_n, "coins": {}}
     for coin in coins:
         px = float(prices.get(coin) or 0)
-        all_q = sum(h.get(coin, 0.0) for h in wallet_holdings)
-        pool_q = (pool_holdings or {}).get(coin, 0.0)
+        t = totals.get(coin)
+        all_q = float(t["balance"]) if t else sum(h.get(coin, 0.0) for h in wallet_holdings)
+        all_usd = float(t["usdValue"]) if t else all_q * px
+        holders = int(t["holders"]) if t else sum(1 for h in wallet_holdings if h.get(coin, 0.0) * px >= 1.0)
+        admin_q = (pool_holdings or {}).get(coin, 0.0)
         c = sc.get(coin) or {}
         out["coins"][coin] = {
-            "allQty": all_q, "allUsd": round(all_q * px, 2), "poolQty": pool_q, "poolUsd": round(pool_q * px, 2),
+            "allQty": all_q, "allUsd": round(all_usd, 2), "holders": holders,
+            "adminQty": admin_q, "adminUsd": round(admin_q * px, 2),
             "buys": c.get("buys", 0), "sells": c.get("sells", 0), "pnl": c.get("botPnl"), "spent": c.get("spent"),
         }
     return out
@@ -4753,17 +4761,28 @@ def get_lab_search(weekly: float = 25.0, fee_pct: float = 0.5, start: float = 10
 lab_trial_collection = db["lab_trial"]
 
 
+def _sydney_today() -> datetime:
+    """Today's date in Sydney (the admin's day), as a naive midnight datetime — so 'day N' rolls over at local midnight."""
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Australia/Sydney"))
+    except Exception:
+        now = datetime.utcnow() + timedelta(hours=11)
+    return datetime(now.year, now.month, now.day)
+
+
 def get_lab_trial(start: bool = False, start_cash: float = 10000.0, topup: float = 1000.0) -> Dict:
     """Forward paper trial of the whole account (shared cash pool). Replays from the saved start date on the stored daily closes. Nothing live changes."""
     from accum_lab import run_trial, clamp, TRIAL_DAYS
     state = lab_trial_collection.find_one({"_id": "state"})
+    today = _sydney_today()
     if start:
-        state = {"_id": "state", "startedAt": datetime.utcnow().strftime("%Y-%m-%d"),
+        state = {"_id": "state", "startedAt": today.strftime("%Y-%m-%d"),
                  "startCash": clamp(start_cash, 100, 1_000_000, 10000.0), "topup": clamp(topup, 0, 100_000, 1000.0)}
         lab_trial_collection.replace_one({"_id": "state"}, state, upsert=True)
     if not state:
         return {"started": False, "defaults": {"startCash": 10000, "topup": 1000}}
-    days = (datetime.utcnow() - datetime.strptime(state["startedAt"], "%Y-%m-%d")).days
+    days = (today - datetime.strptime(state["startedAt"], "%Y-%m-%d")).days
     out = {"started": True, "startedAt": state["startedAt"], "days": days, "trialDays": TRIAL_DAYS, "startCash": state["startCash"], "topup": state["topup"]}
     if days < 1:
         out["result"] = None
