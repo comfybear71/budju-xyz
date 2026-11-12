@@ -52,7 +52,30 @@ def _by_coin(trades, side):
     return agg
 
 
-def format_digest(all_trades):
+def _usd(n):
+    return f"-${abs(n):,.2f}" if n < 0 else f"${n:,.2f}"
+
+
+def _details(coins, details):
+    lines = []
+    if details.get("poolBalance") is not None:
+        lines.append(f"\n💰 <b>Pool balance</b>: {_usd(details['poolBalance'])}")
+    for coin in coins:
+        d = (details.get("coins") or {}).get(coin)
+        if not d:
+            continue
+        lines.append(f"\n📊 <b>{coin}</b>")
+        lines.append(f"• All wallets hold: {_qty(d['allQty'])} ({_usd(d['allUsd'])})")
+        lines.append(f"• Pool holds: {_qty(d['poolQty'])} ({_usd(d['poolUsd'])})")
+        n = d.get("buys", 0) + d.get("sells", 0)
+        lines.append(f"• Trades so far: {n} ({d.get('buys', 0)} buys, {d.get('sells', 0)} sells)")
+        if d.get("pnl") is not None:
+            pct = f" ({d['pnl'] / d['spent'] * 100:+.1f}%)" if d.get("spent") else ""
+            lines.append(f"• P&L: {'🟢' if d['pnl'] >= 0 else '🔴'} {_usd(d['pnl'])}{pct}")
+    return lines
+
+
+def format_digest(all_trades, details=None):
     wallets = {}
     for t in all_trades:
         wallets.setdefault(t["wallet"], []).append(t)
@@ -73,6 +96,12 @@ def format_digest(all_trades):
         if agg:
             items = ", ".join(f"{c} {_qty(q)} (${a:,.2f})" for c, (q, a) in sorted(agg.items()))
             lines.append(f"{icon} {label}: {items}")
+    if details:
+        seen = []
+        for t in all_trades:
+            if t["coin"] not in seen:
+                seen.append(t["coin"])
+        lines.extend(_details(seen, details))
     return "\n".join(lines)
 
 
