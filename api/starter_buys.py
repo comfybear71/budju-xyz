@@ -65,6 +65,11 @@ def _context(admin_wallet):
     # Skip coins Swyftx has switched off right now (the bot's 6h pause list).
     now_ms = int(time.time() * 1000)
     paused = {c for c, u in (state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
+    try:
+        from database import recent_untradable
+        paused |= recent_untradable()          # switched off by Swyftx within the last week
+    except Exception as e:
+        print(f"[starter-buys] untradable memory error: {e}")
     return client, holdings, assigned, prices, set(PERMANENT_BUY_DENYLIST) | paused, set(cfg.get("retired", []))
 
 
@@ -109,8 +114,9 @@ def execute(admin_wallet: str, amount, coins: List[str]) -> Dict:
         if not ok:
             failed.append({"coin": code, "error": str(err)[:120]})
             if any(t in str(err).lower() for t in ("not presently tradable", "asseterror", "asset not tradable")):
-                try:                      # remember it, so the next plan skips this coin for 6h
-                    from database import get_trader_state, save_trader_state
+                try:                      # remember it, so the next plan skips this coin
+                    from database import get_trader_state, save_trader_state, mark_untradable
+                    mark_untradable([code])
                     cur = dict(get_trader_state().get("autoPausedAssets") or {})
                     cur[code] = int(time.time() * 1000) + 6 * 3_600_000
                     save_trader_state({"autoPausedAssets": cur})

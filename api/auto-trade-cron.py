@@ -859,6 +859,11 @@ def run_auto_trade_check():
         pauses_update = {**paused, **{c: until for c in new_pauses}}
         for c in new_pauses:
             log.append(f"{c}: paused for {PAUSE_UNTRADABLE_HOURS:g}h — Swyftx says it is not tradable right now")
+        try:
+            from database import mark_untradable
+            mark_untradable(new_pauses)
+        except Exception as e:
+            print(f"[cron] mark untradable error: {e}", flush=True)
 
     save_update = {
         "autoActive": {**auto_active, "targets": shared_targets},

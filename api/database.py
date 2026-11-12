@@ -4142,6 +4142,8 @@ def manage_coin(action: str, code: str, cg_id: str = "", name: str = "", announc
             return {"error": "Couldn't check Swyftx's coin list just now — try again in a minute"}
         if code not in listed:
             return {"error": f"{code} is not listed on Swyftx, so the bot could not trade it"}
+        if code in recent_untradable():
+            return {"error": f"Swyftx has {code} switched off right now (not presently tradable) — try again next week"}
         if verify and cg_id not in _verify_cg_ids([cg_id]):
             return {"error": "CoinGecko couldn't confirm that coin (busy or no price) — try again in a minute"}
         coin_config_collection.update_one(
@@ -4215,6 +4217,26 @@ def _swyftx_codes_fetch() -> Optional[set]:
     except Exception as e:
         print(f"[scout] swyftx list error: {e}")
         return None
+
+
+untradable_collection = db["untradable_seen"]
+UNTRADABLE_MEMORY_DAYS = 7
+
+
+def mark_untradable(codes) -> None:
+    """Remember coins Swyftx just said are 'not presently tradable', so Scout, starter buys and add-coin leave them alone for a week."""
+    now = datetime.utcnow()
+    for c in set(str(x).upper() for x in (codes or [])):
+        untradable_collection.update_one({"_id": c}, {"$set": {"code": c, "at": now}}, upsert=True)
+
+
+def recent_untradable() -> set:
+    """Coins Swyftx lists but has switched off, seen within the last week. First use is seeded with the three that failed on 3 and 8 Nov."""
+    if not untradable_collection.find_one({"_id": "_seeded"}):
+        mark_untradable(["BTT", "DASH", "XMR"])
+        untradable_collection.insert_one({"_id": "_seeded", "at": datetime.utcnow()})
+    since = datetime.utcnow() - timedelta(days=UNTRADABLE_MEMORY_DAYS)
+    return {d["code"] for d in untradable_collection.find({"at": {"$gte": since}, "code": {"$exists": True}}, {"code": 1})}
 
 
 def retire_unlisted_coins() -> List[str]:
@@ -4294,11 +4316,14 @@ def get_scout() -> Dict:
         if sw is None:
             return {"review": review, "candidates": [], "results": [], "pending": [],
                     "error": "Couldn't check Swyftx's coin list just now. Tap Refresh in a minute."}
-        cands = filter_candidates(markets, tracked_codes, tracked_ids, sw)
+        cands = filter_candidates(markets, tracked_codes, tracked_ids, sw - recent_untradable())
         swyftx_checked = sw is not None
         dip_report_cache_collection.replace_one(
             {"_id": "scout:candidates:v2"},
             {"_id": "scout:candidates:v2", "at": datetime.utcnow(), "cands": cands, "swyftxChecked": swyftx_checked}, upsert=True)
+
+    switched_off = recent_untradable()
+    cands = [c for c in cands if c.get("code") not in switched_off]
 
     # 3) Simulate every candidate that has stored history
     fresh = _fresh_series(_REPORT_MAX_AGE_HOURS)
