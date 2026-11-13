@@ -155,6 +155,10 @@ def classify(method: str, path: str, params: dict, body: dict):
         # Per-wallet holdings behind the Leaderboard drill-down: members only.
         if path == "/api/community/aggregate-holdings":
             return "member", params.get("admin_wallet") or params.get("wallet")
+        # The daily Desk brief is public (the public-lite version); only its admin-only extras need a pass — the server
+        # decides that from the verified pass, never from a typed address. Every other /api/desk/ read stays admin-only.
+        if path == "/api/desk/brief":
+            return None, None
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
         # A wallet's own deposit/withdrawal history: that wallet (or an admin) only.
