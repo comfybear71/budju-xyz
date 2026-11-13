@@ -114,6 +114,7 @@ from database import (
     get_lab_search,
     attach_server_prices,
     get_value_history,
+    key_encryption_status,
     take_paper_snapshot,
     get_paper_test,
     get_trailing_overview,
@@ -851,6 +852,13 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     sc, tu = 10000.0, 1000.0
                 self._send_json(200, get_lab_trial(params.get('start') == '1', sc, tu))
+
+            elif path == '/api/admin/key-encryption':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, key_encryption_status(params.get('run') == '1'))
 
             elif path == '/api/admin/lab':
                 wallet = params.get('wallet')

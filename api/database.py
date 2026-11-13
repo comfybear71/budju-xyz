@@ -1941,7 +1941,7 @@ def calculate_pool_allocations() -> Dict[str, float]:
 # withdrawals) is untouched and keeps serving existing pool members until
 # they're paid out — the two models coexist during the transition.
 
-from crypto_utils import encrypt_secret, decrypt_secret, mask_secret
+from crypto_utils import encrypt_secret, decrypt_secret, mask_secret, reencrypt_token
 from swyftx_client import SwyftxClient, SwyftxAuthError
 from asset_registry import ASSET_CG_IDS
 from urllib.request import urlopen, Request
@@ -2072,6 +2072,27 @@ def _drop_leaderboard_snapshot() -> None:
         leaderboard_cache_collection.delete_one({"_id": "latest"})
     except Exception as e:
         print(f"[leaderboard] could not clear snapshot: {e}")
+
+
+def key_encryption_status(run: bool = False) -> Dict:
+    """How many saved Swyftx keys are protected by the current secret, by the previous one, or can't be read at all.
+    With run=True, every key still on the previous secret is re-encrypted under the current one. Never returns a key."""
+    out = {"onCurrent": 0, "onPrevious": 0, "unreadable": 0, "migratedNow": 0}
+    for doc in user_exchange_keys_collection.find({"encryptedApiKey": {"$exists": True}}):
+        new_token, status = reencrypt_token(doc["encryptedApiKey"])
+        if status == "current":
+            out["onCurrent"] += 1
+        elif status == "failed":
+            out["unreadable"] += 1
+        elif run:
+            user_exchange_keys_collection.update_one({"_id": doc["_id"]}, {"$set": {"encryptedApiKey": new_token}})
+            out["migratedNow"] += 1
+            out["onCurrent"] += 1
+        else:
+            out["onPrevious"] += 1
+    out["previousSecretSet"] = bool(os.getenv("SWYFTX_KEY_ENCRYPTION_SECRET_PREVIOUS"))
+    out["ran"] = bool(run)
+    return out
 
 
 def get_user_swyftx_key_status(wallet_address: str) -> Dict:

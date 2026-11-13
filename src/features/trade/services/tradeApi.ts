@@ -2378,6 +2378,12 @@ async function adminGet(path: string, wallet: string, extra = ""): Promise<any |
   }
 }
 
+export interface KeyEncryptionStatus { onCurrent: number; onPrevious: number; unreadable: number; migratedNow: number; previousSecretSet: boolean; ran: boolean }
+/** Admin: how many saved Swyftx keys sit under the current / previous encryption secret. run=true re-encrypts the old ones. Never returns a key. */
+export async function fetchKeyEncryption(wallet: string, run = false): Promise<KeyEncryptionStatus | null> {
+  return (await adminGet("/api/admin/key-encryption", wallet, run ? "&run=1" : "")) as KeyEncryptionStatus | null;
+}
+
 /** Admin: replay a year of daily prices through the tier rules. Walks the coin
  *  list one short request at a time so nothing times out. */
 export async function fetchDipReport(

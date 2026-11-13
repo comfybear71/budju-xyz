@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FaChevronDown, FaChevronRight } from "react-icons/fa";
-import { fetchHealthCheck, type HealthCheck as Health, type HealthItem } from "../services/tradeApi";
+import { fetchHealthCheck, fetchKeyEncryption, type HealthCheck as Health, type HealthItem, type KeyEncryptionStatus } from "../services/tradeApi";
 
 const LABELS: [keyof Health, string][] = [
   ["database", "Database"],
@@ -19,6 +19,13 @@ const HealthCheck = ({ wallet }: { wallet: string }) => {
   const [failed, setFailed] = useState(false);
 
   const [holdings, setHoldings] = useState<string | null>(null);
+  const [enc, setEnc] = useState<KeyEncryptionStatus | null>(null);
+  const [encBusy, setEncBusy] = useState(false);
+  const checkEnc = async (runIt: boolean) => {
+    setEncBusy(true);
+    setEnc(await fetchKeyEncryption(wallet, runIt));
+    setEncBusy(false);
+  };
 
   // The Holdings screen's own path: browser -> /api/proxy -> Swyftx. Say exactly what comes back.
   const testHoldings = async () => {
@@ -71,6 +78,25 @@ const HealthCheck = ({ wallet }: { wallet: string }) => {
             {data && <button onClick={copy} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white/5 text-slate-400">Copy details</button>}
           </div>
           {holdings && <div className="text-[11px] text-slate-200 mb-1">{holdings}</div>}
+          <div className="rounded-lg p-2 mb-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+            <div className="text-[11px] font-bold text-slate-300 mb-1">🔐 Saved Swyftx key encryption</div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => checkEnc(false)} disabled={encBusy} className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white/10 text-slate-200 disabled:opacity-40">Check</button>
+              {enc && enc.onPrevious > 0 && (
+                <button onClick={() => checkEnc(true)} disabled={encBusy} className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-yellow-200 disabled:opacity-40" style={{ background: "rgba(250,204,21,0.18)" }}>Re-encrypt now</button>
+              )}
+              {encBusy && <span className="text-[11px] text-slate-500">Working…</span>}
+            </div>
+            {enc && (
+              <div className="text-[11px] text-slate-300 mt-1 leading-relaxed">
+                On the current secret: <b>{enc.onCurrent}</b> · still on the previous secret: <b>{enc.onPrevious}</b> · unreadable: <b style={{ color: enc.unreadable ? "#f87171" : undefined }}>{enc.unreadable}</b>
+                {enc.ran ? <> · re-encrypted just now: <b>{enc.migratedNow}</b></> : null}
+                <br />
+                Previous secret setting: {enc.previousSecretSet ? "present" : "not set"}.{" "}
+                {enc.onPrevious === 0 && enc.unreadable === 0 ? "All keys are on the current secret — you can remove the previous one." : null}
+              </div>
+            )}
+          </div>
           {failed && <div className="text-xs text-red-400">No answer from the server within a minute — that itself means it is overloaded. Try again shortly.</div>}
           {data && (
             <div className="space-y-1">
