@@ -247,6 +247,20 @@ def _load_rebuy_blocklist(shared_state, log):
 PAUSE_UNTRADABLE_HOURS = float(os.getenv("PAUSE_UNTRADABLE_HOURS", "6"))
 
 
+def _is_account_blocked(err) -> bool:
+    """The whole Swyftx account is restricted from buying (e.g. after a password / API-key change) — every coin will fail the same way."""
+    t = str(err or "").lower()
+    return "cannotbuycrypto" in t or "restrictions on your account" in t
+
+
+def _is_rate_limited(err) -> bool:
+    t = str(err or "").lower()
+    return "ratelimit" in t or "http 429" in t or "too many times" in t
+
+
+ACCOUNT_BLOCK_HOURS = float(os.getenv("ACCOUNT_BLOCK_HOURS", "2"))
+
+
 def _is_untradable(err) -> bool:
     """Swyftx says a coin is switched off right now (maintenance, network work, delisting review)."""
     t = str(err or "").lower()
@@ -412,6 +426,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
             normal_buy = (not on_cooldown) and current_price <= buy_target
 
             # ── BUY ──
+            if (normal_buy or catchup_buy) and ctx.get("buysBlocked"):
+                continue        # account restricted / rate limited: don't hammer Swyftx with more orders this cycle
             if normal_buy or catchup_buy:
                 if is_permanently_buy_denied(code):
                     if code not in _blocklist_logged:
@@ -495,6 +511,13 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     log.append(f"{short}: BUY {code} failed — {err}")
                     if _is_untradable(err):
                         ctx.setdefault("newPauses", set()).add(code)
+                    elif _is_account_blocked(err):
+                        ctx["buysBlocked"] = True
+                        ctx["newBlock"] = ACCOUNT_BLOCK_HOURS
+                        log.append(f"{short}: buys paused for {ACCOUNT_BLOCK_HOURS:g}h — Swyftx says this account has trading restrictions")
+                    elif _is_rate_limited(err):
+                        ctx["buysBlocked"] = True
+                        log.append(f"{short}: buys paused this cycle — Swyftx rate limit")
 
             # ── SELL ──
             elif current_price >= sell_target:
@@ -731,6 +754,10 @@ def run_auto_trade_check():
             continue
 
         ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
+        _blocked_until = (shared_state.get("autoBlockedWallets") or {}).get(wallet, 0)
+        if isinstance(_blocked_until, (int, float)) and _blocked_until > time.time() * 1000:
+            ctx["buysBlocked"] = True          # restricted earlier: no buy attempts until the pause ends (sells still run)
+            log.append(f"{short}: buys on hold — Swyftx account restricted, retrying after {datetime.utcfromtimestamp(_blocked_until / 1000).strftime('%H:%M')} UTC")
         # Only each wallet's own TRADE LOG is per-wallet (daily-trade limit and
         # the "just traded" pause). Targets and cooldowns are shared by all.
         if is_pool:
@@ -860,6 +887,12 @@ def run_auto_trade_check():
         for c in new_pauses:
             log.append(f"{c}: paused for {PAUSE_UNTRADABLE_HOURS:g}h — Swyftx says it is not tradable right now")
 
+    blocked_update = None
+    _old_blocks = {w: u for w, u in (shared_state.get("autoBlockedWallets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
+    _new_blocks = {c["wallet"]: now_ms + int(c["newBlock"] * 3_600_000) for c in wallet_contexts if c.get("newBlock")}
+    if _new_blocks or len(_old_blocks) != len(shared_state.get("autoBlockedWallets") or {}):
+        blocked_update = {**_old_blocks, **_new_blocks}
+
     save_update = {
         "autoActive": {**auto_active, "targets": shared_targets},
         "autoCooldowns": shared_cooldowns,
@@ -868,6 +901,8 @@ def run_auto_trade_check():
         save_update["autoTrail"] = trail_update
     if pauses_update is not None:
         save_update["autoPausedAssets"] = pauses_update
+    if blocked_update is not None:
+        save_update["autoBlockedWallets"] = blocked_update
     if catchup_active:
         save_update["autoCatchUp"] = {**catchup, "done": catchup_done_map}
     save_trader_state(save_update)

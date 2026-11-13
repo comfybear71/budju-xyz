@@ -41,3 +41,14 @@ def test_untradable_coin_gives_one_friendly_pause_message_not_a_scary_failure():
     ]
     p = find_problems(log)
     assert len(p) == 1 and "switched off on Swyftx" in p[0][1] and "DASH" in p[0][1] and "nothing to do" in p[0][1]
+
+
+def test_restricted_account_alert_is_one_friendly_line_not_one_per_coin():
+    from alerts import find_problems
+    lines = [
+        "pool: BUY UNI failed — HTTP 403: {\"error\":{\"error\":\"CannotBuyCrypto\",\"message\":\"There are restrictions on your account\"}}",
+        "pool: buys paused for 2h — Swyftx says this account has trading restrictions",
+        "pool: BUY CAKE failed — HTTP 429: {\"error\":{\"error\":\"RateLimit\"}}",
+    ]
+    out = find_problems(lines)
+    assert len(out) == 1 and "trading restrictions" in out[0][1] and "contact Swyftx support" in out[0][1]
