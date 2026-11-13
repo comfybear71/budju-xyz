@@ -19,9 +19,20 @@
 
 import os
 import base64
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _NONCE_LEN = 12  # 96-bit nonce, standard for AES-GCM
+
+
+def _decode_key(raw: str, name: str) -> bytes:
+    try:
+        key = base64.b64decode(raw)
+    except Exception as e:
+        raise RuntimeError(f"{name} is not valid base64: {e}")
+    if len(key) != 32:
+        raise RuntimeError(f"{name} must decode to 32 bytes (AES-256), got {len(key)}")
+    return key
 
 
 def _load_key() -> bytes:
@@ -32,20 +43,18 @@ def _load_key() -> bytes:
             "decrypt exchange API keys without it. Set a base64-encoded "
             "32-byte secret in the environment before storing any user keys."
         )
-    try:
-        key = base64.b64decode(raw)
-    except Exception as e:
-        raise RuntimeError(f"SWYFTX_KEY_ENCRYPTION_SECRET is not valid base64: {e}")
-    if len(key) != 32:
-        raise RuntimeError(
-            f"SWYFTX_KEY_ENCRYPTION_SECRET must decode to 32 bytes (AES-256), "
-            f"got {len(key)}"
-        )
-    return key
+    return _decode_key(raw, "SWYFTX_KEY_ENCRYPTION_SECRET")
+
+
+def _load_previous_key():
+    """Optional: the secret that was in use BEFORE a rotation. While it is set, keys saved under it still
+    decrypt, so a rotation never locks anyone out. Remove it once everything is re-encrypted."""
+    raw = os.getenv("SWYFTX_KEY_ENCRYPTION_SECRET_PREVIOUS", "")
+    return _decode_key(raw, "SWYFTX_KEY_ENCRYPTION_SECRET_PREVIOUS") if raw else None
 
 
 def encrypt_secret(plaintext: str) -> str:
-    """Encrypt a plaintext string (e.g. a Swyftx API key) for storage.
+    """Encrypt a plaintext string (e.g. a Swyftx API key) for storage, always under the CURRENT secret.
 
     Returns base64(nonce || ciphertext_with_tag) as a single opaque string.
     """
@@ -58,17 +67,41 @@ def encrypt_secret(plaintext: str) -> str:
     return base64.b64encode(nonce + ciphertext).decode("ascii")
 
 
-def decrypt_secret(token: str) -> str:
-    """Decrypt a value produced by encrypt_secret(). Raises on any tampering,
-    corruption, or wrong key — never returns a guessed/partial plaintext."""
+def _decrypt_with(key: bytes, raw: bytes) -> str:
+    nonce, ciphertext = raw[:_NONCE_LEN], raw[_NONCE_LEN:]
+    return AESGCM(key).decrypt(nonce, ciphertext, None).decode("utf-8")
+
+
+def decrypt_with_info(token: str):
+    """-> (plaintext, used_previous_secret). Tries the current secret first, then the previous one (if set).
+    Raises on any tampering, corruption, or if neither secret works — never returns a guess."""
     if not token:
         raise ValueError("Nothing to decrypt")
-    key = _load_key()
     raw = base64.b64decode(token)
-    nonce, ciphertext = raw[:_NONCE_LEN], raw[_NONCE_LEN:]
-    aesgcm = AESGCM(key)
-    plaintext = aesgcm.decrypt(nonce, ciphertext, None)
-    return plaintext.decode("utf-8")
+    try:
+        return _decrypt_with(_load_key(), raw), False
+    except InvalidTag:
+        previous = _load_previous_key()
+        if previous is None:
+            raise
+        return _decrypt_with(previous, raw), True
+
+
+def decrypt_secret(token: str) -> str:
+    """Decrypt a value produced by encrypt_secret(). During a rotation it also accepts values saved under the previous secret."""
+    return decrypt_with_info(token)[0]
+
+
+def reencrypt_token(token: str):
+    """-> (new_token or None, status). status: "current" (already under the current secret), "migrated" (re-encrypted now),
+    "failed" (cannot be read with either secret)."""
+    try:
+        plaintext, used_previous = decrypt_with_info(token)
+    except Exception:
+        return None, "failed"
+    if not used_previous:
+        return None, "current"
+    return encrypt_secret(plaintext), "migrated"
 
 
 def mask_secret(plaintext: str) -> str:
