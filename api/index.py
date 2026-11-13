@@ -357,8 +357,10 @@ class handler(BaseHTTPRequestHandler):
 
             elif path == '/api/desk/brief':
                 # Public-lite by default; full (with position contradictions) for admin
-                wallet = params.get('admin_wallet')
-                full = bool(wallet and is_admin(wallet))
+                # Everyone can read the public-lite brief. The full version (position contradictions) is only for an
+                # admin whose wallet-signed pass verifies — a typed wallet address proves nothing.
+                pass_wallet = session_auth.verify_token(session_auth.bearer(self.headers.get('Authorization')))
+                full = bool(pass_wallet and is_admin(pass_wallet))
                 resp = {"brief": get_latest_desk_brief(full)}
                 if params.get('history'):
                     resp["history"] = get_desk_briefs(14, full)

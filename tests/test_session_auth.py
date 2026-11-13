@@ -134,7 +134,8 @@ class TestGate:
         assert self.check("GET", "/api/admin/user-trade-debug", params={"admin_wallet": ADMIN})[1] == 401
         assert self.check("GET", "/api/admin/stats", hdr(ADMIN), params={"admin_wallet": ADMIN})[0] is True
         assert self.check("GET", "/api/users")[0] is False
-        assert self.check("GET", "/api/desk/brief")[0] is False
+        assert self.check("GET", "/api/desk/brief")[0] is True          # the daily brief is public (extras need a verified admin pass)
+        assert self.check("GET", "/api/desk/notes")[0] is False         # other desk reads stay admin-only
 
     def test_transactions_admin_view_only(self):
         assert self.check("GET", "/api/transactions", params={"wallet": USERW})[0] is True
