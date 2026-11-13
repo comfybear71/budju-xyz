@@ -2063,7 +2063,15 @@ def save_user_swyftx_key(wallet_address: str, api_key: str) -> Dict:
         }, "$setOnInsert": {"addedAt": now}},
         upsert=True,
     )
+    _drop_leaderboard_snapshot()           # the old snapshot may list this wallet as unreachable
     return {"success": True, "status": "active", "maskedApiKey": mask_secret(api_key)}
+
+
+def _drop_leaderboard_snapshot() -> None:
+    try:
+        leaderboard_cache_collection.delete_one({"_id": "latest"})
+    except Exception as e:
+        print(f"[leaderboard] could not clear snapshot: {e}")
 
 
 def get_user_swyftx_key_status(wallet_address: str) -> Dict:
@@ -2121,6 +2129,7 @@ def link_admin_master_key(wallet_address: str) -> Dict:
         }, "$setOnInsert": {"addedAt": now}},
         upsert=True,
     )
+    _drop_leaderboard_snapshot()
     return {"success": True, "status": "active", "maskedApiKey": mask_secret(master_key)}
 
 
@@ -4478,7 +4487,7 @@ def get_health_check(admin_wallet: str) -> Dict:
     timed("prices", lambda: f"{len(get_prices_for_coins(['BTC', 'ETH', 'SOL']))} prices")
 
     def board():
-        lb = get_live_leaderboard()
+        lb = refresh_leaderboard_cache()      # also stores the fresh result, so running the check updates what the Trade page shows
         tm = lb.get("timings", {})
         return (f"{len(lb.get('entries', []))} wallets, {lb.get('erroredWallets', 0)} errored · "
                 f"wallets {tm.get('wallets')}s, prices {tm.get('prices')}s ({tm.get('coinsPriced')} coins), "
