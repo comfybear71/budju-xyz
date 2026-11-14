@@ -134,7 +134,7 @@ class TestGate:
         assert self.check("GET", "/api/admin/user-trade-debug", params={"admin_wallet": ADMIN})[1] == 401
         assert self.check("GET", "/api/admin/stats", hdr(ADMIN), params={"admin_wallet": ADMIN})[0] is True
         assert self.check("GET", "/api/users")[0] is False
-        assert self.check("GET", "/api/desk/brief")[0] is True          # the daily brief is public (extras need a verified admin pass)
+        assert self.check("GET", "/api/desk/brief")[1] == 401           # the daily brief needs a wallet pass (members and admins)
         assert self.check("GET", "/api/desk/notes")[0] is False         # other desk reads stay admin-only
 
     def test_transactions_admin_view_only(self):
@@ -243,3 +243,22 @@ def test_user_cash_flows_is_owner_only():
     import session_auth
     kind, acting = session_auth.classify("GET", "/api/user/cash-flows", {"wallet": "WALLETX"}, {})
     assert kind == "owner" and acting == "WALLETX"
+
+
+class TestDeskBriefMembersOnly:
+    def call(self, auth, member):
+        return sa.check_request("GET", "/api/desk/brief", {"admin_wallet": USERW}, {}, auth, A, now_ms=NOW + 1, is_member=lambda w: member)
+
+    def test_visitor_without_a_pass_is_refused(self):
+        assert sa.check_request("GET", "/api/desk/brief", {}, {}, None, A, now_ms=NOW + 1)[1] == 401
+
+    def test_member_with_a_pass_can_read(self):
+        assert self.call(hdr(USERW), True)[0] is True
+
+    def test_signed_in_non_member_is_refused(self):
+        ok, status, _ = self.call(hdr(USERW), False)
+        assert (ok, status) == (False, 403)
+
+    def test_admin_can_read_without_being_a_member(self):
+        ok, _, _ = sa.check_request("GET", "/api/desk/brief", {"admin_wallet": ADMIN}, {}, hdr(ADMIN), A, now_ms=NOW + 1, is_member=lambda w: False)
+        assert ok is True

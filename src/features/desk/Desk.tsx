@@ -22,6 +22,7 @@ const Desk = () => {
   const [loading, setLoading] = useState(true);
   const [picked, setPicked] = useState<number>(0); // 0 = latest
   const [isAdmin, setIsAdmin] = useState(false);
+  const [denied, setDenied] = useState<"signin" | "members" | null>(null);
 
   useEffect(() => {
     setIsAdmin(false);
@@ -34,6 +35,7 @@ const Desk = () => {
     const res = await fetchDeskBrief(walletAddress || undefined, true);
     setBrief(res?.brief ?? null);
     setHistory(res?.history ?? []);
+    setDenied(res?.denied ?? null);
     setLoading(false);
   }, [walletAddress]);
 
@@ -102,6 +104,16 @@ const Desk = () => {
       {loading ? (
         <div className="flex justify-center py-16">
           <div className="w-8 h-8 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
+        </div>
+      ) : denied === "members" ? (
+        <div className="text-center py-16 px-4 text-slate-400 text-sm leading-relaxed">
+          🔒 The Desk is for BUDJU members.
+          <div className="text-[12px] text-slate-500 mt-2">Hold 10M BUDJU and connect your Swyftx key (My Key on the Trade page) to read the daily brief.</div>
+        </div>
+      ) : denied === "signin" && !walletAddress ? (
+        <div className="text-center py-16 px-4 text-slate-400 text-sm leading-relaxed">
+          🔒 The Desk is for BUDJU members and admins.
+          <div className="text-[12px] text-slate-500 mt-2">Connect your wallet to read the daily brief.</div>
         </div>
       ) : !active ? (
         walletAddress && !getSessionToken(walletAddress) ? (
