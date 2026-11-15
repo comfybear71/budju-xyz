@@ -1778,6 +1778,8 @@ export interface DeskBrief {
 export interface DeskBriefResponse {
   brief: DeskBrief | null;
   history?: DeskBrief[];
+  /** "signin" = no wallet pass; "members" = signed in but not a BUDJU member. */
+  denied?: "signin" | "members";
 }
 
 /** Fetch the latest BUDJU Desk brief (public-lite, or full if an admin wallet is passed). */
@@ -1788,6 +1790,8 @@ export async function fetchDeskBrief(adminWallet?: string, history = false): Pro
   return cached(`desk_brief_${adminWallet || "pub"}_${history}`, 60_000, async () => {
     try {
       const res = await fetchWithRetry(`/api/desk/brief?${qs.toString()}`);
+      if (res.status === 401) return { brief: null, denied: "signin" as const };
+      if (res.status === 403) return { brief: null, denied: "members" as const };
       if (!res.ok) return null;
       return (await res.json()) as DeskBriefResponse;
     } catch {
