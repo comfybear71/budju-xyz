@@ -262,3 +262,19 @@ class TestDeskBriefMembersOnly:
     def test_admin_can_read_without_being_a_member(self):
         ok, _, _ = sa.check_request("GET", "/api/desk/brief", {"admin_wallet": ADMIN}, {}, hdr(ADMIN), A, now_ms=NOW + 1, is_member=lambda w: False)
         assert ok is True
+
+
+class TestPaperTrialMembersOnly:
+    def call(self, auth, member, wallet=USERW):
+        return sa.check_request("GET", "/api/community/paper-trial", {"wallet": wallet}, {}, auth, A, now_ms=NOW + 1, is_member=lambda w: member)
+
+    def test_visitor_refused(self):
+        assert sa.check_request("GET", "/api/community/paper-trial", {}, {}, None, A, now_ms=NOW + 1)[1] == 401
+
+    def test_member_allowed_non_member_refused(self):
+        assert self.call(hdr(USERW), True)[0] is True
+        assert self.call(hdr(USERW), False)[1] == 403
+
+    def test_starting_the_trial_stays_admin_only(self):
+        ok, status, _ = sa.check_request("GET", "/api/admin/lab-trial", {"wallet": USERW, "start": "1"}, {}, hdr(USERW), A, now_ms=NOW + 1, is_member=lambda w: True)
+        assert (ok, status) == (False, 403)

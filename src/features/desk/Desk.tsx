@@ -95,6 +95,12 @@ const Desk = () => {
         </div>
       )}
 
+      {!isAdmin && walletAddress && !denied && (
+        <div className="mb-4">
+          <PaperTrial wallet={walletAddress} readOnly />
+        </div>
+      )}
+
       {walletAddress && (
         <div className="mb-4">
           <PredictionMarketsCard />

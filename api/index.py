@@ -853,6 +853,10 @@ class handler(BaseHTTPRequestHandler):
                     sc, tu = 10000.0, 1000.0
                 self._send_json(200, get_lab_trial(params.get('start') == '1', sc, tu))
 
+            elif path == '/api/community/paper-trial':
+                # Read-only paper-trial results for members and admins (the pass check is done up front). Never starts a trial.
+                self._send_json(200, get_lab_trial(False))
+
             elif path == '/api/admin/key-encryption':
                 wallet = params.get('wallet')
                 if not wallet or not is_admin(wallet):

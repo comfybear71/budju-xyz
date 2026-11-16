@@ -31,7 +31,7 @@ const Chart = ({ arms }: { arms: Record<string, Arm> }) => {
 };
 
 /** Admin: forward paper trial of the whole account — today's bot vs a hybrid vs just holding, same money, same days. Nothing live changes. */
-const PaperTrial = ({ wallet }: { wallet: string }) => {
+const PaperTrial = ({ wallet, readOnly = false }: { wallet: string; readOnly?: boolean }) => {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<Trial | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,10 @@ const PaperTrial = ({ wallet }: { wallet: string }) => {
     setBusy(true);
     setFailed(false);
     try {
-      const res = await fetch(`/api/admin/lab-trial?wallet=${wallet}&admin_wallet=${wallet}${start ? `&start=1&start_cash=${cash}&topup=${topup}` : ""}`);
+      const url = readOnly
+        ? `/api/community/paper-trial?wallet=${wallet}&admin_wallet=${wallet}`
+        : `/api/admin/lab-trial?wallet=${wallet}&admin_wallet=${wallet}${start ? `&start=1&start_cash=${cash}&topup=${topup}` : ""}`;
+      const res = await fetch(url);
       if (!res.ok) throw new Error(String(res.status));
       setData((await res.json()) as Trial);
     } catch {
@@ -74,7 +77,10 @@ const PaperTrial = ({ wallet }: { wallet: string }) => {
             <span style={{ color: COLORS.hold }}> Just holding</span> buys everything as the money arrives. <b>Nothing here touches your real money.</b>
           </p>
           {failed && <div className="text-xs text-red-400">Couldn't load the trial. <button onClick={() => call()} className="underline">Retry</button></div>}
-          {data && !data.started && (
+          {data && !data.started && readOnly && (
+            <div className="text-[12px] text-slate-300">The paper trial hasn't started yet. Check back soon.</div>
+          )}
+          {data && !data.started && !readOnly && (
             <div className="rounded-lg p-3 space-y-2" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
               <div className="text-[12px] text-slate-200">Not started yet. Pick the pretend money, then start. It runs forward from today for 90 days.</div>
               <label className="block text-[11px] text-slate-400">Starting cash: <b className="text-slate-100">{usd(cash)}</b>
