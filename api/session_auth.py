@@ -160,6 +160,9 @@ def classify(method: str, path: str, params: dict, body: dict):
         # Every other /api/desk/ read stays admin-only.
         if path == "/api/desk/brief":
             return "member", params.get("admin_wallet") or params.get("wallet")
+        # The pretend-money paper trial (read-only): same members-and-admins rule. Starting it stays admin-only.
+        if path == "/api/community/paper-trial":
+            return "member", params.get("admin_wallet") or params.get("wallet")
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
         # A wallet's own deposit/withdrawal history: that wallet (or an admin) only.
