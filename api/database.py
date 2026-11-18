@@ -4967,6 +4967,37 @@ def get_paper_test() -> Dict:
 # ==========================================
 # Trailing take-profit settings + after-sale tracker (admin)
 # ==========================================
+def get_profit_plan() -> Dict:
+    """The profit-taking numbers in force for each tier (defaults plus any saved changes)."""
+    from profit_plan import plan_for, DEFAULT_PLAN, PLAN_VERSION
+    overrides = get_trader_state().get("autoProfitPlan")
+    overrides = overrides if isinstance(overrides, dict) else {}
+    return {"version": PLAN_VERSION,
+            "plan": {str(t): plan_for(t, overrides) for t in (1, 2, 3)},
+            "defaults": {str(t): DEFAULT_PLAN[t] for t in (1, 2, 3)}}
+
+
+def save_profit_plan(tier=None, arm=None, trail=None, slice_pct=None, reset: bool = False) -> Dict:
+    """Change one tier's arm level / trailing pullback / slice size (or put everything back to the defaults)."""
+    from profit_plan import plan_for, DEFAULT_PLAN
+    current = get_trader_state().get("autoProfitPlan")
+    overrides = {} if reset or not isinstance(current, dict) else {k: dict(v) for k, v in current.items() if isinstance(v, dict)}
+    if not reset:
+        if int(tier) not in (1, 2, 3):
+            raise ValueError("tier must be 1, 2 or 3")
+        entry = overrides.setdefault(str(int(tier)), {})
+        for key, val in (("arm", arm), ("trail", trail), ("slice", slice_pct)):
+            if val is not None:
+                entry[key] = float(val)
+    clean = {}
+    for t in (1, 2, 3):
+        p = plan_for(t, overrides)
+        if p != {k: float(v) for k, v in DEFAULT_PLAN[t].items()}:
+            clean[str(t)] = p
+    save_trader_state({"autoProfitPlan": clean})
+    return get_profit_plan()
+
+
 def get_trailing_overview() -> Dict:
     from trailing import clean_config
     st = get_trader_state()
