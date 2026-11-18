@@ -81,6 +81,7 @@ def _run_with_targets(cron_module, mock_database, targets):
             "isActive": True,
             "tierActive": {"1": True},
             "targets": targets,
+            "planVersion": 1,          # the one-time move to the staggered profit plan has already happened
         },
         "autoTierAssignments": {"BTC": [1]},
         "autoTiers": {"tier1": {"deviation": 1, "sellDeviation": 2, "allocation": 5}},
@@ -155,7 +156,7 @@ class TestTargetsNeverExpireByAge:
         for bad in ({}, {"BTC:1": {"buy": 0, "sell": 0}}, {"BTC:1": "garbage"}):
             new_tgt = _run_with_targets(cron_module, mock_database, bad)
             assert new_tgt["buy"] == pytest.approx(60000 * 0.99, rel=1e-6)
-            assert new_tgt["sell"] == pytest.approx(60000 * 1.02, rel=1e-6)
+            assert new_tgt["sell"] == pytest.approx(60000 * 1.125, rel=1e-6)     # Tier 1 arms at +12.5% under the profit plan
             assert isinstance(new_tgt.get("setAt"), (int, float))
 
     def test_one_coins_order_crash_does_not_skip_save_or_other_coins_setat(

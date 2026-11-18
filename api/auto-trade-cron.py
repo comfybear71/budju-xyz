@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
+from profit_plan import PLAN_VERSION, plan_for, size_sell
 from database import (
     user_exchange_keys_collection,
     decrypt_secret,
@@ -158,16 +159,24 @@ def _tier_num(value):
         return 0
 
 
+_PLAN_OVERRIDE = None     # saved profit-plan overrides for the current run (see profit_plan.py)
+
+
 def _tier_settings(tier_assets, tier_num):
-    """Get deviation/sellDeviation/allocation/cooldown for a tier from the
-    shared admin "Auto Trade" screen, with defaults."""
+    """Get deviation/allocation/cooldown for a tier from the shared admin "Auto Trade" screen, with defaults.
+    The profit-taking side (arm level, trailing pullback, slice size) comes from the profit plan, not from the old
+    sell-deviation slider."""
     key = f"tier{tier_num}"
     db_settings = tier_assets.get(key, {}) if isinstance(tier_assets, dict) else {}
     default_dev = 1.0 if tier_num == 1 else 2.0
     default_sell_dev = default_dev * 2
+    plan = plan_for(tier_num, _PLAN_OVERRIDE)
     return {
         "deviation": float(db_settings.get("deviation", default_dev)),
-        "sellDeviation": float(db_settings.get("sellDeviation", default_sell_dev)),
+        "sellDeviation": plan["arm"],
+        "legacySellDeviation": float(db_settings.get("sellDeviation", default_sell_dev)),
+        "trailPct": plan["trail"],
+        "slicePct": plan["slice"],
         "allocation": float(db_settings.get("allocation", 5.0)),
         "cooldownHours": float(db_settings.get("cooldownHours", DEFAULT_COOLDOWN_HOURS)),
     }
@@ -362,6 +371,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     short = "pool" if ctx["isPool"] else (wallet[:4] + "..." + wallet[-4:])
     holdings = ctx["holdings"]
     state = ctx["state"]
+    sold_this_run = set()
 
     # Buys are paid from USDC only (swyftx_client.place_market_order), so the $30 reserve and the
     # buy sizing must look at USDC alone — AUD/USD/USDT can't fund an order.
@@ -531,25 +541,16 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                 if position_cap <= 0:
                     continue
 
-                sell_pct = settings["allocation"] * SELL_RATIO
-                quantity = round(min((sell_pct / 100) * position_cap, position_cap), 8)
-                if quantity <= 0:
+                if code in sold_this_run:
+                    continue        # one sale per coin per run: the other tiers get their turn on a later run
+
+                quantity, note = size_sell(settings["slicePct"], position_cap, current_price, SWYFTX_MIN_SELL_USDC)
+                if quantity is None or quantity <= 0:
+                    if code not in _minsell_logged:
+                        log.append(f"{code}: SELL skipped — {note}")
+                        _minsell_logged.add(code)
                     continue
                 sell_value = quantity * current_price
-
-                if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
-                    min_qty = SWYFTX_MIN_SELL_USDC / current_price
-                    if min_qty <= position_cap:
-                        quantity = round(min_qty, 8)
-                        sell_value = quantity * current_price
-                    else:
-                        quantity = round(position_cap, 8)
-                        sell_value = quantity * current_price
-                        if sell_below_min(sell_value, SWYFTX_MIN_SELL_USDC):
-                            if code not in _minsell_logged:
-                                log.append(f"{code}: SELL skipped — position ${sell_value:.2f} below Swyftx min ${SWYFTX_MIN_SELL_USDC:.0f}")
-                                _minsell_logged.add(code)
-                            continue
 
                 cb_ok, cb_reason = _check_circuit_breakers(trade_log, "sell", sell_value, code, log)
                 if not cb_ok:
@@ -572,6 +573,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     _record_trade_ledger(ctx, code, "sell", quantity, fill_price, tier_num, order_id, log)
 
                     fired.setdefault(ck, {"side": "sell", "price": current_price, "settings": settings})
+                    sold_this_run.add(code)
+                    if ctx["isPool"]:
+                        holdings[code] = max(0.0, holdings.get(code, 0.0) - quantity)   # later tiers this run see what is really left
 
                     trade_log.insert(0, {
                         "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
@@ -650,6 +654,8 @@ def run_auto_trade_check():
         print(f"[DIAG] EXIT: no tiers active -- tierActive={tier_active!r}", flush=True)
         return {"skipped": True, "reason": "No tiers active", "log": log}
 
+    global _PLAN_OVERRIDE
+    _PLAN_OVERRIDE = shared_state.get("autoProfitPlan")
     auto_tiers = shared_state.get("autoTiers", shared_state.get("autoTierAssets", {}))
     tier_assignments = shared_state.get("autoTierAssignments", {})
     active_pairs = _build_active_pairs(tier_assignments, tier_active)
@@ -792,6 +798,23 @@ def run_auto_trade_check():
                 "setAt": now_ms,
             }
             shared_targets.pop(code, None)
+    # One-time move to the staggered profit plan: re-anchor every existing sell level from its old +% to the tier's new arm level
+    # (same reference price, new distance), so the plan takes effect without anyone touching a slider.
+    if auto_active.get("planVersion") != PLAN_VERSION:
+        moved = 0
+        for ck, tgt in list(shared_targets.items()):
+            try:
+                tier_num = int(str(ck).split(":")[1])
+                st = _tier_settings(auto_tiers, tier_num)
+                old_sell = float(tgt.get("sell", 0) or 0)
+                if old_sell > 0 and st["legacySellDeviation"] > -100:
+                    ref = old_sell / (1 + st["legacySellDeviation"] / 100)
+                    shared_targets[ck] = {**tgt, "sell": ref * (1 + st["sellDeviation"] / 100)}
+                    moved += 1
+            except (IndexError, ValueError, TypeError):
+                continue
+        if moved:
+            log.append(f"Profit plan v{PLAN_VERSION}: re-anchored {moved} sell levels (arm +12.5% / +30% / +75%)")
     fired = {}  # "BTC:1" -> {"side", "price", "settings"} — ratcheted once, after all wallets
 
     # One-time catch-up for wallets that missed buys the admin wallet already
@@ -822,7 +845,8 @@ def run_auto_trade_check():
     old_trail_state = dict(shared_state.get("autoTrail") or {})
     if trail_cfg["enabled"]:
         try:
-            trail_decisions, trail_state_new = _trail_decide(active_pairs, prices, shared_targets, old_trail_state, trail_cfg, now_ms)
+            pullbacks = {f"{c}:{t}": _tier_settings(auto_tiers, t)["trailPct"] for c, t in active_pairs}
+            trail_decisions, trail_state_new = _trail_decide(active_pairs, prices, shared_targets, old_trail_state, trail_cfg, now_ms, pullbacks)
         except Exception as e:
             trail_decisions, trail_state_new = None, {}
             print(f"[trailing] unavailable this cycle: {e}", flush=True)
@@ -894,7 +918,7 @@ def run_auto_trade_check():
         blocked_update = {**_old_blocks, **_new_blocks}
 
     save_update = {
-        "autoActive": {**auto_active, "targets": shared_targets},
+        "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION},
         "autoCooldowns": shared_cooldowns,
     }
     if trail_update is not None:

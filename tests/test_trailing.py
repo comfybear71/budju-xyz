@@ -7,23 +7,25 @@ NOW = 10_000_000_000
 
 
 def test_arms_at_the_sell_level_waits_while_rising_and_sells_on_a_pullback():
-    d, st = step(105.0, 110.0, None, 5, 25, NOW)
+    d, st = step(105.0, 110.0, None, 5, NOW)
     assert d == "none" and st is None                                  # below the sell level: nothing
-    d, st = step(111.0, 110.0, None, 5, 25, NOW)
+    d, st = step(111.0, 110.0, None, 5, NOW)
     assert d == "wait" and st["high"] == 111.0                         # reached it: armed, don't sell yet
-    d, st = step(120.0, 110.0, st, 5, 25, NOW + 1)
+    d, st = step(120.0, 110.0, st, 5, NOW + 1)
     assert d == "wait" and st["high"] == 120.0                         # still running: higher high
-    d, st = step(113.0, 110.0, st, 5, 25, NOW + 2)
+    d, st = step(113.0, 110.0, st, 5, NOW + 2)
     assert d == "sell"                                                 # fell 5.8% from the high: sell now
 
 
-def test_hard_cap_sells_even_while_still_rising():
-    d, _ = step(140.0, 110.0, {"high": 139.0, "at": NOW}, 5, 25, NOW)   # 140 >= 110 * 1.25
+def test_there_is_no_cap_a_coin_that_keeps_climbing_is_left_to_run():
+    d, st = step(3300.0, 110.0, {"high": 3290.0, "at": NOW}, 5, NOW)     # +2900% past the level and still rising
+    assert d == "wait" and st["high"] == 3300.0
+    d, _ = step(3000.0, 110.0, st, 5, NOW + 1)                            # only a pullback from the high sells it
     assert d == "sell"
 
 
 def test_stale_armed_state_is_dropped():
-    d, st = step(100.0, 110.0, {"high": 150.0, "at": NOW - 15 * 24 * 3_600_000}, 5, 25, NOW)
+    d, st = step(100.0, 110.0, {"high": 150.0, "at": NOW - 15 * 24 * 3_600_000}, 5, NOW)
     assert d == "none" and st is None
 
 
@@ -38,6 +40,15 @@ def test_decide_all_is_per_signal():
     cfg = clean_config({"enabled": True})
     dec, st = decide_all([("BTC", 1), ("BTC", 2)], {"BTC": 115.0}, targets, {}, cfg, NOW)
     assert dec == {"BTC:1": "wait", "BTC:2": "none"} and "BTC:1" in st and "BTC:2" not in st
+
+
+def test_each_signal_uses_its_own_pullback():
+    targets = {"BTC:1": {"sell": 100.0}, "BTC:2": {"sell": 100.0}}
+    cfg = clean_config({"enabled": True})
+    armed = {"BTC:1": {"high": 200.0, "at": NOW}, "BTC:2": {"high": 200.0, "at": NOW}}
+    # price 186 is 7% below the 200 high: Tier 1 (5% trail) sells, Tier 2 (8% trail) keeps waiting
+    dec, _ = decide_all([("BTC", 1), ("BTC", 2)], {"BTC": 186.0}, targets, armed, cfg, NOW + 1, pullbacks={"BTC:1": 5.0, "BTC:2": 8.0})
+    assert dec == {"BTC:1": "sell", "BTC:2": "wait"}
 
 
 def test_after_sales_tracks_what_the_price_did_next():
