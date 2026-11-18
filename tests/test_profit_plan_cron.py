@@ -68,3 +68,14 @@ def test_one_time_plan_move_re_anchors_old_sell_levels(env):
     assert abs(saved["autoActive"]["targets"]["BTC:2"]["sell"] - 130000.0) < 1.0
     assert saved["autoActive"]["planVersion"] == 1
     assert any("Profit plan v1" in line for line in result["log"])
+
+
+def test_changing_an_arm_level_moves_existing_sell_levels(env):
+    # plan arms last applied: Tier 2 at +30% (130,000 over a 100,000 reference). The admin has since set it to +40%.
+    st = _state({"BTC:2": {"buy": 40000, "sell": 130000, "setAt": 1}}, tiers=(2,))
+    st["autoActive"]["planArms"] = {"1": 12.5, "2": 30.0, "3": 75.0}
+    st["autoProfitPlan"] = {"2": {"arm": 40.0, "trail": 8.0, "slice": 7.5}}
+    sells, saved, result = _run(env, st, price=60000.0)
+    assert abs(saved["autoActive"]["targets"]["BTC:2"]["sell"] - 140000.0) < 1.0
+    assert saved["autoActive"]["planArms"]["2"] == 40.0
+    assert any("arm level changed" in line for line in result["log"])

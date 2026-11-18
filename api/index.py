@@ -114,6 +114,8 @@ from database import (
     get_lab_search,
     attach_server_prices,
     get_value_history,
+    get_profit_plan,
+    save_profit_plan,
     key_encryption_status,
     take_paper_snapshot,
     get_paper_test,
@@ -791,6 +793,13 @@ class handler(BaseHTTPRequestHandler):
                     return None if v is None else [x.strip().upper() for x in v.split(',') if x.strip()]
                 self._send_json(200, get_offload_preview(_csv('bad'), _csv('targets'), params.get('fresh') == '1'))
 
+            elif path == '/api/admin/profit-plan':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                self._send_json(200, get_profit_plan())
+
             elif path == '/api/admin/trailing':
                 wallet = params.get('wallet')
                 if not wallet or not is_admin(wallet):
@@ -1412,6 +1421,16 @@ class handler(BaseHTTPRequestHandler):
                         self._send_json(200, offload_run.summary(body.get('jobId') or None))
                 except Exception as e:
                     self._send_json(200, {"ok": False, "error": f"{type(e).__name__}: {str(e)[:160]}"})
+
+            elif path == '/api/admin/profit-plan':
+                is_valid, error = _verify_admin(body, self)
+                if not is_valid:
+                    self._send_json(403, {"error": error})
+                    return
+                try:
+                    self._send_json(200, {"ok": True, **save_profit_plan(body.get('tier'), body.get('arm'), body.get('trail'), body.get('slice'), bool(body.get('reset')))})
+                except (TypeError, ValueError) as e:
+                    self._send_json(400, {"error": str(e)})
 
             elif path == '/api/admin/trailing':
                 is_valid, error = _verify_admin(body, self)

@@ -1,12 +1,13 @@
 import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
-import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaSync, FaSave, FaCheck } from "react-icons/fa";
-import { ASSET_CONFIG, loadCoinConfig, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, type PortfolioAsset } from "../services/tradeApi";
+import { FaTimes, FaArrowUp, FaArrowDown, FaStop, FaPlay, FaSync } from "react-icons/fa";
+import { ASSET_CONFIG, loadCoinConfig, syncSwyftxTradesToDB, resetAdminAuthDenied, fetchLiveLeaderboard, fetchProfitPlan, saveProfitPlan, type ProfitPlan, type PortfolioAsset } from "../services/tradeApi";
 import { AutoTrader, TIER_CONFIG, compoundKey, type RecentTrade, type TierSettings } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import BotStatusBanner from "./BotStatusBanner";
 import CoinScout from "./CoinScout";
+import TierCard from "./TierCard";
 import CoinTierGrid from "./CoinTierGrid";
 import TrailingTakeProfit from "./TrailingTakeProfit";
 
@@ -190,8 +191,10 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
   const sellCount24h = recentTrades.filter((e) => e.side === "SELL").length;
 
   const [tierError, setTierError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<Record<number, "idle" | "saving" | "saved" | "error">>({});
-  const [saveError, setSaveError] = useState<Record<number, string>>({});
+  const [profitPlan, setProfitPlan] = useState<ProfitPlan | null>(null);
+  useEffect(() => {
+    void fetchProfitPlan(adminWallet).then(setProfitPlan);
+  }, [adminWallet]);
 
   const handleStartTier = async (tierNum: number) => {
     setStartingTier(tierNum);
@@ -212,39 +215,22 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
     autoTrader.overrideCooldowns(tierNum);
   };
 
-  const handleUpdateDeviation = (tierNum: number, deviation: number) => {
-    autoTrader.updateTierSettings(tierNum, { deviation });
-    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
-  };
-
-  const handleUpdateAllocation = (tierNum: number, allocation: number) => {
-    autoTrader.updateTierSettings(tierNum, { allocation });
-    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
-  };
-
-  const handleUpdateSellDeviation = (tierNum: number, sellDeviation: number) => {
-    autoTrader.updateTierSettings(tierNum, { sellDeviation });
-    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
-  };
-
-  const handleUpdateCooldown = (tierNum: number, cooldownHours: number) => {
-    autoTrader.updateTierSettings(tierNum, { cooldownHours });
-    setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" }));
-  };
-
-  const handleSaveSettings = async (tierNum: number) => {
-    setSaveStatus((prev) => ({ ...prev, [tierNum]: "saving" }));
-    setSaveError((prev) => ({ ...prev, [tierNum]: "" }));
-    resetAdminAuthDenied(); // Reset denied state so retry prompts for signature again
-    const result = await autoTrader.saveTierSettingsForTier(tierNum);
-    if (result.ok) {
-      setSaveStatus((prev) => ({ ...prev, [tierNum]: "saved" }));
-      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 3000);
-    } else {
-      setSaveStatus((prev) => ({ ...prev, [tierNum]: "error" }));
-      setSaveError((prev) => ({ ...prev, [tierNum]: result.error || "Unknown error" }));
-      setTimeout(() => setSaveStatus((prev) => ({ ...prev, [tierNum]: "idle" })), 6000);
+  const handleSaveTier = async (tierNum: number, edit: { deviation: number; allocation: number; cooldownHours: number; arm: number; trail: number; slice: number }) => {
+    resetAdminAuthDenied(); // Reset denied state so a retry prompts for the signature again
+    const cur = autoTrader.getTierSettings(tierNum);
+    const buyChanged = edit.deviation !== cur.deviation || edit.allocation !== cur.allocation || edit.cooldownHours !== (cur.cooldownHours || 24);
+    if (buyChanged) {
+      autoTrader.updateTierSettings(tierNum, { deviation: edit.deviation, allocation: edit.allocation, cooldownHours: edit.cooldownHours });
+      const r = await autoTrader.saveTierSettingsForTier(tierNum);
+      if (!r.ok) return { ok: false, error: r.error };
     }
+    const cur2 = profitPlan?.plan[String(tierNum)];
+    if (!cur2 || edit.arm !== cur2.arm || edit.trail !== cur2.trail || edit.slice !== cur2.slice) {
+      const saved = await saveProfitPlan(adminWallet, { tier: tierNum, arm: edit.arm, trail: edit.trail, slice: edit.slice });
+      if (!saved) return { ok: false, error: "Couldn't save the profit-taking numbers" };
+      setProfitPlan(saved);
+    }
+    return { ok: true };
   };
 
   const handleSyncTrades = async () => {
@@ -349,207 +335,26 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 snap-x md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0"
           style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
         >
-          {tiers.map((tier) => {
-            const hasCooldowns = tier.coins.some((coin) => autoTrader._isOnCooldown(compoundKey(coin, tier.num)));
-
-            return (
-              <div
-                key={tier.num}
-                className="flex-shrink-0 rounded-xl p-4 snap-start w-[min(300px,85vw)] md:w-auto md:min-w-0 md:flex-shrink"
-                style={{
-                  background: `${tier.cfg.color}10`,
-                  border: `1px solid ${tier.cfg.color}25`,
-                }}
-              >
-                {/* Tier title + targets + ACTIVE badge */}
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <span className="text-[14px] font-bold" style={{ color: tier.cfg.color }}>
-                      T{tier.num} – {tier.cfg.name}
-                    </span>
-                    <div className="text-[10px] text-slate-500 mt-0.5">
-                      -{tier.settings.deviation}% buy · +{tier.settings.sellDeviation || tier.settings.deviation * 2}% sell · {tier.settings.allocation}% alloc · {tier.settings.cooldownHours || 24}h cd
-                    </div>
-                  </div>
-                  <span
-                    className="text-[9px] font-bold px-2 py-0.5 rounded-lg"
-                    style={{
-                      background: tier.active ? "rgba(34,197,94,0.15)" : "rgba(100,116,139,0.15)",
-                      color: tier.active ? "#22c55e" : "#64748b",
-                    }}
-                  >
-                    {tier.active ? "ACTIVE" : "INACTIVE"}
-                  </span>
-                </div>
-
-                {/* Coin count (coins are switched on/off in "Coin tiers" above) */}
-                <div className="mb-3 text-[10px] font-bold" style={{ color: tier.cfg.color }}>
-                  {tier.coins.length} coins
-                </div>
-
-                {/* Buy Dev + Sell Dev + Alloc sliders */}
-                <div className="mb-3 space-y-2">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Buy Deviation</span>
-                      <span className="text-[10px] font-bold text-green-400">-{tier.settings.deviation}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="15"
-                      step="0.5"
-                      value={tier.settings.deviation}
-                      onChange={(e) => handleUpdateDeviation(tier.num, parseFloat(e.target.value))}
-                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                      style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.deviation - 1) / 14) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.deviation - 1) / 14) * 100}%)` }}
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Sell Deviation</span>
-                      <span className="text-[10px] font-bold text-red-400">+{tier.settings.sellDeviation || tier.settings.deviation * 2}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="2"
-                      max="20"
-                      step="0.5"
-                      value={tier.settings.sellDeviation || tier.settings.deviation * 2}
-                      onChange={(e) => handleUpdateSellDeviation(tier.num, parseFloat(e.target.value))}
-                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                      style={{ background: `linear-gradient(to right, #ef4444 ${(((tier.settings.sellDeviation || tier.settings.deviation * 2) - 2) / 18) * 100}%, rgba(255,255,255,0.1) ${(((tier.settings.sellDeviation || tier.settings.deviation * 2) - 2) / 18) * 100}%)` }}
-                    />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-[10px] text-slate-500">Allocation</span>
-                      <span className="text-[10px] font-bold text-green-400">{tier.settings.allocation}%</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="1"
-                      max="20"
-                      step="1"
-                      value={tier.settings.allocation}
-                      onChange={(e) => handleUpdateAllocation(tier.num, parseFloat(e.target.value))}
-                      className="w-full h-1.5 rounded-full appearance-none cursor-pointer"
-                      style={{ background: `linear-gradient(to right, #22c55e ${((tier.settings.allocation - 1) / 19) * 100}%, rgba(255,255,255,0.1) ${((tier.settings.allocation - 1) / 19) * 100}%)` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Cooldown selector */}
-                <div className="mb-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-slate-500">Cooldown</span>
-                    <span className="text-[10px] font-bold text-amber-400">{tier.settings.cooldownHours || 24}h</span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    {[6, 12, 24].map((h) => (
-                      <button
-                        key={h}
-                        onClick={() => handleUpdateCooldown(tier.num, h)}
-                        className="flex-1 py-1.5 rounded-lg text-[10px] font-bold transition-all"
-                        style={{
-                          background: (tier.settings.cooldownHours || 24) === h
-                            ? "rgba(245,158,11,0.2)"
-                            : "rgba(255,255,255,0.04)",
-                          border: `1px solid ${(tier.settings.cooldownHours || 24) === h
-                            ? "rgba(245,158,11,0.4)"
-                            : "rgba(255,255,255,0.08)"}`,
-                          color: (tier.settings.cooldownHours || 24) === h ? "#f59e0b" : "#64748b",
-                        }}
-                      >
-                        {h}h
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Save Settings button */}
-                <div className="mb-3">
-                  {(() => {
-                    const status = saveStatus[tier.num] || "idle";
-                    return (
-                      <button
-                        onClick={() => handleSaveSettings(tier.num)}
-                        disabled={status === "saving"}
-                        className="w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
-                        style={{
-                          background: status === "saved" ? "rgba(34,197,94,0.2)" :
-                                      status === "error" ? "rgba(239,68,68,0.2)" :
-                                      status === "saving" ? "rgba(59,130,246,0.15)" :
-                                      "rgba(59,130,246,0.2)",
-                          border: `1px solid ${
-                            status === "saved" ? "rgba(34,197,94,0.4)" :
-                            status === "error" ? "rgba(239,68,68,0.4)" :
-                            "rgba(59,130,246,0.4)"
-                          }`,
-                          color: status === "saved" ? "#22c55e" :
-                                 status === "error" ? "#ef4444" :
-                                 "#3b82f6",
-                        }}
-                      >
-                        {status === "saving" ? (
-                          <>Saving...</>
-                        ) : status === "saved" ? (
-                          <><FaCheck size={10} /> Saved to DB</>
-                        ) : status === "error" ? (
-                          <>Failed: {saveError[tier.num] || "Unknown"} — Tap to Retry</>
-                        ) : (
-                          <><FaSave size={10} /> Save Settings</>
-                        )}
-                      </button>
-                    );
-                  })()}
-                </div>
-
-                {/* Start / Stop / Override buttons */}
-                <div className="flex gap-2">
-                  {!tier.active ? (
-                    <button
-                      onClick={() => handleStartTier(tier.num)}
-                      disabled={startingTier === tier.num}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                      style={{ background: startingTier === tier.num ? "#64748b" : "#22c55e", color: "#fff" }}
-                    >
-                      {startingTier === tier.num ? "Starting..." : "Start"}
-                    </button>
-                  ) : hasCooldowns ? (
-                    <>
-                      <button
-                        onClick={() => handleStopTier(tier.num)}
-                        className="flex-[3] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                        style={{ background: "#ef4444", color: "#fff" }}
-                      >
-                        Stop
-                      </button>
-                      <button
-                        onClick={() => handleOverrideCooldowns(tier.num)}
-                        className="flex-[2] py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                        style={{
-                          background: "rgba(239,68,68,0.12)",
-                          border: "1px solid rgba(239,68,68,0.3)",
-                          color: "#ef4444",
-                        }}
-                      >
-                        Override
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => handleStopTier(tier.num)}
-                      className="w-full py-2.5 rounded-xl text-xs font-bold transition-all text-center"
-                      style={{ background: "#ef4444", color: "#fff" }}
-                    >
-                      Stop
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {tiers.map((tier) => (
+            <TierCard
+              key={tier.num}
+              num={tier.num}
+              name={tier.cfg.name}
+              color={tier.cfg.color}
+              active={tier.active}
+              coins={tier.coins.length}
+              deviation={tier.settings.deviation}
+              allocation={tier.settings.allocation}
+              cooldownHours={tier.settings.cooldownHours || 24}
+              plan={profitPlan?.plan[String(tier.num)] ?? null}
+              hasCooldowns={tier.coins.some((coin) => autoTrader._isOnCooldown(compoundKey(coin, tier.num)))}
+              starting={startingTier === tier.num}
+              onStart={() => handleStartTier(tier.num)}
+              onStop={() => handleStopTier(tier.num)}
+              onOverride={() => handleOverrideCooldowns(tier.num)}
+              onSave={(edit) => handleSaveTier(tier.num, edit)}
+            />
+          ))}
         </div>
 
         {/* ── Monitoring header ── */}

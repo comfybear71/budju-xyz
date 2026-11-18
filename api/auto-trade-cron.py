@@ -44,7 +44,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
-from profit_plan import PLAN_VERSION, plan_for, size_sell
+from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
+
+DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
 from database import (
     user_exchange_keys_collection,
     decrypt_secret,
@@ -815,6 +817,24 @@ def run_auto_trade_check():
                 continue
         if moved:
             log.append(f"Profit plan v{PLAN_VERSION}: re-anchored {moved} sell levels (arm +12.5% / +30% / +75%)")
+    # When an arm level is changed on the Tier screen, move that tier's existing sell levels the same way (same reference, new distance).
+    applied_arms = auto_active.get("planArms") if isinstance(auto_active.get("planArms"), dict) else {}
+    current_arms = {str(t): plan_for(t, _PLAN_OVERRIDE)["arm"] for t in (1, 2, 3)}
+    changed = {t: (float(applied_arms.get(t, DEFAULT_ARMS[t])), current_arms[t]) for t in current_arms if abs(float(applied_arms.get(t, DEFAULT_ARMS[t])) - current_arms[t]) > 1e-9}
+    if changed and auto_active.get("planVersion") == PLAN_VERSION:
+        shifted = 0
+        for ck, tgt in list(shared_targets.items()):
+            try:
+                t = str(ck).split(":")[1]
+                if t in changed and float(tgt.get("sell", 0) or 0) > 0:
+                    old_arm, new_arm = changed[t]
+                    ref = float(tgt["sell"]) / (1 + old_arm / 100)
+                    shared_targets[ck] = {**tgt, "sell": ref * (1 + new_arm / 100)}
+                    shifted += 1
+            except (IndexError, ValueError, TypeError):
+                continue
+        if shifted:
+            log.append(f"Profit plan: arm level changed — moved {shifted} sell levels ({', '.join(f'T{t}: +{a:g}% → +{b:g}%' for t, (a, b) in sorted(changed.items()))})")
     fired = {}  # "BTC:1" -> {"side", "price", "settings"} — ratcheted once, after all wallets
 
     # One-time catch-up for wallets that missed buys the admin wallet already
@@ -918,7 +938,7 @@ def run_auto_trade_check():
         blocked_update = {**_old_blocks, **_new_blocks}
 
     save_update = {
-        "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION},
+        "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
         "autoCooldowns": shared_cooldowns,
     }
     if trail_update is not None:

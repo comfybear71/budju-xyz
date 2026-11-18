@@ -14,13 +14,12 @@ const TrailingTakeProfit = ({ wallet }: { wallet: string }) => {
     setOpen(next);
     if (next && !data) void load();
   };
-  const change = async (c: { enabled?: boolean; pullbackPct?: number; capPct?: number }, text: string) => {
+  const change = async (c: { enabled?: boolean }, text: string) => {
     const r = await saveTrailing(wallet, c);
     if (r) { setData(r); setMsg(`✅ ${text}`); } else setMsg("⛔ Couldn't save — try again");
   };
 
   const cfg = data?.config;
-  const pill = (active: boolean) => ({ background: active ? "rgba(59,130,246,0.3)" : "rgba(255,255,255,0.05)", color: active ? "#93c5fd" : "#94a3b8" });
 
   return (
     <div className="rounded-xl" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -31,31 +30,19 @@ const TrailingTakeProfit = ({ wallet }: { wallet: string }) => {
       {open && (
         <div className="px-3 pb-3">
           <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
-            Normally the bot sells its slice the moment a coin reaches its sell level (+12.5% / +15% / +20%). With this ON it <b>keeps watching instead</b>: if the coin keeps climbing it waits,
-            and sells only when the price falls back from its high by the pullback below — or when it has run past the sell level by the cap. The <b>size of the sale is unchanged</b>
-            (each tier's own slice) and it never sells below your average cost. Applies to every tier and every wallet. <b>OFF until you switch it on.</b>
+            Master switch for profit-taking. With it <b>ON</b>, a tier doesn't sell the moment a coin reaches its start level — it keeps watching, and sells that tier's slice only
+            when the price falls back from its high by <b>that tier's own trail</b> (set on each tier card above). There is <b>no "sell anyway" cap</b>: a coin that keeps climbing is left to run.
+            With it <b>OFF</b>, each tier sells its slice as soon as its start level is reached. It never sells below your average cost, and applies to every wallet.
           </p>
           {cfg && (
             <>
               <button
-                onClick={() => change({ enabled: !cfg.enabled }, cfg.enabled ? "Switched OFF — sells happen at the sell level as before" : "Switched ON — sales now wait for a pullback")}
+                onClick={() => change({ enabled: !cfg.enabled }, cfg.enabled ? "Switched OFF — each tier sells as soon as its start level is reached" : "Switched ON — sales now wait for each tier's pullback")}
                 className="px-3 py-1.5 rounded-lg text-xs font-bold mb-3"
                 style={{ background: cfg.enabled ? "rgba(34,197,94,0.25)" : "rgba(255,255,255,0.08)", color: cfg.enabled ? "#4ade80" : "#cbd5e1" }}
               >
                 {cfg.enabled ? "ON — tap to switch off" : "OFF — tap to switch on"}
               </button>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Sell when it falls back this far from its high</div>
-              <div className="flex gap-1.5 mb-3">
-                {[3, 5, 8, 12].map((v) => (
-                  <button key={v} onClick={() => change({ pullbackPct: v }, `Pullback set to ${v}%`)} className="px-2.5 py-1.5 rounded-lg text-xs font-bold" style={pill(cfg.pullbackPct === v)}>{v}%</button>
-                ))}
-              </div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1">Sell anyway if it runs this far past the sell level</div>
-              <div className="flex gap-1.5 mb-2">
-                {[15, 25, 40, 80].map((v) => (
-                  <button key={v} onClick={() => change({ capPct: v }, `Cap set to ${v}%`)} className="px-2.5 py-1.5 rounded-lg text-xs font-bold" style={pill(cfg.capPct === v)}>{v}%</button>
-                ))}
-              </div>
               {msg && <div className="text-xs text-slate-200 rounded-lg px-2 py-1.5 mb-2" style={{ background: "rgba(255,255,255,0.08)" }}>{msg}</div>}
               <div className="text-[11px] text-slate-400">
                 {data && data.armed.length > 0

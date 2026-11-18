@@ -2785,6 +2785,23 @@ export async function fetchPaperTest(wallet: string, snapshot = false): Promise<
 }
 
 
+export interface ProfitPlan { version: number; plan: Record<string, { arm: number; trail: number; slice: number }>; defaults: Record<string, { arm: number; trail: number; slice: number }> }
+export async function fetchProfitPlan(wallet: string): Promise<ProfitPlan | null> {
+  const r = await adminGet("/api/admin/profit-plan", wallet);
+  return r && r.plan ? (r as ProfitPlan) : null;
+}
+export async function saveProfitPlan(wallet: string, change: { tier?: number; arm?: number; trail?: number; slice?: number; reset?: boolean }): Promise<ProfitPlan | null> {
+  try {
+    const res = await fetch("/api/admin/profit-plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ adminWallet: wallet, ...change }),
+    });
+    return res.ok ? ((await res.json()) as ProfitPlan) : null;
+  } catch {
+    return null;
+  }
+}
 export interface TrailingOverview { config: { enabled: boolean; pullbackPct: number; capPct: number }; armed: { signal: string; high: number; since: number }[] }
 export async function fetchTrailing(wallet: string): Promise<TrailingOverview | null> {
   const r = await adminGet("/api/admin/trailing", wallet);
