@@ -406,6 +406,13 @@ class handler(BaseHTTPRequestHandler):
                     state["botStatus"] = compute_bot_status(state)
                 except Exception as e:
                     state["botStatus"] = {"level": "warn", "messages": [f"Status check failed: {e}"], "lastRunAgo": None}
+                try:
+                    # The profit-taking numbers in force (start level / trail / slice per tier) — public, like the tier settings.
+                    from profit_plan import plan_for
+                    overrides = state.get("autoProfitPlan")
+                    state["profitPlan"] = {str(t): plan_for(t, overrides if isinstance(overrides, dict) else None) for t in (1, 2, 3)}
+                except Exception as e:
+                    print(f"[state] profit plan unavailable: {e}")
                 self._send_json(200, state)
 
             elif path == '/api/pool/allocations':

@@ -5,6 +5,7 @@ import { FaTimes, FaArrowUp, FaArrowDown, FaChevronRight, FaChevronDown } from "
 import { fetchTraderState, fetchCoinStats, ASSET_CONFIG, type PortfolioAsset } from "../services/tradeApi";
 import { TIER_CONFIG } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
+import TierCard from "./TierCard";
 
 interface Props {
   isOpen: boolean;
@@ -358,6 +359,34 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     })}
                   </div>
 
+                  {/* How the bot trades right now (read-only) */}
+                  {state?.profitPlan && (
+                    <div
+                      className="flex gap-3 overflow-x-auto pb-2 mb-3 -mx-1 px-1 snap-x md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0"
+                      style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+                    >
+                      {[1, 2, 3].map((n) => {
+                        const td = (state.autoTierAssets || {})[`tier${n}`] || {};
+                        const meta = TIER_CONFIG[n];
+                        return (
+                          <TierCard
+                            key={n}
+                            readOnly
+                            num={n}
+                            name={meta?.name || `Tier ${n}`}
+                            color={meta?.color || "#a855f7"}
+                            active={(grouped[`tier${n}`] || []).some((c: any) => c.isTierActive)}
+                            coins={(grouped[`tier${n}`] || []).length}
+                            deviation={Number(td.deviation) || 0}
+                            allocation={Number(td.allocation) || 0}
+                            cooldownHours={Number((td as any).cooldownHours) || 24}
+                            plan={state.profitPlan?.[String(n)] ?? null}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
                   {/* Monitoring count banner with countdown */}
                   <div className="rounded-lg p-2 mb-3 flex items-center justify-between" style={{ background: "rgba(168,85,247,0.1)" }}>
                     <span className="text-[10px] font-bold text-slate-300">
@@ -402,6 +431,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                         dev={dev}
                         sellDev={sellDev}
                         alloc={alloc}
+                        plan={state?.profitPlan?.[String(tierNum)] ?? null}
                       >
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };

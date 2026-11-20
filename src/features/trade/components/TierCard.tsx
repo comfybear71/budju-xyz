@@ -13,12 +13,14 @@ interface Props {
   allocation: number;
   cooldownHours: number;
   plan: TierPlan | null;
-  hasCooldowns: boolean;
-  starting: boolean;
-  onStart: () => void;
-  onStop: () => void;
-  onOverride: () => void;
-  onSave: (edit: TierEdit) => Promise<{ ok: boolean; error?: string }>;
+  /** Read-only view for members: no Start/Stop and no editing */
+  readOnly?: boolean;
+  hasCooldowns?: boolean;
+  starting?: boolean;
+  onStart?: () => void;
+  onStop?: () => void;
+  onOverride?: () => void;
+  onSave?: (edit: TierEdit) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const Slider = ({ label, value, min, max, step, unit, onChange }: { label: string; value: number; min: number; max: number; step: number; unit: string; onChange: (v: number) => void }) => (
@@ -48,7 +50,7 @@ const TierCard = (p: Props) => {
   const save = async () => {
     if (buyChanged && !window.confirm(`Changing the dip % moves the buy levels of ${p.coins} coins in this tier to today's price. Continue?`)) return;
     setBusy(true);
-    const r = await p.onSave(d);
+    const r = p.onSave ? await p.onSave(d) : { ok: false, error: "Read-only" };
     setBusy(false);
     if (r.ok) {
       setMsg("✅ Saved");
@@ -113,7 +115,7 @@ const TierCard = (p: Props) => {
 
       {msg && <div className="text-[11px] text-slate-200 mt-2">{msg}</div>}
 
-      <div className="flex gap-2 mt-3">
+      {!p.readOnly && <div className="flex gap-2 mt-3">
         {!p.active ? (
           <button onClick={p.onStart} disabled={p.starting} className="flex-1 py-2.5 rounded-xl text-xs font-bold" style={{ background: p.starting ? "#64748b" : "#22c55e", color: "#fff" }}>
             {p.starting ? "Starting..." : "Start"}
@@ -126,7 +128,7 @@ const TierCard = (p: Props) => {
             🔒 Unlock to edit
           </button>
         )}
-      </div>
+      </div>}
       {editing && p.active && p.hasCooldowns && (
         <button onClick={p.onOverride} className="w-full mt-2 py-1.5 rounded-lg text-[10px] font-bold text-red-300" style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)" }}>
           Advanced: clear this tier's cooldown timers
