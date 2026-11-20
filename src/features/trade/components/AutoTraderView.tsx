@@ -607,6 +607,10 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                 <div className="w-full h-2 rounded-full mb-1.5 relative overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
                                   {/* Center tick mark */}
                                   <div className="absolute top-0 bottom-0 w-px" style={{ left: "50%", background: "rgba(255,255,255,0.25)", zIndex: 2 }} />
+                        {/* Price is at/below the buy price: pulsing cap on the left end */}
+                        {item.buyTrigger > 0 && item.currentPrice > 0 && item.currentPrice <= item.buyTrigger && (
+                          <div className="absolute top-0 bottom-0 left-0 w-2 rounded-l-full animate-pulse" style={{ background: "#bbf7d0", boxShadow: "0 0 10px #22c55e", zIndex: 3 }} title="Below the buy price" />
+                        )}
                                   {direction <= 0 ? (
                                     /* Buy side: bar grows LEFT from center */
                                     <div
