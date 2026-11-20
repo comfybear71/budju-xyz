@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
+from buy_order import order_pairs
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
 
 DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
@@ -389,6 +390,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     catchup_limits = ctx.get("catchupLimits", {})
     catchup_done = []
     trade_log = state.get("tradeLog", [])
+    # Deepest discount first, so limited cash goes to the biggest bargains.
+    active_pairs = order_pairs(active_pairs, prices, targets)
 
     # Settlement guard — let a just-executed trade's balance change settle
     # before this wallet trades again this cycle. Per-wallet now (each
