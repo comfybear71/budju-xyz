@@ -278,3 +278,11 @@ class TestPaperTrialMembersOnly:
     def test_starting_the_trial_stays_admin_only(self):
         ok, status, _ = sa.check_request("GET", "/api/admin/lab-trial", {"wallet": USERW, "start": "1"}, {}, hdr(USERW), A, now_ms=NOW + 1, is_member=lambda w: True)
         assert (ok, status) == (False, 403)
+
+
+class TestMarketMoodMembersOnly:
+    def test_member_only_route(self):
+        call = lambda auth, member: sa.check_request("GET", "/api/community/market-mood", {"wallet": USERW}, {}, auth, A, now_ms=NOW + 1, is_member=lambda w: member)
+        assert sa.check_request("GET", "/api/community/market-mood", {}, {}, None, A, now_ms=NOW + 1)[1] == 401
+        assert call(hdr(USERW), True)[0] is True
+        assert call(hdr(USERW), False)[1] == 403

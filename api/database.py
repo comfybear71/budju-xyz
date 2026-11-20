@@ -4816,6 +4816,64 @@ def _lab_series() -> Dict[str, List[float]]:
     return {c: v for c, v in stored.items() if c in tradable and c not in ("ENA", "PEPE", "LUNA", "LUNC")}
 
 
+market_mood_log_collection = db["market_mood_log"]
+_MOOD_CACHE = {"at": 0.0, "data": None}
+_FEAR_GREED_CACHE = {"at": 0.0, "value": None}
+
+
+def _fear_greed_value() -> Optional[int]:
+    """Fear & Greed index (0-100) from alternative.me — cached 6 hours; None if the site can't be reached."""
+    now = time.time()
+    if _FEAR_GREED_CACHE["value"] is not None and now - _FEAR_GREED_CACHE["at"] < 6 * 3600:
+        return _FEAR_GREED_CACHE["value"]
+    try:
+        req = Request("https://api.alternative.me/fng/?limit=1", headers={"Accept": "application/json"})
+        with urlopen(req, timeout=5) as resp:
+            value = int(json.loads(resp.read().decode())["data"][0]["value"])
+        _FEAR_GREED_CACHE.update({"at": now, "value": value})
+        return value
+    except Exception as e:
+        print(f"[mood] fear & greed unavailable: {e}")
+        return _FEAR_GREED_CACHE["value"]      # an older reading is better than none
+
+
+def get_market_mood(force: bool = False) -> Dict:
+    """The traffic light for 'is it a good time to add USDC?'. Cached 10 minutes; one reading per hour is kept as a forward record."""
+    from market_mood import classify, count_waiting
+    now = time.time()
+    if not force and _MOOD_CACHE["data"] and now - _MOOD_CACHE["at"] < 600:
+        return _MOOD_CACHE["data"]
+    series = _lab_series()
+    btc = series.get("BTC") or []
+    state = get_trader_state()
+    active = state.get("autoActive") if isinstance(state.get("autoActive"), dict) else {}
+    assignments = state.get("autoTierAssignments") or {}
+    prices = get_prices_for_coins(sorted(assignments)) if assignments else {}
+    now_ms = int(now * 1000)
+    skip = set(retired_coin_codes()) | set(recent_untradable())
+    skip |= {c for c, u in (state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
+    waiting = count_waiting(assignments, active.get("tierActive") or {}, active.get("targets") or {}, state.get("autoCooldowns") or {}, prices, skip, now_ms)
+
+    before = None
+    try:
+        since_hi, since_lo = datetime.utcnow() - timedelta(hours=22), datetime.utcnow() - timedelta(hours=30)
+        doc = market_mood_log_collection.find_one({"at": {"$lte": since_hi, "$gte": since_lo}}, sort=[("at", -1)])
+        before = doc.get("waiting") if doc else None
+    except Exception as e:
+        print(f"[mood] earlier reading unavailable: {e}")
+
+    out = classify(btc, series, _fear_greed_value(), waiting, before)
+    out["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    _MOOD_CACHE.update({"at": now, "data": out})
+    try:
+        hour = datetime.utcnow().strftime("%Y%m%d%H")
+        market_mood_log_collection.update_one({"_id": hour}, {"$setOnInsert": {
+            "at": datetime.utcnow(), "state": out["state"], "waiting": out["waiting"], "activeSignals": out["activeSignals"], "inputs": out["inputs"]}}, upsert=True)
+    except Exception as e:
+        print(f"[mood] could not log: {e}")
+    return out
+
+
 def get_accum_lab(params: Dict, coin: str = "ALL") -> Dict:
     """Accumulation Lab: YOUR setup (all coins averaged, or one coin with its trades) plus the preset ideas as a comparison. Read-only."""
     from accum_lab import run_custom, run_lab, clamp
