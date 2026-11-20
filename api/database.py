@@ -4850,7 +4850,7 @@ def get_market_mood(force: bool = False) -> Dict:
     assignments = state.get("autoTierAssignments") or {}
     prices = get_prices_for_coins(sorted(assignments)) if assignments else {}
     now_ms = int(now * 1000)
-    skip = set(retired_coin_codes()) | set(recent_untradable())
+    skip = set(retired_coin_codes())
     skip |= {c for c, u in (state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
     waiting = count_waiting(assignments, active.get("tierActive") or {}, active.get("targets") or {}, state.get("autoCooldowns") or {}, prices, skip, now_ms)
 
