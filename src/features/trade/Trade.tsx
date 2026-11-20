@@ -675,10 +675,14 @@ const Trade = () => {
                 return (
                 <div className="relative rounded-2xl border border-white/[0.06] bg-[#0f172a]/60 backdrop-blur-sm p-4">
                   {/* Top-left: contextual count (assets for Mine, users for Pool) */}
-                  <div className="absolute top-3 left-4 z-10 flex flex-col items-start gap-1">
-                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{cornerLabel}</div>
-                    {isConnected && <MarketMoodChip wallet={walletAddress} />}
+                  <div className="absolute top-3 left-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    {cornerLabel}
                   </div>
+                  {isConnected && (
+                    <div className="flex justify-center pt-5 pb-1">
+                      <MarketMoodChip wallet={walletAddress} />
+                    </div>
+                  )}
 
                   {/* Top-right: slim, single-column Mine/Pool toggle — any connected wallet */}
                   {isConnected && (

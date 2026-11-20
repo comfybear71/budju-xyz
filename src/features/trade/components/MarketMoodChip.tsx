@@ -27,14 +27,14 @@ const MarketMoodChip = ({ wallet }: { wallet: string }) => {
   const trend = mood.waitingBefore != null && mood.waitingBefore !== w ? ` (${w > mood.waitingBefore ? "up" : "down"} from ${mood.waitingBefore})` : "";
 
   return (
-    <div className="relative normal-case tracking-normal">
+    <div className="relative normal-case tracking-normal flex flex-col items-center">
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-slate-200 leading-none"
         style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)" }}>
         <span>{mood.emoji}</span><span>{mood.label}</span>
       </button>
-      <div className="text-[9px] text-slate-500 mt-0.5 pl-1">{w} buy{w === 1 ? "" : "s"} waiting for cash{trend}</div>
+      <div className="text-[10px] text-slate-500 mt-0.5">{w} buy{w === 1 ? "" : "s"} waiting for cash{trend}</div>
       {open && (
-        <div className="absolute left-0 top-7 z-20 w-[min(300px,80vw)] rounded-xl p-3 text-[11px] text-slate-300 leading-relaxed shadow-xl"
+        <div className="absolute left-1/2 -translate-x-1/2 top-9 z-20 w-[min(320px,86vw)] rounded-xl p-3 text-[11px] text-slate-300 leading-relaxed shadow-xl"
           style={{ background: "#0f172a", border: "1px solid rgba(255,255,255,0.12)" }}>
           <div className="font-bold text-slate-100 mb-1">{mood.emoji} {mood.label}</div>
           <p className="mb-2">{mood.advice}</p>
