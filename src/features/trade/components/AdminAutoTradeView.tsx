@@ -634,7 +634,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                                 : isHot ? "#f97316"
                                 : "#64748b",
                             }}>
-                              {nearestPct.toFixed(1)}% to {nearestSide}
+                              {nearestSide === "buy" && pctToBuy < 0 ? `${((item.buyTrigger - item.currentPrice) / item.buyTrigger * 100).toFixed(1)}% below buy price` : `${nearestPct.toFixed(1)}% to ${nearestSide}`}
                             </span>
                             {estAmount > 0 && (
                               <span className="text-[9px] font-mono" style={{

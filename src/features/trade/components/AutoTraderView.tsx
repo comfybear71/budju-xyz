@@ -662,7 +662,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                                         : isHot ? "#f97316"
                                         : "#64748b",
                                     }}>
-                                      {nearestPct.toFixed(1)}% to {nearestSide}
+                                      {nearestSide === "buy" && pctToBuy < 0 ? `${((item.buyTrigger - item.currentPrice) / item.buyTrigger * 100).toFixed(1)}% below buy price` : `${nearestPct.toFixed(1)}% to ${nearestSide}`}
                                     </span>
                                   </div>
                                 ) : null}
