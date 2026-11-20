@@ -114,6 +114,7 @@ from database import (
     get_lab_search,
     attach_server_prices,
     get_value_history,
+    get_market_mood,
     get_profit_plan,
     save_profit_plan,
     key_encryption_status,
@@ -868,6 +869,10 @@ class handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     sc, tu = 10000.0, 1000.0
                 self._send_json(200, get_lab_trial(params.get('start') == '1', sc, tu))
+
+            elif path == '/api/community/market-mood':
+                # "Is it a good time to add USDC?" — members and admins only (the pass check is done up front).
+                self._send_json(200, get_market_mood())
 
             elif path == '/api/community/paper-trial':
                 # Read-only paper-trial results for members and admins (the pass check is done up front). Never starts a trial.
