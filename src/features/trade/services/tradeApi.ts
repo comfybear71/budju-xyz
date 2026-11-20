@@ -104,6 +104,8 @@ export interface TraderState {
     timestamp: string;
   }>;
   currentAutoTier?: string;
+  /** Profit-taking numbers per tier ("1".."3"): start level, trailing pullback and slice size */
+  profitPlan?: Record<string, { arm: number; trail: number; slice: number }>;
   /** Raw autoActive object from server for safe merging on save */
   _rawAutoActive?: any;
 }
@@ -822,6 +824,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         autoCooldowns: data.autoCooldowns || {},
         autoTradeLog: tradeLog,
         currentAutoTier: data.currentAutoTier,
+        profitPlan: data.profitPlan,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch (err) {

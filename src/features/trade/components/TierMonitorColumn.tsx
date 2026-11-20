@@ -17,6 +17,8 @@ interface Props {
   sellDev: number;
   /** Allocation % */
   alloc: number;
+  /** Profit-taking numbers for this tier; when given, the row shows them instead of the old sell deviation */
+  plan?: { arm: number; trail: number; slice: number } | null;
   /** Coin cards for this tier */
   children: ReactNode;
 }
@@ -42,6 +44,7 @@ const TierMonitorColumn = ({
   dev,
   sellDev,
   alloc,
+  plan,
   children,
 }: Props) => {
   return (
@@ -77,10 +80,18 @@ const TierMonitorColumn = ({
       </div>
 
       {/* Tier settings summary row */}
-      <div className="flex gap-2 text-[9px] px-3 py-1.5" style={{ borderBottom: `1px solid ${tierColor}20` }}>
+      <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] px-3 py-1.5" style={{ borderBottom: `1px solid ${tierColor}20` }}>
         <span className="text-slate-500">Buy <span className="font-bold text-green-400">-{dev}%</span></span>
-        <span className="text-slate-500">Sell <span className="font-bold text-red-400">+{sellDev}%</span></span>
-        <span className="text-slate-500">Alloc <span className="font-bold text-blue-400">{alloc}%</span></span>
+        <span className="text-slate-500">Spend <span className="font-bold text-blue-400">{alloc}%</span></span>
+        {plan ? (
+          <>
+            <span className="text-slate-500">Start <span className="font-bold text-red-400">+{plan.arm}%</span></span>
+            <span className="text-slate-500">Trail <span className="font-bold text-red-400">{plan.trail}%</span></span>
+            <span className="text-slate-500">Sell <span className="font-bold text-red-400">{plan.slice}%</span></span>
+          </>
+        ) : (
+          <span className="text-slate-500">Sell <span className="font-bold text-red-400">+{sellDev}%</span></span>
+        )}
       </div>
 
       {/* Coin cards (scroll vertically inside the column) */}

@@ -394,6 +394,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
               dev={tierSettings.deviation ?? 0}
               sellDev={tierSettings.sellDeviation ?? 0}
               alloc={tierSettings.allocation ?? 0}
+              plan={profitPlan?.plan[String(tierNum)] ?? null}
             >
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
