@@ -1,4 +1,3 @@
-import DailyLimit from "./DailyLimit";
 import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect, useCallback } from "react";
 import { motion } from "motion/react";
@@ -323,7 +322,6 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         <BotStatusBanner />
         <CoinTierGrid wallet={adminWallet} autoTrader={autoTrader} assignments={snapshot.tierAssignments} />
         <TrailingTakeProfit wallet={adminWallet} />
-        <DailyLimit wallet={adminWallet} />
         <CoinScout wallet={adminWallet} assets={assets} autoTrader={autoTrader} onChanged={() => { void loadCoinConfig().then(() => setCoinsVersion((v) => v + 1)); }} />
         {/* Error banner */}
         {tierError && (
