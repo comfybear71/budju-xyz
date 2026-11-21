@@ -19,6 +19,8 @@ interface Props {
   alloc: number;
   /** Profit-taking numbers for this tier; when given, the row shows them instead of the old sell deviation */
   plan?: { arm: number; trail: number; slice: number } | null;
+  /** Shown instead of the cards when a filter leaves this column empty */
+  emptyText?: string;
   /** Coin cards for this tier */
   children: ReactNode;
 }
@@ -45,6 +47,7 @@ const TierMonitorColumn = ({
   sellDev,
   alloc,
   plan,
+  emptyText,
   children,
 }: Props) => {
   return (
@@ -96,6 +99,7 @@ const TierMonitorColumn = ({
 
       {/* Coin cards (scroll vertically inside the column) */}
       <div className="space-y-1.5 p-2 overflow-y-auto" style={{ maxHeight: "58vh" }}>
+        {coinCount === 0 && emptyText ? <div className="text-[10px] text-slate-500 text-center py-4">{emptyText}</div> : null}
         {children}
       </div>
     </div>

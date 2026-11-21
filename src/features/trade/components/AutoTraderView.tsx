@@ -1,3 +1,5 @@
+import MonitorFilterBar from "./MonitorFilterBar";
+import { matches, countByFilter, type MonitorFilter } from "./monitorFilter";
 import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -165,6 +167,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
   };
 
   const grouped = getGrouped();
+  const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>("all");
+  const filterCounts = countByFilter(Object.values(grouped).flat() as any[]);
   const monitoringCount = Object.values(grouped).reduce((s, g) => s + g.length, 0);
   const tradeLog = state?.autoTradeLog || [];
   const buyCount = tradeLog.filter((e: any) => e.side?.toLowerCase() !== "sell").length;
@@ -398,6 +402,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     </span>
                   </div>
 
+                  {monitoringCount > 0 && <div className="mb-3"><MonitorFilterBar value={monitorFilter} counts={filterCounts} onChange={setMonitorFilter} /></div>}
+
                   {/* Coin monitoring — horizontal tier columns (swipe between tiers) */}
                   {monitoringCount === 0 ? (
                     <div className="text-[10px] text-slate-500 text-center py-4 mb-3">
@@ -408,7 +414,8 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                     className="flex gap-3 overflow-x-auto pb-3 mb-3 -mx-1 px-1 snap-x snap-mandatory md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0 md:snap-none"
                     style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
                   >
-                  {Object.entries(grouped).map(([tierKey, coins]) => {
+                  {Object.entries(grouped).map(([tierKey, allCoins]) => {
+                    const coins = (allCoins as any[]).filter((c) => matches(c, monitorFilter));
                     const tierCfg = (state?.autoTierAssets || {})[tierKey] || {};
                     // Read tier settings from DB, with defaults
                     const tierNum = parseInt(tierKey.replace("tier", "")) || 0;
@@ -433,6 +440,7 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                         sellDev={sellDev}
                         alloc={alloc}
                         plan={state?.profitPlan?.[String(tierNum)] ?? null}
+                        emptyText="No coins in this filter"
                       >
                           {coins.map((item: any) => {
                             const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
