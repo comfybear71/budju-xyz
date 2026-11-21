@@ -39,3 +39,46 @@ def test_coin_bought_earlier_today_counts_against_its_cap():
     out = simulate(3500, pairs, {"HYPE": 90}, {"HYPE:1": {"buy": 100}}, {}, {1: {"allocation": 5}}, NOW, set(), daily_limit=10**9,
                    coin_cap_pct=10.0, recent_by_coin={"HYPE": 385.0})
     assert out["buys"] == 0 and "Coin limit" in out["waiting"][0]["why"]
+
+
+def group_by_prefix(coin):
+    return {"T": 0, "I": 1, "F": 2, "H": 3}.get(coin[0], 4)          # T=Top 10, I=Innovation, F=Top 50, H=Top 200, anything else Smaller
+
+
+def test_group_allowance_is_cumulative_so_unused_shares_flow_down():
+    from coin_cap import group_allowance
+    assert [group_allowance(g, 1000) for g in range(5)] == [500, 700, 850, 950, 1000]
+
+
+def test_coin_limit_by_group_and_group_limit_reasons():
+    from coin_cap import check_room
+    room, why = check_room("T1", group_by_prefix, {}, 3500)
+    assert why is None and room == 350.0                                    # Top 10 coin: 10% of $3,500
+    room, why = check_room("S1", group_by_prefix, {}, 3500)
+    assert why is None and room == 70.0                                     # Smaller coin: 2%
+    room, why = check_room("S1", group_by_prefix, {"S1": 70.0}, 3500)
+    assert room == 0 and "Coin limit" in why
+    # the Top 10 group has used its whole 50% ($1,750), so a Top 10 coin with no spend of its own is stopped by the GROUP limit
+    spent = {f"T{i}": 350.0 for i in range(5)}
+    room, why = check_room("T9", group_by_prefix, spent, 3500)           # $1,750 spent + $1,750 cash = a $3,500 day
+    assert room == 0 and "Group limit" in why
+
+
+def test_preview_top_10_gets_most_and_small_coins_get_little_but_unused_money_flows_down():
+    from topup_preview import simulate
+    tiers = {1: {"allocation": 5}, 2: {"allocation": 10}, 3: {"allocation": 15}}
+    coins = [f"T{i}" for i in range(8)] + [f"S{i}" for i in range(30)]
+    pairs = [(c, t) for c in coins for t in (1, 2, 3)]
+    prices = {c: 90 for c in coins}
+    targets = {f"{c}:{t}": {"buy": 100} for c, t in pairs}
+    out = simulate(3500, pairs, prices, targets, {}, tiers, NOW, set(), daily_limit=10**9, max_single=10**9, group_fn=group_by_prefix)
+    by = {}
+    for r in out["rows"]:
+        by[r["coin"]] = by.get(r["coin"], 0) + r["amount"]
+    assert all(by.get(f"T{i}", 0) <= 350.01 for i in range(8))              # Top 10 coin: at most 10%
+    assert all(by.get(f"S{i}", 0) <= 70.01 for i in range(30))              # Smaller coin: at most 2%
+    top10 = sum(v for c, v in by.items() if c.startswith("T"))
+    assert top10 <= 1750.01                                                   # the group's own 50% share
+    # only Top 10 and Smaller coins are eligible here, so Top 10's cap + flow-down means Smaller may use the unused money above it
+    smaller = sum(v for c, v in by.items() if c.startswith("S"))
+    assert smaller <= 3500 - top10 + 0.01

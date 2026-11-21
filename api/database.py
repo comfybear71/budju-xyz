@@ -1725,7 +1725,8 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
     single = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
     reserve = float(os.getenv("MIN_USDC_RESERVE", "30"))
     from buy_order import order_pairs, explain, underweight_buckets, shit_list, SHIT_LIST_MAX_BUY
-    from coin_cap import COIN_CAP_PCT, recent_buys
+    from coin_cap import recent_buys
+    from buy_order import group_of as _group_of
     ranks = get_coin_ranks(refresh=True)
     pri = refresh_coin_priority()
     info = {"careful": pri.get("careful") or [], "focus": pri.get("focus") or []}
@@ -1740,7 +1741,7 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
                    spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single,
                    order_fn=lambda p, pr, tg: order_pairs(p, pr, tg, ranks, info),
                    cap_fn=lambda c: SHIT_LIST_MAX_BUY if c in careful_set else None,
-                   coin_cap_pct=COIN_CAP_PCT, recent_by_coin=recent_buys(state.get("autoTradeLog") or [], now_ms))
+                   recent_by_coin=recent_buys(state.get("autoTradeLog") or [], now_ms), group_fn=lambda c: _group_of(c, ranks.get(c)))
     out["shitList"] = sorted({x["coin"] for x in out["rows"] + out["waiting"] if x["coin"] in careful_set})
     for r in out["rows"]:
         r["tags"] = explain(r["coin"], ranks, info)

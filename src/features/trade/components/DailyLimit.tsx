@@ -59,7 +59,8 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
             <ul className="mt-1.5 space-y-1 text-[11px] text-slate-300 leading-snug list-disc pl-4">
               <li><b>Daily buying limit:</b> the most it buys for you in any 24 hours — yours is {usd(info.limit)} (set above).</li>
               <li><b>Biggest single buy: {usd(info.rules.maxSingleBuy)}.</b> If a buy would be larger, it buys {usd(info.rules.maxSingleBuy)} instead.</li>
-              {info.rules.coinCapPct ? <li><b>Most in one coin: {info.rules.coinCapPct}% of the day's money</b> (your cash plus what was bought in the last 24 hours), all its tiers together. This stops one coin taking a big share of a top-up.</li> : null}
+              {info.rules.groups ? <li><b>Spread across groups</b> (share of the day's money = your cash plus what was bought in the last 24 hours): {info.rules.groups.map((g) => `${g.name} ${g.share}%`).join(", ")}. A group's unused share flows down to the groups below it. Money not used stays as cash for the next dip.</li> : null}
+              {info.rules.groups ? <li><b>Most in one coin</b> (all its tiers together, per 24 hours): {info.rules.groups.map((g) => `${g.name} ${g.coinCap}%`).join(", ")} (never less than $50). This stops one coin taking a big share of a top-up.</li> : null}
               <li><b>Smallest buy: ${info.rules.minBuy}.</b> Smaller amounts are lifted to this.</li>
               <li><b>Cash kept spare: ${info.rules.keepSpare}.</b> It never spends your last ${info.rules.keepSpare} of USDC.</li>
               <li><b>How much each buy takes</b> (of your USDC left at that moment): {Object.entries(info.rules.tiers).map(([t, c]) => `T${t} ${c.spend}% (on a ${c.dip}% dip)`).join(", ")}. So the first buys are the biggest.</li>
