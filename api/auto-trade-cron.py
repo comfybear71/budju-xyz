@@ -1084,11 +1084,25 @@ def run_auto_trade_check():
     for _ctx in wallet_contexts:
         new_pauses |= set(_ctx.get("newPauses") or ())
     pauses_update = None
+    seen_update = None
     if new_pauses or len(paused) != len(shared_state.get("autoPausedAssets") or {}):
-        until = now_ms + int(PAUSE_UNTRADABLE_HOURS * 3_600_000)
-        pauses_update = {**paused, **{c: until for c in new_pauses}}
-        for c in new_pauses:
-            log.append(f"{c}: paused for {PAUSE_UNTRADABLE_HOURS:g}h — Swyftx says it is not tradable right now")
+        pauses_update = dict(paused)
+        try:
+            from untradable_memory import next_pause, initial_seen
+            seen = shared_state.get("autoUntradableSeen") if isinstance(shared_state.get("autoUntradableSeen"), dict) else initial_seen(now_ms)
+            for c in sorted(new_pauses):
+                hours, alert, seen = next_pause(seen, c, now_ms, first_hours=PAUSE_UNTRADABLE_HOURS)
+                pauses_update[c] = now_ms + int(hours * 3_600_000)
+                if alert:
+                    log.append(f"{c}: paused for {hours:g}h — Swyftx says it is not tradable right now")        # this exact line raises the Telegram alert
+                else:
+                    log.append(f"{c}: still switched off on Swyftx, paused another {hours:g}h (already reported, no new alert)")
+            seen_update = seen
+        except Exception as e:
+            print(f"[cron] untradable memory failed, using the plain pause: {type(e).__name__}: {e}", flush=True)
+            for c in new_pauses:
+                pauses_update[c] = now_ms + int(PAUSE_UNTRADABLE_HOURS * 3_600_000)
+                log.append(f"{c}: paused for {PAUSE_UNTRADABLE_HOURS:g}h — Swyftx says it is not tradable right now")
 
     blocked_update = None
     _old_blocks = {w: u for w, u in (shared_state.get("autoBlockedWallets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
@@ -1115,6 +1129,8 @@ def run_auto_trade_check():
         save_update["autoTrail"] = trail_update
     if pauses_update is not None:
         save_update["autoPausedAssets"] = pauses_update
+    if seen_update is not None:
+        save_update["autoUntradableSeen"] = seen_update
     if blocked_update is not None:
         save_update["autoBlockedWallets"] = blocked_update
     if catchup_active:
