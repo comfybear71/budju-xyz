@@ -43,6 +43,7 @@
     { "source": "/api/admin/:path*", "destination": "/api/index.py" },
     { "source": "/api/community/:path*", "destination": "/api/index.py" },
     { "source": "/api/leaderboard", "destination": "/api/index.py" },
+    { "source": "/api/value-history", "destination": "/api/index.py" },
     { "source": "/api/coins", "destination": "/api/index.py" },
     { "source": "/api/coin-stats", "destination": "/api/index.py" },
     { "source": "/api/coin-trades", "destination": "/api/index.py" },
