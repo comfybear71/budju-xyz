@@ -155,6 +155,19 @@ const Trade = () => {
     return () => clearInterval(id);
   }, [walletAddress]);
   const [traderState, setTraderState] = useState<TraderState | null>(null);
+  // Coins the live price feed does not carry (JST, VVV, WBT, MORPHO...) showed $0.00. The bot has a price for every coin it
+  // watches, so use that one whenever the screen has none.
+  useEffect(() => {
+    const bot = traderState?.autoBotPrices;
+    if (!bot) return;
+    const missing = Object.entries(bot).filter(([c, p]) => p > 0 && !(prices[c] > 0));
+    if (missing.length === 0) return;
+    setPrices((prev) => {
+      const next = { ...prev };
+      for (const [c, p] of missing) if (!(next[c] > 0)) next[c] = p;
+      return next;
+    });
+  }, [traderState, prices]);
   const [changes, setChanges] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [apiStatus, setApiStatus] = useState<

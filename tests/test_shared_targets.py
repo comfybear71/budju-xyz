@@ -424,3 +424,12 @@ def test_an_already_runaway_sell_level_is_corrected_on_the_next_run(env):
     fixed = saved["autoActive"]["targets"]["BTC:3"]["sell"]
     assert 100_000 < fixed < 200_000                                                         # back to about open price x 1.75
     assert any("Sell levels corrected" in line for line in result["log"])
+
+
+def test_the_bot_saves_the_prices_it_used_for_the_screen_to_fall_back_on(env):
+    cron, db = env
+    cron.get_prices_for_coins = MagicMock(return_value={"BTC": 58000.0, "JST": 0.0, "VVV": 18.07})
+    state = make_state({"BTC:1": {"buy": 50000, "sell": 70000, "setAt": 1}})
+    result, clients, saved, sent = run(env, state, pool_usdc=0.0, user_usdc=0.0)
+    p = saved["autoBotPrices"]["prices"]
+    assert p["BTC"] == 58000.0 and p["VVV"] == 18.07 and "JST" not in p                   # a zero price is never saved

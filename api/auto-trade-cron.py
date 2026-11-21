@@ -1133,6 +1133,9 @@ def run_auto_trade_check():
         "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
         "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms,
         "autoCooldowns": shared_cooldowns,
+        # The prices the bot itself used this run (it has one for every coin it watches). The screen falls back on these for coins
+        # its own live feed does not carry, which used to show as $0.00.
+        "autoBotPrices": {"at": now_ms, "prices": {c: p for c, p in prices.items() if isinstance(p, (int, float)) and p > 0}},
     }
     try:
         _items = dict(skipped_reasons)
