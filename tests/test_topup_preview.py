@@ -49,3 +49,9 @@ def test_runs_needed_counts_about_18_buys_per_run():
     coins = {f"C{i}": {1: (90 - i * 0.01, 100)} for i in range(40)}
     out = sim(100000, coins, max_single=10_000, daily_limit=10**9)
     assert out["buys"] == 40 and out["runsNeeded"] == 3
+
+
+def test_per_coin_cap_limits_a_shit_list_coin_but_not_the_minimum():
+    out = sim(3000, {"BAD": {1: (90, 100)}, "GOOD": {1: (91, 100)}}, cap_fn=lambda c: 50.0 if c == "BAD" else None)
+    amounts = {r["coin"]: r["amount"] for r in out["rows"]}
+    assert amounts["BAD"] == 50.0 and amounts["GOOD"] > 100

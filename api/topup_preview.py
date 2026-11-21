@@ -18,7 +18,7 @@ BUYS_PER_RUN = 18
 
 
 def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, skip, spent24h=0.0, daily_limit=3000.0,
-             reserve=RESERVE, max_single=MAX_SINGLE, min_order=MIN_ORDER, buys_per_run=BUYS_PER_RUN, order_fn=order_pairs):
+             reserve=RESERVE, max_single=MAX_SINGLE, min_order=MIN_ORDER, buys_per_run=BUYS_PER_RUN, order_fn=order_pairs, cap_fn=None):
     """-> dict: rows (in buying order), totals and the reasons signals would be left waiting.
     pairs: [(coin, tier)]. tier_settings: {tier: {"allocation": %, ...}}. skip: coins that never buy (paused/retired/denied)."""
     ordered = order_fn(pairs, prices, targets)
@@ -38,6 +38,9 @@ def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, ski
         below = (buy - price) / buy * 100
         alloc = float(tier_settings.get(tier, {}).get("allocation", 5.0))
         amount = round(max(alloc / 100 * cash, min_order), 2)
+        coin_cap = cap_fn(coin) if cap_fn else None
+        if coin_cap:
+            amount = round(max(min(amount, coin_cap), min_order), 2)     # shit-list coins never get a big buy
         capped = amount > max_single
         if capped:
             amount = round(max_single, 2)          # bought AT the single-buy limit, not skipped

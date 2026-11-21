@@ -43,3 +43,29 @@ def test_core_coins_keep_discount_then_tier_order_among_themselves():
     prices = {"BTC": 95, "ETH": 90}
     out = order_pairs([("BTC", 1), ("BTC", 3), ("ETH", 1)], prices, targets)
     assert out == [("ETH", 1), ("BTC", 3), ("BTC", 1)]
+
+
+def test_shit_list_coins_go_last_whatever_their_group_or_discount():
+    from buy_order import order_pairs as op
+    targets = {f"{c}:1": {"buy": 100} for c in ("BTC", "RAY", "AAVE")}
+    prices = {"BTC": 70, "RAY": 98, "AAVE": 97}                  # BTC is the deepest AND core, but it is on the shit list
+    out = op([(c, 1) for c in prices], prices, targets, {"BTC": 1, "AAVE": 30, "RAY": 300}, {"careful": ["BTC"]})
+    assert [c for c, _ in out] == ["AAVE", "RAY", "BTC"]
+
+
+def test_accumulate_coins_then_coins_held_little_then_deepest_inside_a_group():
+    from buy_order import order_pairs as op
+    targets = {f"{c}:1": {"buy": 100} for c in ("A", "B", "C", "D")}
+    prices = {"A": 90, "B": 95, "C": 96, "D": 97}                # all Top 50 (rank 20)
+    ranks = {c: 20 for c in prices}
+    info = {"focus": ["D"], "buckets": {"A": 2, "B": 2, "C": 0, "D": 2}}      # D accumulate; C held little; A, B held a lot
+    out = op([(c, 1) for c in prices], prices, targets, ranks, info)
+    assert [c for c, _ in out] == ["D", "C", "A", "B"]
+
+
+def test_holdings_buckets_and_the_plain_english_tags():
+    from buy_order import underweight_buckets, explain
+    b = underweight_buckets({"BTC": 1.0, "ETH": 0.001, "RAY": 1.0, "USDC": 500}, {"BTC": 100.0, "ETH": 100.0, "RAY": 1.0})
+    assert b["BTC"] == 2 and b["ETH"] == 0 and b["RAY"] == 1          # of 101.1 total: ETH 0.1%, RAY about 1%, BTC about 99%
+    assert explain("BTC", {"BTC": 1}, {"focus": ["BTC"], "buckets": {"BTC": 0}}) == ["Top 10", "accumulate", "holds little"]
+    assert explain("RAY", {"RAY": 300}, {"careful": ["RAY"]}) == ["Shit list (Careful)"]

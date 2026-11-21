@@ -64,7 +64,8 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
               <li><b>How much each buy takes</b> (of your USDC left at that moment): {Object.entries(info.rules.tiers).map(([t, c]) => `T${t} ${c.spend}% (on a ${c.dip}% dip)`).join(", ")}. So the first buys are the biggest.</li>
               <li><b>Pause after a buy</b> (per coin and tier): {Object.entries(info.rules.tiers).map(([t, c]) => `T${t} ${c.pauseHours}h`).join(", ")}.</li>
               <li><b>Speed:</b> about {info.rules.buysPerRun} buys every {info.rules.runMinutes} minutes. A big top-up is spread over several runs.</li>
-              <li><b>Order:</b> by the same groups as your Holdings: Top 10 first (BTC, ETH, SOL ahead of the rest of the Top 10), then Innovation, Top 50, Top 200 and Smaller. Inside each, the deepest below its buy price goes first; ties go T3, then T2, then T1.</li>
+              <li><b>Order:</b> by the same groups as your Holdings: Top 10 first (BTC, ETH, SOL ahead of the rest of the Top 10), then Innovation, Top 50, Top 200 and Smaller. Inside each group: coins to accumulate (best Dip Report record) first, then coins you hold little of, then the deepest below its buy price; ties go T3, then T2, then T1.</li>
+              <li><b>Shit list (Dip Report "Careful"):</b> last in line whatever their group, and never more than $50 in one buy.</li>
               <li><b>Selling:</b> a sale is at least ${info.rules.minSell} and the bot never sells a coin below what you paid for it.</li>
               <li><b>Only coins Swyftx lists and has switched on.</b> If Swyftx switches a coin off, the bot pauses it and retries.</li>
             </ul>

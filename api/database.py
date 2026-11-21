@@ -1724,13 +1724,24 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
     lim = get_daily_limit_info(wallet_address)
     single = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
     reserve = float(os.getenv("MIN_USDC_RESERVE", "30"))
-    from buy_order import order_pairs, group_of, GROUP_NAMES
+    from buy_order import order_pairs, explain, underweight_buckets, SHIT_LIST_MAX_BUY
     ranks = get_coin_ranks(refresh=True)
+    pri = refresh_coin_priority()
+    info = {"careful": pri.get("careful") or [], "focus": pri.get("focus") or []}
+    try:
+        held = _get_user_swyftx_client(wallet_address).get_holdings()
+        held_prices = get_prices_for_coins(sorted(c for c in held if c not in ("USDC", "USDT", "USD", "AUD"))) if held else {}
+        info["buckets"] = underweight_buckets(held, held_prices)
+    except Exception as e:
+        print(f"[preview] holdings unavailable, skipping the 'holds little' ordering: {e}")
+    careful_set = set(info["careful"])
     out = simulate(usdc, pairs, prices, targets, cooldowns, {t: settings_for(t) for t in (1, 2, 3)}, now_ms, skip,
                    spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single,
-                   order_fn=lambda p, pr, tg: order_pairs(p, pr, tg, ranks))
+                   order_fn=lambda p, pr, tg: order_pairs(p, pr, tg, ranks, info),
+                   cap_fn=lambda c: SHIT_LIST_MAX_BUY if c in careful_set else None)
     for r in out["rows"]:
-        r["group"] = GROUP_NAMES[group_of(r["coin"], ranks.get(r["coin"]))]
+        r["tags"] = explain(r["coin"], ranks, info)
+        r["group"] = ", ".join(r["tags"])
     out["repairPending"] = repair_pending
     out["maxSingleBuy"] = single
     out["reserve"] = reserve
@@ -1746,6 +1757,35 @@ def _bot_rules_safe() -> Dict:
     except Exception as e:
         print(f"[daily-limit] rules unavailable: {e}")
         return {}
+
+
+def get_coin_priority() -> Dict:
+    """Stored shit list ("Careful") and accumulate list (Dip Report focus). Never fetches, never raises."""
+    try:
+        doc = coin_sizing_collection.find_one({"_id": "priority"}) or {}
+        return {"careful": list(doc.get("careful") or []), "focus": list(doc.get("focus") or []), "at": doc.get("at")}
+    except Exception as e:
+        print(f"[priority] unavailable: {e}")
+        return {"careful": [], "focus": []}
+
+
+def refresh_coin_priority(force: bool = False) -> Dict:
+    """Rebuild the two lists from the Dip Report (cached 24h). The trading cron only READS them; this runs after a trading
+    run when they are stale, and when the admin opens the preview."""
+    cur = get_coin_priority()
+    at = cur.get("at")
+    if not force and at and (datetime.utcnow() - at) < timedelta(hours=24):
+        return cur
+    try:
+        coins = get_dip_report().get("coins", [])
+        careful = sorted(c["coin"] for c in coins if str(c.get("advice", "")).startswith("Careful"))
+        focus = sorted(c["coin"] for c in coins if c.get("focus"))
+        if coins:
+            coin_sizing_collection.replace_one({"_id": "priority"}, {"_id": "priority", "at": datetime.utcnow(), "careful": careful, "focus": focus}, upsert=True)
+            return {"careful": careful, "focus": focus, "at": datetime.utcnow()}
+    except Exception as e:
+        print(f"[priority] refresh failed: {e}")
+    return cur
 
 
 def get_coin_ranks(refresh: bool = False) -> Dict[str, int]:
