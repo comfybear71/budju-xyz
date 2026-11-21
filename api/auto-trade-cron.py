@@ -101,10 +101,11 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 # now ALSO gets the max-daily-sell-exposure breaker, which non-admin
 # wallets never had before this merge.
 MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
-MAX_DAILY_TRADES = int(os.getenv("MAX_DAILY_TRADES", "10"))
+# Trade COUNT limit is off (0): one top-up can fire dozens of small buys. The dollar limit below is the daily protection.
+MAX_DAILY_TRADES = 0
 # Most one wallet may BUY in any rolling 24 hours (USDC). Protects every wallet in a crash.
 # Change it in Vercel (MAX_DAILY_SPEND_USDC); 0 switches the limit off.
-MAX_DAILY_SPEND_USDC = float(os.getenv("MAX_DAILY_SPEND_USDC", "1000"))
+MAX_DAILY_SPEND_USDC = float(os.getenv("MAX_DAILY_SPEND_USDC", "3000"))
 MAX_DAILY_LOSS_USDC = float(os.getenv("MAX_DAILY_LOSS_USDC", "1000"))
 
 # Targets are NEVER discarded because of age. A target only changes after a
@@ -308,7 +309,7 @@ def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
             elif str(entry.get("side", "")).lower() == "buy":
                 daily_buy_total += value
 
-    if recent_trades >= MAX_DAILY_TRADES:
+    if MAX_DAILY_TRADES > 0 and recent_trades >= MAX_DAILY_TRADES:
         reason = f"Hit MAX_DAILY_TRADES limit ({MAX_DAILY_TRADES} trades in 24h)"
         log.append(f"{code}: BLOCKED — {reason}")
         return False, reason

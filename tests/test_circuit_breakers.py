@@ -75,8 +75,16 @@ class TestCircuitBreakers:
         ok, _ = cron_module._check_circuit_breakers([], "buy", cron_module.MAX_SINGLE_TRADE_USDC + 0.01, "BTC", log)
         assert ok is False
 
-    def test_blocks_max_daily_trades(self, cron_module):
-        """Should block when trade log has MAX_DAILY_TRADES entries in last 24h."""
+    def test_trade_count_no_longer_blocks(self, cron_module):
+        """The trade-count limit is off: 40 small buys in 24h must not block another small buy."""
+        now = datetime.utcnow()
+        trade_log = [{"coin": f"C{i}", "side": "buy", "qty": 1, "price": 8, "timestamp": (now - timedelta(hours=1)).isoformat() + "Z"} for i in range(40)]
+        ok, _ = cron_module._check_circuit_breakers(trade_log, "buy", 8.0, "ETH", [])
+        assert ok is True
+
+    def test_blocks_max_daily_trades(self, cron_module, monkeypatch):
+        """If a trade-count limit is switched on, it blocks when the log has that many entries in 24h."""
+        monkeypatch.setattr(cron_module, "MAX_DAILY_TRADES", 10)
         now = datetime.utcnow()
         trade_log = [
             {
@@ -93,8 +101,9 @@ class TestCircuitBreakers:
         assert ok is False
         assert "MAX_DAILY_TRADES" in reason
 
-    def test_allows_when_old_trades_expired(self, cron_module):
+    def test_allows_when_old_trades_expired(self, cron_module, monkeypatch):
         """Trades older than 24h should not count."""
+        monkeypatch.setattr(cron_module, "MAX_DAILY_TRADES", 10)
         old_time = datetime.utcnow() - timedelta(hours=25)
         trade_log = [
             {
