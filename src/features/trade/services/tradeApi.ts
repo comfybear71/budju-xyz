@@ -2861,7 +2861,7 @@ export async function saveDailyLimit(wallet: string, limit: number): Promise<Dai
   }
 }
 
-export interface TopUpRow { n: number; coin: string; tier: number; amount: number; price: number; below: number; capped?: boolean }
+export interface TopUpRow { n: number; coin: string; tier: number; amount: number; price: number; below: number; capped?: boolean; group?: string }
 export interface TopUpPreview {
   rows: TopUpRow[]; buys: number; total: number; cashLeft: number; runsNeeded: number; startCash: number;
   waiting: { coin: string; tier: number; why: string; below: number }[]; waitingCount: number;

@@ -21,13 +21,21 @@ def test_missing_target_is_last_and_does_not_crash():
     assert out == [("B", 1), ("X", 1)]
 
 
-def test_core_coins_go_first_then_major_then_the_rest_even_if_their_discount_is_smaller():
-    from buy_order import priority
-    assert (priority("BTC"), priority("eth"), priority("SOL"), priority("XRP"), priority("RAY")) == (0, 0, 0, 1, 2)
-    targets = {f"{c}:1": {"buy": 100} for c in ("RAY", "XRP", "BTC", "ETH", "SOL", "WIF")}
-    prices = {"RAY": 80, "WIF": 85, "XRP": 90, "BTC": 98, "ETH": 95, "SOL": 99}      # small coins are the deepest, core the shallowest
-    out = order_pairs([(c, 1) for c in prices], prices, targets)
-    assert [c for c, _ in out] == ["ETH", "BTC", "SOL", "XRP", "RAY", "WIF"]
+def test_groups_match_the_holdings_screen():
+    from buy_order import group_of
+    assert group_of("BTC", 50) == 0                      # BTC / ETH / SOL are always in the first group
+    assert group_of("XRP", 4) == 0 and group_of("XRP") == 0           # rank 1-10, or the built-in list when rank is unknown
+    assert group_of("SUI", 30) == 1                      # Innovation beats a Top 50 rank
+    assert group_of("AAVE", 30) == 2 and group_of("QNT", 120) == 3 and group_of("RAY", 300) == 4 and group_of("RAY") == 4
+
+
+def test_top_10_first_core_first_inside_it_then_innovation_top_50_top_200_smaller():
+    targets = {f"{c}:1": {"buy": 100} for c in ("RAY", "QNT", "AAVE", "SUI", "XRP", "BTC", "ETH", "SOL")}
+    prices = {"RAY": 80, "QNT": 82, "AAVE": 84, "SUI": 86, "XRP": 90, "BTC": 98, "ETH": 95, "SOL": 99}
+    ranks = {"RAY": 300, "QNT": 120, "AAVE": 30, "SUI": 25, "XRP": 5, "BTC": 1, "ETH": 2, "SOL": 6}
+    out = order_pairs([(c, 1) for c in prices], prices, targets, ranks)
+    # core by discount (ETH 5%, BTC 2%, SOL 1%), then the rest of the Top 10 (XRP), Innovation, Top 50, Top 200, Smaller
+    assert [c for c, _ in out] == ["ETH", "BTC", "SOL", "XRP", "SUI", "AAVE", "QNT", "RAY"]
 
 
 def test_core_coins_keep_discount_then_tier_order_among_themselves():

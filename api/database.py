@@ -1724,8 +1724,13 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
     lim = get_daily_limit_info(wallet_address)
     single = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
     reserve = float(os.getenv("MIN_USDC_RESERVE", "30"))
+    from buy_order import order_pairs, group_of, GROUP_NAMES
+    ranks = get_coin_ranks(refresh=True)
     out = simulate(usdc, pairs, prices, targets, cooldowns, {t: settings_for(t) for t in (1, 2, 3)}, now_ms, skip,
-                   spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single)
+                   spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single,
+                   order_fn=lambda p, pr, tg: order_pairs(p, pr, tg, ranks))
+    for r in out["rows"]:
+        r["group"] = GROUP_NAMES[group_of(r["coin"], ranks.get(r["coin"]))]
     out["repairPending"] = repair_pending
     out["maxSingleBuy"] = single
     out["reserve"] = reserve
@@ -1740,6 +1745,17 @@ def _bot_rules_safe() -> Dict:
         return bot_rules(state.get("autoTiers") or state.get("autoTierAssets") or {})
     except Exception as e:
         print(f"[daily-limit] rules unavailable: {e}")
+        return {}
+
+
+def get_coin_ranks(refresh: bool = False) -> Dict[str, int]:
+    """CoinGecko market-cap rank per coin (1 = biggest), from the stored list the Holdings groups also use. Never raises.
+    refresh=True may fetch (cached 20h); the trading cron passes False so it never waits on the network."""
+    try:
+        coins = refresh_coin_classes() if refresh else (coin_sizing_collection.find_one({"_id": "classes"}) or {}).get("coins", {})
+        return {c: v["rank"] for c, v in (coins or {}).items() if isinstance(v, dict) and isinstance(v.get("rank"), int)}
+    except Exception as e:
+        print(f"[ranks] unavailable: {e}")
         return {}
 
 

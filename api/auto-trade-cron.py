@@ -66,6 +66,7 @@ from database import (
     _is_transient_swyftx_error,
     _mark_key_valid,
     get_daily_limits_for,
+    get_coin_ranks,
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
@@ -433,7 +434,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     catchup_done = []
     trade_log = state.get("tradeLog", [])
     # Deepest discount first, so limited cash goes to the biggest bargains.
-    active_pairs = order_pairs(active_pairs, prices, targets)
+    active_pairs = order_pairs(active_pairs, prices, targets, ctx.get("ranks"))
 
     # Settlement guard — let a just-executed trade's balance change settle
     # before this wallet trades again this cycle. Per-wallet now (each
@@ -972,6 +973,14 @@ def run_auto_trade_check():
     except Exception as e:
         print(f"[cron] repair step failed (trading continues): {type(e).__name__}: {e}", flush=True)
 
+    try:
+        _ranks = get_coin_ranks()
+        if not isinstance(_ranks, dict):
+            _ranks = {}
+    except Exception as e:
+        print(f"[ranks] could not load, using the built-in Top 10 list: {e}", flush=True)
+        _ranks = {}
+
     def _persist_fired():
         """Save the new buy level + pause for every signal that has traded so far, RIGHT AFTER each order. Before, this
         happened once at the end of the run, so a run cut off part-way left the orders placed on Swyftx but the cards,
@@ -993,6 +1002,7 @@ def run_auto_trade_check():
 
     for ctx in wallet_contexts:
         ctx["persistFired"] = _persist_fired
+        ctx["ranks"] = _ranks
         ctx["trailDecisions"] = trail_decisions
         ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
