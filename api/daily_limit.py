@@ -50,6 +50,7 @@ def bot_rules(auto_tiers=None):
         "keepSpare": env("MIN_USDC_RESERVE", "30"),
         "minSell": env("SWYFTX_MIN_SELL_USDC", "30"),
         "buysPerRun": 18,
+        "coinCapPct": env("COIN_CAP_PCT", "10"),
         "runMinutes": 5,
         "tiers": tiers,
     }

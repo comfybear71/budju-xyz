@@ -18,13 +18,15 @@ BUYS_PER_RUN = 18
 
 
 def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, skip, spent24h=0.0, daily_limit=3000.0,
-             reserve=RESERVE, max_single=MAX_SINGLE, min_order=MIN_ORDER, buys_per_run=BUYS_PER_RUN, order_fn=order_pairs, cap_fn=None):
+             reserve=RESERVE, max_single=MAX_SINGLE, min_order=MIN_ORDER, buys_per_run=BUYS_PER_RUN, order_fn=order_pairs, cap_fn=None, coin_cap_pct=0.0, recent_by_coin=None):
     """-> dict: rows (in buying order), totals and the reasons signals would be left waiting.
     pairs: [(coin, tier)]. tier_settings: {tier: {"allocation": %, ...}}. skip: coins that never buy (paused/retired/denied)."""
     ordered = order_fn(pairs, prices, targets)
     cash = float(usdc)
     spent = float(spent24h)
     rows, waiting = [], []
+    coin_spend = dict(recent_by_coin or {})
+    day_cap = max((float(usdc) + sum(coin_spend.values())) * coin_cap_pct / 100.0, 50.0) if coin_cap_pct and coin_cap_pct > 0 else None     # $50 floor, same as api/coin_cap.py
     for coin, tier in ordered:
         ck = f"{coin}:{tier}"
         price = prices.get(coin, 0)
@@ -41,6 +43,12 @@ def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, ski
         coin_cap = cap_fn(coin) if cap_fn else None
         if coin_cap:
             amount = round(max(min(amount, coin_cap), min_order), 2)     # shit-list coins never get a big buy
+        if day_cap:
+            room = day_cap - coin_spend.get(coin, 0.0)
+            if room < min_order:
+                waiting.append({"coin": coin, "tier": tier, "why": f"Coin limit: this coin already has its share (the most is ${day_cap:,.0f} per coin per day)", "below": round(below, 1)})
+                continue
+            amount = round(max(min(amount, room), min_order), 2)
         capped = amount > max_single
         if capped:
             amount = round(max_single, 2)          # bought AT the single-buy limit, not skipped
@@ -52,6 +60,7 @@ def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, ski
             continue
         cash -= amount
         spent += amount
+        coin_spend[coin] = coin_spend.get(coin, 0.0) + amount
         rows.append({"n": len(rows) + 1, "coin": coin, "tier": tier, "amount": amount, "price": price, "below": round(below, 1), "capped": capped})
     total = round(sum(r["amount"] for r in rows), 2)
     return {

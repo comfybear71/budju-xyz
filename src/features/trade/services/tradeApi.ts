@@ -2835,7 +2835,7 @@ export async function fetchAfterSales(wallet: string, days = 60): Promise<AfterS
 }
 
 export interface BotRules {
-  maxSingleBuy: number; minBuy: number; keepSpare: number; minSell: number; buysPerRun: number; runMinutes: number;
+  maxSingleBuy: number; coinCapPct?: number; minBuy: number; keepSpare: number; minSell: number; buysPerRun: number; runMinutes: number;
   tiers: Record<string, { dip: number; spend: number; pauseHours: number }>;
 }
 export interface DailyLimitInfo { limit: number; isCustom: boolean; default: number; min: number; max: number; spent24h: number; rules?: BotRules }

@@ -44,6 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
+from coin_cap import recent_buys, day_budget, cap_amount
 from buy_order import order_pairs, underweight_buckets, shit_list, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
 
@@ -434,6 +435,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     catchup_limits = ctx.get("catchupLimits", {})
     catchup_done = []
     trade_log = state.get("tradeLog", [])
+    # Per-coin cap: one coin may take at most COIN_CAP_PCT of the day's money (cash now + bought in the last 24h), all tiers together.
+    coin_cap = cap_amount(day_budget(usdc_balance, recent_buys(trade_log, now_ms)))
     # Deepest discount first, so limited cash goes to the biggest bargains.
     try:
         _info = dict(ctx.get("priorityInfo") or {})
@@ -537,6 +540,12 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                 if trade_amount > MAX_SINGLE_TRADE_USDC:
                     # A buy over the single-order limit is made AT the limit, not skipped.
                     trade_amount = round(MAX_SINGLE_TRADE_USDC, 2)
+                if coin_cap:
+                    room = coin_cap - recent_buys(trade_log, now_ms).get(code, 0.0)
+                    if room < MIN_ORDER_USDC:
+                        reasons[ck] = f"Coin limit: already about ${coin_cap - room:,.0f} of {code} in 24h (the most is ${coin_cap:,.0f}, {int(round(coin_cap / max(day_budget(usdc_balance, recent_buys(trade_log, now_ms)), 1) * 100))}% of the day's money)"
+                        continue
+                    trade_amount = round(max(min(trade_amount, room), MIN_ORDER_USDC), 2)
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                     reasons[ck] = f"Waiting for cash: USDC {_p(usdc_balance)}, this buy needs {_p(trade_amount)} and ${MIN_USDC_RESERVE:.0f} is kept spare"
                     note = f"{short}:lowusdc"
