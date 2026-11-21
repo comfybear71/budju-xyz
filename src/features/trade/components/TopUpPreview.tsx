@@ -79,7 +79,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                 </div>
               )}
               <div className="text-[10px] text-slate-500 leading-snug">
-                Order: the deepest below its own buy price goes first; equal ones go T3, then T2, then T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy is capped at {usd(data.maxSingleBuy)} (⛔ = capped); {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
+                Order: BTC, ETH and SOL first, then the other big coins (XRP, BNB, ADA, DOGE, AVAX, LINK, TRX, SUI, LTC, DOT), then the rest; within each group the deepest below its own buy price goes first, equal ones T3, T2, T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy is capped at {usd(data.maxSingleBuy)} (⛔ = capped); {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
               </div>
             </div>
           )}
