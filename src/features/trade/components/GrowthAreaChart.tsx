@@ -18,6 +18,7 @@ interface Props {
 
 const usd = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
 const usdSigned = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(Math.round(n)).toLocaleString()}`;
+const compact = (n: number) => (n >= 1000 ? `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`);
 const dayLabel = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 const dayTime = (ts: number) => `${dayLabel(ts)}, ${new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 
@@ -84,12 +85,20 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
       if (e.type === "deposit") cur.dep += e.amountUsd; else cur.wd += e.amountUsd;
       byDay.set(key, cur);
     }
-    const markers = [...byDay.values()]
+    const markers = [...byDay.entries()]
+      .map(([day, m]) => ({ ...m, day, xPct: ((m.ts - t0) / tRange) * 100 }))
       .sort((a, b) => Math.max(b.dep, b.wd) - Math.max(a.dep, a.wd))
-      .slice(0, 12)
-      .map((m) => ({ ...m, xPct: ((m.ts - t0) / tRange) * 100 }));
+      .slice(0, 12);
+    // amount labels: biggest first, skipped when too close to one already labelled so they never overlap
+    const labelled: number[] = [];
+    const withLabel = markers.map((m) => {
+      const show = labelled.every((x) => Math.abs(x - m.xPct) >= 13);
+      if (show) labelled.push(m.xPct);
+      return { ...m, show };
+    });
+    const dayTotals = new Map([...byDay.entries()].map(([day, m]) => [day, { dep: m.dep, wd: m.wd }]));
     const endY = (yFor(values[values.length - 1]) / H) * 100;
-    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, endY };
+    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers: withLabel, dayTotals, endY };
   }, [windowed, events]);
 
   const tabs = (
@@ -106,7 +115,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   if (points.length < 2) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
   if (!chart) return <div>{tabs}<div className="text-center py-4 text-slate-500 text-[11px]">Nothing recorded in this window yet.</div></div>;
 
-  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, endY } = chart;
+  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, dayTotals, endY } = chart;
   const up = result >= 0;
   const color = up ? "#34d399" : "#f87171";
 
@@ -146,9 +155,10 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
         <span className="absolute left-1 bottom-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(minV)}</span>
         {/* deposit / withdrawal markers */}
         {markers.map((m) => (
-          <span key={m.ts} className="absolute bottom-0 -translate-x-1/2 text-[9px] leading-none pointer-events-none"
-            style={{ left: `${Math.min(97, Math.max(3, m.xPct))}%`, color: m.dep >= m.wd ? "#4ade80" : "#fbbf24" }}>
-            {m.dep >= m.wd ? "▲" : "▼"}
+          <span key={m.ts} className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center leading-none pointer-events-none"
+            style={{ left: `${Math.min(94, Math.max(6, m.xPct))}%`, color: m.dep >= m.wd ? "#4ade80" : "#fbbf24" }}>
+            {m.show && <span className="text-[8px] font-mono mb-0.5 whitespace-nowrap">{m.dep >= m.wd ? "+" : "−"}{compact(Math.max(m.dep, m.wd))}</span>}
+            <span className="text-[9px]">{m.dep >= m.wd ? "▲" : "▼"}</span>
           </span>
         ))}
         {/* today's real total: the only point we truly know until readings are recorded */}
@@ -158,6 +168,15 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
           <div className="absolute top-1 z-10 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-snug pointer-events-none"
             style={{ left: `${Math.min(62, Math.max(0, hx - 18))}%`, background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
             <div className="text-slate-400">{dayTime(new Date(hp.timestamp).getTime())}</div>
+            {(() => {
+              const d = dayTotals.get(new Date(hp.timestamp).toDateString());
+              return d ? (
+                <>
+                  {d.dep > 0 && <div className="text-green-400">▲ Deposited {usd(d.dep)} that day</div>}
+                  {d.wd > 0 && <div className="text-amber-400">▼ Withdrew {usd(d.wd)} that day</div>}
+                </>
+              ) : null;
+            })()}
             {estimated && hover < windowed.length - 1 ? (
               <div className="text-slate-100">Put in {usd(putIn[hover])}<div className="text-slate-500">(worth not recorded yet)</div></div>
             ) : (
