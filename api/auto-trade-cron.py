@@ -46,7 +46,7 @@ from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
 from coin_cap import recent_buys, day_budget, check_room
 from buy_order import order_pairs, underweight_buckets, shit_list, group_of, SHIT_LIST_MAX_BUY
-from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
+from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell, sane_sell
 
 DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
 from database import (
@@ -909,7 +909,9 @@ def run_auto_trade_check():
             shared_targets.pop(code, None)
     # One-time move to the staggered profit plan: re-anchor every existing sell level from its old +% to the tier's new arm level
     # (same reference price, new distance), so the plan takes effect without anyone touching a slider.
-    if auto_active.get("planVersion") != PLAN_VERSION:
+    # (also remembered at the top level, outside autoActive, so no writer of autoActive can make the bot forget it already did this)
+    plan_done = auto_active.get("planVersion") == PLAN_VERSION or shared_state.get("autoPlanVersion") == PLAN_VERSION
+    if not plan_done:
         moved = 0
         for ck, tgt in list(shared_targets.items()):
             try:
@@ -925,10 +927,10 @@ def run_auto_trade_check():
         if moved:
             log.append(f"Profit plan v{PLAN_VERSION}: re-anchored {moved} sell levels (arm +12.5% / +30% / +75%)")
     # When an arm level is changed on the Tier screen, move that tier's existing sell levels the same way (same reference, new distance).
-    applied_arms = auto_active.get("planArms") if isinstance(auto_active.get("planArms"), dict) else {}
+    applied_arms = auto_active.get("planArms") if isinstance(auto_active.get("planArms"), dict) else (shared_state.get("autoPlanArms") if isinstance(shared_state.get("autoPlanArms"), dict) else {})
     current_arms = {str(t): plan_for(t, _PLAN_OVERRIDE)["arm"] for t in (1, 2, 3)}
     changed = {t: (float(applied_arms.get(t, DEFAULT_ARMS[t])), current_arms[t]) for t in current_arms if abs(float(applied_arms.get(t, DEFAULT_ARMS[t])) - current_arms[t]) > 1e-9}
-    if changed and auto_active.get("planVersion") == PLAN_VERSION:
+    if changed and plan_done:
         shifted = 0
         for ck, tgt in list(shared_targets.items()):
             try:
@@ -942,6 +944,22 @@ def run_auto_trade_check():
                 continue
         if shifted:
             log.append(f"Profit plan: arm level changed — moved {shifted} sell levels ({', '.join(f'T{t}: +{a:g}% → +{b:g}%' for t, (a, b) in sorted(changed.items()))})")
+    # Safety net: a sell level far beyond anything the plan could produce is a corrupted value; put it back to a sensible one.
+    try:
+        _fixed = []
+        for _ck, _tgt in list(shared_targets.items()):
+            _coin, _, _tn = str(_ck).partition(":")
+            if not _tn.isdigit() or not isinstance(_tgt, dict):
+                continue
+            _st = _tier_settings(auto_tiers, int(_tn))
+            _fix = sane_sell(_tgt.get("sell", 0), prices.get(_coin, 0), _tgt.get("buy", 0), _st["deviation"], _st["sellDeviation"])
+            if _fix:
+                _fixed.append(f"{_ck} ${float(_tgt.get('sell', 0)):,.0f} -> ${_fix:,.2f}")
+                shared_targets[_ck] = {**_tgt, "sell": _fix}
+        if _fixed:
+            log.append(f"Sell levels corrected ({len(_fixed)}): " + "; ".join(_fixed[:8]) + (" …" if len(_fixed) > 8 else ""))
+    except Exception as e:
+        print(f"[cron] sell-level check skipped: {type(e).__name__}: {e}", flush=True)
     fired = {}  # "BTC:1" -> {"side", "price", "settings"} — ratcheted once, after all wallets
 
     # One-time catch-up for wallets that missed buys the admin wallet already
@@ -988,6 +1006,7 @@ def run_auto_trade_check():
             shared_targets.clear(); shared_targets.update(_t)
             shared_cooldowns.clear(); shared_cooldowns.update(_cd)
             save_trader_state({"autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
+                               "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms,
                                "autoCooldowns": shared_cooldowns, "autoRepairs": {**_done, REPAIR_ID: now_ms}})
             log.append(f"Repair {REPAIR_ID}: marked {len(_applied)} signal(s) as just bought"
                        + (f" ({len(_skipped)} left alone: {', '.join(c for c, _ in _skipped)})" if _skipped else ""))
@@ -1023,7 +1042,7 @@ def run_auto_trade_check():
                           "sell": max(_old_sell, _new_sell) if _ev["side"] == "buy" else _new_sell, "setAt": now_ms}
                 cd[_ck] = now_ms + _st["cooldownHours"] * 3_600_000
             save_trader_state({"autoActive": {**auto_active, "targets": t, "planVersion": PLAN_VERSION, "planArms": current_arms},
-                               "autoCooldowns": cd})
+                               "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms, "autoCooldowns": cd})
         except Exception as e:
             print(f"[cron] could not save progress after an order: {type(e).__name__}: {e}", flush=True)
 
@@ -1112,6 +1131,7 @@ def run_auto_trade_check():
 
     save_update = {
         "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
+        "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms,
         "autoCooldowns": shared_cooldowns,
     }
     try:
