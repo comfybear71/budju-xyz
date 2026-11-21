@@ -211,6 +211,24 @@ class TestCatchUpPreview:
         assert "autoCatchUp" in db.save_trader_state.call_args[0][0]
 
 
+def test_cards_get_a_plain_reason_when_a_waiting_buy_does_not_happen(env):
+    # BTC is below its buy level but the admin account has too little USDC; ETH is still above its level in the bot's own price.
+    cron, db = env
+    cron.get_prices_for_coins = MagicMock(return_value={"BTC": 60000.0, "ETH": 3000.0})
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}, "ETH:1": {"buy": 2800, "sell": 4000, "setAt": 1}})
+    state["autoTierAssignments"] = {"BTC": [1], "ETH": [1]}
+    result, clients, saved, sent = run(env, state, pool_usdc=20.0, user_usdc=20.0)
+    items = saved["autoBuyStatus"]["items"]
+    assert items["BTC:1"].startswith("Waiting for cash")
+    assert "hasn't reached the buy price" in items["ETH:1"]
+
+
+def test_a_signal_that_traded_has_no_reason(env):
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    result, clients, saved, sent = run(env, state)
+    assert "BTC:1" not in saved["autoBuyStatus"]["items"]
+
+
 def test_each_buy_is_saved_immediately_so_a_cut_off_run_cannot_repeat_it(env):
     """The new buy level and pause must be written right after the order, not only at the end of the run."""
     cron, db = env

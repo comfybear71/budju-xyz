@@ -106,6 +106,8 @@ export interface TraderState {
   currentAutoTier?: string;
   /** Profit-taking numbers per tier ("1".."3"): start level, trailing pullback and slice size */
   profitPlan?: Record<string, { arm: number; trail: number; slice: number }>;
+  /** Why a waiting buy did not happen, per "COIN:tier" (written by the cron every run) */
+  autoBuyStatus?: { at: number; items: Record<string, string> };
   /** Raw autoActive object from server for safe merging on save */
   _rawAutoActive?: any;
 }
@@ -825,6 +827,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         autoTradeLog: tradeLog,
         currentAutoTier: data.currentAutoTier,
         profitPlan: data.profitPlan,
+        autoBuyStatus: data.autoBuyStatus,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch (err) {
