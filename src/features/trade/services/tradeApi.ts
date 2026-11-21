@@ -108,6 +108,8 @@ export interface TraderState {
   profitPlan?: Record<string, { arm: number; trail: number; slice: number }>;
   /** Why a waiting buy did not happen, per "COIN:tier" (written by the cron every run) */
   autoBuyStatus?: { at: number; items: Record<string, string> };
+  /** Coins Swyftx has switched off right now: the bot is not trading them, so the monitor hides them */
+  switchedOff?: string[];
   /** Raw autoActive object from server for safe merging on save */
   _rawAutoActive?: any;
 }
@@ -828,6 +830,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         currentAutoTier: data.currentAutoTier,
         profitPlan: data.profitPlan,
         autoBuyStatus: data.autoBuyStatus,
+        switchedOff: Array.isArray(data.switchedOff) ? data.switchedOff : [],
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch (err) {

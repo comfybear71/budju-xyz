@@ -417,6 +417,12 @@ class handler(BaseHTTPRequestHandler):
                     state["profitPlan"] = {str(t): plan_for(t, overrides if isinstance(overrides, dict) else None) for t in (1, 2, 3)}
                 except Exception as e:
                     print(f"[state] profit plan unavailable: {e}")
+                try:
+                    # Coins Swyftx has switched off: the screen hides them (the bot is not trading them)
+                    from untradable_memory import switched_off
+                    state["switchedOff"] = switched_off(state, int(time.time() * 1000))
+                except Exception as e:
+                    print(f"[state] switched-off list unavailable: {e}")
                 self._send_json(200, state)
 
             elif path == '/api/pool/allocations':

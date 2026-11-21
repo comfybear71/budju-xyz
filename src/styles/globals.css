@@ -520,3 +520,12 @@
     opacity: 0.15;
   }
 }
+
+
+/* BARGAIN coin cards: below their buy price but held back by the bot; a slow amber flash so they stand out */
+@keyframes bargainGlow {
+  0%, 100% { border-color: rgba(251, 191, 36, 0.25); box-shadow: 0 0 0 rgba(251, 191, 36, 0); }
+  50% { border-color: rgba(251, 191, 36, 0.95); box-shadow: 0 0 14px rgba(251, 191, 36, 0.35); }
+}
+.bargain-card { animation: bargainGlow 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .bargain-card { animation: none; border-color: rgba(251, 191, 36, 0.7) !important; } }

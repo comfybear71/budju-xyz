@@ -1,5 +1,5 @@
 import MonitorFilterBar from "./MonitorFilterBar";
-import { matches, countByFilter, type MonitorFilter } from "./monitorFilter";
+import { matches, countByFilter, categorize, type MonitorFilter } from "./monitorFilter";
 import TopUpPreviewCard from "./TopUpPreview";
 import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect, useCallback } from "react";
@@ -115,6 +115,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
       const coins = autoTrader.getCoinsForTier(t);
       const settings = snapshot.tierSettings[`tier${t}`];
       for (const coin of coins) {
+        if ((snapshot.switchedOff || []).includes(coin)) continue;      // Swyftx has it switched off: not traded, not shown
         const ck = compoundKey(coin, t);
         const cp = Number(prices[coin]) || 0;
         const change = Number(changes[coin]) || 0;
@@ -374,6 +375,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
         </div>
 
         {monitoringCount > 0 && <MonitorFilterBar value={monitorFilter} counts={filterCounts} onChange={setMonitorFilter} />}
+        {(snapshot.switchedOff || []).length > 0 && (
+          <div className="text-[10px] text-slate-500 leading-snug">Hidden, switched off on Swyftx (not traded): {(snapshot.switchedOff || []).join(", ")}</div>
+        )}
 
         {/* ── Coin monitoring — 3-column tier grid (matches view-only) ── */}
         {monitoringCount === 0 ? (
@@ -459,6 +463,9 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   const estSellValue = autoTrader.getEstimatedSellValue(item.coin, item.tierNum);
                   const estAmount = nearestSide === "buy" ? estBuyAmount : estSellValue;
 
+                  // Below its buy price but the bot is holding the buy back (cash, a limit...): a BARGAIN, flashing so it stands out
+                  const isBargain = categorize(item) === "bargain" && nearestSide === "buy";
+
                   // Celebration colors for just-traded coins
                   const celebBuy = recentTrade?.side === "BUY";
                   const celebColor = celebBuy ? "34,197,94" : "239,68,68"; // green or red
@@ -466,7 +473,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                   return (
                     <div
                       key={item.coin}
-                      className={`rounded-lg p-2.5 transition-all duration-500${justTraded && tradeAge < 10 ? " animate-pulse" : ""}`}
+                      className={`rounded-lg p-2.5 transition-all duration-500${justTraded && tradeAge < 10 ? " animate-pulse" : ""}${isBargain && !justTraded ? " bargain-card" : ""}`}
                       style={{
                         background: justTraded
                           ? `rgba(${celebColor},${tradeAge < 5 ? 0.18 : 0.1})`
@@ -535,15 +542,15 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                             <span
                               className={`text-[9px] font-bold px-1.5 py-0.5 rounded${isCritical ? " animate-pulse" : ""}`}
                               style={{
-                                background: nearestSide === "buy"
+                                background: isBargain ? "rgba(251,191,36,0.22)" : nearestSide === "buy"
                                   ? isCritical ? "rgba(34,197,94,0.25)" : "rgba(34,197,94,0.15)"
                                   : isCritical ? "rgba(239,68,68,0.25)" : "rgba(239,68,68,0.15)",
-                                color: nearestSide === "buy" ? "#22c55e" : "#ef4444",
-                                border: `1px solid ${nearestSide === "buy" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
+                                color: isBargain ? "#fbbf24" : nearestSide === "buy" ? "#22c55e" : "#ef4444",
+                                border: `1px solid ${isBargain ? "rgba(251,191,36,0.55)" : nearestSide === "buy" ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
                               }}
                             >
                               {nearestSide === "sell" && trailing.enabled && trailing.armed[`${item.coin}:${item.tierNum}`] ? `TRAILING ↗ stop $${(trailing.armed[`${item.coin}:${item.tierNum}`].high * (1 - trailing.pullbackPct / 100)).toPrecision(4)}`
-                                : isCritical ? (nearestSide === "buy" ? "BUY IMMINENT" : "SELL IMMINENT")
+                                : isCritical ? (nearestSide === "buy" ? (isBargain ? "BARGAIN" : "BUY IMMINENT") : "SELL IMMINENT")
                                 : isHot ? (nearestSide === "buy" ? "NEAR BUY" : "NEAR SELL")
                                 : (nearestSide === "buy" ? "~ BUY" : "~ SELL")}
                             </span>
