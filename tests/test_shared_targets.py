@@ -292,3 +292,13 @@ def test_one_time_repair_pauses_the_unsaved_buy_once_and_only_once(env, monkeypa
     result2, clients2, saved2, sent2 = run(env, state2)
     assert clients2["k-pool"].place_market_order.call_count == 1
     assert not any("Repair" in line for line in result2["log"])
+
+
+def test_a_buy_over_the_single_buy_limit_is_made_at_the_limit_not_skipped(env):
+    cron, db = env
+    cron.MAX_SINGLE_TRADE_USDC = 250.0
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    state["autoTiers"] = {"tier1": {"deviation": 5, "sellDeviation": 12.5, "allocation": 15, "cooldownHours": 12}}   # 15% of $5000 = $750
+    result, clients, saved, sent = run(env, state, pool_usdc=5000.0, user_usdc=100.0)
+    args = clients["k-pool"].place_market_order.call_args[0]
+    assert args[1] == "buy" and args[2] == 250.0

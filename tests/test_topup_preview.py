@@ -24,10 +24,11 @@ def test_first_buy_is_tier_percent_of_cash_and_cash_shrinks():
     assert out["cashLeft"] == round(1000 - 50 - 47.5, 2)
 
 
-def test_buys_over_the_single_buy_limit_are_left_waiting_until_cash_is_lower():
+def test_buys_over_the_single_buy_limit_are_capped_at_the_limit_not_skipped():
     out = sim(3250, {"A": {1: (90, 100), 2: (90, 100), 3: (90, 100)}})
-    assert [(r["coin"], r["tier"]) for r in out["rows"]] == [("A", 1)]       # 5% = $162.50 fits; 10% ($325) and 15% ($487) do not
-    assert out["waitingCount"] == 2 and all("single-buy limit" in w["why"] for w in out["waiting"])
+    assert [(r["coin"], r["tier"], r["amount"], r["capped"]) for r in out["rows"]] == [
+        ("A", 3, 250.0, True), ("A", 2, 250.0, True), ("A", 1, 0.05 * (3250 - 500), False)]     # T3 first (tie on discount), then T2, then T1
+    assert out["waitingCount"] == 0
 
 
 def test_paused_skipped_and_not_yet_reached_signals_are_not_listed():

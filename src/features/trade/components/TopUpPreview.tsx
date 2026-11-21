@@ -61,7 +61,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                         <td className="py-1 px-2 text-slate-500">{r.n}</td>
                         <td className="px-1 font-bold text-slate-200">{r.coin}</td>
                         <td className="px-1 text-slate-400">T{r.tier}</td>
-                        <td className="px-1 text-right font-mono text-green-400">{usd2(r.amount)}</td>
+                        <td className="px-1 text-right font-mono text-green-400">{usd2(r.amount)}{r.capped ? " ⛔" : ""}</td>
                         <td className="px-1 text-right font-mono text-slate-400">{data.startCash > 0 ? ((r.amount / data.startCash) * 100).toFixed(1) : "0"}%</td>
                         <td className="px-2 text-right font-mono text-slate-400">{r.below.toFixed(1)}%</td>
                       </tr>
@@ -79,7 +79,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                 </div>
               )}
               <div className="text-[10px] text-slate-500 leading-snug">
-                Order: the deepest below its own buy price goes first; equal ones go T3, then T2, then T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy over {usd(data.maxSingleBuy)} is not made; {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
+                Order: the deepest below its own buy price goes first; equal ones go T3, then T2, then T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy is capped at {usd(data.maxSingleBuy)} (⛔ = capped); {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
               </div>
             </div>
           )}

@@ -5,7 +5,7 @@
 # what each buy would cost, and where it stops. The rules mirror api/auto-trade-cron.py:
 #   * a signal buys when its tier is on, it isn't paused, and the price is at or below its buy level
 #   * each buy = tier's % of the CURRENT USDC (at least the $8 minimum)
-#   * a single buy over MAX_SINGLE_TRADE_USDC is blocked (no smaller version is tried)
+#   * a single buy over MAX_SINGLE_TRADE_USDC is made AT that limit (capped, not skipped)
 #   * the bot keeps a USDC reserve spare, and stops at the wallet's daily buying limit
 #   * a run places orders for only ~150 seconds (about 18 buys), then carries on next run
 
@@ -38,18 +38,18 @@ def simulate(usdc, pairs, prices, targets, cooldowns, tier_settings, now_ms, ski
         below = (buy - price) / buy * 100
         alloc = float(tier_settings.get(tier, {}).get("allocation", 5.0))
         amount = round(max(alloc / 100 * cash, min_order), 2)
+        capped = amount > max_single
+        if capped:
+            amount = round(max_single, 2)          # bought AT the single-buy limit, not skipped
         if cash - amount < reserve:
             waiting.append({"coin": coin, "tier": tier, "why": "Not enough cash left", "below": round(below, 1)})
-            continue
-        if amount > max_single:
-            waiting.append({"coin": coin, "tier": tier, "why": f"One buy would be ${amount:,.0f}, over the ${max_single:,.0f} single-buy limit. Waits until your cash is lower", "below": round(below, 1)})
             continue
         if spent + amount > daily_limit:
             waiting.append({"coin": coin, "tier": tier, "why": f"Would pass your ${daily_limit:,.0f} daily limit", "below": round(below, 1)})
             continue
         cash -= amount
         spent += amount
-        rows.append({"n": len(rows) + 1, "coin": coin, "tier": tier, "amount": amount, "price": price, "below": round(below, 1)})
+        rows.append({"n": len(rows) + 1, "coin": coin, "tier": tier, "amount": amount, "price": price, "below": round(below, 1), "capped": capped})
     total = round(sum(r["amount"] for r in rows), 2)
     return {
         "rows": rows, "buys": len(rows), "total": total, "cashLeft": round(cash, 2),
