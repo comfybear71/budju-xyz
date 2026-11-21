@@ -1,3 +1,4 @@
+import RankBadge from "./RankBadge";
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence, useMotionValue } from "motion/react";
 import {
@@ -688,6 +689,7 @@ const HoldingsList = ({
                           <span className="text-sm font-bold text-white">
                             {asset.code}
                           </span>
+                          <RankBadge code={asset.code} className="ml-1.5 align-middle" />
                           <span className="text-[11px] text-slate-500 ml-1.5">
                             {asset.name}
                           </span>

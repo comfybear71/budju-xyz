@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { FaTimes, FaChevronDown, FaChevronRight, FaFire, FaTrophy, FaTint, FaSort, FaSortUp, FaSortDown } from "react-icons/fa";
 import { fetchCoinStats, fetchCoinTrades, ASSET_CONFIG, type CoinStat, type CoinStatsResponse, type CoinStatsScope, type CoinTradePoint, type PortfolioAsset } from "../services/tradeApi";
 import CoinTradeChart from "./CoinTradeChart";
+import RankBadge from "./RankBadge";
 
 interface Props {
   isOpen: boolean;
@@ -301,6 +302,7 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMin
                               <div className="flex items-center gap-2 min-w-0">
                                 {isOpen2 ? <FaChevronDown size={9} className="text-slate-600" /> : <FaChevronRight size={9} className="text-slate-600" />}
                                 <span className="text-[13px] font-bold" style={{ color: cfg.color }}>{r.coin}</span>
+                                <RankBadge code={r.coin} />
                                 <span className="text-[9px] text-slate-500">{r.totalTrades} trades</span>
                                 {r.costBasisPartial && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>PARTIAL</span>}
                               </div>
@@ -357,6 +359,7 @@ const CoinStatsView = ({ isOpen, onClose, prices, assets = [], wallet, assetsMin
                                 <td className="px-3 py-2.5 text-left">
                                   <div className="flex items-center gap-2">
                                     <span className="font-bold" style={{ color: cfg.color }}>{r.coin}</span>
+                                    <RankBadge code={r.coin} className="ml-1.5 align-middle" />
                                     {r.costBasisPartial && <span className="text-[8px] font-bold px-1 py-0.5 rounded" style={{ background: "rgba(234,179,8,0.15)", color: "#eab308" }}>PARTIAL</span>}
                                   </div>
                                 </td>
