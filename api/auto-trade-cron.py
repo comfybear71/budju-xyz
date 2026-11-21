@@ -107,6 +107,11 @@ MAX_DAILY_TRADES = 0
 # How many recent trades each wallet keeps in its log. The daily buying limit is counted from this log, so it must be
 # long enough to hold a whole big day (it used to be 50, which a single large top-up could overflow).
 TRADE_LOG_KEEP = 500
+# A run stops PLACING new orders after this many seconds, then saves, counts and reports what it did; whatever is left
+# continues on the next 5-minute run. (A 22-buy run once ran past the server's time limit and was cut off before saving
+# anything.) Orders take roughly 8 seconds each, so 150 seconds is about 18 buys per run.
+RUN_BUDGET_SECONDS = float(os.getenv("CRON_TRADE_BUDGET_SECONDS", "150") or 150)
+_RUN_STARTED = 0.0
 # Most one wallet may BUY in any rolling 24 hours (USDC). Protects every wallet in a crash.
 # Change it in Vercel (MAX_DAILY_SPEND_USDC); 0 switches the limit off.
 MAX_DAILY_SPEND_USDC = float(os.getenv("MAX_DAILY_SPEND_USDC", "3000"))
@@ -131,6 +136,21 @@ _blocklist_logged = set()
 _minsell_logged = set()
 
 # ── Telegram ──────────────────────────────────────────────────
+
+def _over_budget():
+    return _RUN_STARTED > 0 and (time.time() - _RUN_STARTED) > RUN_BUDGET_SECONDS
+
+
+def _save_trade_log(ctx, trade_log):
+    """Save this wallet's trade log right after an order, so a cut-off run never loses it (the daily limit counts from it)."""
+    try:
+        if ctx["isPool"]:
+            save_trader_state({"autoTradeLog": trade_log})
+        else:
+            save_user_trader_state(ctx["wallet"], {"tradeLog": trade_log})
+    except Exception as e:
+        print(f"[cron] could not save trade log after an order: {type(e).__name__}: {e}", flush=True)
+
 
 def _p(n):
     """Compact price text for the plain-English reasons shown on the coin cards."""
@@ -431,6 +451,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     trades_this_wallet = []
 
     for code, tier_num in active_pairs:
+        if _over_budget():
+            ctx["budgetHit"] = True
+            log.append(f"{short}: time limit for this run reached — the rest carries on next run")
+            break
         if code in ctx.get("newPauses", ()):
             continue        # Swyftx just refused this coin: don't hit it again for its other tiers this cycle
         try:
@@ -547,6 +571,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
                     trade_log = trade_log[:TRADE_LOG_KEEP]
+                    _save_trade_log(ctx, trade_log)
 
                     usdc_balance -= trade_amount
                     holdings[code] = holdings.get(code, 0.0) + quantity   # keeps the position cap honest within this cycle
@@ -624,6 +649,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
                     trade_log = trade_log[:TRADE_LOG_KEEP]
+                    _save_trade_log(ctx, trade_log)
 
                     log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
@@ -667,6 +693,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
 # ── Main Entry Point ─────────────────────────────────────────
 
 def run_auto_trade_check():
+    global _RUN_STARTED
+    _RUN_STARTED = time.time()
     """One cycle of the single unified bot — every connected,
     auto-trading-enabled wallet (admin's pool account included), same
     rules, same safety checks, one combined Telegram digest."""
@@ -925,6 +953,22 @@ def run_auto_trade_check():
             trail_decisions, trail_state_new = None, {}
             print(f"[trailing] unavailable this cycle: {e}", flush=True)
 
+    # One-time repair: mark the buys that were placed but never recorded as "just bought" (see api/repair_unsaved_buys.py).
+    try:
+        from repair_unsaved_buys import REPAIR_ID, UNSAVED_BUYS, apply_repair
+        _done = shared_state.get("autoRepairs") if isinstance(shared_state.get("autoRepairs"), dict) else {}
+        if UNSAVED_BUYS and REPAIR_ID not in _done:
+            _t, _cd, _applied, _skipped = apply_repair(UNSAVED_BUYS, shared_targets, shared_cooldowns,
+                                                       lambda tn: _tier_settings(auto_tiers, tn), now_ms)
+            shared_targets.clear(); shared_targets.update(_t)
+            shared_cooldowns.clear(); shared_cooldowns.update(_cd)
+            save_trader_state({"autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
+                               "autoCooldowns": shared_cooldowns, "autoRepairs": {**_done, REPAIR_ID: now_ms}})
+            log.append(f"Repair {REPAIR_ID}: marked {len(_applied)} signal(s) as just bought"
+                       + (f" ({len(_skipped)} left alone: {', '.join(c for c, _ in _skipped)})" if _skipped else ""))
+    except Exception as e:
+        print(f"[cron] repair step failed (trading continues): {type(e).__name__}: {e}", flush=True)
+
     def _persist_fired():
         """Save the new buy level + pause for every signal that has traded so far, RIGHT AFTER each order. Before, this
         happened once at the end of the run, so a run cut off part-way left the orders placed on Swyftx but the cards,
@@ -1056,6 +1100,8 @@ def run_auto_trade_check():
         except Exception as e:
             print(f"[cron] digest details format error: {e}", flush=True)
             message = format_digest(all_trades)
+        if any(c.get("budgetHit") for c in wallet_contexts):
+            message += "\n\n⏱ Time limit for this run reached — the remaining buys continue on the next run."
         send_telegram(message)
 
     log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
