@@ -62,3 +62,25 @@ def size_sell(slice_pct: float, position_qty: float, price: float, min_usd: floa
     if min_qty <= position_qty * max_bump_fraction:
         return round(min_qty, 8), "raised to the Swyftx minimum"
     return None, f"slice is below the Swyftx minimum and raising it would sell more than {int(max_bump_fraction * 100)}% of the position"
+
+
+SELL_SANITY_MULT = 4.0
+
+
+def sane_sell(sell: float, price: float, buy: float, dev: float, arm: float):
+    """Guard against a runaway sell level. A sell level legitimately sits at most about (reference price) x (1 + arm%) — a bit
+    higher when it stayed anchored after a later, lower buy — so anything beyond SELL_SANITY_MULT times that is a corrupted value
+    (an old bug multiplied levels into the millions). -> the level to use instead, or None when the level is fine.
+    The reference is the higher of today's price and the signal's open price (buy level / (1 - dip%))."""
+    try:
+        sell, price, buy, dev, arm = float(sell), float(price or 0), float(buy or 0), float(dev or 0), float(arm or 0)
+    except (TypeError, ValueError):
+        return None
+    if sell <= 0:
+        return None
+    open_price = buy / (1 - dev / 100.0) if buy > 0 and 0 < dev < 100 else 0.0
+    ref = max(price, open_price)
+    if ref <= 0:
+        return None
+    fair = ref * (1 + arm / 100.0)
+    return fair if sell > fair * SELL_SANITY_MULT else None

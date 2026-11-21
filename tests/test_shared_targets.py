@@ -381,3 +381,55 @@ def test_a_coin_swyftx_keeps_refusing_alerts_once_then_stays_quiet(env):
     assert any("still switched off on Swyftx, paused another 24h" in line for line in result2["log"])
     assert not [p for p in find_problems(result2["log"]) if ":paused:" in p[0]]
     assert saved2["autoUntradableSeen"]["BTC"]["count"] == 2
+
+
+def _t3_state(sell, extra=None):
+    state = make_state({"BTC:3": {"buy": 57098, "sell": sell, "setAt": 1}})
+    state["autoTierAssignments"] = {"BTC": [3]}
+    state["autoActive"]["tierActive"] = {"3": True}
+    # legacy sell slider 15%, plan arm 75%: a re-anchor would multiply this level by 1.75 / 1.15 each time it ran
+    state["autoTiers"] = {"tier3": {"deviation": 15, "sellDeviation": 15, "allocation": 15, "cooldownHours": 24}}
+    state.update(extra or {})
+    return state
+
+
+def test_a_browser_save_that_drops_the_plan_markers_cannot_make_the_bot_multiply_sell_levels_again(env):
+    markers = {"autoPlanVersion": 1, "autoPlanArms": {"1": 12.5, "2": 30.0, "3": 75.0}}      # the copy kept outside autoActive
+    state = _t3_state(110_000, markers)                  # autoActive has NO planVersion / planArms: exactly what a browser save leaves
+    result, clients, saved, sent = run(env, state, pool_usdc=0.0, user_usdc=0.0)
+    assert saved["autoActive"]["targets"]["BTC:3"]["sell"] == 110_000                       # untouched, not x1.52
+    assert not any("re-anchored" in line for line in result["log"])
+    # control: genuinely new state (no marker anywhere) is migrated once, as designed
+    state2 = _t3_state(110_000)
+    result2, _, saved2, _ = run(env, state2, pool_usdc=0.0, user_usdc=0.0)
+    assert saved2["autoActive"]["targets"]["BTC:3"]["sell"] != 110_000
+    assert saved2["autoPlanVersion"] == 1 and saved2["autoActive"]["planVersion"] == 1       # and both markers are written for next time
+
+
+def test_five_runs_in_a_row_with_the_markers_wiped_each_time_never_grow_the_sell_level(env):
+    cron, db = env
+    state = _t3_state(110_000, {"autoPlanVersion": 1, "autoPlanArms": {"1": 12.5, "2": 30.0, "3": 75.0}})
+    levels = []
+    for _ in range(5):
+        result, clients, saved, sent = run(env, state, pool_usdc=0.0, user_usdc=0.0)
+        levels.append(round(saved["autoActive"]["targets"]["BTC:3"]["sell"]))
+        # the browser saves and wipes the markers inside autoActive before the next run (the top-level copy stays)
+        state["autoActive"] = {k: v for k, v in saved["autoActive"].items() if k not in ("planVersion", "planArms")}
+    assert levels == [110_000] * 5
+
+
+def test_an_already_runaway_sell_level_is_corrected_on_the_next_run(env):
+    state = _t3_state(123_592_620, {"autoPlanVersion": 1, "autoPlanArms": {"1": 12.5, "2": 30.0, "3": 75.0}})
+    result, clients, saved, sent = run(env, state, pool_usdc=0.0, user_usdc=0.0)
+    fixed = saved["autoActive"]["targets"]["BTC:3"]["sell"]
+    assert 100_000 < fixed < 200_000                                                         # back to about open price x 1.75
+    assert any("Sell levels corrected" in line for line in result["log"])
+
+
+def test_the_bot_saves_the_prices_it_used_for_the_screen_to_fall_back_on(env):
+    cron, db = env
+    cron.get_prices_for_coins = MagicMock(return_value={"BTC": 58000.0, "JST": 0.0, "VVV": 18.07})
+    state = make_state({"BTC:1": {"buy": 50000, "sell": 70000, "setAt": 1}})
+    result, clients, saved, sent = run(env, state, pool_usdc=0.0, user_usdc=0.0)
+    p = saved["autoBotPrices"]["prices"]
+    assert p["BTC"] == 58000.0 and p["VVV"] == 18.07 and "JST" not in p                   # a zero price is never saved

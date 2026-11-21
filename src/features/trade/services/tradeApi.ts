@@ -110,6 +110,8 @@ export interface TraderState {
   autoBuyStatus?: { at: number; items: Record<string, string> };
   /** Coins Swyftx has switched off right now: the bot is not trading them, so the monitor hides them */
   switchedOff?: string[];
+  /** The bot's own latest price for every coin it watches: a fallback when the live feed has none */
+  autoBotPrices?: Record<string, number>;
   /** Raw autoActive object from server for safe merging on save */
   _rawAutoActive?: any;
 }
@@ -831,6 +833,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         profitPlan: data.profitPlan,
         autoBuyStatus: data.autoBuyStatus,
         switchedOff: Array.isArray(data.switchedOff) ? data.switchedOff : [],
+        autoBotPrices: data.autoBotPrices && typeof data.autoBotPrices.prices === "object" ? data.autoBotPrices.prices : undefined,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
       };
     } catch (err) {

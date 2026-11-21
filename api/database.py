@@ -1618,6 +1618,13 @@ def save_trader_state(state: Dict) -> Dict:
     if "autoActive" in state and isinstance(state["autoActive"], dict):
         existing = trader_state_collection.find_one({"_id": "admin_state"})
         existing_active = existing.get("autoActive") if existing else None
+        # The bot's own bookkeeping lives inside autoActive too. A browser save only sends isActive/tierActive, and the plain
+        # $set below would DROP these markers; the next cron run then thought the profit plan had never been applied and
+        # multiplied every sell level again, run after run (BTC T3 reached $123 million). Carry them forward.
+        if isinstance(existing_active, dict):
+            for _k in ("planVersion", "planArms"):
+                if _k in existing_active and _k not in state["autoActive"]:
+                    state["autoActive"][_k] = existing_active[_k]
         existing_targets = (
             existing_active.get("targets", {})
             if isinstance(existing_active, dict)
