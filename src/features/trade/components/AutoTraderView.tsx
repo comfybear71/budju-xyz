@@ -86,7 +86,9 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
     const items: any[] = [];
 
     // Multi-tier: assignments is Record<string, number[]> — each coin in multiple tiers
+    const off: string[] = Array.isArray(state.switchedOff) ? state.switchedOff : [];
     for (const [coin, rawTiers] of Object.entries(assignments)) {
+      if (off.includes(coin)) continue;      // Swyftx has it switched off: not traded, not shown
       // Support both old (number/string) and new (array) format
       const tiers: number[] = Array.isArray(rawTiers)
         ? (rawTiers as number[])

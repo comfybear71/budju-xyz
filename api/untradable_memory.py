@@ -30,3 +30,19 @@ def next_pause(seen, coin, now_ms, first_hours=FIRST_PAUSE_HOURS, repeat_hours=R
         return repeat_hours, False, seen
     seen[coin] = {"first": now_ms, "last": now_ms, "count": 1}
     return first_hours, True, seen
+
+
+def switched_off(state, now_ms):
+    """Coins to treat as switched off on Swyftx: refused within the quiet window, or paused right now. Before the memory exists
+    (nothing refused since it was added) the known BTT/DASH/XMR are used, so the screen can hide them straight away."""
+    state = state or {}
+    seen = state.get("autoUntradableSeen")
+    out = set()
+    if isinstance(seen, dict):
+        out |= {c for c, v in seen.items() if isinstance(v, dict) and now_ms - float(v.get("last", 0) or 0) < QUIET_DAYS * _DAY_MS}
+    else:
+        out |= set(KNOWN_OFF)
+    for c, until in (state.get("autoPausedAssets") or {}).items():
+        if isinstance(until, (int, float)) and until > now_ms:
+            out.add(c)
+    return sorted(out)

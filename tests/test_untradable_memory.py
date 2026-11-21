@@ -37,3 +37,15 @@ def test_known_off_coins_start_quiet_and_the_log_lines_match_the_alert_rules():
     assert all(next_pause(seen, c, NOW + 6 * 3_600_000)[1] is False for c in ("BTT", "DASH", "XMR"))
     assert find_problems(["BTT: paused for 6h — Swyftx says it is not tradable right now"])           # the first-time line alerts
     assert not find_problems(["BTT: still switched off on Swyftx, paused another 24h (already reported, no new alert)"])   # the repeat line does not
+
+
+def test_switched_off_list_for_the_screen():
+    from untradable_memory import switched_off, KNOWN_OFF
+    # nothing refused since the memory was added: the three known coins are hidden straight away
+    assert switched_off({}, NOW) == sorted(KNOWN_OFF)
+    # once the memory exists it decides: only coins refused in the last 7 days, plus any pause that is live right now
+    state = {"autoUntradableSeen": {"BTT": {"first": NOW - 9 * DAY, "last": NOW - 9 * DAY, "count": 4},
+                                      "XMR": {"first": NOW, "last": NOW - DAY, "count": 2}},
+             "autoPausedAssets": {"ABC": NOW + 1000, "OLD": NOW - 1000}}
+    assert switched_off(state, NOW) == ["ABC", "XMR"]                   # BTT quiet for 9 days (back in play); OLD pause has ended
+    assert switched_off({"autoUntradableSeen": {}, "autoPausedAssets": None}, NOW) == []

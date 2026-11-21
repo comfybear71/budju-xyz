@@ -92,6 +92,8 @@ export interface AutoTraderSnapshot {
   tradeLog: TradeLogEntry[];
   recentTrades: Record<string, RecentTrade>;
   cronDiagnostics: Record<string, string>;
+  /** Coins Swyftx has switched off (hidden from the monitor) */
+  switchedOff: string[];
 }
 
 type LogFn = (message: string, level?: "info" | "success" | "error") => void;
@@ -143,6 +145,7 @@ export class AutoTrader {
   tierAssignments: Record<string, number[]> = {};
   tradeLog: TradeLogEntry[] = [];
   cronDiagnostics: Record<string, string> = {};
+  switchedOff: string[] = [];
   recentTrades: Record<string, RecentTrade> = {};
 
   // Callbacks for UI updates
@@ -277,6 +280,8 @@ export class AutoTrader {
         }
       }
     }
+
+    this.switchedOff = Array.isArray((state as any).switchedOff) ? (state as any).switchedOff : [];
 
     // Plain-English reasons a waiting buy has not happened (cash, daily limit, pause, bot price...)
     const buyStatus = (state as any).autoBuyStatus;
@@ -837,6 +842,7 @@ export class AutoTrader {
       tradeLog: [...this.tradeLog],
       recentTrades: { ...this.recentTrades },
       cronDiagnostics: { ...this.cronDiagnostics },
+      switchedOff: [...this.switchedOff],
     };
   }
 
