@@ -343,3 +343,11 @@ def test_group_shares_and_per_group_coin_limits_apply_in_the_real_bot(env):
         spent[c[0][0]] = spent.get(c[0][0], 0.0) + c[0][2]
     assert spent["LINK"] == 500.0                    # Top 10 coin: 10% of $5000
     assert spent["RAY"] == 100.0                     # Smaller coin: 2% of $5000
+
+
+def test_telegram_digest_refreshes_the_pool_snapshot_after_a_run_that_traded(env):
+    cron, db = env
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    run(env, state)
+    assert db.digest_details.call_args.kwargs.get("fresh") is True
+

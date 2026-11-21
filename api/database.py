@@ -4926,15 +4926,20 @@ def get_scorecard(scope: str = "all", wallet: Optional[str] = None) -> Dict:
     return result
 
 
-def digest_details(coins: List[str], pool_holdings: Dict[str, float], wallet_holdings: List[Dict[str, float]], prices: Dict[str, float]) -> Dict:
+def digest_details(coins: List[str], pool_holdings: Dict[str, float], wallet_holdings: List[Dict[str, float]], prices: Dict[str, float], fresh: bool = False) -> Dict:
     """Extra facts for the Telegram trade message. "Pool" = every connected wallet combined, the same figure the Home screen shows
     (from the leaderboard snapshot). Falls back to this run's wallets if the snapshot isn't available."""
     from scorecard import coin_scorecard
     pool = None
     try:
-        pool = get_live_leaderboard_cached()
+        pool = get_live_leaderboard_cached(fresh=fresh)      # fresh=True re-reads every wallet, so the figures include the buys just made
     except Exception as e:
         print(f"[digest] leaderboard snapshot unavailable: {e}")
+        if fresh:
+            try:
+                pool = get_live_leaderboard_cached()           # fall back to the last snapshot rather than none
+            except Exception:
+                pool = None
     totals = {c.get("code"): c for c in ((pool or {}).get("coinTotals") or [])}
     wallets_n = int((pool or {}).get("walletCount") or len(wallet_holdings))
     if pool and pool.get("combinedValue") is not None:
