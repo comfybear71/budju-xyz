@@ -66,6 +66,7 @@ import OffloadPreview from "./components/OffloadPreview";
 import AdminTools from "./components/AdminTools";
 import NewCoinMarquee from "./components/NewCoinMarquee";
 import MarketMoodChip from "./components/MarketMoodChip";
+import DailyLimit from "./components/DailyLimit";
 
 const BUDJU_GATE_REQUIRED = 10_000_000;
 
@@ -974,6 +975,11 @@ const Trade = () => {
                           <span className="font-mono font-bold text-green-400">${fmt2(byCurrency.USDC)}</span>
                         </div>
                       </div>
+                      {viewingMine && isConnected && walletAddress && (
+                        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                          <DailyLimit wallet={walletAddress} />
+                        </div>
+                      )}
                     </div>
                   );
                 })()}

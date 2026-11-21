@@ -6,8 +6,6 @@ import { fetchTraderState, fetchCoinStats, ASSET_CONFIG, type PortfolioAsset } f
 import { TIER_CONFIG } from "../services/autoTrader";
 import TierMonitorColumn from "./TierMonitorColumn";
 import TierCard from "./TierCard";
-import DailyLimit from "./DailyLimit";
-import { useWallet } from "@hooks/useWallet";
 
 interface Props {
   isOpen: boolean;
@@ -19,8 +17,6 @@ interface Props {
 
 const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: Props) => {
   const trailing = useTrailing();
-  const { connection } = useWallet();
-  const walletAddr = connection.connected ? connection.wallet?.address || "" : "";
   const [state, setState] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [countdown, setCountdown] = useState(30);
@@ -247,7 +243,6 @@ const AutoTraderView = ({ isOpen, onClose, prices, changes = {}, assets = [] }: 
                 View only — the bot is managed by the pool admin
               </div>
 
-              {walletAddr && <div className="mb-3"><DailyLimit wallet={walletAddr} /></div>}
 
               {loading ? (
                 <div className="flex justify-center py-12">
