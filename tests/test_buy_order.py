@@ -47,10 +47,20 @@ def test_core_coins_keep_discount_then_tier_order_among_themselves():
 
 def test_shit_list_coins_go_last_whatever_their_group_or_discount():
     from buy_order import order_pairs as op
-    targets = {f"{c}:1": {"buy": 100} for c in ("BTC", "RAY", "AAVE")}
-    prices = {"BTC": 70, "RAY": 98, "AAVE": 97}                  # BTC is the deepest AND core, but it is on the shit list
-    out = op([(c, 1) for c in prices], prices, targets, {"BTC": 1, "AAVE": 30, "RAY": 300}, {"careful": ["BTC"]})
-    assert [c for c, _ in out] == ["AAVE", "RAY", "BTC"]
+    targets = {f"{c}:1": {"buy": 100} for c in ("XRP", "RAY", "AAVE")}
+    prices = {"XRP": 70, "RAY": 98, "AAVE": 97}                  # XRP is the deepest AND Top 10, but it is on the shit list
+    out = op([(c, 1) for c in prices], prices, targets, {"XRP": 4, "AAVE": 30, "RAY": 300}, {"careful": ["XRP"]})
+    assert [c for c, _ in out] == ["AAVE", "RAY", "XRP"]
+
+
+def test_btc_eth_sol_are_never_on_the_shit_list_even_if_the_dip_report_says_careful():
+    from buy_order import order_pairs as op, shit_list, explain
+    assert shit_list(["BTC", "eth", "SOL", "XRP", "RAY"]) == {"XRP", "RAY"}
+    targets = {f"{c}:1": {"buy": 100} for c in ("BTC", "ETH", "RAY", "SOL")}
+    prices = {"BTC": 95, "ETH": 96, "SOL": 97, "RAY": 60}
+    out = op([(c, 1) for c in prices], prices, targets, {"RAY": 300}, {"careful": ["BTC", "ETH", "SOL", "RAY"]})
+    assert [c for c, _ in out] == ["BTC", "ETH", "SOL", "RAY"]
+    assert explain("BTC", {}, {"careful": ["BTC"]})[0] == "Top 10"
 
 
 def test_accumulate_coins_then_coins_held_little_then_deepest_inside_a_group():

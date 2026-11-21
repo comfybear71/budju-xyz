@@ -1724,7 +1724,7 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
     lim = get_daily_limit_info(wallet_address)
     single = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
     reserve = float(os.getenv("MIN_USDC_RESERVE", "30"))
-    from buy_order import order_pairs, explain, underweight_buckets, SHIT_LIST_MAX_BUY
+    from buy_order import order_pairs, explain, underweight_buckets, shit_list, SHIT_LIST_MAX_BUY
     ranks = get_coin_ranks(refresh=True)
     pri = refresh_coin_priority()
     info = {"careful": pri.get("careful") or [], "focus": pri.get("focus") or []}
@@ -1734,11 +1734,12 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
         info["buckets"] = underweight_buckets(held, held_prices)
     except Exception as e:
         print(f"[preview] holdings unavailable, skipping the 'holds little' ordering: {e}")
-    careful_set = set(info["careful"])
+    careful_set = shit_list(info["careful"])
     out = simulate(usdc, pairs, prices, targets, cooldowns, {t: settings_for(t) for t in (1, 2, 3)}, now_ms, skip,
                    spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single,
                    order_fn=lambda p, pr, tg: order_pairs(p, pr, tg, ranks, info),
                    cap_fn=lambda c: SHIT_LIST_MAX_BUY if c in careful_set else None)
+    out["shitList"] = sorted({x["coin"] for x in out["rows"] + out["waiting"] if x["coin"] in careful_set})
     for r in out["rows"]:
         r["tags"] = explain(r["coin"], ranks, info)
         r["group"] = ", ".join(r["tags"])

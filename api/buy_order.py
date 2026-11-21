@@ -3,7 +3,7 @@
 # ==========================================
 # When several buys are waiting and cash is limited, the first buys take the biggest slices, so the order matters:
 #   0. Coins on the shit list (Dip Report "Careful": their dips often don't come back) go LAST, whatever their group,
-#      and a buy is capped at SHIT_LIST_MAX_BUY.
+#      and a buy is capped at SHIT_LIST_MAX_BUY. BTC / ETH / SOL are never on it.
 #   1. By GROUP, the same five groups as the Holdings screen:
 #        Top 10 (market-cap rank 1-10)  >  Innovation  >  Top 50  >  Top 200  >  Smaller
 #   2. Inside a group, BTC / ETH / SOL come before the rest of that group.
@@ -55,6 +55,12 @@ def discount_pct(price: float, buy_target: float) -> float:
 SHIT_LIST_MAX_BUY = 50.0      # a "Careful" coin never gets more than this in one buy
 
 
+def shit_list(careful) -> set:
+    """The coins treated as shit-list. BTC / ETH / SOL are NEVER on it: they are the coins we always accumulate, and in a
+    year-long downtrend the Dip Report marks even them "Careful"."""
+    return {c for c in (careful or ()) if (c or "").upper() not in CORE_COINS}
+
+
 def underweight_buckets(holdings: Dict[str, float], prices: Dict[str, float], cash_codes=("USDC", "USDT", "USD", "AUD")) -> Dict[str, int]:
     """How much of the wallet's coin value each coin is: 0 = under 0.5% (or none), 1 = under 2%, 2 = 2% or more.
     Only coins with a known price count. Coins the wallet does not hold are absent (read as 0 by the caller)."""
@@ -79,7 +85,7 @@ def order_pairs(pairs: List[Tuple[str, int]], prices: Dict[str, float], targets:
     """info (all optional): {"careful": coins on the shit list, "focus": accumulate coins, "buckets": underweight_buckets()}."""
     ranks = ranks if isinstance(ranks, dict) else {}
     info = info if isinstance(info, dict) else {}
-    careful, focus = set(info.get("careful") or ()), set(info.get("focus") or ())
+    careful, focus = shit_list(info.get("careful")), set(info.get("focus") or ())
     buckets = info.get("buckets") if isinstance(info.get("buckets"), dict) else {}
 
     def key(p):
@@ -101,7 +107,7 @@ def explain(coin: str, ranks: Optional[Dict[str, int]] = None, info: Optional[Di
     ranks = ranks if isinstance(ranks, dict) else {}
     info = info if isinstance(info, dict) else {}
     tags = [GROUP_NAMES[group_of(coin, ranks.get(coin))]]
-    if coin in set(info.get("careful") or ()):
+    if coin in shit_list(info.get("careful")):
         return ["Shit list (Careful)"]
     if coin in set(info.get("focus") or ()):
         tags.append("accumulate")

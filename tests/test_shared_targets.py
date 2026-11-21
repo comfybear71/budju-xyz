@@ -304,11 +304,14 @@ def test_a_buy_over_the_single_buy_limit_is_made_at_the_limit_not_skipped(env):
     assert args[1] == "buy" and args[2] == 250.0
 
 
-def test_a_shit_list_coin_never_gets_a_big_buy(env):
+def test_a_shit_list_coin_never_gets_a_big_buy_but_core_coins_do(env):
     cron, db = env
-    cron.get_coin_priority = MagicMock(return_value={"careful": ["BTC"], "focus": []})
-    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    cron.get_prices_for_coins = MagicMock(return_value={"LINK": 20.0, "BTC": 60000.0})
+    cron.get_coin_priority = MagicMock(return_value={"careful": ["LINK", "BTC"], "focus": []})
+    state = make_state({"LINK:1": {"buy": 25, "sell": 40, "setAt": 1}, "BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    state["autoTierAssignments"] = {"LINK": [1], "BTC": [1]}
     state["autoTiers"] = {"tier1": {"deviation": 5, "sellDeviation": 12.5, "allocation": 5, "cooldownHours": 12}}
     result, clients, saved, sent = run(env, state, pool_usdc=5000.0, user_usdc=100.0)      # 5% of $5000 would be $250
-    args = clients["k-pool"].place_market_order.call_args[0]
-    assert args[1] == "buy" and args[2] == 50.0
+    amounts = {c[0][0]: c[0][2] for c in clients["k-pool"].place_market_order.call_args_list}
+    assert amounts["LINK"] == 50.0                      # shit-list coin: capped at $50
+    assert amounts["BTC"] > 100                         # core coin: never on the shit list, full size

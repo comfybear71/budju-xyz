@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
-from buy_order import order_pairs, underweight_buckets, SHIT_LIST_MAX_BUY
+from buy_order import order_pairs, underweight_buckets, shit_list, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
 
 DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
@@ -441,7 +441,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     except Exception as e:
         print(f"[order] could not weigh holdings, ordering without it: {e}", flush=True)
         _info = ctx.get("priorityInfo") or {}
-    careful_coins = set((ctx.get("priorityInfo") or {}).get("careful") or ())
+    careful_coins = shit_list((ctx.get("priorityInfo") or {}).get("careful"))
     active_pairs = order_pairs(active_pairs, prices, targets, ctx.get("ranks"), _info)
 
     # Settlement guard — let a just-executed trade's balance change settle
