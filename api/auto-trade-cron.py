@@ -1131,7 +1131,10 @@ def run_auto_trade_check():
         try:
             from database import digest_details
             pool_h = next((c["holdings"] for c in wallet_contexts if c.get("isPool")), {})
-            details = digest_details(sorted({t["coin"] for t in all_trades}), pool_h, [c["holdings"] for c in wallet_contexts], prices)
+            # Refresh the pool snapshot first so "Pool balance" and "Pool holds" include the buys just made, but only when
+            # there is plenty of time left in this run (it re-reads every wallet from Swyftx).
+            _fresh = (time.time() - _RUN_STARTED) < (RUN_BUDGET_SECONDS + 40)
+            details = digest_details(sorted({t["coin"] for t in all_trades}), pool_h, [c["holdings"] for c in wallet_contexts], prices, fresh=_fresh)
         except Exception as e:
             print(f"[cron] digest details error: {e}", flush=True)     # the plain digest still goes out
         if not isinstance(details, dict):
