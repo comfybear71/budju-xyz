@@ -1,142 +1,174 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { sliceToPeriod, type PositionHistoryPoint } from "../services/tradeApi";
+
+interface Ev {
+  timestamp: string;
+  type: "deposit" | "withdrawal";
+  amountUsd: number;
+}
 
 interface Props {
   points: PositionHistoryPoint[];
+  /** Deposits / withdrawals, drawn as ▲ / ▼ markers on the timeline */
+  events?: Ev[];
 }
 
-const formatUsd = (n: number) =>
-  n >= 1000
-    ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-    : `$${n.toFixed(2)}`;
+const usd = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
+const usdSigned = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(Math.round(n)).toLocaleString()}`;
+const dayLabel = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const dayTime = (ts: number) => `${dayLabel(ts)}, ${new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 
-// No 24h option — unlike the coin price chart, these points are one-per-
-// deposit/withdrawal-event (not a continuous feed), so a 24h window would
-// almost always just show the single "now" point with nothing to chart.
+// Same buttons as the Swyftx portfolio chart. "All" = everything recorded so far.
 const PERIODS = [
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
-  { label: "60d", days: 60 },
-  { label: "90d", days: 90 },
+  { label: "1W", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "3M", days: 90 },
+  { label: "6M", days: 180 },
+  { label: "1Y", days: 365 },
+  { label: "All", days: 0 },
 ] as const;
 
-/**
- * Deliberately minimal — just one smooth filled area + line of value over
- * time, no second dashed "net invested" series, no per-event tick marks or
- * circle markers. Those made sense on the detailed per-wallet drill-down
- * (PositionHistoryChart, still used on the Leaderboard/WalletDetailPanel),
- * but summed across every deposit/withdrawal on EVERY connected wallet for
- * the home card's "Pool" view, that turned into a dense, unreadable comb of
- * vertical/horizontal dashes. This is the plain "nice slim area chart" the
- * home card actually asked for.
- *
- * Still built from the same points (see buildLiveCashFlowHistory /
- * buildCommunityCashFlowHistory) — every historical point's value is net
- * invested (deposited − withdrawn) at that moment, since there's no real
- * historical daily balance for a non-custodial account; only the final
- * "now" point uses today's real live total. The P&L label below the chart
- * is exactly that gap: live total − net invested, same number either view
- * would show on its own stat cards.
- */
-const GrowthAreaChart = ({ points }: Props) => {
-  const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1); // default 90d — widest window, matches the old always-show-everything behaviour for history shorter than 90 days
+const W = 400;
+const H = 150;
+const PAD = { top: 10, bottom: 10 };
 
-  const windowedPoints = useMemo(
-    () => sliceToPeriod(points, PERIODS[periodIdx].days),
-    [points, periodIdx],
-  );
+/**
+ * What the account is WORTH over time (solid, filled), against what has been PUT IN (dashed steps: deposits minus
+ * withdrawals). A deposit shows as a step up in both lines, so it no longer looks like the account is going nowhere;
+ * the gap between the two lines is the profit or loss. ▲ marks a deposit, ▼ a withdrawal. Touch or hover for the numbers.
+ * The scale fits the data (it no longer starts at $0, which squashed everything flat).
+ * Points are the recorded hourly readings (see buildSnapshotHistory); only the last point is today's live total.
+ */
+const GrowthAreaChart = ({ points, events = [] }: Props) => {
+  const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1);
+  const [hover, setHover] = useState<number | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+
+  const windowed = useMemo(() => {
+    const days = PERIODS[periodIdx].days;
+    return days === 0 ? points : sliceToPeriod(points, days);
+  }, [points, periodIdx]);
 
   const chart = useMemo(() => {
-    if (windowedPoints.length < 2) return null;
-
-    const width = 400;
-    const height = 90;
-    const padding = { top: 6, right: 4, bottom: 6, left: 4 };
-    const chartW = width - padding.left - padding.right;
-    const chartH = height - padding.top - padding.bottom;
-
-    const t0 = new Date(windowedPoints[0].timestamp).getTime();
-    const t1 = new Date(windowedPoints[windowedPoints.length - 1].timestamp).getTime();
+    if (windowed.length < 2) return null;
+    const t0 = new Date(windowed[0].timestamp).getTime();
+    const t1 = new Date(windowed[windowed.length - 1].timestamp).getTime();
     const tRange = Math.max(t1 - t0, 1);
-
-    const values = windowedPoints.map((p) => p.value);
-    const minV = Math.min(...values, 0) * 0.97;
-    const maxV = Math.max(...values) * 1.05 || 1;
+    const putIn = windowed.map((p) => p.cumulativeDeposited - p.cumulativeWithdrawn);
+    const values = windowed.map((p) => p.value);
+    const lo = Math.min(...values, ...putIn);
+    const hi = Math.max(...values, ...putIn);
+    const pad = Math.max((hi - lo) * 0.08, hi * 0.01, 1);
+    const minV = lo - pad;
+    const maxV = hi + pad;
     const vRange = maxV - minV || 1;
+    const xs = windowed.map((p) => ((new Date(p.timestamp).getTime() - t0) / tRange) * W);
+    const yFor = (v: number) => PAD.top + (H - PAD.top - PAD.bottom) - ((v - minV) / vRange) * (H - PAD.top - PAD.bottom);
+    const line = `M ${xs.map((x, i) => `${x.toFixed(1)},${yFor(values[i]).toFixed(1)}`).join(" L ")}`;
+    const area = `${line} L ${W},${H} L 0,${H} Z`;
+    // dashed "put in" line drawn as steps (a deposit is a jump, not a slope)
+    let steps = `M ${xs[0].toFixed(1)},${yFor(putIn[0]).toFixed(1)}`;
+    for (let i = 1; i < xs.length; i++) steps += ` L ${xs[i].toFixed(1)},${yFor(putIn[i - 1]).toFixed(1)} L ${xs[i].toFixed(1)},${yFor(putIn[i]).toFixed(1)}`;
+    const last = windowed[windowed.length - 1];
+    const result = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
+    // deposit / withdrawal markers inside the window, one per day, the biggest 12
+    const byDay = new Map<string, { ts: number; dep: number; wd: number }>();
+    for (const e of events) {
+      const ts = new Date(e.timestamp).getTime();
+      if (ts < t0 || ts > t1) continue;
+      const key = new Date(ts).toDateString();
+      const cur = byDay.get(key) ?? { ts, dep: 0, wd: 0 };
+      if (e.type === "deposit") cur.dep += e.amountUsd; else cur.wd += e.amountUsd;
+      byDay.set(key, cur);
+    }
+    const markers = [...byDay.values()]
+      .sort((a, b) => Math.max(b.dep, b.wd) - Math.max(a.dep, a.wd))
+      .slice(0, 12)
+      .map((m) => ({ ...m, xPct: ((m.ts - t0) / tRange) * 100 }));
+    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, yFor };
+  }, [windowed, events]);
 
-    const xFor = (ts: string) => padding.left + ((new Date(ts).getTime() - t0) / tRange) * chartW;
-    const yFor = (v: number) => padding.top + chartH - ((v - minV) / vRange) * chartH;
-
-    const coords = windowedPoints.map((p) => ({ x: xFor(p.timestamp), y: yFor(p.value) }));
-    const linePath = `M ${coords.map((c) => `${c.x},${c.y}`).join(" L ")}`;
-    const areaPath = `${linePath} L ${coords[coords.length - 1].x},${padding.top + chartH} L ${coords[0].x},${padding.top + chartH} Z`;
-
-    const last = windowedPoints[windowedPoints.length - 1];
-    const pnl = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
-    const isUp = pnl >= 0;
-
-    return { linePath, areaPath, isUp, pnl, maxV, minV };
-  }, [windowedPoints]);
-
-  const periodTabs = (
+  const tabs = (
     <div className="flex items-center justify-end gap-1 mb-1.5">
       {PERIODS.map((p, i) => (
-        <button
-          key={p.label}
-          onClick={() => setPeriodIdx(i)}
-          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${
-            i === periodIdx
-              ? "bg-blue-500/15 text-blue-400"
-              : "text-slate-600 hover:text-slate-400"
-          }`}
-        >
+        <button key={p.label} onClick={() => { setPeriodIdx(i); setHover(null); }}
+          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${i === periodIdx ? "bg-blue-500/15 text-blue-400" : "text-slate-600 hover:text-slate-400"}`}>
           {p.label}
         </button>
       ))}
     </div>
   );
 
-  if (points.length < 2) {
-    return (
-      <div className="text-center py-4 text-slate-500 text-[11px]">
-        Not enough deposit history yet to chart.
-      </div>
-    );
-  }
+  if (points.length < 2) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
+  if (!chart) return <div>{tabs}<div className="text-center py-4 text-slate-500 text-[11px]">Nothing recorded in this window yet.</div></div>;
 
-  if (!chart) {
-    return (
-      <div>
-        {periodTabs}
-        <div className="text-center py-4 text-slate-500 text-[11px]">
-          No deposit history in this window yet.
-        </div>
-      </div>
-    );
-  }
+  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers } = chart;
+  const up = result >= 0;
+  const color = up ? "#34d399" : "#f87171";
 
-  const { linePath, areaPath, isUp, pnl, maxV, minV } = chart;
-  const color = isUp ? "#34d399" : "#f87171";
+  const onMove = (clientX: number) => {
+    const r = box.current?.getBoundingClientRect();
+    if (!r || r.width === 0) return;
+    const x = ((clientX - r.left) / r.width) * W;
+    let best = 0;
+    for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - x) < Math.abs(xs[best] - x)) best = i;
+    setHover(best);
+  };
+
+  const hp = hover !== null ? windowed[hover] : null;
+  const hx = hover !== null ? (xs[hover] / W) * 100 : 0;
 
   return (
     <div>
-      {periodTabs}
-      <svg viewBox="0 0 400 90" className="w-full" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={color} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        <path d={areaPath} fill="url(#growthGrad)" />
-        <path d={linePath} fill="none" stroke={color} strokeWidth="1.75" strokeLinejoin="round" strokeLinecap="round" />
-      </svg>
+      {tabs}
+      <div ref={box} className="relative select-none touch-pan-y" onPointerMove={(e) => onMove(e.clientX)} onPointerDown={(e) => onMove(e.clientX)} onPointerLeave={() => setHover(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: 150 }} preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.30" />
+              <stop offset="100%" stopColor={color} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[0.25, 0.5, 0.75].map((f) => (
+            <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="rgba(255,255,255,0.05)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          ))}
+          <path d={area} fill="url(#growthGrad)" />
+          <path d={steps} fill="none" stroke="rgba(148,163,184,0.75)" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
+          <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          {hover !== null && <line x1={xs[hover]} x2={xs[hover]} y1="0" y2={H} stroke="rgba(255,255,255,0.25)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        {/* scale labels */}
+        <span className="absolute left-1 top-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(maxV)}</span>
+        <span className="absolute left-1 bottom-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(minV)}</span>
+        {/* deposit / withdrawal markers */}
+        {markers.map((m) => (
+          <span key={m.ts} className="absolute bottom-0 -translate-x-1/2 text-[9px] leading-none pointer-events-none"
+            style={{ left: `${Math.min(97, Math.max(3, m.xPct))}%`, color: m.dep >= m.wd ? "#4ade80" : "#fbbf24" }}>
+            {m.dep >= m.wd ? "▲" : "▼"}
+          </span>
+        ))}
+        {/* hover / touch readout */}
+        {hp && hover !== null && (
+          <div className="absolute top-1 z-10 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-snug pointer-events-none"
+            style={{ left: `${Math.min(62, Math.max(0, hx - 18))}%`, background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
+            <div className="text-slate-400">{dayTime(new Date(hp.timestamp).getTime())}</div>
+            <div className="text-slate-100">Worth {usd(values[hover])}</div>
+            <div className="text-slate-400">Put in {usd(putIn[hover])}</div>
+            <div style={{ color: values[hover] - putIn[hover] >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover] - putIn[hover])}</div>
+          </div>
+        )}
+      </div>
 
-      <div className="flex items-center justify-between text-[10px] mt-1 px-0.5">
-        <span className="text-slate-600">{formatUsd(Math.max(minV, 0))} – {formatUsd(maxV)}</span>
-        <span className={`font-bold font-mono ${isUp ? "text-green-400" : "text-red-400"}`}>
-          {pnl >= 0 ? "+" : ""}{formatUsd(pnl)}
+      <div className="flex items-center justify-between text-[9px] text-slate-600 mt-0.5 px-0.5">
+        <span>{dayLabel(t0)}</span>
+        <span>{dayLabel((t0 + t1) / 2)}</span>
+        <span>Now</span>
+      </div>
+      <div className="flex items-center justify-between text-[10px] mt-1.5 px-0.5">
+        <span className="text-slate-500">
+          <span style={{ color }}>━</span> Worth &nbsp;<span className="text-slate-400">┅</span> Put in &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal
         </span>
+        <span className={`font-bold font-mono ${up ? "text-green-400" : "text-red-400"}`}>Result {usdSigned(result)}</span>
       </div>
     </div>
   );
