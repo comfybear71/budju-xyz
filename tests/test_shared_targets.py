@@ -252,3 +252,43 @@ def test_each_buy_is_saved_immediately_so_a_cut_off_run_cannot_repeat_it(env):
     first = saves[0]
     assert "BTC:1" in first["autoCooldowns"] and first["autoCooldowns"]["BTC:1"] > time.time() * 1000
     assert first["autoActive"]["targets"]["BTC:1"]["buy"] == pytest.approx(60000 * 0.95)
+
+
+def test_run_stops_placing_orders_when_its_time_budget_is_used_up(env):
+    cron, db = env
+    cron.RUN_BUDGET_SECONDS = -1          # already over budget the moment the first signal is reached
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    result, clients, saved, sent = run(env, state)
+    assert clients["k-pool"].place_market_order.call_count == 0
+    assert any("time limit" in line for line in result["log"])
+
+
+def test_trade_log_is_saved_right_after_each_order(env):
+    cron, db = env
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    db.get_trader_state.return_value = state
+    clients = {"k-pool": make_client(1000.0), "k-user": make_client(500.0)}
+    cron.SwyftxClient = MagicMock(side_effect=lambda key: clients[key])
+    cron.send_telegram = lambda t: None
+    saves = []
+    db.save_trader_state.side_effect = lambda s: saves.append(dict(s)) or {"success": True}
+    cron.run_auto_trade_check()
+    first_log_save = next(i for i, s in enumerate(saves) if "autoTradeLog" in s)
+    assert saves[first_log_save]["autoTradeLog"][0]["coin"] == "BTC"
+
+
+def test_one_time_repair_pauses_the_unsaved_buy_once_and_only_once(env, monkeypatch):
+    import repair_unsaved_buys as rep
+    cron, db = env
+    monkeypatch.setattr(rep, "UNSAVED_BUYS", [("BTC", 1, 60000.0)])
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    result, clients, saved, sent = run(env, state)
+    assert clients["k-pool"].place_market_order.call_count == 0          # BTC:1 was marked bought, so it is paused
+    assert "BTC:1" in saved["autoCooldowns"] and saved["autoRepairs"][rep.REPAIR_ID] > 0
+    assert any("Repair" in line for line in result["log"])
+    # a run that already has the flag does not touch anything
+    state2 = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    state2["autoRepairs"] = {rep.REPAIR_ID: 1}
+    result2, clients2, saved2, sent2 = run(env, state2)
+    assert clients2["k-pool"].place_market_order.call_count == 1
+    assert not any("Repair" in line for line in result2["log"])
