@@ -351,3 +351,33 @@ def test_telegram_digest_refreshes_the_pool_snapshot_after_a_run_that_traded(env
     run(env, state)
     assert db.digest_details.call_args.kwargs.get("fresh") is True
 
+
+
+def _run_with_refused_orders(env, state):
+    cron, db = env
+    db.get_trader_state.return_value = state
+    clients = {"k-pool": make_client(1000.0), "k-user": make_client(500.0)}
+    for c in clients.values():
+        c.place_market_order.return_value = (False, None, "AssetError: not presently tradable")
+    cron.SwyftxClient = MagicMock(side_effect=lambda key: clients[key])
+    cron.send_telegram = lambda t: None
+    saved = {}
+    db.save_trader_state.side_effect = lambda s: saved.update(s) or {"success": True}
+    result = cron.run_auto_trade_check()
+    return result, saved
+
+
+def test_a_coin_swyftx_keeps_refusing_alerts_once_then_stays_quiet(env):
+    from alerts import find_problems
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    result, saved = _run_with_refused_orders(env, state)
+    assert any("paused for 6h" in line for line in result["log"])                  # first time: the alert line
+    assert find_problems(result["log"])
+    assert saved["autoUntradableSeen"]["BTC"]["count"] == 1
+    # the pause ran out and Swyftx still refuses it: paused longer, and NOT alerted again
+    state2 = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    state2["autoUntradableSeen"] = saved["autoUntradableSeen"]
+    result2, saved2 = _run_with_refused_orders(env, state2)
+    assert any("still switched off on Swyftx, paused another 24h" in line for line in result2["log"])
+    assert not [p for p in find_problems(result2["log"]) if ":paused:" in p[0]]
+    assert saved2["autoUntradableSeen"]["BTC"]["count"] == 2
