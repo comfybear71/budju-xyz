@@ -1,3 +1,5 @@
+import MonitorFilterBar from "./MonitorFilterBar";
+import { matches, countByFilter, type MonitorFilter } from "./monitorFilter";
 import TopUpPreviewCard from "./TopUpPreview";
 import { useTrailing } from "../hooks_useTrailing";
 import { useState, useEffect, useCallback } from "react";
@@ -154,6 +156,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
 
   const tiers = getTiers();
   const grouped = getGrouped();
+  const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>("all");
+  const filterCounts = countByFilter(Object.values(grouped).flat() as any[]);
   const monitoringCount = getMonitoringData().length;
   // `AutoTrader` has no `getState()` method — this used to call it anyway
   // (optional chaining silently returned undefined), so the Trade Log panel
@@ -369,6 +373,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
           </span>
         </div>
 
+        {monitoringCount > 0 && <MonitorFilterBar value={monitorFilter} counts={filterCounts} onChange={setMonitorFilter} />}
+
         {/* ── Coin monitoring — 3-column tier grid (matches view-only) ── */}
         {monitoringCount === 0 ? (
           <div className="text-[10px] text-slate-500 text-center py-4">
@@ -379,7 +385,8 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
             className="flex gap-3 overflow-x-auto pb-3 -mx-1 px-1 snap-x snap-mandatory md:overflow-x-visible md:grid md:grid-cols-3 md:gap-4 md:mx-0 md:px-0 md:snap-none"
             style={{ scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
           >
-          {Object.entries(grouped).map(([tierKey, coins]) => {
+          {Object.entries(grouped).map(([tierKey, allCoins]) => {
+          const coins = (allCoins as any[]).filter((c) => matches(c, monitorFilter));
           const tierNum = Number(tierKey);
           const tierCfg = TIER_CONFIG[tierNum];
           const tierSettings = snapshot.tierSettings[`tier${tierNum}`] || {};
@@ -397,6 +404,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
               sellDev={tierSettings.sellDeviation ?? 0}
               alloc={tierSettings.allocation ?? 0}
               plan={profitPlan?.plan[String(tierNum)] ?? null}
+              emptyText="No coins in this filter"
             >
                 {coins.map((item: any) => {
                   const cfg = ASSET_CONFIG[item.coin] || { color: "#64748b", icon: item.coin.charAt(0) };
