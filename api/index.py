@@ -116,6 +116,7 @@ from database import (
     get_value_history,
     get_market_mood,
     get_daily_limit_info,
+    get_topup_preview,
     set_daily_limit,
     get_profit_plan,
     save_profit_plan,
@@ -886,6 +887,20 @@ class handler(BaseHTTPRequestHandler):
             elif path == '/api/community/paper-trial':
                 # Read-only paper-trial results for members and admins (the pass check is done up front). Never starts a trial.
                 self._send_json(200, get_lab_trial(False))
+
+            elif path == '/api/admin/topup-preview':
+                wallet = params.get('wallet')
+                if not wallet or not is_admin(wallet):
+                    self._send_json(403, {"error": "Admin access required"})
+                    return
+                try:
+                    amount = float(params.get('usdc') or 0)
+                except ValueError:
+                    amount = 0.0
+                if amount <= 0:
+                    self._send_json(400, {"error": "usdc amount required"})
+                    return
+                self._send_json(200, get_topup_preview(wallet, amount))
 
             elif path == '/api/admin/key-encryption':
                 wallet = params.get('wallet')

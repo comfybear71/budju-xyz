@@ -2856,3 +2856,14 @@ export async function saveDailyLimit(wallet: string, limit: number): Promise<Dai
     return null;
   }
 }
+
+export interface TopUpRow { n: number; coin: string; tier: number; amount: number; price: number; below: number }
+export interface TopUpPreview {
+  rows: TopUpRow[]; buys: number; total: number; cashLeft: number; runsNeeded: number; startCash: number;
+  waiting: { coin: string; tier: number; why: string; below: number }[]; waitingCount: number;
+  dailyLimit: number; spentBefore: number; repairPending: boolean; maxSingleBuy: number; reserve: number; pricesAt: string;
+}
+/** Admin: what the bot would buy if this much USDC were added now. Places no orders. */
+export async function fetchTopUpPreview(wallet: string, usdc: number): Promise<TopUpPreview | null> {
+  return (await adminGet("/api/admin/topup-preview", wallet, `&usdc=${usdc}`)) as TopUpPreview | null;
+}

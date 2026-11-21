@@ -1673,6 +1673,66 @@ def save_user_preferences(wallet_address: str, updates: Dict) -> Dict:
     return {"success": True}
 
 
+def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
+    """What the bot WOULD buy if this much USDC were added right now. Reads live state and prices; places no orders."""
+    from topup_preview import simulate
+    from trade_guards import is_permanently_buy_denied, is_rebuy_blocked
+    from profit_plan import plan_for
+    usdc = max(10.0, min(1_000_000.0, float(usdc)))
+    state = get_trader_state()
+    active = state.get("autoActive") if isinstance(state.get("autoActive"), dict) else {}
+    tier_active = active.get("tierActive") or {}
+    targets = dict(active.get("targets") or {})
+    cooldowns = dict(state.get("autoCooldowns") or {})
+    auto_tiers = state.get("autoTiers") or state.get("autoTierAssets") or {}
+    now_ms = int(time.time() * 1000)
+
+    def settings_for(t):
+        cfg = auto_tiers.get(f"tier{t}", {}) if isinstance(auto_tiers, dict) else {}
+        return {"deviation": float(cfg.get("deviation", 1.0 if t == 1 else 2.0)),
+                "allocation": float(cfg.get("allocation", 5.0)),
+                "cooldownHours": float(cfg.get("cooldownHours", 24)),
+                "sellDeviation": plan_for(t, state.get("autoProfitPlan"))["arm"]}
+
+    repair_pending = False
+    try:
+        from repair_unsaved_buys import REPAIR_ID, UNSAVED_BUYS, apply_repair
+        done = state.get("autoRepairs") if isinstance(state.get("autoRepairs"), dict) else {}
+        if UNSAVED_BUYS and REPAIR_ID not in done:
+            targets, cooldowns, _a, _s = apply_repair(UNSAVED_BUYS, targets, cooldowns, settings_for, now_ms)
+            repair_pending = True
+    except ImportError:
+        pass
+
+    pairs = []
+    for coin, tiers in (state.get("autoTierAssignments") or {}).items():
+        if is_permanently_buy_denied(coin):
+            continue
+        for t in (tiers if isinstance(tiers, list) else []):
+            try:
+                t = int(t)
+            except (TypeError, ValueError):
+                continue
+            if tier_active.get(str(t)) or tier_active.get(t):
+                pairs.append((coin, t))
+    coins = sorted({c for c, _ in pairs})
+    prices = get_prices_for_coins(coins) if coins else {}
+    skip = set(retired_coin_codes())
+    skip |= {c for c, u in (state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > now_ms}
+    blocklist = state.get("autoRebuyBlocklist") or {}
+    skip |= {c for c in coins if is_rebuy_blocked(blocklist, c, datetime.utcnow())}
+    lim = get_daily_limit_info(wallet_address)
+    single = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
+    reserve = float(os.getenv("MIN_USDC_RESERVE", "30"))
+    out = simulate(usdc, pairs, prices, targets, cooldowns, {t: settings_for(t) for t in (1, 2, 3)}, now_ms, skip,
+                   spent24h=lim["spent24h"], daily_limit=lim["limit"], reserve=reserve, max_single=single)
+    out["repairPending"] = repair_pending
+    out["maxSingleBuy"] = single
+    out["reserve"] = reserve
+    out["pricesAt"] = datetime.utcnow().isoformat() + "Z"
+    return out
+
+
 def get_daily_limit_info(wallet_address: str) -> Dict:
     """This wallet's daily buying limit (its own, or the default) and how much it has bought in the last 24 hours."""
     from daily_limit import effective_limit, DEFAULT_LIMIT, CEILING, MINIMUM
