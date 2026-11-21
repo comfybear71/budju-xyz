@@ -227,3 +227,28 @@ def test_a_signal_that_traded_has_no_reason(env):
     state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
     result, clients, saved, sent = run(env, state)
     assert "BTC:1" not in saved["autoBuyStatus"]["items"]
+
+
+def test_each_buy_is_saved_immediately_so_a_cut_off_run_cannot_repeat_it(env):
+    """The new buy level and pause must be written right after the order, not only at the end of the run."""
+    cron, db = env
+    state = make_state({"BTC:1": {"buy": 65000, "sell": 90000, "setAt": 1}})
+    db.get_trader_state.return_value = state
+    clients = {"k-pool": make_client(1000.0), "k-user": make_client(500.0)}
+    cron.SwyftxClient = MagicMock(side_effect=lambda key: clients[key])
+    cron.send_telegram = lambda t: None
+    saves = []
+
+    def record(s):
+        saves.append(dict(s))
+        # a save made while the admin wallet is still working: stop the run right here (simulates a timeout)
+        if "autoCooldowns" in s and "BTC:1" in s["autoCooldowns"] and len(saves) == 1:
+            raise SystemExit("simulated cut-off after the first order")
+        return {"success": True}
+
+    db.save_trader_state.side_effect = record
+    with pytest.raises(SystemExit):
+        cron.run_auto_trade_check()
+    first = saves[0]
+    assert "BTC:1" in first["autoCooldowns"] and first["autoCooldowns"]["BTC:1"] > time.time() * 1000
+    assert first["autoActive"]["targets"]["BTC:1"]["buy"] == pytest.approx(60000 * 0.95)

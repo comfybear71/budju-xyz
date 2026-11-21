@@ -81,3 +81,21 @@ def test_details_section_shows_pool_balance_holdings_trades_and_pnl():
 def test_digest_without_details_is_unchanged():
     assert "Pool balance" not in format_digest(TRADES)
 
+
+
+def test_one_very_long_line_is_cut_so_no_piece_exceeds_the_limit():
+    line = "Bought: " + ", ".join(f"COIN{i} 1.0000 ($8.00)" for i in range(400))
+    chunks = split_message("head\n" + line + "\ntail", 1000)
+    assert all(len(c) <= 1000 for c in chunks)
+    assert "COIN399" in "\n".join(chunks) and chunks[0].startswith("head")
+
+
+def test_huge_run_keeps_every_trade_line_but_caps_coin_detail_blocks():
+    trades = [{"wallet": "W" * 44, "isPool": True, "coin": f"C{i}", "side": "BUY", "tier": 1, "qty": 1.0, "price": 1.0, "amount": 8.0 + i} for i in range(60)]
+    details = {"poolBalance": 1000.0, "walletCount": 4,
+               "coins": {f"C{i}": {"allQty": 1, "allUsd": 1, "adminQty": 1, "adminUsd": 1, "holders": 1, "buys": 1, "sells": 0, "pnl": 0.0, "spent": 1} for i in range(60)}}
+    text = format_digest(trades, details)
+    assert text.count("🛒") == 60
+    assert text.count("📊") == 10
+    assert "50 more coin(s)" in text
+    assert all(len(c) <= 4000 for c in split_message(text))

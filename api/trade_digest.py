@@ -7,6 +7,7 @@
 # breaks an oversized digest at line boundaries instead of losing it.
 
 TELEGRAM_LIMIT = 4000  # headroom under Telegram's 4096-char cap
+MAX_DETAIL_COINS = 10  # per-coin holdings/P&L blocks: the biggest buys only, so a huge run stays readable
 
 
 def _qty(q):
@@ -99,11 +100,14 @@ def format_digest(all_trades, details=None):
             items = ", ".join(f"{c} {_qty(q)} (${a:,.2f})" for c, (q, a) in sorted(agg.items()))
             lines.append(f"{icon} {label}: {items}")
     if details:
-        seen = []
+        spend = {}
         for t in all_trades:
-            if t["coin"] not in seen:
-                seen.append(t["coin"])
-        lines.extend(_details(seen, details))
+            spend[t["coin"]] = spend.get(t["coin"], 0.0) + t["amount"]
+        ranked = sorted(spend, key=lambda c: -spend[c])
+        shown = ranked[:MAX_DETAIL_COINS]
+        lines.extend(_details(shown, details))
+        if len(ranked) > len(shown):
+            lines.append(f"\n…and {len(ranked) - len(shown)} more coin(s) — full list in the Activity tab.")
     return "\n".join(lines)
 
 
@@ -112,7 +116,16 @@ def split_message(text, limit=TELEGRAM_LIMIT):
     if len(text) <= limit:
         return [text]
     chunks, cur = [], ""
+    pieces = []
     for line in text.split("\n"):
+        # A single line longer than the limit (e.g. a long "Bought: ..." list) is cut at ", " so Telegram never rejects it.
+        while len(line) > limit:
+            cut = line.rfind(", ", 0, limit)
+            cut = cut + 1 if cut > 0 else limit
+            pieces.append(line[:cut])
+            line = line[cut:].lstrip()
+        pieces.append(line)
+    for line in pieces:
         if cur and len(cur) + 1 + len(line) > limit:
             chunks.append(cur)
             cur = line
