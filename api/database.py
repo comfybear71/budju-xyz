@@ -3384,16 +3384,61 @@ def _history_record_currency(rec: Dict, asset_map: Dict[str, str]) -> str:
     return ""
 
 
+price_history_cache_collection = db["price_history_cache"]
+_HIST_CACHE_TTL_H = 24
+
+
+def _hist_series(key: str, need_from: str, fetch) -> Dict[str, float]:
+    """A daily {day: price} series, cached 24h in Mongo and refetched if it does not reach back to `need_from`.
+    Never raises: on any problem it returns the last stored series, or {} (callers then use today's rate/price)."""
+    doc = None
+    try:
+        doc = price_history_cache_collection.find_one({"_id": key})
+        if doc and doc.get("from") and doc["from"] <= need_from and doc.get("at") and (datetime.utcnow() - doc["at"]) < timedelta(hours=_HIST_CACHE_TTL_H):
+            return doc.get("points") or {}
+        points = fetch()
+        if points:
+            price_history_cache_collection.replace_one({"_id": key}, {"_id": key, "at": datetime.utcnow(), "from": need_from, "points": points}, upsert=True)
+            return points
+    except Exception as e:
+        print(f"[history-price] {key}: {type(e).__name__}: {e}")
+    return (doc or {}).get("points") or {}
+
+
+def _fetch_fx_history(need_from: str) -> Dict[str, float]:
+    from historical_pricing import fx_series_from_frankfurter
+    last = None
+    for url in (f"https://api.frankfurter.dev/v1/{need_from}..?base=AUD&symbols=USD", f"https://api.frankfurter.app/{need_from}..?from=AUD&to=USD"):
+        try:
+            with urlopen(Request(url, headers={"Accept": "application/json"}), timeout=8) as resp:
+                series = fx_series_from_frankfurter(json.loads(resp.read().decode()))
+            if series:
+                return series
+        except Exception as e:
+            last = e
+    raise RuntimeError(f"AUD/USD history unavailable: {last}")
+
+
+def _fetch_coin_history(code: str, need_from: str) -> Dict[str, float]:
+    from historical_pricing import daily_series
+    cg = resolve_coingecko_id(code)
+    if not cg:
+        return {}
+    start = int(datetime.strptime(need_from, "%Y-%m-%d").timestamp()) - 86400
+    data = _coingecko_get(f"/coins/{cg}/market_chart/range?vs_currency=usd&from={start}&to={int(time.time())}", timeout=20)
+    return daily_series(data.get("prices") or [])
+
+
 def _history_record_amount_usd(
-    rec: Dict, currency: str, aud_to_usd: float, crypto_prices: Dict[str, float]
+    rec: Dict, currency: str, aud_to_usd: float, crypto_prices: Dict[str, float],
+    ts=None, fx_hist: Optional[Dict[str, float]] = None, px_hist: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Optional[float]:
     """USD value of one deposit/withdrawal record. Swyftx's real `amount`
     field is in the asset's OWN units (no ready-made USD/AUD value) —
-    priced here as: USDC/USD/USDT 1:1, AUD at the live FX rate, any other
-    coin (a direct crypto deposit/withdrawal) at its current live price —
-    the same simplification already used for the leaderboard's cash/crypto
-    split (not historically accurate, but the best available without a
-    historical price feed). Returns None only if no amount can be read at all."""
+    priced here as: USDC/USD/USDT 1:1, AUD at that day's exchange rate, any other
+    coin (a direct crypto deposit/withdrawal) at its price on that day (Nov 2026: was today's rate/price,
+    which drifted from Swyftx's own figures); today's rate/price is the fallback when a day is unknown.
+    Returns None only if no amount can be read at all."""
     raw_amount = None
     for key in ("amount", "quantity"):
         if key in rec:
@@ -3405,12 +3450,11 @@ def _history_record_amount_usd(
     if raw_amount is None:
         return None
 
-    if currency in ("USDC", "USD", "USDT"):
-        return round(raw_amount, 2)
-    if currency == "AUD":
-        return round(raw_amount * aud_to_usd, 2)
-    if currency and crypto_prices.get(currency):
-        return round(raw_amount * crypto_prices[currency], 2)
+    # On the record's OWN day when daily rates/prices are available (this is how Swyftx values it), otherwise today's.
+    from historical_pricing import price_amount
+    priced = price_amount(raw_amount, currency, ts, aud_to_usd, crypto_prices, fx_hist, px_hist)
+    if priced is not None:
+        return priced
 
     # Legacy fallback — an alternate response shape that ships a ready-made
     # AUD reference value instead of a resolvable currency code.
@@ -3491,14 +3535,29 @@ def get_user_live_cash_flows(wallet_address: str) -> Dict:
     flows: List[Dict] = []
     skipped = 0
 
+    # Daily AUD/USD rates and daily coin prices from the earliest record on, so each deposit/withdrawal is valued on ITS day.
+    fx_hist: Dict[str, float] = {}
+    px_hist: Dict[str, Dict[str, float]] = {}
+    try:
+        from historical_pricing import day_key
+        days = [d for d in (day_key(_history_record_timestamp(r)) for r, _ in all_records) if d]
+        if days:
+            first_day = min(days)
+            if any(_history_record_currency(r, asset_map) == "AUD" for r, _ in all_records):
+                fx_hist = _hist_series("fx:AUDUSD", first_day, lambda: _fetch_fx_history(first_day))
+            for c in crypto_codes:
+                px_hist[c] = _hist_series(f"px:{c}", first_day, lambda c=c: _fetch_coin_history(c, first_day))
+    except Exception as e:
+        print(f"[cash-flows] historical pricing unavailable, using today's rates: {e}")
+
     for rec, flow_type in all_records:
         if not _history_record_is_settled(rec):
             continue  # Pending/failed/rejected/refunded — not a parse failure, correctly excluded
         if not _history_record_matches_flow_type(rec, flow_type):
             continue
         currency = _history_record_currency(rec, asset_map)
-        amount_usd = _history_record_amount_usd(rec, currency, aud_to_usd, crypto_prices)
         ts = _history_record_timestamp(rec)
+        amount_usd = _history_record_amount_usd(rec, currency, aud_to_usd, crypto_prices, ts=ts, fx_hist=fx_hist, px_hist=px_hist)
         if amount_usd is None or amount_usd <= 0 or not ts:
             skipped += 1
             continue
