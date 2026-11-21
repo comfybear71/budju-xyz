@@ -37,5 +37,5 @@ def test_preview_stops_one_coin_taking_a_big_share_across_its_tiers():
 def test_coin_bought_earlier_today_counts_against_its_cap():
     pairs = [("HYPE", 1)]
     out = simulate(3500, pairs, {"HYPE": 90}, {"HYPE:1": {"buy": 100}}, {}, {1: {"allocation": 5}}, NOW, set(), daily_limit=10**9,
-                   coin_cap_pct=10.0, recent_by_coin={"HYPE": 380.0})
+                   coin_cap_pct=10.0, recent_by_coin={"HYPE": 385.0})
     assert out["buys"] == 0 and "Coin limit" in out["waiting"][0]["why"]
