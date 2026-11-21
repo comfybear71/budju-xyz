@@ -9,6 +9,7 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
   const [value, setValue] = useState(0);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [showRules, setShowRules] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -49,6 +50,27 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
         {!info.isCustom && !msg && <span className="text-[10px] text-slate-500">Using the default ({usd(info.default)})</span>}
         {msg && <span className="text-[11px] text-slate-200">{msg}</span>}
       </div>
+      {info.rules && info.rules.tiers && (
+        <div className="mt-3 pt-2 border-t border-white/[0.06]">
+          <button onClick={() => setShowRules(!showRules)} className="text-[11px] font-bold text-blue-300">
+            {showRules ? "▾" : "▸"} ℹ️ All the bot's limits
+          </button>
+          {showRules && (
+            <ul className="mt-1.5 space-y-1 text-[11px] text-slate-300 leading-snug list-disc pl-4">
+              <li><b>Daily buying limit:</b> the most it buys for you in any 24 hours — yours is {usd(info.limit)} (set above).</li>
+              <li><b>Biggest single buy: {usd(info.rules.maxSingleBuy)}.</b> If a buy would be larger, it buys {usd(info.rules.maxSingleBuy)} instead.</li>
+              <li><b>Smallest buy: ${info.rules.minBuy}.</b> Smaller amounts are lifted to this.</li>
+              <li><b>Cash kept spare: ${info.rules.keepSpare}.</b> It never spends your last ${info.rules.keepSpare} of USDC.</li>
+              <li><b>How much each buy takes</b> (of your USDC left at that moment): {Object.entries(info.rules.tiers).map(([t, c]) => `T${t} ${c.spend}% (on a ${c.dip}% dip)`).join(", ")}. So the first buys are the biggest.</li>
+              <li><b>Pause after a buy</b> (per coin and tier): {Object.entries(info.rules.tiers).map(([t, c]) => `T${t} ${c.pauseHours}h`).join(", ")}.</li>
+              <li><b>Speed:</b> about {info.rules.buysPerRun} buys every {info.rules.runMinutes} minutes. A big top-up is spread over several runs.</li>
+              <li><b>Order:</b> the deepest below its buy price goes first; ties go T3, then T2, then T1.</li>
+              <li><b>Selling:</b> a sale is at least ${info.rules.minSell} and the bot never sells a coin below what you paid for it.</li>
+              <li><b>Only coins Swyftx lists and has switched on.</b> If Swyftx switches a coin off, the bot pauses it and retries.</li>
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 };

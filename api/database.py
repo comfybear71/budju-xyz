@@ -1733,6 +1733,16 @@ def get_topup_preview(wallet_address: str, usdc: float) -> Dict:
     return out
 
 
+def _bot_rules_safe() -> Dict:
+    try:
+        from daily_limit import bot_rules
+        state = get_trader_state()
+        return bot_rules(state.get("autoTiers") or state.get("autoTierAssets") or {})
+    except Exception as e:
+        print(f"[daily-limit] rules unavailable: {e}")
+        return {}
+
+
 def get_daily_limit_info(wallet_address: str) -> Dict:
     """This wallet's daily buying limit (its own, or the default) and how much it has bought in the last 24 hours."""
     from daily_limit import effective_limit, DEFAULT_LIMIT, CEILING, MINIMUM
@@ -1754,7 +1764,8 @@ def get_daily_limit_info(wallet_address: str) -> Dict:
     except Exception as ex:
         print(f"[daily-limit] spend lookup failed: {ex}")
     return {"limit": effective_limit(doc.get("dailyBuyLimitUsdc")), "isCustom": doc.get("dailyBuyLimitUsdc") is not None,
-            "default": min(CEILING, DEFAULT_LIMIT), "min": MINIMUM, "max": CEILING, "spent24h": round(spent, 2)}
+            "default": min(CEILING, DEFAULT_LIMIT), "min": MINIMUM, "max": CEILING, "spent24h": round(spent, 2),
+            "rules": _bot_rules_safe()}
 
 
 def set_daily_limit(wallet_address: str, value, requester_wallet: str = None) -> Dict:

@@ -2834,7 +2834,11 @@ export async function fetchAfterSales(wallet: string, days = 60): Promise<AfterS
   return r && r.overall ? (r as AfterSales) : null;
 }
 
-export interface DailyLimitInfo { limit: number; isCustom: boolean; default: number; min: number; max: number; spent24h: number }
+export interface BotRules {
+  maxSingleBuy: number; minBuy: number; keepSpare: number; minSell: number; buysPerRun: number; runMinutes: number;
+  tiers: Record<string, { dip: number; spend: number; pauseHours: number }>;
+}
+export interface DailyLimitInfo { limit: number; isCustom: boolean; default: number; min: number; max: number; spent24h: number; rules?: BotRules }
 /** A wallet's own daily buying limit and how much it has bought in the last 24 hours. */
 export async function fetchDailyLimit(wallet: string): Promise<DailyLimitInfo | null> {
   try {
