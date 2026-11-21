@@ -278,6 +278,12 @@ export class AutoTrader {
       }
     }
 
+    // Plain-English reasons a waiting buy has not happened (cash, daily limit, pause, bot price...)
+    const buyStatus = (state as any).autoBuyStatus;
+    if (buyStatus && buyStatus.items && typeof buyStatus.items === "object") {
+      for (const [k, v] of Object.entries(buyStatus.items)) this.cronDiagnostics[k] = String(v);
+    }
+
     // Load bot active state + last-known targets (best-effort display only —
     // the cron is the sole source of truth for whether/when a trade fires)
     if (state.autoBotActive || state._rawAutoActive) {

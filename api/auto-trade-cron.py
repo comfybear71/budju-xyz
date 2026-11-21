@@ -129,6 +129,12 @@ _minsell_logged = set()
 
 # ── Telegram ──────────────────────────────────────────────────
 
+def _p(n):
+    """Compact price text for the plain-English reasons shown on the coin cards."""
+    n = float(n or 0)
+    return f"${n:,.2f}" if n >= 1 else f"${n:.4f}"
+
+
 def send_telegram(text):
     """Send a Telegram message (best-effort, non-blocking). Splits at line
     boundaries if it is over Telegram's length cap."""
@@ -378,6 +384,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     holdings = ctx["holdings"]
     state = ctx["state"]
     sold_this_run = set()
+    reasons = ctx.setdefault("reasons", {}) if ctx["isPool"] else {}     # why a waiting buy did NOT happen (shown on the coin cards)
 
     # Buys are paid from USDC only (swyftx_client.place_market_order), so the $30 reserve and the
     # buy sizing must look at USDC alone — AUD/USD/USDT can't fund an order.
@@ -442,17 +449,22 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
             buy_target = float(tgt.get("buy", 0))
             sell_target = float(tgt.get("sell", 0))
             normal_buy = (not on_cooldown) and current_price <= buy_target
+            if not on_cooldown and current_price > buy_target and current_price <= buy_target * 1.15:
+                reasons[ck] = f"Bot's price {_p(current_price)} hasn't reached the buy price {_p(buy_target)} yet"
 
             # ── BUY ──
             if (normal_buy or catchup_buy) and ctx.get("buysBlocked"):
+                reasons[ck] = "Buys on hold: Swyftx restricted this account or is rate-limiting. It retries automatically"
                 continue        # account restricted / rate limited: don't hammer Swyftx with more orders this cycle
             if normal_buy or catchup_buy:
                 if is_permanently_buy_denied(code):
+                    reasons[ck] = "On the permanent no-buy list"
                     if code not in _blocklist_logged:
                         log.append(f"{code}: BUY skipped — permanent buy denylist")
                         _blocklist_logged.add(code)
                     continue
                 if is_rebuy_blocked(rebuy_blocklist, code, datetime.utcnow()):
+                    reasons[ck] = f"Rebuy block until {rebuy_blocklist.get(code)}"
                     if code not in _blocklist_logged:
                         log.append(f"{code}: BUY skipped — rebuy blocklist until {rebuy_blocklist.get(code)}")
                         _blocklist_logged.add(code)
@@ -469,12 +481,14 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         (sizing.get("classes") or {}).get(code), held_usd, sizing.get("capUsd", 0), MIN_ORDER_USDC,
                     )
                     if trade_amount <= 0:
+                        reasons[ck] = f"Skipped: {why}"
                         note = f"{code}:{why}"
                         if note not in _blocklist_logged:
                             log.append(f"{short}: BUY {code} skipped — {why}")
                             _blocklist_logged.add(note)
                         continue
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
+                    reasons[ck] = f"Waiting for cash: USDC {_p(usdc_balance)}, this buy needs {_p(trade_amount)} and ${MIN_USDC_RESERVE:.0f} is kept spare"
                     note = f"{short}:lowusdc"
                     if note not in _blocklist_logged:
                         log.append(f"{short}: BUY {code} skipped — USDC ${usdc_balance:.2f} would drop below the ${MIN_USDC_RESERVE:.0f} reserve")
@@ -483,6 +497,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
 
                 cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log, ctx.get("dailyLimit"))
                 if not cb_ok:
+                    reasons[ck] = f"Daily limit: {cb_reason}"
                     continue
 
                 if DRY_RUN:
@@ -527,6 +542,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     })
                 else:
                     log.append(f"{short}: BUY {code} failed — {err}")
+                    reasons[ck] = f"Swyftx refused the order: {str(err)[:80]}"
                     if _is_untradable(err):
                         ctx.setdefault("newPauses", set()).add(code)
                     elif _is_account_blocked(err):
@@ -669,7 +685,11 @@ def run_auto_trade_check():
     active_pairs = _build_active_pairs(tier_assignments, tier_active)
     _now_ms = int(time.time() * 1000)
     paused = {c: u for c, u in (shared_state.get("autoPausedAssets") or {}).items() if isinstance(u, (int, float)) and u > _now_ms}
+    skipped_reasons = {}
     if paused:
+        for _c, _t in active_pairs:
+            if _c in paused:
+                skipped_reasons[f"{_c}:{_t}"] = "Paused: Swyftx says it isn't tradable right now. Retries automatically"
         active_pairs = [(c, t) for c, t in active_pairs if c not in paused]
         log.append(f"Paused (Swyftx says not tradable right now): {', '.join(sorted(paused))}")
     # Coins Swyftx doesn't list are never looked at: retire them (list is cached), then skip every retired coin.
@@ -679,6 +699,9 @@ def run_auto_trade_check():
         if gone:
             log.append(f"Switched off (not on Swyftx): {', '.join(gone)}")
         dead = retired_coin_codes()
+        for _c, _t in active_pairs:
+            if _c in dead:
+                skipped_reasons[f"{_c}:{_t}"] = "Not listed on Swyftx"
         active_pairs = [(c, t) for c, t in active_pairs if c not in dead]
     except Exception as e:
         print(f"[cron] unlisted-coin purge error: {e}", flush=True)
@@ -954,6 +977,17 @@ def run_auto_trade_check():
         "autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
         "autoCooldowns": shared_cooldowns,
     }
+    try:
+        _items = dict(skipped_reasons)
+        for _ctx in wallet_contexts:
+            if _ctx.get("isPool"):
+                _items.update(_ctx.get("reasons") or {})
+        # a signal that traded this run needs no reason
+        for _ck in fired:
+            _items.pop(_ck, None)
+        save_update["autoBuyStatus"] = {"at": now_ms, "items": _items}
+    except Exception as e:
+        print(f"[cron] could not build buy reasons: {e}", flush=True)
     if trail_update is not None:
         save_update["autoTrail"] = trail_update
     if pauses_update is not None:

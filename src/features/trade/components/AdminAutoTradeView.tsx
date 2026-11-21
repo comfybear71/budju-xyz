@@ -652,7 +652,7 @@ const AdminAutoTradeView = ({ prices, changes, adminWallet, onClose, autoTrader,
                           </div>
                           {/* Diagnostic reason when trade should fire but isn't */}
                           {(item.diagnostic || (belowAvgCost && nearestSide === "sell" && isNear)) && (isCritical || belowAvgCost) && (
-                            <div className="text-[8px] font-mono px-1.5 py-0.5 rounded" style={{
+                            <div className="text-[10px] font-mono px-1.5 py-1 rounded leading-snug" style={{
                               background: belowAvgCost ? "rgba(234,179,8,0.12)"
                                 : item.diagLevel === "error" ? "rgba(239,68,68,0.12)"
                                 : item.diagLevel === "warn" ? "rgba(234,179,8,0.12)"
