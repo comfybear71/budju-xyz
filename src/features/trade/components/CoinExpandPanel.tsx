@@ -110,23 +110,41 @@ const PriceAreaChart = ({ points }: { points: { timestamp: number; priceUsd: num
 
 const CoinExpandPanel = ({ code, priceUsd, isAdmin, aggregateHoldings, aggregateLoading }: Props) => {
   const [periodIdx, setPeriodIdx] = useState(1); // default 7d
-  const [points, setPoints] = useState<{ timestamp: number; priceUsd: number }[]>([]);
+  const [histories, setHistories] = useState<Record<number, { timestamp: number; priceUsd: number }[]>>({});
   const [loading, setLoading] = useState(true);
 
   const days = PERIODS[periodIdx].days;
+  const points = histories[days] ?? [];
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchCoinPriceHistory(code, days).then((history) => {
+    Promise.all(PERIODS.map((p) => fetchCoinPriceHistory(code, p.days).then((h) => [p.days, h.points] as const))).then((all) => {
       if (cancelled) return;
-      setPoints(history.points);
+      setHistories(Object.fromEntries(all));
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [code, days]);
+  }, [code]);
+
+  // High / low of each range, with when it happened and where the price is now
+  const ranges = PERIODS.map((p) => {
+    const pts = histories[p.days] ?? [];
+    if (pts.length < 2) return { label: p.label, ok: false as const };
+    let lo = pts[0], hi = pts[0];
+    for (const pt of pts) {
+      if (pt.priceUsd < lo.priceUsd) lo = pt;
+      if (pt.priceUsd > hi.priceUsd) hi = pt;
+    }
+    const now = priceUsd > 0 ? priceUsd : pts[pts.length - 1].priceUsd;
+    return { label: p.label, ok: true as const, lo, hi, fromHigh: (now / hi.priceUsd - 1) * 100, aboveLow: (now / lo.priceUsd - 1) * 100 };
+  });
+  const when = (ts: number) => {
+    const ago = (Date.now() - ts) / 3_600_000;
+    return ago < 1 ? "just now" : ago < 36 ? `${Math.round(ago)}h ago` : `${Math.round(ago / 24)}d ago`;
+  };
 
   // Per-wallet holders of this specific coin, sorted by amount desc —
   // admin-only, since aggregate-holdings iterates every wallet's own key.
@@ -178,6 +196,31 @@ const CoinExpandPanel = ({ code, priceUsd, isAdmin, aggregateHoldings, aggregate
             <div className="text-center py-4 text-slate-500 text-[11px] animate-pulse">Loading chart…</div>
           ) : (
             <PriceAreaChart points={points} />
+          )}
+          {!loading && ranges.some((r) => r.ok) && (
+            <div className="mt-2 rounded-lg overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
+              <table className="w-full text-[10px] font-mono">
+                <thead>
+                  <tr className="text-slate-600 text-left"><th className="py-1 px-2">Range</th><th className="px-1">Low</th><th className="px-1">High</th><th className="px-2 text-right">Now vs high</th></tr>
+                </thead>
+                <tbody>
+                  {ranges.map((r, i) => (
+                    <tr key={r.label} className={`border-t border-white/[0.05] ${i === periodIdx ? "bg-blue-500/[0.07]" : ""}`}>
+                      <td className="py-1 px-2 font-bold text-slate-400">{r.label}</td>
+                      {r.ok ? (
+                        <>
+                          <td className="px-1 text-red-300">{formatUsd(r.lo.priceUsd)} <span className="text-slate-600">{when(r.lo.timestamp)}</span><div className="text-slate-600">now +{r.aboveLow.toFixed(1)}%</div></td>
+                          <td className="px-1 text-green-300">{formatUsd(r.hi.priceUsd)} <span className="text-slate-600">{when(r.hi.timestamp)}</span></td>
+                          <td className="px-2 text-right text-slate-300">{r.fromHigh.toFixed(1)}%</td>
+                        </>
+                      ) : (
+                        <td colSpan={3} className="px-1 text-slate-600">no data</td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
 
