@@ -16,3 +16,13 @@ def test_effective_limit_falls_back_to_default():
     assert effective_limit(None) == 3000
     assert effective_limit("junk") == 3000
     assert effective_limit(4200) == 4200
+
+
+def test_bot_rules_use_defaults_and_the_saved_tier_settings():
+    from daily_limit import bot_rules
+    r = bot_rules({})
+    assert r["maxSingleBuy"] == 250 and r["minBuy"] == 8 and r["keepSpare"] == 30
+    assert r["tiers"]["1"] == {"dip": 5.0, "spend": 5.0, "pauseHours": 12.0}
+    r2 = bot_rules({"tier2": {"deviation": 9, "allocation": 12, "cooldownHours": 6}, "tier3": {"allocation": "junk"}})
+    assert r2["tiers"]["2"] == {"dip": 9.0, "spend": 12.0, "pauseHours": 6.0}
+    assert r2["tiers"]["3"] == {"dip": 15.0, "spend": 15.0, "pauseHours": 24.0}       # bad value falls back to the default
