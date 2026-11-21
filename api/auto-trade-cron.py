@@ -147,8 +147,17 @@ def send_telegram(text):
                 method="POST",
             )
             urlopen(req, timeout=10)
-        except Exception:
-            pass  # Non-critical
+            time.sleep(1.1)        # Telegram allows about one message per second to a chat
+        except Exception as e:
+            # Non-critical for trading, but never silent: a dropped digest looked like "no trades" before.
+            detail = ""
+            try:
+                detail = e.read().decode()[:200]
+            except Exception:
+                pass
+            print(f"[telegram] digest piece NOT delivered: {type(e).__name__}: {e} {detail}", flush=True)
+            if "429" in str(e):
+                time.sleep(3)
 
 
 # ── Tier / Shared-Rule Helpers ───────────────────────────────
