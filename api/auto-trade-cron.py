@@ -523,6 +523,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                             log.append(f"{short}: BUY {code} skipped — {why}")
                             _blocklist_logged.add(note)
                         continue
+                if trade_amount > MAX_SINGLE_TRADE_USDC:
+                    # A buy over the single-order limit is made AT the limit, not skipped.
+                    trade_amount = round(MAX_SINGLE_TRADE_USDC, 2)
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                     reasons[ck] = f"Waiting for cash: USDC {_p(usdc_balance)}, this buy needs {_p(trade_amount)} and ${MIN_USDC_RESERVE:.0f} is kept spare"
                     note = f"{short}:lowusdc"
