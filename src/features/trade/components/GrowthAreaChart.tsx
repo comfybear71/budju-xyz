@@ -11,6 +11,9 @@ interface Props {
   points: PositionHistoryPoint[];
   /** Deposits / withdrawals, drawn as ▲ / ▼ markers on the timeline */
   events?: Ev[];
+  /** True when there are no recorded value readings yet: the past points then only know what was PUT IN, not what the
+   *  account was worth, so they must not be drawn as "worth". Only today's real total is. */
+  estimated?: boolean;
 }
 
 const usd = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
@@ -39,7 +42,7 @@ const PAD = { top: 10, bottom: 10 };
  * The scale fits the data (it no longer starts at $0, which squashed everything flat).
  * Points are the recorded hourly readings (see buildSnapshotHistory); only the last point is today's live total.
  */
-const GrowthAreaChart = ({ points, events = [] }: Props) => {
+const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1);
   const [hover, setHover] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -85,7 +88,8 @@ const GrowthAreaChart = ({ points, events = [] }: Props) => {
       .sort((a, b) => Math.max(b.dep, b.wd) - Math.max(a.dep, a.wd))
       .slice(0, 12)
       .map((m) => ({ ...m, xPct: ((m.ts - t0) / tRange) * 100 }));
-    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, yFor };
+    const endY = (yFor(values[values.length - 1]) / H) * 100;
+    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, endY };
   }, [windowed, events]);
 
   const tabs = (
@@ -102,7 +106,7 @@ const GrowthAreaChart = ({ points, events = [] }: Props) => {
   if (points.length < 2) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
   if (!chart) return <div>{tabs}<div className="text-center py-4 text-slate-500 text-[11px]">Nothing recorded in this window yet.</div></div>;
 
-  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers } = chart;
+  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, endY } = chart;
   const up = result >= 0;
   const color = up ? "#34d399" : "#f87171";
 
@@ -132,9 +136,9 @@ const GrowthAreaChart = ({ points, events = [] }: Props) => {
           {[0.25, 0.5, 0.75].map((f) => (
             <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="rgba(255,255,255,0.05)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
           ))}
-          <path d={area} fill="url(#growthGrad)" />
-          <path d={steps} fill="none" stroke="rgba(148,163,184,0.75)" strokeWidth="1.2" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />
-          <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          {!estimated && <path d={area} fill="url(#growthGrad)" />}
+          <path d={steps} fill="none" stroke={estimated ? "rgba(148,163,184,0.95)" : "rgba(148,163,184,0.75)"} strokeWidth={estimated ? 1.6 : 1.2} strokeDasharray={estimated ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />
+          {!estimated && <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
           {hover !== null && <line x1={xs[hover]} x2={xs[hover]} y1="0" y2={H} stroke="rgba(255,255,255,0.25)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
         </svg>
         {/* scale labels */}
@@ -147,14 +151,22 @@ const GrowthAreaChart = ({ points, events = [] }: Props) => {
             {m.dep >= m.wd ? "▲" : "▼"}
           </span>
         ))}
+        {/* today's real total: the only point we truly know until readings are recorded */}
+        {estimated && <span className="absolute -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none" style={{ left: "99%", top: `${endY}%`, background: color, boxShadow: `0 0 6px ${color}` }} />}
         {/* hover / touch readout */}
         {hp && hover !== null && (
           <div className="absolute top-1 z-10 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-snug pointer-events-none"
             style={{ left: `${Math.min(62, Math.max(0, hx - 18))}%`, background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
             <div className="text-slate-400">{dayTime(new Date(hp.timestamp).getTime())}</div>
-            <div className="text-slate-100">Worth {usd(values[hover])}</div>
-            <div className="text-slate-400">Put in {usd(putIn[hover])}</div>
-            <div style={{ color: values[hover] - putIn[hover] >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover] - putIn[hover])}</div>
+            {estimated && hover < windowed.length - 1 ? (
+              <div className="text-slate-100">Put in {usd(putIn[hover])}<div className="text-slate-500">(worth not recorded yet)</div></div>
+            ) : (
+              <>
+                <div className="text-slate-100">Worth {usd(values[hover])}</div>
+                <div className="text-slate-400">Put in {usd(putIn[hover])}</div>
+                <div style={{ color: values[hover] - putIn[hover] >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover] - putIn[hover])}</div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -166,7 +178,9 @@ const GrowthAreaChart = ({ points, events = [] }: Props) => {
       </div>
       <div className="flex items-center justify-between text-[10px] mt-1.5 px-0.5">
         <span className="text-slate-500">
-          <span style={{ color }}>━</span> Worth &nbsp;<span className="text-slate-400">┅</span> Put in &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal
+          {estimated
+            ? <><span className="text-slate-400">━</span> Put in (what you deposited) &nbsp;<span style={{ color }}>●</span> worth now &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal</>
+            : <><span style={{ color }}>━</span> Worth &nbsp;<span className="text-slate-400">┅</span> Put in &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal</>}
         </span>
         <span className={`font-bold font-mono ${up ? "text-green-400" : "text-red-400"}`}>Result {usdSigned(result)}</span>
       </div>

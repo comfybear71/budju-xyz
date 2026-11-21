@@ -735,9 +735,9 @@ const Trade = () => {
 
                   {/* Growth / P&L — slim area chart, same for Mine and Pool */}
                   <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <GrowthAreaChart points={growthHistory} events={viewingMine ? mineEvents : poolEvents} />
+                    <GrowthAreaChart points={growthHistory} events={viewingMine ? mineEvents : poolEvents} estimated={readings.length < 2} />
                     {readings.length < 2 && (
-                      <div className="text-[10px] text-slate-500 mt-1 leading-snug">Real value tracking started recently, so this line stays flat until readings build up (one per hour).</div>
+                      <div className="text-[10px] text-slate-500 mt-1 leading-snug">Past account value is not recorded yet, so the line shows what you put in. The dot is what the account is worth now; real readings build up hourly.</div>
                     )}
                   </div>
                   <CashFlowStats
