@@ -735,7 +735,7 @@ const Trade = () => {
 
                   {/* Growth / P&L — slim area chart, same for Mine and Pool */}
                   <div className="mt-3 pt-3 border-t border-white/[0.04]">
-                    <GrowthAreaChart points={growthHistory} />
+                    <GrowthAreaChart points={growthHistory} events={viewingMine ? mineEvents : poolEvents} />
                     {readings.length < 2 && (
                       <div className="text-[10px] text-slate-500 mt-1 leading-snug">Real value tracking started recently, so this line stays flat until readings build up (one per hour).</div>
                     )}

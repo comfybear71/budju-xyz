@@ -10,6 +10,7 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [showRules, setShowRules] = useState(false);
+  const [open, setOpen] = useState(false);          // the whole card is a dropdown, closed by default
 
   useEffect(() => {
     let live = true;
@@ -31,8 +32,13 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
 
   return (
     <div className="rounded-xl p-3" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[12px] font-bold text-slate-200">🛡️ Daily buying limit</span>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between text-left" aria-expanded={open}>
+        <span className="text-[12px] font-bold text-slate-200">{open ? "▾" : "▸"} 🛡️ Your daily buying limit</span>
+        <span className="text-[11px] font-mono text-slate-400">{usd(info.spent24h)} of {usd(info.limit)} used</span>
+      </button>
+      {open && (<>
+      <div className="flex items-center justify-between mb-1 mt-2">
+        <span className="text-[10px] text-slate-500">Limit</span>
         <span className="text-[12px] font-mono font-bold text-teal-300">{usd(value)}</span>
       </div>
       <div className="text-[10px] text-slate-400 mb-2 leading-snug">
@@ -74,6 +80,7 @@ const DailyLimit = ({ wallet }: { wallet: string }) => {
           )}
         </div>
       )}
+      </>)}
     </div>
   );
 };
