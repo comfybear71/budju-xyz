@@ -21,8 +21,8 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
     if (r) setData(r); else setFailed(true);
   };
 
-  const reasons = new Map<string, number>();
-  for (const w of data?.waiting ?? []) reasons.set(w.why, (reasons.get(w.why) ?? 0) + 1);
+  const reasons = new Map<string, string[]>();
+  for (const w of data?.waiting ?? []) reasons.set(w.why, [...(reasons.get(w.why) ?? []), `${w.coin} T${w.tier}`]);
 
   return (
     <div className="rounded-xl" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>
@@ -50,6 +50,9 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
               <div className="rounded-lg px-3 py-2 text-[12px] text-slate-100 leading-relaxed" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.25)" }}>
                 Would make <b>{data.buys} buys</b> for <b>{usd(data.total)}</b>, leaving <b>{usd(data.cashLeft)}</b>. A run does about 18 buys, so that's <b>{data.runsNeeded} run{data.runsNeeded === 1 ? "" : "s"}</b> (5 minutes each).
               </div>
+              {data.shitList && data.shitList.length > 0 && (
+                <div className="text-[11px] text-amber-300 leading-snug">On the shit list (Dip Report "Careful"): {data.shitList.join(", ")}. They go last and never more than $50 a buy. BTC, ETH and SOL are never on it.</div>
+              )}
               <div className="max-h-64 overflow-y-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
                 <table className="w-full text-[11px] whitespace-nowrap">
                   <thead className="sticky top-0" style={{ background: "#0f172a" }}>
@@ -75,7 +78,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                 <div className="text-[11px] text-slate-400 leading-relaxed">
                   <b className="text-slate-200">{data.waitingCount} more would be left waiting:</b>
                   <ul className="list-disc pl-4 mt-0.5">
-                    {[...reasons.entries()].map(([why, n]) => <li key={why}>{n} — {why}</li>)}
+                    {[...reasons.entries()].map(([why, names]) => <li key={why}>{names.length} — {why}: <span className="text-slate-300">{names.slice(0, 14).join(", ")}{names.length > 14 ? ` …+${names.length - 14} more` : ""}</span></li>)}
                   </ul>
                 </div>
               )}
