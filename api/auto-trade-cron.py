@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
-from buy_order import order_pairs
+from buy_order import order_pairs, underweight_buckets, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
 
 DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
@@ -66,6 +66,8 @@ from database import (
     _is_transient_swyftx_error,
     _mark_key_valid,
     get_daily_limits_for,
+    get_coin_ranks,
+    get_coin_priority,
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
@@ -433,7 +435,14 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     catchup_done = []
     trade_log = state.get("tradeLog", [])
     # Deepest discount first, so limited cash goes to the biggest bargains.
-    active_pairs = order_pairs(active_pairs, prices, targets)
+    try:
+        _info = dict(ctx.get("priorityInfo") or {})
+        _info["buckets"] = underweight_buckets(holdings, prices)
+    except Exception as e:
+        print(f"[order] could not weigh holdings, ordering without it: {e}", flush=True)
+        _info = ctx.get("priorityInfo") or {}
+    careful_coins = set((ctx.get("priorityInfo") or {}).get("careful") or ())
+    active_pairs = order_pairs(active_pairs, prices, targets, ctx.get("ranks"), _info)
 
     # Settlement guard — let a just-executed trade's balance change settle
     # before this wallet trades again this cycle. Per-wallet now (each
@@ -523,6 +532,8 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                             log.append(f"{short}: BUY {code} skipped — {why}")
                             _blocklist_logged.add(note)
                         continue
+                if code in careful_coins:
+                    trade_amount = round(max(min(trade_amount, SHIT_LIST_MAX_BUY), MIN_ORDER_USDC), 2)    # shit-list coin: small buys only
                 if trade_amount > MAX_SINGLE_TRADE_USDC:
                     # A buy over the single-order limit is made AT the limit, not skipped.
                     trade_amount = round(MAX_SINGLE_TRADE_USDC, 2)
@@ -972,6 +983,20 @@ def run_auto_trade_check():
     except Exception as e:
         print(f"[cron] repair step failed (trading continues): {type(e).__name__}: {e}", flush=True)
 
+    try:
+        _pri = get_coin_priority()
+        _priority_info = {"careful": list(_pri.get("careful") or []), "focus": list(_pri.get("focus") or [])} if isinstance(_pri, dict) else {}
+    except Exception as e:
+        print(f"[priority] could not load the shit/accumulate lists: {e}", flush=True)
+        _priority_info = {}
+    try:
+        _ranks = get_coin_ranks()
+        if not isinstance(_ranks, dict):
+            _ranks = {}
+    except Exception as e:
+        print(f"[ranks] could not load, using the built-in Top 10 list: {e}", flush=True)
+        _ranks = {}
+
     def _persist_fired():
         """Save the new buy level + pause for every signal that has traded so far, RIGHT AFTER each order. Before, this
         happened once at the end of the run, so a run cut off part-way left the orders placed on Swyftx but the cards,
@@ -993,6 +1018,8 @@ def run_auto_trade_check():
 
     for ctx in wallet_contexts:
         ctx["persistFired"] = _persist_fired
+        ctx["ranks"] = _ranks
+        ctx["priorityInfo"] = _priority_info
         ctx["trailDecisions"] = trail_decisions
         ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
@@ -1106,6 +1133,13 @@ def run_auto_trade_check():
         if any(c.get("budgetHit") for c in wallet_contexts):
             message += "\n\n⏱ Time limit for this run reached — the remaining buys continue on the next run."
         send_telegram(message)
+
+    try:
+        if (time.time() - _RUN_STARTED) < RUN_BUDGET_SECONDS:
+            from database import refresh_coin_priority
+            refresh_coin_priority()        # no-op unless the stored lists are over 24 hours old
+    except Exception as e:
+        print(f"[priority] refresh skipped: {e}", flush=True)
 
     log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
 

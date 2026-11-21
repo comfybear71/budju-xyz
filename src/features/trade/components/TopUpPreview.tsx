@@ -53,7 +53,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
               <div className="max-h-64 overflow-y-auto rounded-lg" style={{ border: "1px solid rgba(255,255,255,0.06)" }}>
                 <table className="w-full text-[11px] whitespace-nowrap">
                   <thead className="sticky top-0" style={{ background: "#0f172a" }}>
-                    <tr className="text-slate-500 text-left"><th className="py-1 px-2">#</th><th className="px-1">Coin</th><th className="px-1">Tier</th><th className="px-1 text-right">Spend</th><th className="px-1 text-right">% of cash</th><th className="px-2 text-right">Below buy price</th></tr>
+                    <tr className="text-slate-500 text-left"><th className="py-1 px-2">#</th><th className="px-1">Coin</th><th className="px-1">Tier</th><th className="px-1">Why this place</th><th className="px-1 text-right">Spend</th><th className="px-1 text-right">% of cash</th><th className="px-2 text-right">Below buy price</th></tr>
                   </thead>
                   <tbody>
                     {data.rows.map((r) => (
@@ -61,12 +61,13 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                         <td className="py-1 px-2 text-slate-500">{r.n}</td>
                         <td className="px-1 font-bold text-slate-200">{r.coin}</td>
                         <td className="px-1 text-slate-400">T{r.tier}</td>
+                        <td className="px-1 text-slate-500">{r.group ?? ""}</td>
                         <td className="px-1 text-right font-mono text-green-400">{usd2(r.amount)}{r.capped ? " ⛔" : ""}</td>
                         <td className="px-1 text-right font-mono text-slate-400">{data.startCash > 0 ? ((r.amount / data.startCash) * 100).toFixed(1) : "0"}%</td>
                         <td className="px-2 text-right font-mono text-slate-400">{r.below.toFixed(1)}%</td>
                       </tr>
                     ))}
-                    {data.rows.length === 0 && <tr><td colSpan={6} className="py-2 px-2 text-slate-500">Nothing would be bought right now.</td></tr>}
+                    {data.rows.length === 0 && <tr><td colSpan={7} className="py-2 px-2 text-slate-500">Nothing would be bought right now.</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -79,7 +80,7 @@ const TopUpPreviewCard = ({ wallet }: { wallet: string }) => {
                 </div>
               )}
               <div className="text-[10px] text-slate-500 leading-snug">
-                Order: the deepest below its own buy price goes first; equal ones go T3, then T2, then T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy is capped at {usd(data.maxSingleBuy)} (⛔ = capped); {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
+                Order: Careful (shit list) coins last, capped at $50 a buy; otherwise by the Holdings groups (Top 10 first, BTC/ETH/SOL ahead of the rest of it, then Innovation, Top 50, Top 200, Smaller); inside each: accumulate coins, then coins you hold little of, then the deepest below its own buy price, equal ones T3, T2, T1. The first buys are the biggest because each takes a % of the cash left. Rules used: each buy is the tier's % of the cash left (at least $8); a single buy is capped at {usd(data.maxSingleBuy)} (⛔ = capped); {usd(data.reserve)} is kept spare; daily limit {usd(data.dailyLimit)} ({usd(data.spentBefore)} used in the last 24h).
               </div>
             </div>
           )}
