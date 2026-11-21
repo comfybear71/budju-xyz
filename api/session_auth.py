@@ -129,7 +129,7 @@ _ADMIN_POST_EXACT = {
     "/api/state", "/api/trade", "/api/trade/sync", "/api/deposit", "/api/withdrawal",
     "/api/pool/initialize", "/api/user/sync",
 }
-_OWNER_POST_EXACT = {"/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission"}
+_OWNER_POST_EXACT = {"/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission", "/api/user/daily-limit"}
 
 
 def classify(method: str, path: str, params: dict, body: dict):
@@ -166,7 +166,7 @@ def classify(method: str, path: str, params: dict, body: dict):
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
         # A wallet's own deposit/withdrawal history: that wallet (or an admin) only.
-        if path == "/api/user/cash-flows":
+        if path in ("/api/user/cash-flows", "/api/user/daily-limit"):
             return "owner", params.get("wallet")
         if path == "/api/transactions" and params.get("admin") == "true":
             return "admin", params.get("wallet")

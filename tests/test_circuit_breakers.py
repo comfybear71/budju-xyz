@@ -309,3 +309,16 @@ class TestTradeDecisionLogic:
         min_reserve = 100
         can_trade = (usdc_balance - trade_amount) >= min_reserve
         assert can_trade is False  # 105 - 10 = 95 < 100
+
+
+class TestPerWalletDailyLimit:
+    def _log(self, now):
+        return [{"coin": "C", "side": "buy", "qty": 1, "price": 900, "timestamp": (now - timedelta(hours=1)).isoformat() + "Z"}]
+
+    def test_wallet_limit_blocks_when_exceeded(self, cron_module):
+        ok, reason = cron_module._check_circuit_breakers(self._log(datetime.utcnow()), "buy", 150.0, "ETH", [], 1000)
+        assert ok is False and "daily limit" in reason
+
+    def test_higher_wallet_limit_allows_it(self, cron_module):
+        ok, _ = cron_module._check_circuit_breakers(self._log(datetime.utcnow()), "buy", 100.0, "ETH", [], 5000)
+        assert ok is True

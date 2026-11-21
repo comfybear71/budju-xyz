@@ -286,3 +286,9 @@ class TestMarketMoodMembersOnly:
         assert sa.check_request("GET", "/api/community/market-mood", {}, {}, None, A, now_ms=NOW + 1)[1] == 401
         assert call(hdr(USERW), True)[0] is True
         assert call(hdr(USERW), False)[1] == 403
+
+
+class TestDailyLimitIsOwnerOnly:
+    def test_classified_as_owner(self):
+        assert sa.classify("GET", "/api/user/daily-limit", {"wallet": "W"}, {}) == ("owner", "W")
+        assert sa.classify("POST", "/api/user/daily-limit", {}, {"walletAddress": "W"}) == ("owner", "W")

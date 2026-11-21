@@ -1673,6 +1673,54 @@ def save_user_preferences(wallet_address: str, updates: Dict) -> Dict:
     return {"success": True}
 
 
+def get_daily_limit_info(wallet_address: str) -> Dict:
+    """This wallet's daily buying limit (its own, or the default) and how much it has bought in the last 24 hours."""
+    from daily_limit import effective_limit, DEFAULT_LIMIT, CEILING, MINIMUM
+    doc = user_preferences_collection.find_one({"walletAddress": wallet_address}) or {}
+    spent = 0.0
+    try:
+        log = (get_trader_state().get("autoTradeLog") if is_admin(wallet_address)
+               else get_user_trader_state(wallet_address).get("tradeLog")) or []
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        for e in log:
+            if str(e.get("side", "")).lower() != "buy":
+                continue
+            try:
+                t = datetime.fromisoformat(str(e.get("timestamp") or e.get("time") or "").replace("Z", "+00:00")).replace(tzinfo=None)
+            except (ValueError, TypeError):
+                continue
+            if t > cutoff:
+                spent += float(e.get("qty", e.get("quantity", 0)) or 0) * float(e.get("price", 0) or 0)
+    except Exception as ex:
+        print(f"[daily-limit] spend lookup failed: {ex}")
+    return {"limit": effective_limit(doc.get("dailyBuyLimitUsdc")), "isCustom": doc.get("dailyBuyLimitUsdc") is not None,
+            "default": min(CEILING, DEFAULT_LIMIT), "min": MINIMUM, "max": CEILING, "spent24h": round(spent, 2)}
+
+
+def set_daily_limit(wallet_address: str, value, requester_wallet: str = None) -> Dict:
+    """A wallet sets its OWN daily buying limit (clamped to the allowed range)."""
+    from daily_limit import clean_limit
+    if requester_wallet and requester_wallet != wallet_address:
+        raise ValueError("You can only change your own daily limit")
+    v = clean_limit(value)
+    if v is None:
+        raise ValueError("Enter a number")
+    user_preferences_collection.update_one(
+        {"walletAddress": wallet_address},
+        {"$set": {"dailyBuyLimitUsdc": v, "updatedAt": datetime.utcnow().isoformat()},
+         "$setOnInsert": {"walletAddress": wallet_address, "createdAt": datetime.utcnow().isoformat()}},
+        upsert=True)
+    return get_daily_limit_info(wallet_address)
+
+
+def get_daily_limits_for(wallets: List[str]) -> Dict[str, float]:
+    """Saved limits for a batch of wallets (only wallets that set one)."""
+    out = {}
+    for d in user_preferences_collection.find({"walletAddress": {"$in": list(wallets)}, "dailyBuyLimitUsdc": {"$exists": True}}):
+        out[d["walletAddress"]] = d["dailyBuyLimitUsdc"]
+    return out
+
+
 def sync_deposits_from_client(wallet_address: str, deposits: List[Dict], total_pool_value: float) -> Dict:
     user = users_collection.find_one({"walletAddress": wallet_address})
     if not user:

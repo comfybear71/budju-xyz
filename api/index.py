@@ -115,6 +115,8 @@ from database import (
     attach_server_prices,
     get_value_history,
     get_market_mood,
+    get_daily_limit_info,
+    set_daily_limit,
     get_profit_plan,
     save_profit_plan,
     key_encryption_status,
@@ -563,6 +565,13 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "wallet parameter required"})
                     return
                 self._send_json(200, get_user_auto_trade_status(wallet))
+
+            elif path == '/api/user/daily-limit':
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                self._send_json(200, get_daily_limit_info(wallet))
 
             elif path == '/api/user/activity':
                 # Own activity only, unless the requester is an admin viewing
@@ -1918,6 +1927,17 @@ class handler(BaseHTTPRequestHandler):
                     self._send_json(400, {"error": "walletAddress required (own wallet only)"})
                     return
                 self._send_json(200, record_trading_permission(wallet))
+
+            elif path == '/api/user/daily-limit':
+                wallet_address = body.get('walletAddress')
+                if not wallet_address:
+                    self._send_json(400, {"error": "walletAddress required"})
+                    return
+                try:
+                    self._send_json(200, set_daily_limit(wallet_address, body.get('limit'), body.get('requesterWallet') or wallet_address))
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                return
 
             elif path == '/api/user/auto-trade':
                 # A wallet can toggle its own bot. An admin can ALSO toggle
