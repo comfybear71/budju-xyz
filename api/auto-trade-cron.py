@@ -44,7 +44,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
-from buy_order import order_pairs, underweight_buckets, shit_list, SHIT_LIST_MAX_BUY
+from coin_cap import recent_buys, day_budget, check_room
+from buy_order import order_pairs, underweight_buckets, shit_list, group_of, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell
 
 DEFAULT_ARMS = {str(t): DEFAULT_PLAN[t]["arm"] for t in (1, 2, 3)}
@@ -434,6 +435,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
     catchup_limits = ctx.get("catchupLimits", {})
     catchup_done = []
     trade_log = state.get("tradeLog", [])
+    # Group shares + per-coin limits (api/coin_cap.py), counted against the day's money: cash now + bought in the last 24h.
+    day_money = day_budget(usdc_balance, recent_buys(trade_log, now_ms))
+    _rank_map = ctx.get("ranks") if isinstance(ctx.get("ranks"), dict) else {}
+    _group = lambda c: group_of(c, _rank_map.get(c))
     # Deepest discount first, so limited cash goes to the biggest bargains.
     try:
         _info = dict(ctx.get("priorityInfo") or {})
@@ -537,6 +542,12 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                 if trade_amount > MAX_SINGLE_TRADE_USDC:
                     # A buy over the single-order limit is made AT the limit, not skipped.
                     trade_amount = round(MAX_SINGLE_TRADE_USDC, 2)
+                if day_money > 0:
+                    room, why_not = check_room(code, _group, recent_buys(trade_log, now_ms), day_money)
+                    if why_not or room < MIN_ORDER_USDC:
+                        reasons[ck] = why_not or f"Coin/group limit: only ${room:,.2f} of room left, below the ${MIN_ORDER_USDC} minimum buy"
+                        continue
+                    trade_amount = round(max(min(trade_amount, room), MIN_ORDER_USDC), 2)
                 if usdc_balance - trade_amount < MIN_USDC_RESERVE:
                     reasons[ck] = f"Waiting for cash: USDC {_p(usdc_balance)}, this buy needs {_p(trade_amount)} and ${MIN_USDC_RESERVE:.0f} is kept spare"
                     note = f"{short}:lowusdc"

@@ -50,6 +50,8 @@ def bot_rules(auto_tiers=None):
         "keepSpare": env("MIN_USDC_RESERVE", "30"),
         "minSell": env("SWYFTX_MIN_SELL_USDC", "30"),
         "buysPerRun": 18,
+        "groups": [{"name": n, "share": sh, "coinCap": cc} for n, sh, cc in zip(
+            ("Top 10", "Innovation", "Top 50", "Top 200", "Smaller"), (50, 20, 15, 10, 5), (10, 6, 4, 3, 2))],
         "runMinutes": 5,
         "tiers": tiers,
     }

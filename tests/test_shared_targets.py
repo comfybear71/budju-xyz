@@ -315,3 +315,31 @@ def test_a_shit_list_coin_never_gets_a_big_buy_but_core_coins_do(env):
     amounts = {c[0][0]: c[0][2] for c in clients["k-pool"].place_market_order.call_args_list}
     assert amounts["LINK"] == 50.0                      # shit-list coin: capped at $50
     assert amounts["BTC"] > 100                         # core coin: never on the shit list, full size
+
+
+def test_one_coin_cannot_take_more_than_the_per_coin_cap_across_its_tiers(env):
+    cron, db = env
+    cron.get_prices_for_coins = MagicMock(return_value={"LINK": 20.0})
+    state = make_state({f"LINK:{t}": {"buy": 25, "sell": 40, "setAt": 1} for t in (1, 2, 3)})
+    state["autoTierAssignments"] = {"LINK": [1, 2, 3]}
+    state["autoActive"]["tierActive"] = {"1": True, "2": True, "3": True}
+    state["autoTiers"] = {f"tier{t}": {"deviation": 5, "sellDeviation": 12.5, "allocation": a, "cooldownHours": 12} for t, a in ((1, 5), (2, 10), (3, 15))}
+    result, clients, saved, sent = run(env, state, pool_usdc=5000.0, user_usdc=100.0)
+    spent = sum(c[0][2] for c in clients["k-pool"].place_market_order.call_args_list)
+    assert spent == 500.0              # 10% of $5000, though 15% + 10% + 5% of the cash left would have been far more
+
+
+def test_group_shares_and_per_group_coin_limits_apply_in_the_real_bot(env):
+    cron, db = env
+    cron.get_prices_for_coins = MagicMock(return_value={"LINK": 20.0, "RAY": 1.0})
+    cron.get_coin_ranks = MagicMock(return_value={"LINK": 8, "RAY": 300})            # LINK = Top 10 (10% limit), RAY = Smaller (2%)
+    state = make_state({f"{c}:{t}": {"buy": 25 if c == "LINK" else 5, "sell": 90, "setAt": 1} for c in ("LINK", "RAY") for t in (1, 2, 3)})
+    state["autoTierAssignments"] = {"LINK": [1, 2, 3], "RAY": [1, 2, 3]}
+    state["autoActive"]["tierActive"] = {"1": True, "2": True, "3": True}
+    state["autoTiers"] = {f"tier{t}": {"deviation": 5, "sellDeviation": 12.5, "allocation": a, "cooldownHours": 12} for t, a in ((1, 5), (2, 10), (3, 15))}
+    result, clients, saved, sent = run(env, state, pool_usdc=5000.0, user_usdc=100.0)
+    spent = {}
+    for c in clients["k-pool"].place_market_order.call_args_list:
+        spent[c[0][0]] = spent.get(c[0][0], 0.0) + c[0][2]
+    assert spent["LINK"] == 500.0                    # Top 10 coin: 10% of $5000
+    assert spent["RAY"] == 100.0                     # Smaller coin: 2% of $5000
