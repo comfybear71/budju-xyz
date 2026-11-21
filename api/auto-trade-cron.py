@@ -104,6 +104,9 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 MAX_SINGLE_TRADE_USDC = float(os.getenv("MAX_SINGLE_TRADE_USDC", "250"))
 # Trade COUNT limit is off (0): one top-up can fire dozens of small buys. The dollar limit below is the daily protection.
 MAX_DAILY_TRADES = 0
+# How many recent trades each wallet keeps in its log. The daily buying limit is counted from this log, so it must be
+# long enough to hold a whole big day (it used to be 50, which a single large top-up could overflow).
+TRADE_LOG_KEEP = 500
 # Most one wallet may BUY in any rolling 24 hours (USDC). Protects every wallet in a crash.
 # Change it in Vercel (MAX_DAILY_SPEND_USDC); 0 switches the limit off.
 MAX_DAILY_SPEND_USDC = float(os.getenv("MAX_DAILY_SPEND_USDC", "3000"))
@@ -503,7 +506,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     _record_trade_ledger(ctx, code, "buy", quantity, fill_price, tier_num, order_id, log)
 
                     if normal_buy:
+                        _new_fire = ck not in fired
                         fired.setdefault(ck, {"side": "buy", "price": current_price, "settings": settings})
+                        if _new_fire and ctx.get("persistFired"):
+                            ctx["persistFired"]()
                     if catchup_buy:
                         catchup_done.append(ck)
                         # Remember it IMMEDIATELY (not at the end of the cycle),
@@ -516,7 +522,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         "coin": code, "side": "buy", "qty": quantity, "price": fill_price,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
-                    trade_log = trade_log[:50]
+                    trade_log = trade_log[:TRADE_LOG_KEEP]
 
                     usdc_balance -= trade_amount
                     holdings[code] = holdings.get(code, 0.0) + quantity   # keeps the position cap honest within this cycle
@@ -580,7 +586,10 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     quantity, fill_price = _real_fill(ctx["client"], quantity, sell_value, current_price)
                     _record_trade_ledger(ctx, code, "sell", quantity, fill_price, tier_num, order_id, log)
 
+                    _new_fire = ck not in fired
                     fired.setdefault(ck, {"side": "sell", "price": current_price, "settings": settings})
+                    if _new_fire and ctx.get("persistFired"):
+                        ctx["persistFired"]()
                     sold_this_run.add(code)
                     if ctx["isPool"]:
                         holdings[code] = max(0.0, holdings.get(code, 0.0) - quantity)   # later tiers this run see what is really left
@@ -589,7 +598,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
                         "timestamp": datetime.utcnow().isoformat() + "Z",
                     })
-                    trade_log = trade_log[:50]
+                    trade_log = trade_log[:TRADE_LOG_KEEP]
 
                     log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
@@ -884,7 +893,27 @@ def run_auto_trade_check():
             trail_decisions, trail_state_new = None, {}
             print(f"[trailing] unavailable this cycle: {e}", flush=True)
 
+    def _persist_fired():
+        """Save the new buy level + pause for every signal that has traded so far, RIGHT AFTER each order. Before, this
+        happened once at the end of the run, so a run cut off part-way left the orders placed on Swyftx but the cards,
+        pauses and buy levels unchanged, and the next run could buy the same signals again. Works on copies, so wallets
+        still running this cycle keep seeing the same levels."""
+        try:
+            t, cd = dict(shared_targets), dict(shared_cooldowns)
+            for _ck, _ev in fired.items():
+                _st, _price = _ev["settings"], _ev["price"]
+                _old_sell = float((t.get(_ck) or {}).get("sell", 0) or 0)
+                _new_sell = _price * (1 + _st["sellDeviation"] / 100)
+                t[_ck] = {"buy": _price * (1 - _st["deviation"] / 100),
+                          "sell": max(_old_sell, _new_sell) if _ev["side"] == "buy" else _new_sell, "setAt": now_ms}
+                cd[_ck] = now_ms + _st["cooldownHours"] * 3_600_000
+            save_trader_state({"autoActive": {**auto_active, "targets": t, "planVersion": PLAN_VERSION, "planArms": current_arms},
+                               "autoCooldowns": cd})
+        except Exception as e:
+            print(f"[cron] could not save progress after an order: {type(e).__name__}: {e}", flush=True)
+
     for ctx in wallet_contexts:
+        ctx["persistFired"] = _persist_fired
         ctx["trailDecisions"] = trail_decisions
         ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
