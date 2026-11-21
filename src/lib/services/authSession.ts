@@ -131,7 +131,7 @@ const ADMIN_POST = new Set([
   "/api/pool/initialize",
   "/api/user/sync",
 ]);
-const OWNER_POST = new Set(["/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission"]);
+const OWNER_POST = new Set(["/api/user/swyftx-key", "/api/user/swyftx-key/remove", "/api/user/auto-trade", "/api/user/permission", "/api/user/daily-limit"]);
 
 function needsPass(method: string, url: URL, body: unknown): boolean {
   const p = url.pathname;
@@ -143,7 +143,7 @@ function needsPass(method: string, url: URL, body: unknown): boolean {
     // Per-wallet holdings behind the Leaderboard drill-down (members only).
     if (p === "/api/community/aggregate-holdings") return true;
     // A wallet's own deposit/withdrawal history is private to that wallet.
-    if (p === "/api/user/cash-flows") return true;
+    if (p === "/api/user/cash-flows" || p === "/api/user/daily-limit") return true;
     // The daily Desk brief is for BUDJU members and admins; other desk reads are admin-only. Both need a pass.
     if (ADMIN_GET.has(p) || p.startsWith("/api/desk/") || p === "/api/community/paper-trial" || p === "/api/community/market-mood") return true;
     return p === "/api/transactions" && url.searchParams.get("admin") === "true";

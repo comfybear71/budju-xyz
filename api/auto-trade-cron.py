@@ -65,6 +65,7 @@ from database import (
     ADMIN_WALLETS,
     _is_transient_swyftx_error,
     _mark_key_valid,
+    get_daily_limits_for,
 )
 from trade_guards import (
     DEFAULT_REBUY_BLOCKLIST,
@@ -282,7 +283,7 @@ def _is_untradable(err) -> bool:
 
 # ── Circuit Breakers ─────────────────────────────────────────
 
-def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
+def _check_circuit_breakers(trade_log, side, amount_usdc, code, log, daily_spend_limit=None):
     """Check circuit breakers before executing a trade, scoped to ONE
     wallet's own trade log. Returns (allowed: bool, reason: str or None)."""
     if amount_usdc > MAX_SINGLE_TRADE_USDC:
@@ -314,9 +315,10 @@ def _check_circuit_breakers(trade_log, side, amount_usdc, code, log):
         log.append(f"{code}: BLOCKED — {reason}")
         return False, reason
 
-    if side == "buy" and MAX_DAILY_SPEND_USDC > 0 and (daily_buy_total + amount_usdc) > MAX_DAILY_SPEND_USDC:
+    spend_limit = daily_spend_limit if daily_spend_limit else MAX_DAILY_SPEND_USDC
+    if side == "buy" and spend_limit > 0 and (daily_buy_total + amount_usdc) > spend_limit:
         reason = (f"Daily buying limit: ${daily_buy_total:.0f} already bought in 24h, this ${amount_usdc:.0f} would pass "
-                  f"MAX_DAILY_SPEND_USDC (${MAX_DAILY_SPEND_USDC:.0f})")
+                  f"this wallet's daily limit (${spend_limit:.0f})")
         log.append(f"{code}: BLOCKED — {reason}")
         return False, reason
 
@@ -479,7 +481,7 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         _blocklist_logged.add(note)
                     continue
 
-                cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log)
+                cb_ok, cb_reason = _check_circuit_breakers(trade_log, "buy", trade_amount, code, log, ctx.get("dailyLimit"))
                 if not cb_ok:
                     continue
 
@@ -730,6 +732,12 @@ def run_auto_trade_check():
         print("[DIAG] EXIT: no wallets have auto-trading enabled", flush=True)
         return {"skipped": True, "reason": "No wallets have auto-trading enabled", "log": log}
 
+    try:
+        from daily_limit import effective_limit
+        _saved_limits = {w: effective_limit(v) for w, v in get_daily_limits_for([d["walletAddress"] for d in wallets]).items()}
+    except Exception as e:
+        print(f"[daily-limit] could not load wallet limits, using the default: {e}", flush=True)
+        _saved_limits = {}
     wallet_contexts = []
     for doc in wallets:
         wallet = doc["walletAddress"]
@@ -776,6 +784,7 @@ def run_auto_trade_check():
             ctx["state"] = {"tradeLog": shared_state.get("autoTradeLog", [])}
         else:
             ctx["state"] = get_user_trader_state(wallet)
+        ctx["dailyLimit"] = _saved_limits.get(wallet)
         wallet_contexts.append(ctx)
 
     if not wallet_contexts:

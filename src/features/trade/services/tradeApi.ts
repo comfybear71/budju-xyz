@@ -2830,3 +2830,26 @@ export async function fetchAfterSales(wallet: string, days = 60): Promise<AfterS
   const r = await adminGet("/api/admin/after-sales", wallet, `&days=${days}`);
   return r && r.overall ? (r as AfterSales) : null;
 }
+
+export interface DailyLimitInfo { limit: number; isCustom: boolean; default: number; min: number; max: number; spent24h: number }
+/** A wallet's own daily buying limit and how much it has bought in the last 24 hours. */
+export async function fetchDailyLimit(wallet: string): Promise<DailyLimitInfo | null> {
+  try {
+    const res = await fetch(`/api/user/daily-limit?wallet=${wallet}`);
+    return res.ok ? ((await res.json()) as DailyLimitInfo) : null;
+  } catch {
+    return null;
+  }
+}
+export async function saveDailyLimit(wallet: string, limit: number): Promise<DailyLimitInfo | null> {
+  try {
+    const res = await fetch("/api/user/daily-limit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress: wallet, requesterWallet: wallet, limit }),
+    });
+    return res.ok ? ((await res.json()) as DailyLimitInfo) : null;
+  } catch {
+    return null;
+  }
+}
