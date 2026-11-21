@@ -975,7 +975,7 @@ const Trade = () => {
                           <span className="font-mono font-bold text-green-400">${fmt2(byCurrency.USDC)}</span>
                         </div>
                       </div>
-                      {viewingMine && isConnected && walletAddress && (
+                      {isConnected && walletAddress && (
                         <div className="mt-3 pt-3 border-t border-white/[0.04]">
                           <DailyLimit wallet={walletAddress} />
                         </div>
