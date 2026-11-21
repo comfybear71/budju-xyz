@@ -254,7 +254,22 @@ const Trade = () => {
   // "Mine" — this wallet's own real live Swyftx balance (read via its own
   // key), not a pooled-shares allocation. Falls back to the legacy share
   // value only if this wallet has no personal key connected yet.
-  const myLiveValue = livePosition ? livePosition.totalValue : userValue;
+  // The coin part is re-priced with the live prices (the same way the Pool doughnut is), so this number moves as the market moves.
+  // The server's figure is only a snapshot from when the page loaded; cash comes from it, coins from the live-priced holdings.
+  const myLiveCrypto = useMemo<number | null>(() => {
+    if (!livePosition) return null;
+    const cashCodes = new Set(["USDC", "USDT", "USD", "AUD"]);
+    let crypto = 0;
+    let have = false;
+    for (const a of isAdmin ? assets : myHoldings) {
+      if (cashCodes.has(a.code)) continue;
+      have = true;
+      const live = prices[a.code] > 0 ? prices[a.code] : a.priceUsd;
+      crypto += a.balance > 0 && live > 0 ? a.balance * live : a.usdValue;
+    }
+    return have ? crypto : livePosition.cryptoValue;
+  }, [livePosition, isAdmin, assets, myHoldings, prices]);
+  const myLiveValue = livePosition ? livePosition.cashValue + (myLiveCrypto ?? livePosition.cryptoValue) : userValue;
 
   // ── Load data (all public — no wallet needed) ──
   const loadData = useCallback(async () => {
@@ -468,6 +483,7 @@ const Trade = () => {
       fetchCommunityCashFlows().then(setCommunityCashFlows).catch(() => {});
       if (isConnected && walletAddress) {
         fetchWalletCashFlows(walletAddress).then(setMyCashFlows).catch(() => {});
+        fetchLivePosition(walletAddress).then((v) => { if (v) setLivePosition(v); }).catch(() => {});
       }
     }, 90_000);
     return () => clearInterval(interval);
@@ -928,7 +944,7 @@ const Trade = () => {
                       ? liveLeaderboard.entries.reduce((s, e) => s + e.cashValue, 0)
                       : usdcBalance;
                   const combinedCrypto = viewingMine
-                    ? (livePosition?.cryptoValue ?? assets.reduce((s, a) => s + a.usdValue, 0))
+                    ? (myLiveCrypto ?? livePosition?.cryptoValue ?? assets.reduce((s, a) => s + a.usdValue, 0))
                     : liveLeaderboard
                       ? liveLeaderboard.entries.reduce((s, e) => s + e.cryptoValue, 0)
                       : assets.reduce((s, a) => s + a.usdValue, 0);
