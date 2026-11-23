@@ -45,3 +45,43 @@ def test_on_waits_while_rising_then_sells_on_the_pullback(env):
     sells, saved = _run(env, armed)
     assert sells == 2                                                   # 60000 is 14% below the 70000 high: sell in every wallet
     assert "BTC:1" not in saved["autoTrail"]                            # and the signal resets
+
+
+def test_a_coin_that_ran_past_its_level_and_fell_back_under_it_is_still_sold_on_the_pullback(env):
+    """The gap: the sell used to need the price to be at/above the sell level AND pulled back. Armed at 70000, level 65000, price 60000."""
+    cfg = {"autoTrailingConfig": {"enabled": True, "pullbackPct": 5, "capPct": 25}}
+    st = make_state({"BTC:1": {"buy": 40000, "sell": 65000, "setAt": 1}})
+    st.update({**cfg, "autoTrail": {"BTC:1": {"high": 70000.0, "at": 2_000_000_000_000}}})
+    sells, saved = _run(env, st)
+    assert sells == 2
+    # and a coin below its level that was NEVER armed is not sold (the stop only protects a run that really happened)
+    st2 = make_state({"BTC:1": {"buy": 40000, "sell": 65000, "setAt": 1}})
+    st2.update(cfg)
+    assert _run(env, st2)[0] == 0
+
+
+def test_the_sale_says_why_and_arming_is_announced(env):
+    cron, db = env
+    sent = []
+    cfg = {"autoTrailingConfig": {"enabled": True, "pullbackPct": 5, "capPct": 25}}
+    # run 1: price 60000 reaches the 55000 level -> armed -> a Telegram "armed" message, no sale
+    _run(env, _state(cfg))
+    # run 2: armed at 70000, now 60000 -> sold on the pullback, and the Telegram line says why
+    armed = _state({**cfg, "autoTrail": {"BTC:1": {"high": 70000.0, "at": 2_000_000_000_000}}})
+    clients = {"k-pool": make_client(1000.0), "k-user": make_client(500.0)}
+    for c in clients.values():
+        c.get_holdings.return_value = {"USDC": 500.0, "BTC": 0.05}
+    cron.SwyftxClient = um.MagicMock(side_effect=lambda key: clients[key])
+    cron.send_telegram = lambda t: sent.append(t)
+    cron.get_user_bot_position = lambda w, c: 0.05
+    cron.get_user_avg_cost = lambda w, c: 0.0
+    db.get_trader_state.return_value = armed
+    db.save_trader_state.side_effect = lambda s: {"success": True}
+    cron.run_auto_trade_check()
+    text = "\n".join(sent)
+    assert "trailing stop: it ran up to $70,000.00, then fell 14.3%" in text and "the stop is 5%" in text
+
+    sent.clear()
+    db.get_trader_state.return_value = _state(cfg)                      # nothing armed yet, price above the level
+    cron.run_auto_trade_check()
+    assert any("Trailing stop armed" in t and "BTC T1" in t and "about $57,000.00" in t for t in sent)    # 5% below the 60000 high

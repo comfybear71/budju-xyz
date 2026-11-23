@@ -99,3 +99,12 @@ def test_huge_run_keeps_every_trade_line_but_caps_coin_detail_blocks():
     assert text.count("📊") == 10
     assert "50 more coin(s)" in text
     assert all(len(c) <= 4000 for c in split_message(text))
+
+
+def test_a_sale_line_shows_its_reason_and_a_buy_line_does_not():
+    trades = [{"wallet": "W" * 44, "isPool": True, "coin": "DRV", "side": "SELL", "tier": 1, "qty": 83.0379, "price": 0.3613, "amount": 30.0,
+               "why": "trailing stop: it ran up to $0.3803, then fell 5.0% (the stop is 5%); raised to the Swyftx minimum"},
+              {"wallet": "W" * 44, "isPool": True, "coin": "ETH", "side": "BUY", "tier": 2, "qty": 0.1, "price": 1600.0, "amount": 160.0}]
+    text = format_digest(trades)
+    assert "↳ <i>trailing stop: it ran up to $0.3803" in text and "raised to the Swyftx minimum" in text
+    assert text.count("↳") == 1

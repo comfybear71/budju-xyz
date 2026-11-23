@@ -29,7 +29,10 @@ def _short(wallet):
 def _line(t):
     icon = "🛒" if t["side"] == "BUY" else "💸"
     tier = f"T{t['tier']} " if t.get("tier") else ""
-    return f"{icon} {tier}{t['coin']} {_qty(t['qty'])} @ {_price(t['price'])} (${t['amount']:,.2f})"
+    line = f"{icon} {tier}{t['coin']} {_qty(t['qty'])} @ {_price(t['price'])} (${t['amount']:,.2f})"
+    if t.get("why"):
+        line += f"\n   ↳ <i>{t['why']}</i>"        # why a sale happened (trailing stop, sell level, minimum order)
+    return line
 
 
 def _totals(trades):

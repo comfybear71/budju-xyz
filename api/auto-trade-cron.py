@@ -43,7 +43,7 @@ import json
 sys.path.insert(0, os.path.dirname(__file__))
 
 from coin_sizing import size_buy
-from trailing import clean_config as _trail_cfg, decide_all as _trail_decide
+from trailing import clean_config as _trail_cfg, decide_all as _trail_decide, sale_reason, arm_message
 from coin_cap import recent_buys, day_budget, check_room
 from buy_order import order_pairs, underweight_buckets, shit_list, group_of, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell, sane_sell
@@ -619,7 +619,9 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                         log.append(f"{short}: buys paused this cycle — Swyftx rate limit")
 
             # ── SELL ──
-            elif current_price >= sell_target:
+            elif current_price >= sell_target or ((ctx.get("trailDecisions") or {}).get(ck) == "sell"):
+                # (the second condition: an armed signal that ran up and has now fallen back under its sell level is still
+                # sold on the pullback — before, such a coin was never sold until it climbed above the level again)
                 trail = ctx.get("trailDecisions")
                 if trail is not None and trail.get(ck) != "sell":
                     continue        # trailing take-profit: past its sell level, letting it run until it pulls back
@@ -677,9 +679,14 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     _save_trade_log(ctx, trade_log)
 
                     log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
+                    try:
+                        _why = sale_reason(ctx.get("trailMode", "off"), (ctx.get("trailInfo") or {}).get(ck),
+                                           (ctx.get("trailPullbacks") or {}).get(ck, settings.get("trailPct", 5.0)), current_price, sell_target, note)
+                    except Exception:
+                        _why = ""
                     trades_this_wallet.append({
                         "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL", "tier": tier_num,
-                        "amount": round(sell_value, 2), "price": round(fill_price, 8), "qty": quantity,
+                        "amount": round(sell_value, 2), "price": round(fill_price, 8), "qty": quantity, "why": _why,
                     })
                 else:
                     log.append(f"{short}: SELL {code} failed — {err}")
@@ -988,13 +995,23 @@ def run_auto_trade_check():
     trail_cfg = _trail_cfg(shared_state.get("autoTrailingConfig"))
     trail_decisions, trail_state_new = None, {}
     old_trail_state = dict(shared_state.get("autoTrail") or {})
+    pullbacks = {}
+    trail_mode = "on" if trail_cfg["enabled"] else "off"          # why a sale happened is reported from this
     if trail_cfg["enabled"]:
         try:
             pullbacks = {f"{c}:{t}": _tier_settings(auto_tiers, t)["trailPct"] for c, t in active_pairs}
             trail_decisions, trail_state_new = _trail_decide(active_pairs, prices, shared_targets, old_trail_state, trail_cfg, now_ms, pullbacks)
         except Exception as e:
             trail_decisions, trail_state_new = None, {}
+            trail_mode = "error"
             print(f"[trailing] unavailable this cycle: {e}", flush=True)
+    # Tell the group when a coin has just reached its sell level and the trailing stop starts watching it.
+    try:
+        _newly = [ck for ck in trail_state_new if ck not in old_trail_state]
+        if _newly:
+            send_telegram(arm_message(_newly, trail_state_new, pullbacks, trail_cfg["pullbackPct"]))
+    except Exception as e:
+        print(f"[trailing] arm message skipped: {e}", flush=True)
 
     # One-time repair: mark the buys that were placed but never recorded as "just bought" (see api/repair_unsaved_buys.py).
     try:
@@ -1051,6 +1068,9 @@ def run_auto_trade_check():
         ctx["ranks"] = _ranks
         ctx["priorityInfo"] = _priority_info
         ctx["trailDecisions"] = trail_decisions
+        ctx["trailInfo"] = dict(trail_state_new)
+        ctx["trailPullbacks"] = pullbacks
+        ctx["trailMode"] = trail_mode
         ctx["sizing"] = sizing if isinstance(sizing, dict) and sizing.get("enabled") else None
         ctx["onCatchupBuy"] = _persist_catchup
         ctx["sharedTargets"] = shared_targets

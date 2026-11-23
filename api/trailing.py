@@ -57,3 +57,38 @@ def decide_all(pairs: Iterable[Tuple[str, int]], prices: Dict[str, float], targe
         if st is not None:
             new_state[ck] = st
     return decisions, new_state
+
+
+def _money(n: float) -> str:
+    n = float(n or 0)
+    return f"${n:,.2f}" if n >= 1 else f"${n:.4f}"
+
+
+def sale_reason(mode: str, info, pullback_pct: float, price: float, sell_target: float, note: str = "") -> str:
+    """Plain-English reason for a sale, shown in the Telegram message. mode: "on" | "off" | "error"."""
+    if mode == "on" and info and float(info.get("high") or 0) > 0:
+        high = float(info["high"])
+        fell = (1 - price / high) * 100 if price > 0 else 0.0
+        why = f"trailing stop: it ran up to {_money(high)}, then fell {fell:.1f}% (the stop is {pullback_pct:g}%)"
+        if sell_target and price < sell_target:
+            why += ", and is now back under its sell level"
+    elif mode == "error":
+        why = "sold at its sell level (the trailing stop could not be checked on this run)"
+    elif mode == "off":
+        why = "sold at its sell level (the trailing stop is switched off)"
+    else:
+        why = "sold at its sell level"
+    return f"{why}; {note}" if note else why
+
+
+def arm_message(newly_armed, state: Dict[str, Dict], pullbacks: Optional[Dict[str, float]], default_pullback: float, limit: int = 15) -> str:
+    """Telegram text for signals that just reached their sell level and are now being watched by the trailing stop."""
+    lines = ["📈 <b>Trailing stop armed</b>"]
+    for ck in list(newly_armed)[:limit]:
+        coin, _, tier = ck.partition(":")
+        high = float((state.get(ck) or {}).get("high") or 0)
+        pull = (pullbacks or {}).get(ck, default_pullback)
+        lines.append(f"{coin} T{tier}: reached {_money(high)}. It sells if the price falls {pull:g}% from its high (about {_money(high * (1 - pull / 100))} now).")
+    if len(newly_armed) > limit:
+        lines.append(f"…and {len(newly_armed) - limit} more.")
+    return "\n".join(lines)
