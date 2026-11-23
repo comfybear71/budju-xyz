@@ -466,9 +466,24 @@ class SwyftxClient:
             "trigger": "",
         }
 
+        def _post(body):
+            return self._http_json(SWYFTX_BASE + "/orders/", method="POST", body=body, headers=self._headers())
+
         try:
-            data = self._http_json(SWYFTX_BASE + "/orders/", method="POST",
-                                    body=payload, headers=self._headers())
+            try:
+                data = _post(payload)
+            except HTTPError as e:
+                body_text = e.read().decode() if e.fp else ""
+                # Swyftx refuses to size some assets (low-liquidity / limited-functionality ones) in USDC and says "Unable to limit
+                # on this asset. Use other asset as limit". Their own guidance for those assets is: buy by the amount you spend,
+                # SELL by the quantity of the coin. So when that exact refusal comes back, try once more sized in the coin.
+                # A refused order creates nothing on the exchange, so the second attempt can never double up.
+                if "unable to limit on this asset" in body_text.lower() and expected_qty and expected_qty > 0:
+                    retry = dict(payload, quantity=str(round(float(expected_qty), 8)), assetQuantity=asset_id)
+                    print(f"[order] {side} {asset_code}: refused when sized in USDC, retrying sized in {asset_code}", flush=True)
+                    data = _post(retry)
+                else:
+                    return False, None, f"HTTP {e.code}: {body_text[:200]}"
         except HTTPError as e:
             body_text = e.read().decode() if e.fp else ""
             return False, None, f"HTTP {e.code}: {body_text[:200]}"
