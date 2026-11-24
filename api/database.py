@@ -5118,6 +5118,52 @@ def _fear_greed_value() -> Optional[int]:
         return _FEAR_GREED_CACHE["value"]      # an older reading is better than none
 
 
+leverage_log_collection = db["leverage_log"]
+_LEVERAGE_CACHE: Dict = {"at": 0.0, "data": None}
+
+
+def _fetch_hyperliquid_ctxs():
+    """Hyperliquid's public market snapshot (no key). One call, weight 20. None on any problem."""
+    try:
+        req = Request("https://api.hyperliquid.xyz/info", data=json.dumps({"type": "metaAndAssetCtxs"}).encode(),
+                      headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+        with urlopen(req, timeout=6) as resp:
+            return json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"[leverage] Hyperliquid unavailable: {type(e).__name__}: {e}")
+        return None
+
+
+def get_leverage_check() -> Dict:
+    """Leverage check for the market mood chip: funding and open interest for BTC, ETH, SOL from Hyperliquid, compared with a reading
+    about 24 hours ago that we keep ourselves. Cached 10 minutes, so Hyperliquid is called at most a few times an hour no matter how
+    many people look. Fails soft: {"signal": "unknown"} and the chip simply omits it."""
+    from leverage_check import parse, assess, CORE
+    now = time.time()
+    if _LEVERAGE_CACHE["data"] is not None and now - _LEVERAGE_CACHE["at"] < 600:
+        return _LEVERAGE_CACHE["data"]
+    parsed = parse(_fetch_hyperliquid_ctxs())
+    core = {c: parsed[c] for c in CORE if c in parsed}
+    if not core:
+        return _LEVERAGE_CACHE["data"] or {"signal": "unknown", "label": "Leverage check unavailable", "lines": [], "coins": {}}
+    before = None
+    try:
+        lo, hi = datetime.utcnow() - timedelta(hours=30), datetime.utcnow() - timedelta(hours=22)
+        doc = leverage_log_collection.find_one({"at": {"$gte": lo, "$lte": hi}}, sort=[("at", -1)])
+        before = doc.get("coins") if doc else None
+    except Exception as e:
+        print(f"[leverage] earlier reading unavailable: {e}")
+    out = assess(core, before)
+    out["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    _LEVERAGE_CACHE.update({"at": now, "data": out})
+    try:
+        leverage_log_collection.update_one({"_id": datetime.utcnow().strftime("%Y%m%d%H")}, {"$setOnInsert": {
+            "at": datetime.utcnow(), "coins": core, "signal": out["signal"], "fundingAprPct": out.get("fundingAprPct"), "oiChangePct": out.get("oiChangePct")}}, upsert=True)
+    except Exception as e:
+        print(f"[leverage] could not log: {e}")
+    return out
+
+
 def get_market_mood(force: bool = False) -> Dict:
     """The traffic light for 'is it a good time to add USDC?'. Cached 10 minutes; one reading per hour is kept as a forward record."""
     from market_mood import classify, count_waiting
@@ -5145,11 +5191,16 @@ def get_market_mood(force: bool = False) -> Dict:
 
     out = classify(btc, series, _fear_greed_value(), waiting, before)
     out["updatedAt"] = datetime.utcnow().isoformat() + "Z"
+    try:
+        out["leverage"] = get_leverage_check()          # extra information only; never changes the state above
+    except Exception as e:
+        print(f"[mood] leverage check skipped: {e}")
     _MOOD_CACHE.update({"at": now, "data": out})
     try:
         hour = datetime.utcnow().strftime("%Y%m%d%H")
         market_mood_log_collection.update_one({"_id": hour}, {"$setOnInsert": {
-            "at": datetime.utcnow(), "state": out["state"], "waiting": out["waiting"], "activeSignals": out["activeSignals"], "inputs": out["inputs"]}}, upsert=True)
+            "at": datetime.utcnow(), "state": out["state"], "waiting": out["waiting"], "activeSignals": out["activeSignals"], "inputs": out["inputs"],
+            "leverage": (out.get("leverage") or {}).get("signal")}}, upsert=True)
     except Exception as e:
         print(f"[mood] could not log: {e}")
     return out
