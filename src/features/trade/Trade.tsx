@@ -22,6 +22,7 @@ const TradeDashboard = lazy(() => import("./TradeDashboard"));
 import Leaderboard from "./components/Leaderboard";
 import TransactionHistory from "./components/TransactionHistory";
 import PersonalTradingView from "./components/PersonalTradingView";
+import WithdrawPlanner from "./components/WithdrawPlanner";
 import GrowthAreaChart from "./components/GrowthAreaChart";
 import CashFlowStats from "./components/CashFlowStats";
 import {
@@ -184,6 +185,7 @@ const Trade = () => {
   const [showPendingOrders, setShowPendingOrders] = useState(false);
   const [showAutoTrader, setShowAutoTrader] = useState(false);
   const [showPersonalTrading, setShowPersonalTrading] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
   const [showAutoAdmin, setShowAutoAdmin] = useState(false);
   const [showTriggerView, setShowTriggerView] = useState(false);
   const [showHighRisk, setShowHighRisk] = useState(false);
@@ -806,6 +808,8 @@ const Trade = () => {
                           onClick: () => navigate("/desk") },
                         { key: "mykey", label: "My Key", icon: "\uD83D\uDD11", active: showPersonalTrading, color: "emerald",
                           onClick: () => setShowPersonalTrading(true) },
+                        { key: "withdraw", label: "Withdraw", icon: "\uD83D\uDCB8", active: showWithdraw, color: "amber",
+                          onClick: () => setShowWithdraw(true) },
                       ] as const)
                         // BUDJU Gate — only show "My Key" to a wallet holding 10M+ BUDJU
                         .filter((btn) => btn.key !== "mykey" || hasBudjuGateAccess)
@@ -914,6 +918,25 @@ const Trade = () => {
                             <span className="text-[8px] bg-emerald-500/15 text-emerald-300 px-1 py-0.5 rounded font-mono border border-emerald-500/20 align-middle">NEW</span>
                           </div>
                           <div className="text-[10px] font-bold text-emerald-400 leading-tight">Trade your own account</div>
+                        </div>
+                      </button>
+                    )}
+                    {/* Withdraw planner — same gate: admin and BUDJU members with their own key. Plans only, never sells. */}
+                    {hasBudjuGateAccess && (
+                      <button
+                        onClick={() => setShowWithdraw(true)}
+                        className="flex-shrink-0 basis-[44%] min-w-[148px] flex items-center gap-2.5 py-3 px-3 rounded-xl transition-all hover:brightness-125 snap-start overflow-hidden"
+                        style={{ background: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)" }}
+                      >
+                        <div className="w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0" style={{ background: "rgba(245,158,11,0.15)" }}>
+                          <span className="text-sm">💸</span>
+                        </div>
+                        <div className="text-left">
+                          <div className="text-[11px] font-bold text-slate-300 leading-tight">
+                            Withdraw{" "}
+                            <span className="text-[8px] bg-amber-500/15 text-amber-300 px-1 py-0.5 rounded font-mono border border-amber-500/20 align-middle">NEW</span>
+                          </div>
+                          <div className="text-[10px] font-bold text-amber-400 leading-tight">Plan taking cash out</div>
                         </div>
                       </button>
                     )}
@@ -1212,6 +1235,7 @@ const Trade = () => {
         changes={changes}
         assets={assets}
       />
+      <WithdrawPlanner isOpen={showWithdraw} onClose={() => setShowWithdraw(false)} wallet={walletAddress} />
       <PersonalTradingView
         isOpen={showPersonalTrading}
         onClose={() => setShowPersonalTrading(false)}

@@ -117,6 +117,7 @@ from database import (
     get_market_mood,
     get_daily_limit_info,
     get_topup_preview,
+    get_withdraw_plan,
     set_daily_limit,
     get_profit_plan,
     save_profit_plan,
@@ -526,6 +527,29 @@ class handler(BaseHTTPRequestHandler):
                 except ValueError as e:
                     self._send_json(400, {"error": str(e)})
                     return
+
+            elif path == '/api/user/withdraw-plan':
+                # A plan for taking money out of the caller's OWN account: which cash to use and which coins to sell, with fees.
+                # Plan only, nothing is sold. BUDJU members (10M BUDJU + a connected key) and admins.
+                wallet = params.get('wallet')
+                if not wallet:
+                    self._send_json(400, {"error": "wallet parameter required"})
+                    return
+                if not is_budju_member(wallet):
+                    self._send_json(403, {"error": "Members only: hold 10M BUDJU and connect a Swyftx key"})
+                    return
+                try:
+                    amount = float(params.get('amount') or 0)
+                except ValueError:
+                    self._send_json(400, {"error": "amount must be a number"})
+                    return
+                exclude = [c.strip().upper() for c in (params.get('exclude') or '').split(',') if c.strip()][:100]
+                try:
+                    self._send_json(200, get_withdraw_plan(wallet, amount, (params.get('currency') or 'AUD').upper(),
+                                                           params.get('preferLosses') in ('1', 'true'), exclude))
+                except ValueError as e:
+                    self._send_json(400, {"error": str(e)})
+                return
 
             elif path == '/api/user/live-position':
                 # Real cumulative cash + crypto balance for one wallet, read

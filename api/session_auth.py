@@ -161,7 +161,7 @@ def classify(method: str, path: str, params: dict, body: dict):
         if path == "/api/desk/brief":
             return "member", params.get("admin_wallet") or params.get("wallet")
         # The pretend-money paper trial (read-only): same members-and-admins rule. Starting it stays admin-only.
-        if path in ("/api/community/paper-trial", "/api/community/market-mood"):
+        if path in ("/api/community/paper-trial", "/api/community/market-mood", "/api/user/withdraw-plan"):
             return "member", params.get("admin_wallet") or params.get("wallet")
         if path in _ADMIN_GET_EXACT or path.startswith("/api/desk/"):
             return "admin", admin_claim or params.get("wallet")
