@@ -45,6 +45,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from coin_sizing import size_buy
 from trailing import clean_config as _trail_cfg, decide_all as _trail_decide, sale_reason, arm_message
 from coin_cap import recent_buys, day_budget, check_room
+from t1_sell_reset import follows_buy as t1_follows_buy
 from buy_order import order_pairs, underweight_buckets, shit_list, group_of, SHIT_LIST_MAX_BUY
 from profit_plan import PLAN_VERSION, DEFAULT_PLAN, plan_for, size_sell, sane_sell
 
@@ -1013,10 +1014,11 @@ def run_auto_trade_check():
     except Exception as e:
         print(f"[trailing] arm message skipped: {e}", flush=True)
 
+    repairs_done = dict(shared_state.get("autoRepairs") if isinstance(shared_state.get("autoRepairs"), dict) else {})
     # One-time repair: mark the buys that were placed but never recorded as "just bought" (see api/repair_unsaved_buys.py).
     try:
         from repair_unsaved_buys import REPAIR_ID, UNSAVED_BUYS, apply_repair
-        _done = shared_state.get("autoRepairs") if isinstance(shared_state.get("autoRepairs"), dict) else {}
+        _done = repairs_done
         if UNSAVED_BUYS and REPAIR_ID not in _done:
             _t, _cd, _applied, _skipped = apply_repair(UNSAVED_BUYS, shared_targets, shared_cooldowns,
                                                        lambda tn: _tier_settings(auto_tiers, tn), now_ms)
@@ -1025,10 +1027,25 @@ def run_auto_trade_check():
             save_trader_state({"autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
                                "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms,
                                "autoCooldowns": shared_cooldowns, "autoRepairs": {**_done, REPAIR_ID: now_ms}})
+            repairs_done[REPAIR_ID] = now_ms
             log.append(f"Repair {REPAIR_ID}: marked {len(_applied)} signal(s) as just bought"
                        + (f" ({len(_skipped)} left alone: {', '.join(c for c, _ in _skipped)})" if _skipped else ""))
     except Exception as e:
         print(f"[cron] repair step failed (trading continues): {type(e).__name__}: {e}", flush=True)
+
+    # One-time: Tier 1 sell levels back to (reference price) x (1 + arm%), see api/t1_sell_reset.py
+    try:
+        import t1_sell_reset as _t1
+        if _t1.ENABLED and _t1.RESET_ID not in repairs_done:
+            _new_t, _changed = _t1.apply_reset(shared_targets, lambda tn: _tier_settings(auto_tiers, tn))
+            shared_targets.clear(); shared_targets.update(_new_t)
+            repairs_done[_t1.RESET_ID] = now_ms
+            save_trader_state({"autoActive": {**auto_active, "targets": shared_targets, "planVersion": PLAN_VERSION, "planArms": current_arms},
+                               "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms, "autoRepairs": dict(repairs_done)})
+            log.append(f"Tier 1 sell levels reset to 12.5% above each reference price ({len(_changed)} changed)"
+                       + (": " + "; ".join(f"{ck} {o:,.4g} -> {n:,.4g}" for ck, o, n in _changed[:6]) if _changed else ""))
+    except Exception as e:
+        print(f"[cron] Tier 1 reset skipped (trading continues): {type(e).__name__}: {e}", flush=True)
 
     try:
         _pri = get_coin_priority()
@@ -1056,7 +1073,7 @@ def run_auto_trade_check():
                 _old_sell = float((t.get(_ck) or {}).get("sell", 0) or 0)
                 _new_sell = _price * (1 + _st["sellDeviation"] / 100)
                 t[_ck] = {"buy": _price * (1 - _st["deviation"] / 100),
-                          "sell": max(_old_sell, _new_sell) if _ev["side"] == "buy" else _new_sell, "setAt": now_ms}
+                          "sell": max(_old_sell, _new_sell) if (_ev["side"] == "buy" and not t1_follows_buy(_ck)) else _new_sell, "setAt": now_ms}
                 cd[_ck] = now_ms + _st["cooldownHours"] * 3_600_000
             save_trader_state({"autoActive": {**auto_active, "targets": t, "planVersion": PLAN_VERSION, "planArms": current_arms},
                                "autoPlanVersion": PLAN_VERSION, "autoPlanArms": current_arms, "autoCooldowns": cd})
@@ -1108,7 +1125,7 @@ def run_auto_trade_check():
         new_sell = price * (1 + st["sellDeviation"] / 100)
         shared_targets[ck] = {
             "buy": price * (1 - st["deviation"] / 100),
-            "sell": max(old_sell, new_sell) if ev["side"] == "buy" else new_sell,
+            "sell": max(old_sell, new_sell) if (ev["side"] == "buy" and not t1_follows_buy(ck)) else new_sell,
             "setAt": now_ms,
         }
         shared_cooldowns[ck] = now_ms + st["cooldownHours"] * 3_600_000

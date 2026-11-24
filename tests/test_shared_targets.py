@@ -82,7 +82,7 @@ def test_every_wallet_buys_at_the_same_shared_target_and_it_ratchets_once(env):
     assert result["tradesExecuted"] == 2
     tgt = saved["autoActive"]["targets"]["BTC:1"]
     assert tgt["buy"] == pytest.approx(60000 * 0.95)          # moved once, off the price
-    assert tgt["sell"] == pytest.approx(90000)                 # a buy keeps the higher sell
+    assert tgt["sell"] == pytest.approx(60000 * 1.125)         # Tier 1: the sell level follows the new buy (12.5% above it), not the old higher one
     assert saved["autoCooldowns"]["BTC:1"] > time.time() * 1000
     assert len(sent) == 1 and "2 trade(s) across 2 wallet(s)" in sent[0]
 
