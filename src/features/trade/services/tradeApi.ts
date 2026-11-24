@@ -2877,3 +2877,34 @@ export interface TopUpPreview {
 export async function fetchTopUpPreview(wallet: string, usdc: number): Promise<TopUpPreview | null> {
   return (await adminGet("/api/admin/topup-preview", wallet, `&usdc=${usdc}`)) as TopUpPreview | null;
 }
+
+export interface WithdrawRow {
+  coin: string; qty: number; sellUsd: number; feeUsd: number; netUsd: number; pnlUsd: number | null; pnlPct: number | null;
+  group: string; tags: string[]; partial: boolean;
+}
+export interface WithdrawPlan {
+  error?: string;
+  currency: "AUD" | "USDC"; amount: number; targetUsd: number; audToUsd: number;
+  cash: { currency: string; amount: number; usd: number; feeUsd: number; converted: boolean }[];
+  rows: WithdrawRow[];
+  skipped: { coin: string; usd: number; why: string }[];
+  kept: { coin: string; usd: number; why: string }[];
+  totals: {
+    cashUsedUsd: number; coinsSoldUsd: number; feesUsd: number; netUsd: number; netInCurrency: number; coinCount: number;
+    gainsUsd: number; lossesUsd: number; realisedUsd: number; shortfallUsd: number; shortfallInCurrency: number;
+  };
+  assumptions: { tradeFeePct: number; fxSpreadPct: number; minSellUsd: number; spreadPctByGroup: Record<string, number> };
+  pricesAt?: string;
+}
+/** A plan for taking money out of the caller's own Swyftx account. PLAN ONLY: nothing is sold. */
+export async function fetchWithdrawPlan(wallet: string, amount: number, currency: "AUD" | "USDC", preferLosses: boolean, exclude: string[]): Promise<WithdrawPlan> {
+  try {
+    const qs = `wallet=${encodeURIComponent(wallet)}&amount=${amount}&currency=${currency}&preferLosses=${preferLosses ? 1 : 0}&exclude=${encodeURIComponent(exclude.join(","))}`;
+    const res = await fetch(`/api/user/withdraw-plan?${qs}`);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { error: j?.error || `Couldn't make a plan (${res.status})` } as WithdrawPlan;
+    return j as WithdrawPlan;
+  } catch {
+    return { error: "Couldn't reach the server. Try again." } as WithdrawPlan;
+  }
+}

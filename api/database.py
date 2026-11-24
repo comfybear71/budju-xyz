@@ -1810,6 +1810,37 @@ def get_coin_ranks(refresh: bool = False) -> Dict[str, int]:
         return {}
 
 
+def get_withdraw_plan(wallet_address: str, amount: float, currency: str, prefer_losses: bool = False, exclude=None) -> Dict:
+    """What to use / sell to take `amount` out of this wallet's own Swyftx account. PLAN ONLY: nothing is sold or moved."""
+    from withdraw_plan import plan_withdrawal, CASH_CODES
+    client = _get_user_swyftx_client(wallet_address)
+    try:
+        holdings = client.get_holdings()
+    except SwyftxAuthError as e:
+        raise ValueError(f"Could not read your Swyftx balance: {e}")
+    codes = [c for c, q in holdings.items() if c not in CASH_CODES and q and q > 0]
+    prices = get_prices_for_coins(codes) if codes else {}
+    avg: Dict[str, float] = {}
+    try:
+        if is_admin(wallet_address):
+            for c in (get_coin_stats().get("coins") or []):
+                a = float(c.get("avgCost") or 0)
+                if c.get("coin") and a > 0:
+                    avg[c["coin"]] = a
+        else:
+            for c in codes:
+                a = get_user_avg_cost(wallet_address, c)
+                if a > 0:
+                    avg[c] = a
+    except Exception as e:
+        print(f"[withdraw] average costs unavailable, profit/loss will be blank: {e}")
+    pri = get_coin_priority()
+    out = plan_withdrawal(amount, currency, holdings, prices, avg, get_coin_ranks(), pri.get("careful") or [], pri.get("focus") or [],
+                          get_aud_to_usd_rate(), prefer_losses=prefer_losses, exclude=exclude or [])
+    out["pricesAt"] = datetime.utcnow().isoformat() + "Z"
+    return out
+
+
 def get_daily_limit_info(wallet_address: str) -> Dict:
     """This wallet's daily buying limit (its own, or the default) and how much it has bought in the last 24 hours."""
     from daily_limit import effective_limit, DEFAULT_LIMIT, CEILING, MINIMUM

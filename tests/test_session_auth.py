@@ -292,3 +292,16 @@ class TestDailyLimitIsOwnerOnly:
     def test_classified_as_owner(self):
         assert sa.classify("GET", "/api/user/daily-limit", {"wallet": "W"}, {}) == ("owner", "W")
         assert sa.classify("POST", "/api/user/daily-limit", {}, {"walletAddress": "W"}) == ("owner", "W")
+
+
+class TestWithdrawPlanIsMembersOnly:
+    def test_classified_as_member_for_the_callers_own_wallet(self):
+        assert sa.classify("GET", "/api/user/withdraw-plan", {"wallet": "W", "amount": "100"}, {}) == ("member", "W")
+
+    def test_needs_a_pass_and_a_member(self):
+        none = sa.check_request("GET", "/api/user/withdraw-plan", {"wallet": USERW}, {}, None, A, now_ms=NOW + 1)
+        assert none[0] is False and none[1] == 401
+        not_member = sa.check_request("GET", "/api/user/withdraw-plan", {"wallet": USERW}, {}, hdr(USERW), A, now_ms=NOW + 1, is_member=lambda w: False)
+        assert not_member[1] == 403
+        ok = sa.check_request("GET", "/api/user/withdraw-plan", {"wallet": USERW}, {}, hdr(USERW), A, now_ms=NOW + 1, is_member=lambda w: True)
+        assert ok[0] is True

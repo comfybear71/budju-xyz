@@ -145,7 +145,7 @@ function needsPass(method: string, url: URL, body: unknown): boolean {
     // A wallet's own deposit/withdrawal history is private to that wallet.
     if (p === "/api/user/cash-flows" || p === "/api/user/daily-limit") return true;
     // The daily Desk brief is for BUDJU members and admins; other desk reads are admin-only. Both need a pass.
-    if (ADMIN_GET.has(p) || p.startsWith("/api/desk/") || p === "/api/community/paper-trial" || p === "/api/community/market-mood") return true;
+    if (ADMIN_GET.has(p) || p.startsWith("/api/desk/") || p === "/api/community/paper-trial" || p === "/api/community/market-mood" || p === "/api/user/withdraw-plan") return true;
     return p === "/api/transactions" && url.searchParams.get("admin") === "true";
   }
   if (method === "POST") {
