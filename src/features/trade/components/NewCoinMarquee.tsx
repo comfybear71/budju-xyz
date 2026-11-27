@@ -16,7 +16,7 @@ const NewCoinMarquee = () => {
 
   if (coins.length === 0) return null;
   const text = "🪙 NEW ON BUDJU: " + coins.map((c) => `${c.code} (${c.name})`).join(" · ") + " 🪙";
-  return <ScrollingBanner text={text} repetitions={4} speed="slow" className="rounded-xl mb-2" />;
+  return <ScrollingBanner text={text} repetitions={4} speed="slower" className="rounded-xl mb-2" />;
 };
 
 export default NewCoinMarquee;

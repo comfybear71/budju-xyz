@@ -7,7 +7,7 @@ const TrailingStopMarquee = ({ state }: { state: TraderState | null }) => {
   if (!state) return null;
   const text = trailingBannerText(buildTrailingItems(state.autoTrail, state.profitPlan, state.autoTradeLog, Date.now()));
   if (!text) return null;
-  return <ScrollingBanner text={text} repetitions={4} speed="slow" className="rounded-xl mb-2" textClassName="!text-amber-300" />;
+  return <ScrollingBanner text={text} repetitions={4} speed="slower" className="rounded-xl mb-2" textClassName="!text-amber-300" />;
 };
 
 export default TrailingStopMarquee;

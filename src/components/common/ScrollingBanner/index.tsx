@@ -4,7 +4,7 @@ import { useTheme } from "@/context/ThemeContext";
 interface ScrollingBannerProps {
   text: string;
   repetitions?: number;
-  speed?: "slow" | "normal" | "fast";
+  speed?: "slower" | "slow" | "normal" | "fast";
   reverse?: boolean;
   className?: string;
   textClassName?: string;
@@ -26,6 +26,8 @@ const ScrollingBanner = ({
 
   const getDuration = () => {
     switch (speed) {
+      case "slower":
+        return "80s";
       case "slow":
         return "40s";
       case "fast":
