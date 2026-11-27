@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState } from "react";
-import { sliceToPeriod, type PositionHistoryPoint } from "../services/tradeApi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PositionHistoryPoint } from "../services/tradeApi";
 
 interface Ev {
   timestamp: string;
@@ -9,20 +9,21 @@ interface Ev {
 
 interface Props {
   points: PositionHistoryPoint[];
-  /** Deposits / withdrawals, drawn as ▲ / ▼ markers on the timeline */
+  /** Deposits / withdrawals, drawn as ▲ / ▼ markers on the timeline (and as the "put in" steps, all the way back) */
   events?: Ev[];
-  /** True when there are no recorded value readings yet: the past points then only know what was PUT IN, not what the
-   *  account was worth, so they must not be drawn as "worth". Only today's real total is. */
+  /** True when there are no recorded value readings yet: then nothing is drawn as "worth" except today's real total. */
   estimated?: boolean;
 }
 
+const DAY = 86_400_000;
 const usd = (n: number) => `${n < 0 ? "−" : ""}$${Math.abs(Math.round(n)).toLocaleString()}`;
 const usdSigned = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(Math.round(n)).toLocaleString()}`;
 const compact = (n: number) => (n >= 1000 ? `$${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`);
-const dayLabel = (ts: number) => new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+const dayLabel = (ts: number, withYear = false) =>
+  new Date(ts).toLocaleDateString(undefined, withYear ? { day: "numeric", month: "short", year: "2-digit" } : { day: "numeric", month: "short" });
 const dayTime = (ts: number) => `${dayLabel(ts)}, ${new Date(ts).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
 
-// Same buttons as the Swyftx portfolio chart. "All" = everything recorded so far.
+// How much of the history one screen shows. Scroll sideways to go further back. "All" = the stretch where worth was recorded.
 const PERIODS = [
   { label: "1W", days: 7 },
   { label: "1M", days: 30 },
@@ -31,75 +32,112 @@ const PERIODS = [
   { label: "1Y", days: 365 },
   { label: "All", days: 0 },
 ] as const;
+const MAX_ZOOM = 30;                       // the full history is never wider than 30 screens
+const TICK_STEPS = [1, 2, 7, 14, 30, 60, 90, 180, 365];
 
 const W = 400;
 const H = 150;
 const PAD = { top: 10, bottom: 10 };
 
+type Hover = { ts: number; reading: number | null; px: number } | null;
+
 /**
- * What the account is WORTH over time (solid, filled), against what has been PUT IN (dashed steps: deposits minus
- * withdrawals). A deposit shows as a step up in both lines, so it no longer looks like the account is going nowhere;
- * the gap between the two lines is the profit or loss. ▲ marks a deposit, ▼ a withdrawal. Touch or hover for the numbers.
- * The scale fits the data (it no longer starts at $0, which squashed everything flat).
- * Points are the recorded hourly readings (see buildSnapshotHistory); only the last point is today's live total.
+ * What the account is WORTH over time (solid, filled) against what has been PUT IN (dashed steps: deposits minus withdrawals).
+ * A deposit is a step up in both lines; the gap between them is the profit or loss. ▲ deposit, ▼ withdrawal.
+ * Scroll the chart sideways to see earlier history. The worth line starts where we began recording it (Nov 2026); before that only
+ * the put-in steps are known, so the shaded part says so. Tap or hover for the numbers.
  */
 const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const [periodIdx, setPeriodIdx] = useState(PERIODS.length - 1);
-  const [hover, setHover] = useState<number | null>(null);
-  const box = useRef<HTMLDivElement>(null);
+  const [hover, setHover] = useState<Hover>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
 
-  const windowed = useMemo(() => {
-    const days = PERIODS[periodIdx].days;
-    return days === 0 ? points : sliceToPeriod(points, days);
-  }, [points, periodIdx]);
+  const model = useMemo(() => {
+    if (points.length < 2) return null;
+    const ptTs = points.map((p) => new Date(p.timestamp).getTime());
+    const tEnd = ptTs[ptTs.length - 1];
+    const evs = events.map((e) => ({ ts: new Date(e.timestamp).getTime(), type: e.type, amt: e.amountUsd })).filter((e) => e.ts <= tEnd && isFinite(e.ts)).sort((a, b) => a.ts - b.ts);
+    const firstReading = estimated ? tEnd : ptTs[0];
+    const tStart = Math.min(ptTs[0], evs.length ? evs[0].ts : Infinity);
+    const span = Math.max(tEnd - tStart, 1);
 
-  const chart = useMemo(() => {
-    if (windowed.length < 2) return null;
-    const t0 = new Date(windowed[0].timestamp).getTime();
-    const t1 = new Date(windowed[windowed.length - 1].timestamp).getTime();
-    const tRange = Math.max(t1 - t0, 1);
-    const putIn = windowed.map((p) => p.cumulativeDeposited - p.cumulativeWithdrawn);
-    const values = windowed.map((p) => p.value);
-    const lo = Math.min(...values, ...putIn);
-    const hi = Math.max(...values, ...putIn);
+    // put-in steps from every deposit / withdrawal, back to the first one
+    const steps: { ts: number; cum: number }[] = [];
+    let cum = 0;
+    for (const e of evs) {
+      cum += e.type === "deposit" ? e.amt : -e.amt;
+      steps.push({ ts: e.ts, cum });
+    }
+    if (steps.length === 0) {
+      const p0 = points[0];
+      steps.push({ ts: ptTs[0], cum: p0.cumulativeDeposited - p0.cumulativeWithdrawn });
+    }
+    const putInAt = (ts: number) => {
+      let v = steps[0].cum;
+      for (const s of steps) { if (s.ts <= ts) v = s.cum; else break; }
+      return v;
+    };
+
+    const values = points.map((p) => p.value);
+    const all = [...steps.map((s) => s.cum), ...(estimated ? [values[values.length - 1]] : values)];
+    const lo = Math.min(...all);
+    const hi = Math.max(...all);
     const pad = Math.max((hi - lo) * 0.08, hi * 0.01, 1);
     const minV = lo - pad;
     const maxV = hi + pad;
-    const vRange = maxV - minV || 1;
-    const xs = windowed.map((p) => ((new Date(p.timestamp).getTime() - t0) / tRange) * W);
-    const yFor = (v: number) => PAD.top + (H - PAD.top - PAD.bottom) - ((v - minV) / vRange) * (H - PAD.top - PAD.bottom);
-    const line = `M ${xs.map((x, i) => `${x.toFixed(1)},${yFor(values[i]).toFixed(1)}`).join(" L ")}`;
-    const area = `${line} L ${W},${H} L 0,${H} Z`;
-    // dashed "put in" line drawn as steps (a deposit is a jump, not a slope)
-    let steps = `M ${xs[0].toFixed(1)},${yFor(putIn[0]).toFixed(1)}`;
-    for (let i = 1; i < xs.length; i++) steps += ` L ${xs[i].toFixed(1)},${yFor(putIn[i - 1]).toFixed(1)} L ${xs[i].toFixed(1)},${yFor(putIn[i]).toFixed(1)}`;
-    const last = windowed[windowed.length - 1];
+    const yFor = (v: number) => PAD.top + (H - PAD.top - PAD.bottom) - ((v - minV) / (maxV - minV || 1)) * (H - PAD.top - PAD.bottom);
+    const xOf = (ts: number) => ((ts - tStart) / span) * W;
+
+    let stepPath = `M ${xOf(steps[0].ts).toFixed(1)},${yFor(steps[0].cum).toFixed(1)}`;
+    for (let i = 1; i < steps.length; i++) stepPath += ` L ${xOf(steps[i].ts).toFixed(1)},${yFor(steps[i - 1].cum).toFixed(1)} L ${xOf(steps[i].ts).toFixed(1)},${yFor(steps[i].cum).toFixed(1)}`;
+    stepPath += ` L ${W},${yFor(steps[steps.length - 1].cum).toFixed(1)}`;
+
+    const worthXs = points.map((_, i) => xOf(ptTs[i]));
+    const line = `M ${worthXs.map((x, i) => `${x.toFixed(1)},${yFor(values[i]).toFixed(1)}`).join(" L ")}`;
+    const area = `${line} L ${W},${H} L ${worthXs[0].toFixed(1)},${H} Z`;
+
+    const last = points[points.length - 1];
     const result = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
-    // deposit / withdrawal markers inside the window, one per day, the biggest 12
+
     const byDay = new Map<string, { ts: number; dep: number; wd: number }>();
-    for (const e of events) {
-      const ts = new Date(e.timestamp).getTime();
-      if (ts < t0 || ts > t1) continue;
-      const key = new Date(ts).toDateString();
-      const cur = byDay.get(key) ?? { ts, dep: 0, wd: 0 };
-      if (e.type === "deposit") cur.dep += e.amountUsd; else cur.wd += e.amountUsd;
+    for (const e of evs) {
+      const key = new Date(e.ts).toDateString();
+      const cur = byDay.get(key) ?? { ts: e.ts, dep: 0, wd: 0 };
+      if (e.type === "deposit") cur.dep += e.amt; else cur.wd += e.amt;
       byDay.set(key, cur);
     }
-    const markers = [...byDay.entries()]
-      .map(([day, m]) => ({ ...m, day, xPct: ((m.ts - t0) / tRange) * 100 }))
-      .sort((a, b) => Math.max(b.dep, b.wd) - Math.max(a.dep, a.wd))
-      .slice(0, 12);
-    // amount labels: biggest first, skipped when too close to one already labelled so they never overlap
-    const labelled: number[] = [];
-    const withLabel = markers.map((m) => {
-      const show = labelled.every((x) => Math.abs(x - m.xPct) >= 13);
-      if (show) labelled.push(m.xPct);
-      return { ...m, show };
-    });
-    const dayTotals = new Map([...byDay.entries()].map(([day, m]) => [day, { dep: m.dep, wd: m.wd }]));
-    const endY = (yFor(values[values.length - 1]) / H) * 100;
-    return { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers: withLabel, dayTotals, endY };
-  }, [windowed, events]);
+
+    return { ptTs, tStart, tEnd, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay,
+             readingDays: Math.max((tEnd - firstReading) / DAY, 1), totalDays: span / DAY };
+  }, [points, events, estimated]);
+
+  // how wide the scrolling chart is: the chosen number of days fills one screen
+  const windowDays = model ? Math.max(PERIODS[periodIdx].days === 0 ? model.readingDays : PERIODS[periodIdx].days, model.totalDays / MAX_ZOOM) : 1;
+  const widthPct = model ? Math.max(100, (model.totalDays / windowDays) * 100) : 100;
+
+  // start at "now" (the right end) whenever the zoom changes
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [periodIdx, widthPct, !!model]);
+
+  const ticks = useMemo(() => {
+    if (!model) return [];
+    const step = TICK_STEPS.find((s) => s >= windowDays / 4) ?? 365;
+    const out: { x: number; label: string }[] = [];
+    const first = new Date(model.tStart);
+    first.setHours(0, 0, 0, 0);
+    const withYear = model.totalDays > 365;
+    // a tick closer than about 40px to "Now" would sit under that label
+    const pxPerPct = ((scroller.current?.clientWidth ?? 340) * (widthPct / 100)) / 100;
+    for (let t = first.getTime() + DAY; t <= model.tEnd && out.length < 80; t += step * DAY) {
+      const x = ((t - model.tStart) / model.span) * 100;
+      if ((100 - x) * pxPerPct < 40 || x * pxPerPct < 20) continue;
+      out.push({ x, label: dayLabel(t, withYear) });
+    }
+    return out;
+  }, [model, windowDays, widthPct]);
 
   const tabs = (
     <div className="flex items-center justify-end gap-1 mb-1.5">
@@ -112,89 +150,131 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
     </div>
   );
 
-  if (points.length < 2) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
-  if (!chart) return <div>{tabs}<div className="text-center py-4 text-slate-500 text-[11px]">Nothing recorded in this window yet.</div></div>;
+  if (!model) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
 
-  const { xs, values, putIn, line, area, steps, minV, maxV, t0, t1, result, markers, dayTotals, endY } = chart;
+  const { ptTs, tStart, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay, tEnd } = model;
   const up = result >= 0;
   const color = up ? "#34d399" : "#f87171";
+  const pctOf = (ts: number) => ((ts - tStart) / span) * 100;
+  const gapPct = (13 * 100) / widthPct;                       // 13% of one screen, in chart-width percent: labels closer than this are skipped
 
-  const onMove = (clientX: number) => {
-    const r = box.current?.getBoundingClientRect();
+  // deposit / withdrawal markers, biggest first so the labelled ones are the important ones
+  const labelled: number[] = [];
+  const markers = [...byDay.values()]
+    .map((m) => ({ ...m, xPct: Math.min(99.5, Math.max(0.5, pctOf(m.ts))) }))
+    .sort((a, b) => Math.max(b.dep, b.wd) - Math.max(a.dep, a.wd))
+    .map((m) => {
+      const show = labelled.every((x) => Math.abs(x - m.xPct) >= gapPct);
+      if (show) labelled.push(m.xPct);
+      return { ...m, show };
+    });
+
+  const showAt = (clientX: number) => {
+    const r = inner.current?.getBoundingClientRect();
     if (!r || r.width === 0) return;
-    const x = ((clientX - r.left) / r.width) * W;
-    let best = 0;
-    for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - x) < Math.abs(xs[best] - x)) best = i;
-    setHover(best);
+    const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+    const ts = tStart + frac * span;
+    let reading: number | null = null;
+    if (!estimated && ts >= firstReading - DAY / 24) {
+      reading = 0;
+      for (let i = 1; i < ptTs.length; i++) if (Math.abs(ptTs[i] - ts) < Math.abs(ptTs[reading] - ts)) reading = i;
+    }
+    setHover({ ts: reading !== null ? ptTs[reading] : ts, reading, px: frac * r.width });
   };
 
-  const hp = hover !== null ? windowed[hover] : null;
-  const hx = hover !== null ? (xs[hover] / W) * 100 : 0;
+  const hoverTs = hover ? hover.ts : 0;
+  const dayTot = hover ? byDay.get(new Date(hoverTs).toDateString()) : undefined;
+  const innerW = inner.current?.getBoundingClientRect().width ?? 0;
+  const tipLeft = hover ? Math.min(Math.max(0, hover.px - 75), Math.max(0, innerW - 160)) : 0;
+  const notRecordedPct = pctOf(firstReading);
+  const scrollable = widthPct > 105;
 
   return (
     <div>
       {tabs}
-      <div ref={box} className="relative select-none touch-pan-y" onPointerMove={(e) => onMove(e.clientX)} onPointerDown={(e) => onMove(e.clientX)} onPointerLeave={() => setHover(null)}>
-        <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: 150 }} preserveAspectRatio="none">
-          <defs>
-            <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.30" />
-              <stop offset="100%" stopColor={color} stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          {[0.25, 0.5, 0.75].map((f) => (
-            <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="rgba(255,255,255,0.05)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-          ))}
-          {!estimated && <path d={area} fill="url(#growthGrad)" />}
-          <path d={steps} fill="none" stroke={estimated ? "rgba(148,163,184,0.95)" : "rgba(148,163,184,0.75)"} strokeWidth={estimated ? 1.6 : 1.2} strokeDasharray={estimated ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />
-          {!estimated && <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
-          {hover !== null && <line x1={xs[hover]} x2={xs[hover]} y1="0" y2={H} stroke="rgba(255,255,255,0.25)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
-        </svg>
-        {/* scale labels */}
-        <span className="absolute left-1 top-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(maxV)}</span>
-        <span className="absolute left-1 bottom-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(minV)}</span>
-        {/* deposit / withdrawal markers */}
-        {markers.map((m) => (
-          <span key={m.ts} className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center leading-none pointer-events-none"
-            style={{ left: `${Math.min(94, Math.max(6, m.xPct))}%`, color: m.dep >= m.wd ? "#4ade80" : "#fbbf24" }}>
-            {m.show && <span className="text-[8px] font-mono mb-0.5 whitespace-nowrap">{m.dep >= m.wd ? "+" : "−"}{compact(Math.max(m.dep, m.wd))}</span>}
-            <span className="text-[9px]">{m.dep >= m.wd ? "▲" : "▼"}</span>
-          </span>
-        ))}
-        {/* today's real total: the only point we truly know until readings are recorded */}
-        {estimated && <span className="absolute -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none" style={{ left: "99%", top: `${endY}%`, background: color, boxShadow: `0 0 6px ${color}` }} />}
-        {/* hover / touch readout */}
-        {hp && hover !== null && (
-          <div className="absolute top-1 z-10 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-snug pointer-events-none"
-            style={{ left: `${Math.min(62, Math.max(0, hx - 18))}%`, background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
-            <div className="text-slate-400">{dayTime(new Date(hp.timestamp).getTime())}</div>
-            {(() => {
-              const d = dayTotals.get(new Date(hp.timestamp).toDateString());
-              return d ? (
-                <>
-                  {d.dep > 0 && <div className="text-green-400">▲ Deposited {usd(d.dep)} that day</div>}
-                  {d.wd > 0 && <div className="text-amber-400">▼ Withdrew {usd(d.wd)} that day</div>}
-                </>
-              ) : null;
-            })()}
-            {estimated && hover < windowed.length - 1 ? (
-              <div className="text-slate-100">Put in {usd(putIn[hover])}<div className="text-slate-500">(worth not recorded yet)</div></div>
-            ) : (
-              <>
-                <div className="text-slate-100">Worth {usd(values[hover])}</div>
-                <div className="text-slate-400">Put in {usd(putIn[hover])}</div>
-                <div style={{ color: values[hover] - putIn[hover] >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover] - putIn[hover])}</div>
-              </>
-            )}
+      <div className="relative">
+        <div ref={scroller} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+          onScroll={() => setHover(null)}>
+          <div ref={inner} className="relative select-none" style={{ width: `${widthPct}%`, minWidth: "100%" }}
+            onPointerMove={(e) => { if (e.pointerType === "mouse") showAt(e.clientX); }} onPointerLeave={(e) => { if (e.pointerType === "mouse") setHover(null); }}
+            onClick={(e) => showAt(e.clientX)}>
+            <div className="relative" style={{ height: H }}>
+              <svg viewBox={`0 0 ${W} ${H}`} className="w-full block" style={{ height: H }} preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={color} stopOpacity="0.30" />
+                    <stop offset="100%" stopColor={color} stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {[0.25, 0.5, 0.75].map((f) => (
+                  <line key={f} x1="0" x2={W} y1={H * f} y2={H * f} stroke="rgba(255,255,255,0.05)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                ))}
+                {!estimated && notRecordedPct > 0.5 && <rect x="0" y="0" width={(notRecordedPct / 100) * W} height={H} fill="rgba(255,255,255,0.03)" />}
+                {!estimated && <path d={area} fill="url(#growthGrad)" />}
+                <path d={stepPath} fill="none" stroke={estimated ? "rgba(148,163,184,0.95)" : "rgba(148,163,184,0.75)"} strokeWidth={estimated ? 1.6 : 1.2} strokeDasharray={estimated ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />
+                {!estimated && <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+                {hover && <line x1={((hoverTs - tStart) / span) * W} x2={((hoverTs - tStart) / span) * W} y1="0" y2={H} stroke="rgba(255,255,255,0.25)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+              </svg>
+
+              {/* where worth stops being known */}
+              {!estimated && notRecordedPct * widthPct / 100 > 25 && (
+                <div className="absolute top-1 left-0 flex justify-end pointer-events-none" style={{ width: `${notRecordedPct}%` }}>
+                  <span className="sticky right-1.5 text-[9px] text-slate-500 whitespace-nowrap bg-[#0f172a]/80 rounded px-1">
+                    worth wasn't recorded before {dayLabel(firstReading)}: only what you put in is known ◀
+                  </span>
+                </div>
+              )}
+
+              {/* deposit / withdrawal markers */}
+              {markers.map((m) => (
+                <span key={m.ts} className="absolute bottom-0 -translate-x-1/2 flex flex-col items-center leading-none pointer-events-none"
+                  style={{ left: `${m.xPct}%`, color: m.dep >= m.wd ? "#4ade80" : "#fbbf24" }}>
+                  {m.show && <span className="text-[8px] font-mono mb-0.5 whitespace-nowrap">{m.dep >= m.wd ? "+" : "−"}{compact(Math.max(m.dep, m.wd))}</span>}
+                  <span className="text-[9px]">{m.dep >= m.wd ? "▲" : "▼"}</span>
+                </span>
+              ))}
+
+              {/* today's real total: the only point we truly know until readings are recorded */}
+              {estimated && <span className="absolute -translate-x-1/2 -translate-y-1/2 w-2 h-2 rounded-full pointer-events-none" style={{ left: "99.6%", top: `${(yFor(values[values.length - 1]) / H) * 100}%`, background: color, boxShadow: `0 0 6px ${color}` }} />}
+
+              {/* hover / tap readout */}
+              {hover && (
+                <div className="absolute top-1 z-10 rounded-lg px-2 py-1.5 text-[10px] font-mono leading-snug pointer-events-none" style={{ left: tipLeft, width: 150, background: "rgba(15,23,42,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                  <div className="text-slate-400">{hover.reading !== null ? dayTime(hoverTs) : dayLabel(hoverTs, true)}</div>
+                  {dayTot && (
+                    <>
+                      {dayTot.dep > 0 && <div className="text-green-400">▲ Deposited {usd(dayTot.dep)} that day</div>}
+                      {dayTot.wd > 0 && <div className="text-amber-400">▼ Withdrew {usd(dayTot.wd)} that day</div>}
+                    </>
+                  )}
+                  {hover.reading === null || (estimated && hover.reading < points.length - 1) ? (
+                    <div className="text-slate-100">Put in {usd(putInAt(hoverTs))}<div className="text-slate-500">(worth not recorded)</div></div>
+                  ) : (
+                    <>
+                      <div className="text-slate-100">Worth {usd(values[hover.reading])}</div>
+                      <div className="text-slate-400">Put in {usd(putInAt(ptTs[hover.reading]))}</div>
+                      <div style={{ color: values[hover.reading] - putInAt(ptTs[hover.reading]) >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover.reading] - putInAt(ptTs[hover.reading]))}</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* dates: they scroll with the chart */}
+            <div className="relative h-4 text-[9px] text-slate-600">
+              {ticks.map((t) => (
+                <span key={t.x} className="absolute top-0.5 -translate-x-1/2 whitespace-nowrap" style={{ left: `${t.x}%` }}>{t.label}</span>
+              ))}
+              <span className="absolute right-0 top-0.5">Now</span>
+            </div>
           </div>
-        )}
+        </div>
+        {/* scale labels stay put while the chart scrolls */}
+        <span className="absolute left-1 top-0 text-[9px] font-mono text-slate-500 pointer-events-none">{usd(maxV)}</span>
+        <span className="absolute left-1 text-[9px] font-mono text-slate-500 pointer-events-none" style={{ top: H - 38 }}>{usd(minV)}</span>
       </div>
 
-      <div className="flex items-center justify-between text-[9px] text-slate-600 mt-0.5 px-0.5">
-        <span>{dayLabel(t0)}</span>
-        <span>{dayLabel((t0 + t1) / 2)}</span>
-        <span>Now</span>
-      </div>
+      {scrollable && <div className="text-[9px] text-slate-600 text-center mt-0.5">◀ swipe sideways to see earlier history · {dayLabel(tStart, true)} to {dayLabel(tEnd, true)}</div>}
       <div className="flex items-center justify-between text-[10px] mt-1.5 px-0.5">
         <span className="text-slate-500">
           {estimated
