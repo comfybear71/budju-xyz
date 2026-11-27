@@ -81,7 +81,12 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
     };
 
     const values = points.map((p) => p.value);
-    const all = [...steps.map((s) => s.cum), ...(estimated ? [values[values.length - 1]] : values)];
+    // the up/down scale fits the period you picked (not the whole history), so a small gap between worth and put-in is easy to see
+    const fitDays = PERIODS[periodIdx].days === 0 ? Math.max((tEnd - firstReading) / DAY, 1) : PERIODS[periodIdx].days;
+    const fitFrom = Math.max(tStart, tEnd - fitDays * DAY);
+    const inView = (ts: number) => ts >= fitFrom;
+    const all = [putInAt(fitFrom), ...steps.filter((s) => inView(s.ts)).map((s) => s.cum),
+                 ...(estimated ? [values[values.length - 1]] : values.filter((_, i) => inView(ptTs[i])))];
     const lo = Math.min(...all);
     const hi = Math.max(...all);
     const pad = Math.max((hi - lo) * 0.08, hi * 0.01, 1);
@@ -111,7 +116,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
 
     return { ptTs, tStart, tEnd, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay,
              readingDays: Math.max((tEnd - firstReading) / DAY, 1), totalDays: span / DAY };
-  }, [points, events, estimated]);
+  }, [points, events, estimated, periodIdx]);
 
   // how wide the scrolling chart is: the chosen number of days fills one screen
   const windowDays = model ? Math.max(PERIODS[periodIdx].days === 0 ? model.readingDays : PERIODS[periodIdx].days, model.totalDays / MAX_ZOOM) : 1;
