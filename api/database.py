@@ -3246,9 +3246,9 @@ def _record_value_snapshots(data: Dict) -> None:
 
 def get_value_history(wallet: str, days: int = 90) -> List[Dict]:
     """Recorded value readings for one wallet (or "POOL"), oldest first."""
-    since = datetime.utcnow() - timedelta(days=max(1, min(400, int(days))))
-    docs = value_history_collection.find({"wallet": wallet, "at": {"$gte": since}}, {"at": 1, "v": 1}).sort("at", 1)
-    return [{"t": d["at"].isoformat() + "Z", "v": d["v"]} for d in docs]
+    since = datetime.utcnow() - timedelta(days=max(1, min(1500, int(days))))
+    docs = value_history_collection.find({"wallet": wallet, "at": {"$gte": since}}, {"at": 1, "v": 1, "est": 1}).sort("at", 1)
+    return [({"t": d["at"].isoformat() + "Z", "v": d["v"], "est": True} if d.get("est") else {"t": d["at"].isoformat() + "Z", "v": d["v"]}) for d in docs]
 
 
 def refresh_leaderboard_cache() -> Dict:
