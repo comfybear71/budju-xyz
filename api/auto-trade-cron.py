@@ -884,10 +884,10 @@ def run_auto_trade_check():
                 from database import db as _db
 
                 def _is_done(w):
-                    return bool(_db["worth_probe"].find_one({"_id": w}))
+                    return bool(_db["worth_probe"].find_one({"_id": w + ":v2"}))
 
                 def _mark(w):
-                    _db["worth_probe"].replace_one({"_id": w}, {"_id": w, "at": datetime.utcnow()}, upsert=True)
+                    _db["worth_probe"].replace_one({"_id": w + ":v2"}, {"_id": w + ":v2", "at": datetime.utcnow()}, upsert=True)
                 if _wp.run_once("pool" if is_pool else short, wallet, client, holdings, send_telegram, _is_done, _mark):
                     _probe_ran.append(1)
             except Exception as e:
