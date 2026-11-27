@@ -841,6 +841,7 @@ def run_auto_trade_check():
         print(f"[daily-limit] could not load wallet limits, using the default: {e}", flush=True)
         _saved_limits = {}
     wallet_contexts = []
+    _probe_ran = []
     for doc in wallets:
         wallet = doc["walletAddress"]
         short = wallet[:4] + "..." + wallet[-4:]
@@ -876,6 +877,21 @@ def run_auto_trade_check():
             continue
 
         ctx = {"wallet": wallet, "isPool": is_pool, "client": client, "holdings": holdings}
+        # One-time, read-only: ask Swyftx how far back this wallet's order history goes (see api/worth_probe.py). One wallet per run.
+        if not _probe_ran:
+            try:
+                import worth_probe as _wp
+                from database import db as _db
+
+                def _is_done(w):
+                    return bool(_db["worth_probe"].find_one({"_id": w}))
+
+                def _mark(w):
+                    _db["worth_probe"].replace_one({"_id": w}, {"_id": w, "at": datetime.utcnow()}, upsert=True)
+                if _wp.run_once("pool" if is_pool else short, wallet, client, holdings, send_telegram, _is_done, _mark):
+                    _probe_ran.append(1)
+            except Exception as e:
+                print(f"[cron] worth probe skipped: {type(e).__name__}: {e}", flush=True)
         _blocked_until = (shared_state.get("autoBlockedWallets") or {}).get(wallet, 0)
         if isinstance(_blocked_until, (int, float)) and _blocked_until > time.time() * 1000:
             ctx["buysBlocked"] = True          # restricted earlier: no buy attempts until the pause ends (sells still run)
