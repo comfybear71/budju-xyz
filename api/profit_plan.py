@@ -15,7 +15,7 @@ from typing import Dict, Optional, Tuple
 PLAN_VERSION = 1
 
 DEFAULT_PLAN: Dict[int, Dict[str, float]] = {
-    1: {"arm": 12.5, "trail": 5.0, "slice": 5.0},
+    1: {"arm": 15.0, "trail": 5.0, "slice": 5.0},
     2: {"arm": 30.0, "trail": 8.0, "slice": 7.5},
     3: {"arm": 75.0, "trail": 12.0, "slice": 10.0},
 }

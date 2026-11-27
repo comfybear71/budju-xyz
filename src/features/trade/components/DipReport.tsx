@@ -60,7 +60,7 @@ const DipReport = ({ wallet, assignments: given }: { wallet: string; assignments
       {open && (
         <div className="px-3 pb-3">
           <p className="text-[11px] text-slate-500 mb-2 leading-relaxed">
-            Replays the last year of daily prices through your tier rules (T1 −5%/+12.5%, T2 −8.5%/+15%, T3 −15%/+20%).
+            Replays the last year of daily prices through your tier rules (T1 −5%/+15%, T2 −8.5%/+15%, T3 −15%/+20%).
             Avg/buy = average % gained per dip bought (open lots counted at today's price). Daily prices miss some intraday dips.
           </p>
           <button onClick={() => load(true)} disabled={loading} className="text-[11px] text-slate-400 mb-2 flex items-center gap-1">

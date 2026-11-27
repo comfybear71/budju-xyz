@@ -35,7 +35,7 @@ def step(price: float, sell_target: float, state: Optional[Dict], pullback_pct: 
     else:
         state = {"high": max(float(state["high"]), price), "at": int(state.get("at", now_ms))}
     pulled = price <= state["high"] * (1 - pullback_pct / 100.0)
-    if pulled:
+    if pulled and price >= sell_target:   # never sell below the sell level: if it fell back under it, stay armed and wait
         return "sell", state
     return "wait", state
 
@@ -70,8 +70,6 @@ def sale_reason(mode: str, info, pullback_pct: float, price: float, sell_target:
         high = float(info["high"])
         fell = (1 - price / high) * 100 if price > 0 else 0.0
         why = f"trailing stop: it ran up to {_money(high)}, then fell {fell:.1f}% (the stop is {pullback_pct:g}%)"
-        if sell_target and price < sell_target:
-            why += ", and is now back under its sell level"
     elif mode == "error":
         why = "sold at its sell level (the trailing stop could not be checked on this run)"
     elif mode == "off":
@@ -88,7 +86,7 @@ def arm_message(newly_armed, state: Dict[str, Dict], pullbacks: Optional[Dict[st
         coin, _, tier = ck.partition(":")
         high = float((state.get(ck) or {}).get("high") or 0)
         pull = (pullbacks or {}).get(ck, default_pullback)
-        lines.append(f"{coin} T{tier}: reached {_money(high)}. It sells if the price falls {pull:g}% from its high (about {_money(high * (1 - pull / 100))} now).")
+        lines.append(f"{coin} T{tier}: reached {_money(high)}. It sells if the price falls {pull:g}% from its high (about {_money(high * (1 - pull / 100))} now), but never below its sell level.")
     if len(newly_armed) > limit:
         lines.append(f"…and {len(newly_armed) - limit} more.")
     return "\n".join(lines)

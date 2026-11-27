@@ -47,14 +47,15 @@ def test_on_waits_while_rising_then_sells_on_the_pullback(env):
     assert "BTC:1" not in saved["autoTrail"]                            # and the signal resets
 
 
-def test_a_coin_that_ran_past_its_level_and_fell_back_under_it_is_still_sold_on_the_pullback(env):
-    """The gap: the sell used to need the price to be at/above the sell level AND pulled back. Armed at 70000, level 65000, price 60000."""
+def test_a_coin_that_fell_back_under_its_level_is_never_sold_below_it_it_waits(env):
+    """Armed at 70000, level 65000: a 5% pullback is 66500 (above the level) -> sold; price 60000 is under the level -> held."""
     cfg = {"autoTrailingConfig": {"enabled": True, "pullbackPct": 5, "capPct": 25}}
     st = make_state({"BTC:1": {"buy": 40000, "sell": 65000, "setAt": 1}})
     st.update({**cfg, "autoTrail": {"BTC:1": {"high": 70000.0, "at": 2_000_000_000_000}}})
     sells, saved = _run(env, st)
-    assert sells == 2
-    # and a coin below its level that was NEVER armed is not sold (the stop only protects a run that really happened)
+    assert sells == 0                                   # price 60000 is under the 65000 level: hold, stay armed
+    assert "BTC:1" in (saved.get("autoTrail") or {})
+    # a coin below its level that was NEVER armed is not sold either
     st2 = make_state({"BTC:1": {"buy": 40000, "sell": 65000, "setAt": 1}})
     st2.update(cfg)
     assert _run(env, st2)[0] == 0
