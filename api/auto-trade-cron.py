@@ -1247,6 +1247,28 @@ def run_auto_trade_check():
     except Exception as e:
         print(f"[priority] refresh skipped: {e}", flush=True)
 
+    # One-time, after the trading is done and only with plenty of time left: rebuild each wallet's worth history from its Swyftx orders
+    # (api/worth_rebuild_run.py). One wallet per run; it carries on over several runs until every wallet is finished.
+    try:
+        if (time.time() - _RUN_STARTED) < 25:
+            import worth_rebuild_run as _wrr
+            from database import (db as _db2, _history_record_currency, _history_record_timestamp, _history_record_is_settled,
+                                  _history_record_matches_flow_type, _hist_series, _fetch_fx_history)
+            _helpers = (_history_record_currency, _history_record_timestamp, _history_record_is_settled, _history_record_matches_flow_type)
+            _fx = lambda first_day: _hist_series("fx:AUDUSD", first_day, lambda: _fetch_fx_history(first_day))
+            for _c in wallet_contexts:
+                if _db2["worth_rebuild"].find_one({"_id": _c["wallet"]}):
+                    continue
+                _res = _wrr.run_for_wallet("pool" if _c["isPool"] else _c["wallet"][:4] + "..." + _c["wallet"][-4:], _c["wallet"], _c["client"],
+                                           _c["holdings"], send_telegram, _db2, _helpers, _fx)
+                if _res in ("done", "skipped"):
+                    _db2["worth_rebuild"].replace_one({"_id": _c["wallet"]}, {"_id": _c["wallet"], "at": datetime.utcnow(), "result": _res}, upsert=True)
+                if _res == "done":
+                    _wrr.rebuild_pool_total(_db2)
+                break
+    except Exception as e:
+        print(f"[cron] worth rebuild skipped: {type(e).__name__}: {e}", flush=True)
+
     log.append(f"Done: {len(all_trades)} trade(s) across {len(wallet_contexts)} wallet(s)")
 
     return {
