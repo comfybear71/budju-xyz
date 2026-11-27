@@ -53,6 +53,9 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const fromRight = useRef(0);
+  const [zoomDays, setZoomDays] = useState<number | null>(null);   // set by pinching; the 1W..All buttons clear it
+  const anchor = useRef<{ frac: number; cx: number } | null>(null);  // keeps the point between your fingers still while zooming
+  const zoomRef = useRef<number>(0);
 
   const model = useMemo(() => {
     if (points.length < 2) return null;
@@ -82,7 +85,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
 
     const values = points.map((p) => p.value);
     // the up/down scale fits the period you picked (not the whole history), so a small gap between worth and put-in is easy to see
-    const fitDays = PERIODS[periodIdx].days === 0 ? Math.max((tEnd - firstReading) / DAY, 1) : PERIODS[periodIdx].days;
+    const fitDays = zoomDays ?? (PERIODS[periodIdx].days === 0 ? Math.max((tEnd - firstReading) / DAY, 1) : PERIODS[periodIdx].days);
     const fitFrom = Math.max(tStart, tEnd - fitDays * DAY);
     const inView = (ts: number) => ts >= fitFrom;
     const all = [putInAt(fitFrom), ...steps.filter((s) => inView(s.ts)).map((s) => s.cum),
@@ -116,10 +119,11 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
 
     return { ptTs, tStart, tEnd, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay,
              readingDays: Math.max((tEnd - firstReading) / DAY, 1), totalDays: span / DAY };
-  }, [points, events, estimated, periodIdx]);
+  }, [points, events, estimated, periodIdx, zoomDays]);
 
   // how wide the scrolling chart is: the chosen number of days fills one screen
-  const windowDays = model ? Math.max(PERIODS[periodIdx].days === 0 ? model.readingDays : PERIODS[periodIdx].days, model.totalDays / MAX_ZOOM) : 1;
+  const windowDays = model ? Math.max(zoomDays ?? (PERIODS[periodIdx].days === 0 ? model.readingDays : PERIODS[periodIdx].days), model.totalDays / MAX_ZOOM) : 1;
+  zoomRef.current = windowDays;
   const widthPct = model ? Math.max(100, (model.totalDays / windowDays) * 100) : 100;
 
   // start at "now" (the right end) when the zoom changes or the chart first appears
@@ -132,8 +136,38 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   // live data nudges the chart's width every few seconds: keep the same spot (measured from "now") instead of jumping back
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth - fromRight.current);
+    if (!el) return;
+    if (anchor.current) el.scrollLeft = Math.max(0, anchor.current.frac * el.scrollWidth - anchor.current.cx);
+    else el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth - fromRight.current);
   }, [widthPct]);
+
+  // two-finger pinch: fingers apart = zoom in (fewer days on screen), together = zoom out
+  const totalDaysRef = useRef(1);
+  totalDaysRef.current = model ? model.totalDays : 1;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    let startDist = 0, startDays = 0;
+    const dist = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const onStart = (e: TouchEvent) => {
+      if (e.touches.length === 2) { startDist = dist(e.touches); startDays = zoomRef.current; }
+    };
+    const onMove = (e: TouchEvent) => {
+      if (e.touches.length !== 2 || !startDist) return;
+      e.preventDefault();
+      const next = Math.min(totalDaysRef.current, Math.max(totalDaysRef.current / MAX_ZOOM, startDays * (startDist / dist(e.touches))));
+      const rect = el.getBoundingClientRect();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+      anchor.current = { frac: (el.scrollLeft + cx) / el.scrollWidth, cx };
+      setHover(null);
+      setZoomDays(next);
+    };
+    const onEnd = () => { startDist = 0; };
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: false });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    return () => { el.removeEventListener("touchstart", onStart); el.removeEventListener("touchmove", onMove); el.removeEventListener("touchend", onEnd); };
+  }, [hasModel]);
 
   const ticks = useMemo(() => {
     if (!model) return [];
@@ -155,8 +189,8 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const tabs = (
     <div className="flex items-center justify-end gap-1 mb-1.5">
       {PERIODS.map((p, i) => (
-        <button key={p.label} onClick={() => { setPeriodIdx(i); setHover(null); }}
-          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${i === periodIdx ? "bg-blue-500/15 text-blue-400" : "text-slate-600 hover:text-slate-400"}`}>
+        <button key={p.label} onClick={() => { setPeriodIdx(i); setZoomDays(null); anchor.current = null; setHover(null); }}
+          className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold transition-colors ${i === periodIdx && zoomDays === null ? "bg-blue-500/15 text-blue-400" : "text-slate-600 hover:text-slate-400"}`}>
           {p.label}
         </button>
       ))}
@@ -206,8 +240,8 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
     <div>
       {tabs}
       <div className="relative">
-        <div ref={scroller} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
-          onScroll={(e) => { const el = e.currentTarget; fromRight.current = el.scrollWidth - el.clientWidth - el.scrollLeft; setHover((h) => (h ? null : h)); }}>
+        <div ref={scroller} className="overflow-x-auto overflow-y-hidden" style={{ touchAction: "pan-x pan-y", WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
+          onScroll={(e) => { const el = e.currentTarget; anchor.current = null; fromRight.current = el.scrollWidth - el.clientWidth - el.scrollLeft; setHover((h) => (h ? null : h)); }}>
           <div ref={inner} className="relative select-none" style={{ width: `${widthPct}%`, minWidth: "100%" }}
             onPointerMove={(e) => { if (e.pointerType === "mouse") showAt(e.clientX); }} onPointerLeave={(e) => { if (e.pointerType === "mouse") setHover(null); }}
             onClick={(e) => showAt(e.clientX)}>
@@ -287,7 +321,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
         <span className="absolute left-1 text-[9px] font-mono text-slate-500 pointer-events-none" style={{ top: H - 38 }}>{usd(minV)}</span>
       </div>
 
-      {scrollable && <div className="text-[9px] text-slate-600 text-center mt-0.5">◀ swipe sideways to see earlier history · {dayLabel(tStart, true)} to {dayLabel(tEnd, true)}</div>}
+      {scrollable && <div className="text-[9px] text-slate-600 text-center mt-0.5">◀ swipe sideways for earlier history, pinch to zoom · {dayLabel(tStart, true)} to {dayLabel(tEnd, true)}</div>}
       <div className="flex items-center justify-between text-[10px] mt-1.5 px-0.5">
         <span className="text-slate-500">
           {estimated
