@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PositionHistoryPoint } from "../services/tradeApi";
 
 interface Ev {
@@ -52,6 +52,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const [hover, setHover] = useState<Hover>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
+  const fromRight = useRef(0);
 
   const model = useMemo(() => {
     if (points.length < 2) return null;
@@ -116,11 +117,18 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
   const windowDays = model ? Math.max(PERIODS[periodIdx].days === 0 ? model.readingDays : PERIODS[periodIdx].days, model.totalDays / MAX_ZOOM) : 1;
   const widthPct = model ? Math.max(100, (model.totalDays / windowDays) * 100) : 100;
 
-  // start at "now" (the right end) whenever the zoom changes
+  // start at "now" (the right end) when the zoom changes or the chart first appears
+  const hasModel = !!model;
   useEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollLeft = el.scrollWidth;
-  }, [periodIdx, widthPct, !!model]);
+    if (el) { el.scrollLeft = el.scrollWidth; fromRight.current = 0; }
+  }, [periodIdx, hasModel]);
+
+  // live data nudges the chart's width every few seconds: keep the same spot (measured from "now") instead of jumping back
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = Math.max(0, el.scrollWidth - el.clientWidth - fromRight.current);
+  }, [widthPct]);
 
   const ticks = useMemo(() => {
     if (!model) return [];
@@ -194,7 +202,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
       {tabs}
       <div className="relative">
         <div ref={scroller} className="overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "thin", scrollbarColor: "rgba(255,255,255,0.15) transparent" }}
-          onScroll={() => setHover(null)}>
+          onScroll={(e) => { const el = e.currentTarget; fromRight.current = el.scrollWidth - el.clientWidth - el.scrollLeft; setHover((h) => (h ? null : h)); }}>
           <div ref={inner} className="relative select-none" style={{ width: `${widthPct}%`, minWidth: "100%" }}
             onPointerMove={(e) => { if (e.pointerType === "mouse") showAt(e.clientX); }} onPointerLeave={(e) => { if (e.pointerType === "mouse") setHover(null); }}
             onClick={(e) => showAt(e.clientX)}>
