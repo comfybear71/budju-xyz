@@ -85,3 +85,12 @@ def test_the_sale_says_why_and_arming_is_announced(env):
     db.get_trader_state.return_value = _state(cfg)                      # nothing armed yet, price above the level
     cron.run_auto_trade_check()
     assert any("Trailing stop armed" in t and "BTC T1" in t and "about $57,000.00" in t for t in sent)    # 5% below the 60000 high
+
+
+def test_a_trailing_stop_sale_records_its_reason_in_the_trade_log(env):
+    cfg = {"autoTrailingConfig": {"enabled": True, "pullbackPct": 5, "capPct": 25}}
+    armed = _state({**cfg, "autoTrail": {"BTC:1": {"high": 70000.0, "at": 2_000_000_000_000}}})
+    sells, saved = _run(env, armed)
+    assert sells == 2
+    entry = saved["autoTradeLog"][0]
+    assert entry["side"] == "sell" and "trailing stop: it ran up to $70,000.00" in entry["why"]
