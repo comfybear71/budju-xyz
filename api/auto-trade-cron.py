@@ -672,19 +672,19 @@ def _run_one_wallet(ctx, active_pairs, auto_tiers, prices, rebuy_blocklist, pool
                     if ctx["isPool"]:
                         holdings[code] = max(0.0, holdings.get(code, 0.0) - quantity)   # later tiers this run see what is really left
 
-                    trade_log.insert(0, {
-                        "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                    })
-                    trade_log = trade_log[:TRADE_LOG_KEEP]
-                    _save_trade_log(ctx, trade_log)
-
-                    log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     try:
                         _why = sale_reason(ctx.get("trailMode", "off"), (ctx.get("trailInfo") or {}).get(ck),
                                            (ctx.get("trailPullbacks") or {}).get(ck, settings.get("trailPct", 5.0)), current_price, sell_target, note)
                     except Exception:
                         _why = ""
+                    trade_log.insert(0, {
+                        "coin": code, "side": "sell", "qty": quantity, "price": fill_price,
+                        "timestamp": datetime.utcnow().isoformat() + "Z", "why": _why,
+                    })
+                    trade_log = trade_log[:TRADE_LOG_KEEP]
+                    _save_trade_log(ctx, trade_log)
+
+                    log.append(f"{short}: SELL {code} ${sell_value:.2f} @ ${fill_price:.4f}")
                     trades_this_wallet.append({
                         "wallet": wallet, "isPool": ctx["isPool"], "coin": code, "side": "SELL", "tier": tier_num,
                         "amount": round(sell_value, 2), "price": round(fill_price, 8), "qty": quantity, "why": _why,

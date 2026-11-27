@@ -102,7 +102,11 @@ export interface TraderState {
     qty: number;
     price: number;
     timestamp: string;
+    /** Why a sale happened (e.g. "trailing stop: ..."), when the bot said so */
+    why?: string;
   }>;
+  /** Trailing stops currently armed, by "COIN:tier" */
+  autoTrail?: Record<string, { high: number; at?: number }>;
   currentAutoTier?: string;
   /** Profit-taking numbers per tier ("1".."3"): start level, trailing pullback and slice size */
   profitPlan?: Record<string, { arm: number; trail: number; slice: number }>;
@@ -814,6 +818,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         qty: Number(e.qty ?? e.quantity) || 0,
         price: Number(e.price) || 0,
         timestamp: e.timestamp || e.time || "",
+        why: typeof e.why === "string" ? e.why : undefined,
       }));
 
       const orderCount = (data.enrichedOrders || data.pendingOrders || []).length;
@@ -832,6 +837,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         currentAutoTier: data.currentAutoTier,
         profitPlan: data.profitPlan,
         autoBuyStatus: data.autoBuyStatus,
+        autoTrail: data.autoTrail && typeof data.autoTrail === "object" ? data.autoTrail : {},
         switchedOff: Array.isArray(data.switchedOff) ? data.switchedOff : [],
         autoBotPrices: data.autoBotPrices && typeof data.autoBotPrices.prices === "object" ? data.autoBotPrices.prices : undefined,
         _rawAutoActive: isActiveObj ? autoActive : undefined,
