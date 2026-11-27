@@ -107,6 +107,7 @@ export interface TraderState {
   }>;
   /** Trailing stops currently armed, by "COIN:tier" */
   autoTrail?: Record<string, { high: number; at?: number }>;
+  autoTargets?: Record<string, { sell?: number }>;
   currentAutoTier?: string;
   /** Profit-taking numbers per tier ("1".."3"): start level, trailing pullback and slice size */
   profitPlan?: Record<string, { arm: number; trail: number; slice: number }>;
@@ -838,6 +839,7 @@ export async function fetchTraderState(): Promise<TraderState | null> {
         profitPlan: data.profitPlan,
         autoBuyStatus: data.autoBuyStatus,
         autoTrail: data.autoTrail && typeof data.autoTrail === "object" ? data.autoTrail : {},
+        autoTargets: isActiveObj && autoActive.targets && typeof autoActive.targets === "object" ? autoActive.targets : {},
         switchedOff: Array.isArray(data.switchedOff) ? data.switchedOff : [],
         autoBotPrices: data.autoBotPrices && typeof data.autoBotPrices.prices === "object" ? data.autoBotPrices.prices : undefined,
         _rawAutoActive: isActiveObj ? autoActive : undefined,

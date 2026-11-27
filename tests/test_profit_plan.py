@@ -4,7 +4,7 @@ from profit_plan import DEFAULT_PLAN, plan_for, size_sell  # noqa: E402
 
 
 def test_default_plan_is_staggered():
-    assert [plan_for(t)["arm"] for t in (1, 2, 3)] == [12.5, 30.0, 75.0]
+    assert [plan_for(t)["arm"] for t in (1, 2, 3)] == [15.0, 30.0, 75.0]
     assert [plan_for(t)["trail"] for t in (1, 2, 3)] == [5.0, 8.0, 12.0]
     assert [plan_for(t)["slice"] for t in (1, 2, 3)] == [5.0, 7.5, 10.0]
 

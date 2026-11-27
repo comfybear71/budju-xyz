@@ -949,7 +949,7 @@ def run_auto_trade_check():
             except (IndexError, ValueError, TypeError):
                 continue
         if moved:
-            log.append(f"Profit plan v{PLAN_VERSION}: re-anchored {moved} sell levels (arm +12.5% / +30% / +75%)")
+            log.append(f"Profit plan v{PLAN_VERSION}: re-anchored {moved} sell levels (arm +15% / +30% / +75%)")
     # When an arm level is changed on the Tier screen, move that tier's existing sell levels the same way (same reference, new distance).
     applied_arms = auto_active.get("planArms") if isinstance(auto_active.get("planArms"), dict) else (shared_state.get("autoPlanArms") if isinstance(shared_state.get("autoPlanArms"), dict) else {})
     current_arms = {str(t): plan_for(t, _PLAN_OVERRIDE)["arm"] for t in (1, 2, 3)}

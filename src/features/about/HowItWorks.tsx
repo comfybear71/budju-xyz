@@ -54,7 +54,7 @@ const HowItWorks = () => {
         <p>Every coin sits in three layers. Each layer watches the price and reacts on its own:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li><b>Tier 1</b> buys a small amount after a modest dip (about −5%), <b>Tier 2</b> after a deeper dip (about −8.5%), <b>Tier 3</b> after a crash (about −15%).</li>
-          <li>When a coin recovers (about +12.5% / +15% / +20%) the bot sells only a <b>small slice</b> of what it bought, never below your average cost.</li>
+          <li>When a coin recovers (about +15% / +30% / +75%) the bot sells only a <b>small slice</b> of what it bought, never below your average cost.</li>
           <li>The cash from those sales is available for the next dip. Over time you hold more of the coin and keep cash working.</li>
           <li>Each layer waits a few hours after a trade (a cooldown) so it can't fire over and over in one move.</li>
         </ul>

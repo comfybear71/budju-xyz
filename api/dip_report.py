@@ -11,7 +11,7 @@
 from typing import Dict, List, Optional
 
 # (tier, buy dip %, sell target %) — mirrors the live tier settings.
-TIERS = [(1, 5.0, 12.5), (2, 8.5, 15.0), (3, 15.0, 20.0)]
+TIERS = [(1, 5.0, 15.0), (2, 8.5, 15.0), (3, 15.0, 20.0)]
 ANCHOR_DAYS = 14   # reference high used when the bot holds nothing from that tier
 
 

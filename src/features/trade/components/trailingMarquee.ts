@@ -25,6 +25,7 @@ export function buildTrailingItems(
   tradeLog: LogEntry[] | undefined,
   now: number,
   limits = { armed: 8, triggered: 5 },
+  targets?: Record<string, { sell?: number }>,
 ): { armed: string[]; triggered: string[] } {
   const armed: string[] = [];
   for (const [ck, st] of Object.entries(trail || {})) {
@@ -32,7 +33,7 @@ export function buildTrailingItems(
     const high = Number(st?.high) || 0;
     const pull = Number(plan?.[tier]?.trail) || 5;
     if (!coin || high <= 0) continue;
-    armed.push(`🛡️ ${coin} T${tier} stop armed: sells if it falls below ${price(high * (1 - pull / 100))}`);
+    armed.push(`🛡️ ${coin} T${tier} stop armed: sells if it falls below ${price(Math.max(high * (1 - pull / 100), Number(targets?.[ck]?.sell) || 0))}`);
   }
   const triggered: string[] = [];
   for (const e of tradeLog || []) {

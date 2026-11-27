@@ -44,7 +44,7 @@ def test_the_cron_resets_t1_once_and_only_once(env):
     saved = {}
     db.save_trader_state.side_effect = lambda s: saved.update(s) or {"success": True}
     result = cron.run_auto_trade_check()
-    assert saved["autoActive"]["targets"]["BTC:1"]["sell"] == pytest.approx(53967 / 0.95 * 1.125)
+    assert saved["autoActive"]["targets"]["BTC:1"]["sell"] == pytest.approx(53967 / 0.95 * 1.15)
     assert RESET_ID in saved["autoRepairs"] and any("Tier 1 sell levels reset" in line for line in result["log"])
     # the next run (flag stored): a level that is high again is left alone
     state2 = make_state({"BTC:1": {"buy": 53967, "sell": 92593, "setAt": 1}})
@@ -52,7 +52,7 @@ def test_the_cron_resets_t1_once_and_only_once(env):
     db.get_trader_state.return_value = state2
     saved.clear()
     result2 = cron.run_auto_trade_check()
-    assert saved["autoActive"]["targets"]["BTC:1"]["sell"] == 92593
+    assert saved["autoActive"]["targets"]["BTC:1"]["sell"] == pytest.approx(92593 * 1.15 / 1.125)   # only the arm change (12.5% -> 15%) moves it, not the T1 reset
     assert not any("Tier 1 sell levels reset" in line for line in result2["log"])
 
 
@@ -76,6 +76,6 @@ def test_a_buy_moves_the_t1_sell_level_but_t2_keeps_the_higher_old_one(env):
     db.save_trader_state.side_effect = lambda s: saved.update(s) or {"success": True}
     cron.run_auto_trade_check()
     t = saved["autoActive"]["targets"]
-    assert t["BTC:1"]["sell"] == pytest.approx(60000 * 1.125)                      # T1 follows the buy
+    assert t["BTC:1"]["sell"] == pytest.approx(60000 * 1.15)                      # T1 follows the buy
     assert t["BTC:2"]["sell"] == pytest.approx(200000)                             # T2 stays anchored high
     assert saved["autoCooldowns"]["BTC:1"] > time.time() * 1000 and saved["autoCooldowns"]["BTC:2"] > time.time() * 1000
