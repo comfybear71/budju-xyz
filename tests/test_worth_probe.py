@@ -30,3 +30,10 @@ def test_run_once_never_raises_and_retries_after_a_failure():
             raise RuntimeError("x")
     assert wp.run_once("a", "w", Boom(), {}, sent.append, lambda w: w in done, done.add) is False
     assert "w" not in done and sent == []
+
+
+def test_created_time_is_read_in_every_likely_format():
+    for v in ("2026-03-02T10:00:00.000Z", "2026-03-02 10:00:00", 1772445600000, 1772445600, "1772445600000"):
+        t = wp.order_time_ms({"created_time": v})
+        assert t and abs(t - 1772445600000) < 3 * 86_400_000, v
+    assert "first:" in wp.sample_rows([[{"created_time": 1, "quantity": 2}]])
