@@ -1053,6 +1053,8 @@ export interface PositionHistoryPoint {
   cumulativeWithdrawn: number;
   /** cumulativeShares × NAV at that moment (deposit/withdrawal NAV for past points, live NAV for "now"). */
   value: number;
+  /** True for a day whose worth was rebuilt from order history (not a real recorded reading). */
+  estimated?: boolean;
 }
 
 /**
@@ -1677,7 +1679,7 @@ export function buildLiveCashFlowHistory(
 }
 
 /** Real recorded value readings (hourly, kept since tracking began) for one wallet, or the whole pool with "POOL". */
-export async function fetchValueHistory(wallet: string, days = 90): Promise<{ t: string; v: number }[]> {
+export async function fetchValueHistory(wallet: string, days = 1000): Promise<{ t: string; v: number; est?: boolean }[]> {
   try {
     const res = await fetchWithRetry(`/api/value-history?wallet=${encodeURIComponent(wallet)}&days=${days}`);
     if (!res.ok) return [];
@@ -1691,7 +1693,7 @@ export async function fetchValueHistory(wallet: string, days = 90): Promise<{ t:
 /** The account's real value over time: recorded readings, each paired with the cumulative deposits/withdrawals made up to that moment,
  *  ending with today's live total. The caller falls back to the older deposit-only line until at least two readings exist. */
 export function buildSnapshotHistory(
-  readings: { t: string; v: number }[],
+  readings: { t: string; v: number; est?: boolean }[],
   events: { timestamp: string; type: "deposit" | "withdrawal"; amountUsd: number }[],
   liveTotalValue: number,
 ): PositionHistoryPoint[] {
@@ -1708,7 +1710,7 @@ export function buildSnapshotHistory(
   };
   const pts: PositionHistoryPoint[] = readings.map((r) => {
     const { dep, wd } = at(new Date(r.t).getTime());
-    return { timestamp: r.t, type: "now", cumulativeShares: 0, cumulativeDeposited: dep, cumulativeWithdrawn: wd, value: r.v };
+    return { timestamp: r.t, type: "now", cumulativeShares: 0, cumulativeDeposited: dep, cumulativeWithdrawn: wd, value: r.v, estimated: !!r.est };
   });
   const { dep, wd } = at(Date.now());
   pts.push({ timestamp: new Date().toISOString(), type: "now", cumulativeShares: 0, cumulativeDeposited: dep, cumulativeWithdrawn: wd, value: liveTotalValue });

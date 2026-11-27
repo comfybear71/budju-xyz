@@ -105,6 +105,12 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
     const worthXs = points.map((_, i) => xOf(ptTs[i]));
     const line = `M ${worthXs.map((x, i) => `${x.toFixed(1)},${yFor(values[i]).toFixed(1)}`).join(" L ")}`;
     const area = `${line} L ${W},${H} L ${worthXs[0].toFixed(1)},${H} Z`;
+    // days rebuilt from order history come first; the real readings take over from the first one that is not estimated
+    const firstReal = points.findIndex((p) => !p.estimated);
+    const nEst = firstReal < 0 ? points.length : firstReal;
+    const pathOf = (from: number, to: number) => (to - from < 1 ? "" : `M ${worthXs.slice(from, to + 1).map((x, i) => `${x.toFixed(1)},${yFor(values[from + i]).toFixed(1)}`).join(" L ")}`);
+    const estLine = estimated ? "" : pathOf(0, Math.min(nEst, points.length - 1));
+    const realLine = estimated ? line : pathOf(Math.max(nEst - 1, 0), points.length - 1);
 
     const last = points[points.length - 1];
     const result = last.value + last.cumulativeWithdrawn - last.cumulativeDeposited;
@@ -117,7 +123,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
       byDay.set(key, cur);
     }
 
-    return { ptTs, tStart, tEnd, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay,
+    return { ptTs, tStart, tEnd, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, estLine, realLine, nEst, result, byDay,
              readingDays: Math.max((tEnd - firstReading) / DAY, 1), totalDays: span / DAY };
   }, [points, events, estimated, periodIdx, zoomDays]);
 
@@ -199,7 +205,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
 
   if (!model) return <div className="text-center py-4 text-slate-500 text-[11px]">Not enough history yet to chart.</div>;
 
-  const { ptTs, tStart, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, result, byDay, tEnd } = model;
+  const { ptTs, tStart, span, firstReading, putInAt, values, minV, maxV, yFor, stepPath, line, area, estLine, realLine, nEst, result, byDay, tEnd } = model;
   const up = result >= 0;
   const color = up ? "#34d399" : "#f87171";
   const pctOf = (ts: number) => ((ts - tStart) / span) * 100;
@@ -259,7 +265,8 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
                 {!estimated && notRecordedPct > 0.5 && <rect x="0" y="0" width={(notRecordedPct / 100) * W} height={H} fill="rgba(255,255,255,0.03)" />}
                 {!estimated && <path d={area} fill="url(#growthGrad)" />}
                 <path d={stepPath} fill="none" stroke={estimated ? "rgba(148,163,184,0.95)" : "rgba(148,163,184,0.75)"} strokeWidth={estimated ? 1.6 : 1.2} strokeDasharray={estimated ? undefined : "4 3"} vectorEffect="non-scaling-stroke" />
-                {!estimated && <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+                {estLine && <path d={estLine} fill="none" stroke={color} strokeOpacity="0.6" strokeWidth="1.6" strokeDasharray="2 3" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
+                {!estimated && <path d={realLine} fill="none" stroke={color} strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
                 {hover && <line x1={((hoverTs - tStart) / span) * W} x2={((hoverTs - tStart) / span) * W} y1="0" y2={H} stroke="rgba(255,255,255,0.25)" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
               </svg>
 
@@ -267,7 +274,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
               {!estimated && notRecordedPct * widthPct / 100 > 25 && (
                 <div className="absolute top-1 left-0 flex justify-end pointer-events-none" style={{ width: `${notRecordedPct}%` }}>
                   <span className="sticky right-1.5 text-[9px] text-slate-500 whitespace-nowrap bg-[#0f172a]/80 rounded px-1">
-                    worth wasn't recorded before {dayLabel(firstReading)}: only what you put in is known ◀
+                    {nEst > 0 ? `nothing known before ${dayLabel(firstReading)}, only what you put in` : `worth wasn't recorded before ${dayLabel(firstReading)}: only what you put in is known`} ◀
                   </span>
                 </div>
               )}
@@ -298,7 +305,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
                     <div className="text-slate-100">Put in {usd(putInAt(hoverTs))}<div className="text-slate-500">(worth not recorded)</div></div>
                   ) : (
                     <>
-                      <div className="text-slate-100">Worth {usd(values[hover.reading])}</div>
+                      <div className="text-slate-100">Worth {usd(values[hover.reading])}{hover.reading < nEst && <span className="text-slate-500"> (estimated)</span>}</div>
                       <div className="text-slate-400">Put in {usd(putInAt(ptTs[hover.reading]))}</div>
                       <div style={{ color: values[hover.reading] - putInAt(ptTs[hover.reading]) >= 0 ? "#4ade80" : "#f87171" }}>Result {usdSigned(values[hover.reading] - putInAt(ptTs[hover.reading]))}</div>
                     </>
@@ -326,7 +333,7 @@ const GrowthAreaChart = ({ points, events = [], estimated = false }: Props) => {
         <span className="text-slate-500">
           {estimated
             ? <><span className="text-slate-400">━</span> Put in (what you deposited) &nbsp;<span style={{ color }}>●</span> worth now &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal</>
-            : <><span style={{ color }}>━</span> Worth &nbsp;<span className="text-slate-400">┅</span> Put in &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal</>}
+            : <><span style={{ color }}>━</span> Worth{nEst > 0 && <span className="text-slate-500"> (dotted = est.)</span>} &nbsp;<span className="text-slate-400">┅</span> Put in &nbsp;<span className="text-green-400">▲</span> deposit &nbsp;<span className="text-amber-400">▼</span> withdrawal</>}
         </span>
         <span className={`font-bold font-mono ${up ? "text-green-400" : "text-red-400"}`}>Result {usdSigned(result)}</span>
       </div>
